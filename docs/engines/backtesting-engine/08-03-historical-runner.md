@@ -1,6 +1,6 @@
 # BTE Layer 2 — Historical Runner (deep-history multi-symbol simulation)
 
-**Version:** 10.1 (2026-08-24)
+**Version:** 11.0 (2026-08-26)
 **Engine:** Backtesting Engine
 **Code:** `crates/backtesting-engine/src/historical.rs`
 

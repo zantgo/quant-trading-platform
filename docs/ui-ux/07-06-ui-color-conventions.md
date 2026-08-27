@@ -1,6 +1,6 @@
 # UI Color Conventions — Canonical Reference
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 
 This document is the **single authoritative source** for every color used in the platform UI. Any component, indicator spec, or state-machine doc that references a color must resolve to the semantic categories defined here. No other document may introduce a new color meaning without updating this reference.
 

@@ -2678,7 +2678,7 @@ mod tests {
     async fn ladder_roles_implies_market_on_ready_entry() {
         // v11: roles = short-TF intent — a default zone_midpoint entry
         // becomes market_on_ready (a resting limit at 1m rarely fills).
-        let (engine, ex) = executor_with(1.0, 1);
+        let (_engine, ex) = executor_with(1.0, 1);
         let mut strat = StrategyConfig::default();
         strat.ladder_roles.enabled = true;
         let micro = snapshot(
@@ -2711,7 +2711,10 @@ mod tests {
             ctx_with_strategy(1000, strat),
         )
         .await;
-        assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::PositionOpen);
+        assert_eq!(
+            ex.state("BTC-USDC").await.phase,
+            ExecutorPhase::PositionOpen
+        );
     }
 
     #[tokio::test]
@@ -3176,7 +3179,7 @@ mod tests {
 
     #[tokio::test]
     async fn market_filter_gate_blocks_entry_and_logs_reason() {
-        let (engine, ex) = executor_with(1.0, 1);
+        let (_engine, ex) = executor_with(1.0, 1);
         let micro = snapshot(
             60,
             MarketBias::Bullish,
@@ -3611,7 +3614,7 @@ mod tests {
 
     #[tokio::test]
     async fn risky_pending_survives_without_expiry() {
-        let (engine, ex) = executor_with(1.0, 1);
+        let (_engine, ex) = executor_with(1.0, 1);
         let micro = snapshot(
             60,
             MarketBias::Bullish,
@@ -3742,7 +3745,9 @@ mod tests {
         let micro = snapshot_with_atr(
             60,
             MarketBias::Bullish,
-            vec![long_profile_with_geometry(80.0, 100.0, 110.0, 120.0, 130.0, 92.0)],
+            vec![long_profile_with_geometry(
+                80.0, 100.0, 110.0, 120.0, 130.0, 92.0,
+            )],
             2.0,
             1000,
             105.0,
@@ -3782,7 +3787,9 @@ mod tests {
         let fresh = snapshot_with_atr(
             60,
             MarketBias::Bullish,
-            vec![long_profile_with_geometry(80.0, 100.0, 110.0, 120.0, 130.0, 92.5)],
+            vec![long_profile_with_geometry(
+                80.0, 100.0, 110.0, 120.0, 130.0, 92.5,
+            )],
             2.0,
             1001,
             105.0,
@@ -3993,7 +4000,7 @@ mod tests {
 
     #[tokio::test]
     async fn min_sl_atr_floors_noise_stops() {
-        let (engine, ex) = executor_with(1.0, 1);
+        let (_engine, ex) = executor_with(1.0, 1);
         let mut strategy = StrategyConfig::default();
         strategy.tae.risk.min_sl_atr = Some(2.0);
         strategy.tae.risk.stop_floor_source = "zone_only".into();
@@ -4017,7 +4024,10 @@ mod tests {
             ctx_with_strategy(1000, strategy),
         )
         .await;
-        assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::PendingEntry);
+        assert_eq!(
+            ex.state("BTC-USDC").await.phase,
+            ExecutorPhase::PendingEntry
+        );
         let st = ex.state("BTC-USDC").await;
         assert_eq!(st.tracked_setup.as_ref().unwrap().sl, dec!(87));
     }
@@ -4143,7 +4153,7 @@ mod tests {
 
     #[tokio::test]
     async fn sl_mode_padded_widens_stop() {
-        let (engine, ex) = executor_with(1.0, 1);
+        let (_engine, ex) = executor_with(1.0, 1);
         let mut strategy = StrategyConfig::default();
         strategy.tae.risk.sl_mode = "invalidation_padded".into();
         strategy.tae.risk.sl_padding_atr = 0.5;

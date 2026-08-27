@@ -1,6 +1,6 @@
 # Consumer Onboarding Summary
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Single-page orientation for engineers integrating with the trading platform's data plane. Read this first; drill into the linked docs as needed.
 

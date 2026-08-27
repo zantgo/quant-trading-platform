@@ -1,6 +1,6 @@
 # Confidence Field Hierarchy
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical reference for the platform's confidence-field pipeline. Documents the rename of `confidence` → `state_confidence` / `forecast_confidence` / `score_confidence` and the hierarchical flow from indicator-level up to the user-facing risk-attenuated assessment.
 

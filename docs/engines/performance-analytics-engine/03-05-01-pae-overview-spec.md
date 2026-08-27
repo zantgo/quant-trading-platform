@@ -1,6 +1,6 @@
 # Performance Analytics Engine — Overview Specification (v7)
 
-**Version:** 10.1 (2026-08-24) — the v7 release adds the **L5 Backtest layer**: recorded MME decisions are replayed through the unchanged setup executor + unified engine (paper only), and every result carries the full statistical treatment (t-test, Monte Carlo, α = 0.05, edge classification).
+**Version:** 11.0 (2026-08-26) — the v7 release adds the **L5 Backtest layer**: recorded MME decisions are replayed through the unchanged setup executor + unified engine (paper only), and every result carries the full statistical treatment (t-test, Monte Carlo, α = 0.05, edge classification).
 **Status:** Specified — implemented; backtest delivered 2026-08-18.
 **Engine:** Performance Analytics Engine (PAE)
 **Purpose:** This document specifies the boundaries, performance database, scheduled tasks, report templates, and the backtest layer of the Performance Analytics Engine — the engine that evaluates historical trading records to isolate strategy efficacy, quantify the statistical significance of the edge, and answer **"would the setup executor have been profitable over this history?"**

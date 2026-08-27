@@ -2,7 +2,7 @@
 
 # LiquidityPanel UI Specification (Phase 4)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** ARCHIVED — the standalone LiquidityPanel tab was removed in v6.0. The full specification below is retained for historical reference and to document the component's contract in case of future re-integration as an inline panel.
 **Component path:** `ui/src/components/LiquidityPanel.svelte` (kept on disk for future inline rendering).
 **View key:** `liquidity` — removed from the `CurrentView` enum in v6.0.

@@ -1,6 +1,6 @@
 # CLI ↔ GUI Observe-Mode Parity Contract
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators and maintainers of the `--mode cli` terminal monitor and the
 Market Overview dashboard.

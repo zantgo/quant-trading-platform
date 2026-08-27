@@ -200,7 +200,10 @@ fn validate(workspace: &WorkspaceConfig, args: &CliBacktestArgs) -> Result<Excha
                     smallest_max / 86400
                 )
             };
-            return Err(format!("--depth {}d exceeds {limit}{hint}", args.depth_days));
+            return Err(format!(
+                "--depth {}d exceeds {limit}{hint}",
+                args.depth_days
+            ));
         }
     }
     Ok(exchange)

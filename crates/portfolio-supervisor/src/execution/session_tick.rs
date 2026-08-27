@@ -259,7 +259,7 @@ mod flip_tests {
     use crate::paper_trading::FeesConfig;
     use crate::safety::SafetyManager;
     use config_models::MinimalTaeConfig;
-    use config_models::{Direction, OrderPacket, OrderSide, OrderType};
+    use config_models::{OrderPacket, OrderSide, OrderType};
     use rust_decimal_macros::dec;
 
     fn tae_cfg() -> MinimalTaeConfig {

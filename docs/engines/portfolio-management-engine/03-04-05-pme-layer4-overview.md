@@ -1,6 +1,6 @@
 # PME Layer 4 — Overview Layer (v7)
 
-**Version:** 10.1 (2026-08-24) — v7: the veto/stance machinery is erased; the Overview Layer is now **risk reporting** only. v8.2: renamed from "Portfolio Layer"; the output matrix is renamed `PortfolioOverviewMatrix`.
+**Version:** 11.0 (2026-08-26) — v7: the veto/stance machinery is erased; the Overview Layer is now **risk reporting** only. v8.2: renamed from "Portfolio Layer"; the output matrix is renamed `PortfolioOverviewMatrix`.
 **Status:** Specified — v7 implementation in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 4 of 4

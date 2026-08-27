@@ -1,6 +1,6 @@
 # 02-12: LiquidityMatrix — Real Liquidation Flow (Phase 1)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 
 **Producer:** DIE L1 (NormalizedEvent::Liquidation via WS liquidation events; persisted by the telemetry logger to liquidation_events, 90-day retention) → MME L1.5 (per-candle aggregation)
 **Consumer:** MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision) — Advisory rationale; Overview — cross-symbol aggregate

@@ -1,6 +1,6 @@
 # TAE — Simulation Backend & Persistence (v7)
 
-**Version:** 10.1 (2026-08-24) — v7 redesign: the paper trading engine becomes the `PaperSimulation` backend of the unified ExecutionEngine, and the persistence contract now includes restart recovery.
+**Version:** 11.0 (2026-08-26) — v7 redesign: the paper trading engine becomes the `PaperSimulation` backend of the unified ExecutionEngine, and the persistence contract now includes restart recovery.
 **Status:** Specified — v7 implementation in progress.
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the simulated execution backend (`PaperSimulation`), the shared cost model, the canonical persistence contract (trades, telemetry, equity, activity log), and the restart-recovery contract that keeps the trader's account intact across daemon restarts.

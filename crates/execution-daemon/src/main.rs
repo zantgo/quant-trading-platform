@@ -573,7 +573,10 @@ fn cli_launch_plan(
         "live" => "live (real orders — requires keys)",
         _ => "observe (monitoring only — no orders dispatched)",
     };
-    println!("Mode: {} — Press <Enter> to accept each default.", trading_label);
+    println!(
+        "Mode: {} — Press <Enter> to accept each default.",
+        trading_label
+    );
     println!();
 
     // 1. Exchange
@@ -667,7 +670,10 @@ fn cli_launch_plan(
                 tf_default("fast", workspace),
             );
             if v == micro {
-                eprintln!("  ⚠️  fast must differ from micro ({}s) — pick a distinct duration.", micro);
+                eprintln!(
+                    "  ⚠️  fast must differ from micro ({}s) — pick a distinct duration.",
+                    micro
+                );
                 continue;
             }
             break v;
@@ -682,7 +688,10 @@ fn cli_launch_plan(
                     tf_default("slow", workspace),
                 );
                 if v == micro || v == fast {
-                    eprintln!("  ⚠️  slow must be distinct from micro ({}s) and fast ({}s).", micro, fast);
+                    eprintln!(
+                        "  ⚠️  slow must be distinct from micro ({}s) and fast ({}s).",
+                        micro, fast
+                    );
                     continue;
                 }
                 break Some(v);
@@ -700,9 +709,17 @@ fn cli_launch_plan(
                     tf_default("macro", workspace),
                 );
                 let mut seen = vec![micro, fast];
-                if let Some(s) = slow { seen.push(s); }
+                if let Some(s) = slow {
+                    seen.push(s);
+                }
                 if seen.contains(&v) {
-                    eprintln!("  ⚠️  macro must be distinct from {} — pick another.", seen.iter().map(|s| format!("{}s", s)).collect::<Vec<_>>().join(", "));
+                    eprintln!(
+                        "  ⚠️  macro must be distinct from {} — pick another.",
+                        seen.iter()
+                            .map(|s| format!("{}s", s))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
                     continue;
                 }
                 break Some(v);
@@ -739,7 +756,10 @@ fn cli_launch_plan(
     println!("\n──────────────────────────────────────────────");
     println!("Trading Platform — CLI Launch Summary");
     println!("──────────────────────────────────────────────");
-    println!("  Mode                 : {} ({})", cli_trading, trading_label);
+    println!(
+        "  Mode                 : {} ({})",
+        cli_trading, trading_label
+    );
     println!(
         "  TAE                  : {}",
         if tae_on { "ON" } else { "OFF" }
@@ -748,7 +768,10 @@ fn cli_launch_plan(
     println!("  Settlement currency  : {}", currency);
     for inst in &instances {
         let slow_s = inst.slow.map(tf_label).unwrap_or_else(|| "—".to_string());
-        let macro_s = inst.r#macro.map(tf_label).unwrap_or_else(|| "—".to_string());
+        let macro_s = inst
+            .r#macro
+            .map(tf_label)
+            .unwrap_or_else(|| "—".to_string());
         println!(
             "  Instance             : {}-{} — micro {} · fast {} · slow {} · macro {} ({}, {} TFs)",
             inst.base,
@@ -1397,7 +1420,7 @@ async fn main() {
                     let id = inst.id.clone();
                     match portfolio_supervisor::registry::start_instance(&ctx, &id).await {
                         Ok(()) => eprintln!("▶️  TAE activated for {} (lifecycle → RUNNING)", id),
-                        Err(e) if e.contains("already RUNNING") => {},
+                        Err(e) if e.contains("already RUNNING") => {}
                         Err(e) => eprintln!("⚠️  Failed to activate TAE for {}: {}", id, e),
                     }
                 }
@@ -2273,7 +2296,12 @@ async fn main() {
     let eq_cancel = eval_cancel.clone();
     let eq_engine = execution_engine.clone();
     handles.push(tokio::spawn(async move {
-        portfolio_equity::run_portfolio_equity_logger_with_engine(eq_pool, Some(eq_engine), eq_cancel).await;
+        portfolio_equity::run_portfolio_equity_logger_with_engine(
+            eq_pool,
+            Some(eq_engine),
+            eq_cancel,
+        )
+        .await;
     }));
 
     let opt_pool = db_pool.clone();

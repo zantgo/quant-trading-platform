@@ -1,6 +1,6 @@
 # Strategies Builder (UI) — Spec (v9)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Surface:** Profile tab 2 (`strategies`) — `StrategyListPanel.svelte` +
 `StrategyEditorPanel.svelte` (+ per-section sub-components, ≤1000 lines

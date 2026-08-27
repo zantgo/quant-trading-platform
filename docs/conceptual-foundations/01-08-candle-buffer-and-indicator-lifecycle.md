@@ -1,6 +1,6 @@
 # Candle Buffer & Indicator Lifecycle — Conceptual Overview
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Conceptual chapter tying together the four specs that define the platform's standardized candle formation and per-indicator lifecycle: [08-08 Candle Buffer](../operations-and-compliance/08-08-candle-buffer-spec.md), [03-01-06 DIE Candle Pipeline States](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07 DIE Historical Fetch Policy](../engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), and [03-02-15 MME Indicator Lifecycle States](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md).
 

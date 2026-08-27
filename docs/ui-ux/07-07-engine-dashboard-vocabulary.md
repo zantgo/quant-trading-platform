@@ -1,6 +1,6 @@
 # Engine Dashboard Vocabulary (v10.1)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical specification for the **engine dashboards** — Data Infrastructure (DIE), Trade Automation (TAE), Portfolio Management (PME) and Performance Analytics (PAE) — and the rule that unifies them with the Market Monitor (MME). It defines: the shared design tokens, the shared components, the canonical **tab order = layer order** rule, the per-engine × per-mode tab maps, the Export Data contract, and the config-driven values policy.
 

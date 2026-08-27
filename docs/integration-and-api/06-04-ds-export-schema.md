@@ -1,6 +1,6 @@
 # 06-04 — DS Export Schema (`./ds/`)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 
 ## 1. Config
 

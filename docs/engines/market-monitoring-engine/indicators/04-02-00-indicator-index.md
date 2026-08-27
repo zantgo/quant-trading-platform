@@ -1,6 +1,6 @@
 # Indicator Documentation Index
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — see docs/CHANGELOG.md for the canonical version history.
 
 > **52** indicators across 8 functional groups. Registry-verified count: 52 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-08-16`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). The per-indicator `Signals` columns mirror the registry `signal_types` manifest; where the runtime signal deriver (`crates/market-analyzer/src/indicators/normalized/signals.rs`) differs today, the spec file's Signals table carries an explicit annotation (registry-declared-but-pending, or runtime-derived-but-not-yet-declared — see `bbwp`, `squeeze`, `aroon`, `stochastic`, `mfi`, `macd`).
 >

@@ -4,7 +4,7 @@
 
 ------
 
-## v11 (2026-08-26) — Execution Model v11: Stop Floor, TP Reachability, TF-Roles, Frequency Defaults
+## v11.0 (2026-08-26) — Execution Model v11: Stop Floor, TP Reachability, TF-Roles, Frequency Defaults
 
 **The short-TF execution model is rebuilt: stops survive micro noise, targets stay reachable, decision/stance move to the macro TF, and the default strategy actually trades 1m ladders. Diagnostics make "why no trades?" one SQL query.**
 

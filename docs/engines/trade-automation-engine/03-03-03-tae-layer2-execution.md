@@ -2,7 +2,7 @@
 
 **Version:** 11.0 (2026-08-26) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
 **Status:** Implemented (v11) — Hyperliquid + Bitget live backends, quantity-first execution model.
-**Previous:** 10.1 (2026-08-24) — v7 redesign + v7.1 Bitget.
+**Previous:** 11.0 (2026-08-26) — v7 redesign + v7.1 Bitget.
 **Engine:** Trade Automation Engine (TAE)
 **Input Contract:** SetupPlan (Setup Executor), [Decision Matrix](../../matrices/02-04-decision-matrix.md) (via the snapshot the executor passes through)
 **Output Contract:** orders, positions, equity, fees — surfaced via [Layer ⑦ API](03-03-01-tae-overview-spec.md#81-api)
