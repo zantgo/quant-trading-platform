@@ -49,7 +49,6 @@ declare module './state.svelte' {
         indicatorRegistry: import('./types').IndicatorMeta[];
         emaFastLabel: string; emaMediumLabel: string; emaSlowLabel: string; emaLongLabel: string;
         rsiLabel: string; adxLabel: string; atrLabel: string; macdLabel: string;
-        workspaceSlowTimeframeSecs: number; workspaceMacroTimeframeSecs: number;
 
         dashboardStats: DashboardStats | null;
         dashboardPeriod: string; dashboardOrigin: string;

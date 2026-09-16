@@ -151,7 +151,7 @@ async fn observation_loop_latency_p95_below_threshold() {
             "BTC-USDT".to_string(),
             60,
             "Micro",
-            core_domain::models::TimeframeSlot::Micro,
+            core_domain::models::TimeframeSlot::Micro1,
             cancel,
             None,
             None,
@@ -169,9 +169,8 @@ async fn observation_loop_latency_p95_below_threshold() {
             None, // heatmap_config (None → defaults)
             OrderBookConfig::default(),
             config_models::StrategyConfig::default(),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
+            // cross_tf_snapshots (no siblings wired in this test)
+            Vec::new(),
             Arc::new(core_domain::LatencyTracker::default()),
             market_analyzer::active_set::ActiveSet::default(),
             None,

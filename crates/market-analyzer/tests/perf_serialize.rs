@@ -120,7 +120,7 @@ fn build_realistic_snapshot() -> MarketSnapshot {
     };
 
     MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro),
+        timeframe_slot: Some(TimeframeSlot::Micro1),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 60,
         timestamp: 1700000000,

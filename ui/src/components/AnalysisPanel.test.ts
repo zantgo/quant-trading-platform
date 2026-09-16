@@ -227,7 +227,7 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
 
     it('v6.14: export qualitative_assessment no longer carries the trend-stability Sharpe', async () => {
         const app = seed(makeAnalysis({ trend_stability_sharpe: 3.85 } as Partial<AnalysisMatrix>));
-        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        const tf = app.instancesMap['BTC-USDT'].terms.micro1;
         tf.indicators = {
             bbwp: { raw_value: 94.8, normalized: 0.948, state_label: 'NEUTRAL', values: null },
             adx: { raw_value: 40.06, normalized: 0.6, state_label: 'NEUTRAL', values: null },
@@ -254,7 +254,7 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         // fields were null on every live export. The canonical source is
         // the term-level indicator map, exactly like the Metrics tab.
         const app = seed(makeAnalysis());
-        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        const tf = app.instancesMap['BTC-USDT'].terms.micro1;
         tf.indicators = {
             bbwp: { raw_value: 94.8, normalized: 0.948, state_label: 'NEUTRAL', values: null },
             adx: { raw_value: 40.06, normalized: 0.6, state_label: 'NEUTRAL', values: null },
@@ -285,7 +285,7 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
             representative_bbwp: 53.0,
             representative_adx: 35.3,
         }));
-        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        const tf = app.instancesMap['BTC-USDT'].terms.micro1;
         tf.indicators = {
             bbwp: { raw_value: 11.6, normalized: 0.116, state_label: 'NEUTRAL', values: null },
             adx: { raw_value: 27.48, normalized: 0.27, state_label: 'NEUTRAL', values: null },

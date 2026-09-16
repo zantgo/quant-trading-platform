@@ -9,6 +9,7 @@
 // aggregation when not).
 
 import { cleanup, render, screen } from '@testing-library/svelte';
+import { makeTerms } from '../tests/makeTerms';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import GeneralDashboard from './GeneralDashboard.svelte';
 import { useAppStore } from '../state.svelte';
@@ -158,10 +159,7 @@ function makeInstance(symbol: string, overrides: Partial<InstanceState> = {}): I
         symbol,
         exchange: 'Hyperliquid',
         isConnected: true,
-        microTerm: { priceText: '63505', latestSnapshot: null } as any,
-        fastTerm: {} as any,
-        slowTerm: {} as any,
-        macroTerm: {} as any,
+        terms: makeTerms({ micro1: { priceText: '63505' } as any }),
         historyLatestClose: '0',
         currentView: 'terminal',
         alignment: null,
@@ -215,6 +213,26 @@ describe('GeneralDashboard — empty state', () => {
         expect(screen.getByText(/Add workspaces/i)).toBeTruthy();
         // The hero is only shown when there are instances.
         expect(container.querySelector('[class*="hero"]')).toBeNull();
+    });
+});
+
+describe('GeneralDashboard — instance status table (v11.2)', () => {
+    it('renders the per-instance status table between the unified header and the RecommendationHero', () => {
+        seedPair('BTC');
+        seedPair('ETH');
+        const { container } = render(GeneralDashboard, { props: { wssMap: {} } });
+        const table = container.querySelector('[aria-label="Per-instance status"]');
+        expect(table).toBeTruthy();
+        // DOM order: unified header < instance status table < hero.
+        const header = container.querySelector('[class*="unifiedHeader"]');
+        const hero = container.querySelector('[class*="hero"]');
+        expect(header).toBeTruthy();
+        expect(hero).toBeTruthy();
+        expect(header!.compareDocumentPosition(table!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        expect(table!.compareDocumentPosition(hero!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        // One collapsed row per instance.
+        const bodyRows = Array.from(table!.querySelectorAll('tbody tr'));
+        expect(bodyRows.length).toBe(2);
     });
 });
 

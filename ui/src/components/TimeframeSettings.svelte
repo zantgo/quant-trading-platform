@@ -1,7 +1,8 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
-    import type { InstanceState, TimeframeTelemetry } from '../types';
-    import { TIMEFRAME_OPTIONS } from '../types';
+    import type { InstanceState, TimeframeSlotKind, TimeframeTelemetry } from '../types';
+    import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS, TIMEFRAME_SLOT_DURATION_SECS } from '../types';
+    import { activeSlotKinds, withActiveSlots } from '../lib/terms';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import styles from './TimeframeSettings.module.css';
@@ -78,42 +79,42 @@
         };
     }
 
-    let draft = $state({
-        micro: defaultTermDraft(),
-        fast: defaultTermDraft(),
-        slow: defaultTermDraft(),
-        macro: defaultTermDraft(),
-    });
-    let enabled = $state({ slow: true, macro: true });
+    let draft = $state<Record<TimeframeSlotKind, TermDraft>>(
+        Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, defaultTermDraft()])) as Record<TimeframeSlotKind, TermDraft>
+    );
+
+    // v11.2 — `[workspace].active_timeframes` (1..=10): how many of the
+    // FASTEST slots run. Edited here and saved through the SAME apply flow
+    // as the per-slot indicator overrides (POSTed to /api/config, which
+    // live-recharges running instances). Re-seeded from the settings store
+    // on pair changes so the editor always starts from the source of truth.
+    let activeCount = $state(app.settings.activeTimeframes);
 
     let saveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
     let validationError = $state<string | null>(null);
 
     $effect(() => {
-        draft.micro = readTermFromTelemetry(pair.microTerm);
-        draft.fast = readTermFromTelemetry(pair.fastTerm);
-        if (pair.slowTerm) {
-            draft.slow = readTermFromTelemetry(pair.slowTerm);
-            enabled.slow = true;
-        } else {
-            enabled.slow = false;
-        }
-        if (pair.macroTerm) {
-            draft.macro = readTermFromTelemetry(pair.macroTerm);
-            enabled.macro = true;
-        } else {
-            enabled.macro = false;
+        app.settings.activeTimeframes;
+        activeCount = app.settings.activeTimeframes;
+        for (const slot of activeSlotKinds(pair)) {
+            const tf = pair.terms[slot];
+            if (tf) draft[slot] = readTermFromTelemetry(tf);
         }
     });
 
-    function selectedOption(seconds: number): number {
-        const found = TIMEFRAME_OPTIONS.find(o => o.seconds === seconds);
-        return found ? found.seconds : -1;
+    function slotTitle(slot: TimeframeSlotKind): string {
+        const secs = pair.terms[slot]?.barDurationSec ?? TIMEFRAME_SLOT_DURATION_SECS[slot];
+        return `${TIMEFRAME_SLOT_LABELS[slot]} · ${durationSuffix(secs)}`;
     }
 
-    function durationLabel(seconds: number): string {
-        const found = TIMEFRAME_OPTIONS.find(o => o.seconds === seconds);
-        return found ? found.label : `${seconds}s`;
+    /// The ACTIVE slot cards, in ladder order (v11.2 — inactive slots are
+    /// inert and are not configurable here).
+    const activeCards = $derived(activeSlotKinds(pair));
+
+    function durationSuffix(sec: number): string {
+        if (sec % 3600 === 0 && sec > 0) return `${sec / 3600}h`;
+        if (sec % 60 === 0 && sec > 0) return `${sec / 60}m`;
+        return `${sec}s`;
     }
 
     function buildIndicators(term: TermDraft): Record<string, number | number[]> {
@@ -162,14 +163,13 @@
     }
 
     function validateDraft(): string | null {
-        const activeSecs: number[] = [draft.micro.durationSeconds, draft.fast.durationSeconds];
-        if (enabled.slow) activeSecs.push(draft.slow.durationSeconds);
-        if (enabled.macro) activeSecs.push(draft.macro.durationSeconds);
-        if (activeSecs.length < 2 || activeSecs.length > 4) return `Active timeframes must be 2–4 (got ${activeSecs.length})`;
-        const uniq = new Set(activeSecs);
-        if (uniq.size !== activeSecs.length) {
-            const dup = activeSecs.find((v, i) => activeSecs.indexOf(v) !== i);
-            return `Duplicate duration ${dup}s — each active timeframe must be distinct`;
+        // The ladder is fixed — durations are not editable and there is no
+        // enable/disable concept anymore, so only the per-slot indicator
+        // overrides below are validated/saved. The active-timeframes count
+        // must stay inside the backend's 1..=10 range (M8-style).
+        const n = Number(activeCount);
+        if (!Number.isInteger(n) || n < 1 || n > 10) {
+            return 'Active timeframes must be between 1 and 10.';
         }
         return null;
     }
@@ -177,46 +177,38 @@
     async function applySettings() {
         validationError = validateDraft();
         if (validationError) { saveStatus = 'error'; return; }
-        const body: Record<string, unknown> = {
-            micro_term: {
-                candles: { duration_seconds: draft.micro.durationSeconds },
-                indicators: buildIndicators(draft.micro),
-            },
-            fast_term: {
-                candles: { duration_seconds: draft.fast.durationSeconds },
-                indicators: buildIndicators(draft.fast),
-            },
-            automation: {
-                enabled: pair.automationEnabled,
-                interval_seconds: pair.automationIntervalUnit === 'hours'
-                    ? pair.automationIntervalValue * 3600
-                    : pair.automationIntervalUnit === 'minutes'
-                        ? pair.automationIntervalValue * 60
-                        : pair.automationIntervalValue,
-            },
+        const nextActive = Math.trunc(Number(activeCount));
+        // Per-slot indicator overrides only — durations are fixed by the
+        // 10-slot ladder and are never sent.
+        const body: Record<string, unknown> = {};
+        for (const slot of activeSlotKinds(pair)) {
+            body[slot] = { indicators: buildIndicators(draft[slot]) };
+        }
+        body.automation = {
+            enabled: pair.automationEnabled,
+            interval_seconds: pair.automationIntervalUnit === 'hours'
+                ? pair.automationIntervalValue * 3600
+                : pair.automationIntervalUnit === 'minutes'
+                    ? pair.automationIntervalValue * 60
+                    : pair.automationIntervalValue,
         };
-        // Optional slots: omit when disabled so the backend stores `None`
-        // and the dashboard hides the column (2–3 TF mode). `null` is also
-        // accepted by the API (serde `Option<TimeframeConfig>`).
-        if (enabled.slow) {
-            (body as any).slow_term = {
-                candles: { duration_seconds: draft.slow.durationSeconds },
-                indicators: buildIndicators(draft.slow),
-            };
-        } else {
-            (body as any).slow_term = null;
-        }
-        if (enabled.macro) {
-            (body as any).macro_term = {
-                candles: { duration_seconds: draft.macro.durationSeconds },
-                indicators: buildIndicators(draft.macro),
-            };
-        } else {
-            (body as any).macro_term = null;
-        }
 
         saveStatus = 'saving';
         try {
+            // v11.2: the active-timeframes count is a WORKSPACE knob — it
+            // rides the same Apply click but POSTs to /api/config (the
+            // endpoint that validates 1..=10 and live-recharges instances).
+            const cfgRes = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active_timeframes: nextActive }),
+            });
+            if (!cfgRes.ok) {
+                const txt = await cfgRes.text().catch(() => '');
+                validationError = txt || `Active timeframes save failed (${cfgRes.status})`;
+                saveStatus = 'error';
+                return;
+            }
             const instanceId = pair.instanceId ?? tabKey;
             const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/config`, {
                 method: 'POST',
@@ -228,15 +220,20 @@
                     const headerId = res.headers.get('x-instance-id');
                     if (headerId) pair.instanceId = headerId;
                 }
-                applyTermToTelemetry(draft.micro, pair.microTerm);
-                applyTermToTelemetry(draft.fast, pair.fastTerm);
-                if (enabled.slow && pair.slowTerm) applyTermToTelemetry(draft.slow, pair.slowTerm);
-                if (enabled.macro && pair.macroTerm) applyTermToTelemetry(draft.macro, pair.macroTerm);
-                // Force WS reconnect so each connection's URL carries the
-                // new `timeframe_secs` value matching the recharged pipeline.
+                for (const slot of activeSlotKinds(pair)) {
+                    const tf = pair.terms[slot];
+                    if (tf) applyTermToTelemetry(draft[slot], tf);
+                }
+                // Mirror the new ACTIVE ladder locally (fastest N slots) so
+                // the sidebar/cards/rails update without waiting for the
+                // next /api/instances poll.
+                app.settings.activeTimeframes = nextActive;
+                pair.activeSlots = withActiveSlots(nextActive);
+                // Force WS reconnect so connections match the new ladder
+                // (dropped/added slots).
                 app.bumpWsVersion();
                 // Drop the cached `/api/history?…&timeframe_secs=<old>` so the
-                // next PriceChart mount refetches for the new timeframe_secs.
+                // next PriceChart mount refetches for the current timeframe_secs.
                 clearHistoryCache();
                 clearCandleCache();
                 onApplied?.();
@@ -308,75 +305,33 @@
                     <div class={styles.inputRow}><label for={fieldId(p, 'RVOL Climax')}>RVOL Climax</label><input id={fieldId(p, 'RVOL Climax')} type="number" step="0.1" bind:value={t.rvolClimax} /></div>
     {/snippet}
 
+    <div class={styles.activeCountCard}>
+        <div class={styles.activeCountRow}>
+            <label for="tf-active-count">Active timeframes</label>
+            <input
+                id="tf-active-count"
+                type="number"
+                min="1"
+                max="10"
+                step="1"
+                bind:value={activeCount}
+            />
+        </div>
+        <p class={styles.activeCountHint}>
+            The fastest {Number(activeCount) || 0} slot{Number(activeCount) === 1 ? '' : 's'} of the 10-slot ladder run;
+            saving recharges running instances.
+        </p>
+    </div>
+
     <div class={styles.cardsGrid}>
-
-        <div class={styles.termCard}>
-            <h3 class={styles.cardTitle}>Micro Term</h3>
-            <div class={styles.timeframeRow}>
-                <select class={styles.tfSelect}
-                    value={selectedOption(draft.micro.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.micro.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(draft.micro.durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
+        {#each activeCards as slot (slot)}
+            <div class={styles.termCard}>
+                <h3 class={styles.cardTitle}>{slotTitle(slot)}</h3>
+                <div class="{styles.indicatorInputsScroll} font-mono">
+                    {@render indicatorInputs(slot, draft[slot])}
+                </div>
             </div>
-            <div class="{styles.indicatorInputsScroll} font-mono">
-                {@render indicatorInputs('micro', draft.micro)}
-            </div>
-        </div>
-
-        <div class={styles.termCard}>
-            <h3 class={styles.cardTitle}>Fast Term</h3>
-            <div class={styles.timeframeRow}>
-                <select class={styles.tfSelect}
-                    value={selectedOption(draft.fast.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.fast.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(draft.fast.durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class="{styles.indicatorInputsScroll} font-mono">
-                {@render indicatorInputs('small', draft.fast)}
-            </div>
-        </div>
-
-        <div class="{styles.termCard} {enabled.slow ? '' : styles.disabledCard}">
-            <h3 class={styles.cardTitle}>Slow Term <label class={styles.enableToggle}><input type="checkbox" bind:checked={enabled.slow} /> {enabled.slow ? 'enabled' : 'disabled'}</label></h3>
-            <div class={styles.timeframeRow}>
-                <select class={styles.tfSelect} disabled={!enabled.slow}
-                    value={selectedOption(draft.slow.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.slow.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(draft.slow.durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class="{styles.indicatorInputsScroll} font-mono" class:styles.disabledInputs={!enabled.slow}>
-                {@render indicatorInputs('medium', draft.slow)}
-            </div>
-        </div>
-
-        <div class="{styles.termCard} {enabled.macro ? '' : styles.disabledCard}">
-            <h3 class={styles.cardTitle}>Macro Term <label class={styles.enableToggle}><input type="checkbox" bind:checked={enabled.macro} /> {enabled.macro ? 'enabled' : 'disabled'}</label></h3>
-            <div class={styles.timeframeRow}>
-                <select class={styles.tfSelect} disabled={!enabled.macro}
-                    value={selectedOption(draft.macro.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.macro.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(draft.macro.durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class="{styles.indicatorInputsScroll} font-mono" class:styles.disabledInputs={!enabled.macro}>
-                {@render indicatorInputs('large', draft.macro)}
-            </div>
-        </div>
+        {/each}
     </div>
 
     {#if validationError}

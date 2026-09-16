@@ -21,9 +21,9 @@
 
     const instance = $derived(app.instancesMap[pairKey]);
     const analysis = $derived<AnalysisMatrix | null>(instance?.analysis ?? null);
-    const snap = $derived(instance?.microTerm?.latestSnapshot as unknown as MarketSnapshot | undefined);
+    const snap = $derived(instance?.terms?.micro1?.latestSnapshot as unknown as MarketSnapshot | undefined);
     const opportunity = $derived<OpportunityMatrix | null>(instance?.opportunity ?? null);
-    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.micro1);
     // ── Bind contract: `instance.decisionContext` is the mirror field
     // populated once per completed candle by `applySnapshotToTimeframe`.
     // Reading it first avoids the shadow-tick wipe that used to null-out
@@ -43,7 +43,7 @@
         // the brief warmup window before any slot has closed.
         const completedClose = parseFloat(instance?.lastCompletedClose ?? '');
         if (Number.isFinite(completedClose) && completedClose > 0) return completedClose;
-        return parseFloat(instance?.microTerm?.priceText ?? '0') || 0;
+        return parseFloat(instance?.terms?.micro1?.priceText ?? '0') || 0;
     });
     const timestamp = $derived<number | null>(
         snap && typeof (snap as any).timestamp === 'number'
@@ -286,12 +286,7 @@
             timestamp,
             markPrice,
             headerSpec,
-            terms: {
-                microTerm: instance?.microTerm as any,
-                fastTerm: instance?.fastTerm as any,
-                slowTerm: instance?.slowTerm as any,
-                macroTerm: instance?.macroTerm as any,
-            },
+            terms: instance?.terms,
         });
     }
 

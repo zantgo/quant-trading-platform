@@ -1,6 +1,6 @@
 # CLI Launch Mode — Flow & Rationale
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators using `execution-daemon --mode cli` for terminal-only monitoring.
 
@@ -30,22 +30,25 @@ The interactive launch mirrors the GUI Launch Setup wizard (observe-only for now
 ```
 1. Exchange             [hyperliquid | bitget]      ← pre-filled from --exchange / config.toml
 2. Settlement currency  forced (HL=USDC, Bitget=USDT)
-3. Instances            base symbol + 4 per-TF timeframe_secs, repeated until blank
-                        ← pre-seeded from workspace.instances[] (keep with Enter)
-4. Summary + confirm    → session init (observe) → instances just run
+3. Instances            base symbol only, repeated until blank
+                        ← pre-seeded from workspace.instances[] (keep with Enter);
+                          the FIXED 10-slot ladder is printed, no TF prompts (v11.1)
+4. TAE activation       "Activate TAE (trade automation)? y/N" (default OFF; --tae-on)
+5. Summary + confirm    → session init (observe) → instances just run
 ```
 
-Every prompt is *non-blocking* — pressing Enter accepts the bracketed default. Timeframe
-inputs are validated against `[10, 86400]` seconds.
+Every prompt is *non-blocking* — pressing Enter accepts the bracketed default. There are no
+timeframe inputs (v11.1): the ladder is the fixed 10-slot register and is displayed, not asked.
 
 ### 2.1 What happens after confirm
 
 1. The session defaults are pinned FIRST (`mode = "observe"` via `set_session_defaults`)
    and the session is initialised with the chosen exchange/currency — the same ordering as
    the web handler `POST /api/session/init`. No orders are ever dispatched.
-2. The launch plan is written into the workspace config (per-instance TF durations, mode
-   `observe`, operational mode `advisory`) so `registry::add_instance` resolves the exact
-   pipeline durations.
+2. The launch plan is written into the workspace config (mode
+   `observe`, operational mode `advisory`; per-instance TF durations are NOT written — the
+   fixed 10-slot ladder is registry-driven) so `registry::add_instance` resolves the exact
+   pipeline slots.
 3. Each instance is spawned through the registry with the boot retry policy (20 attempts ×
    30 s backoff). Instances persist into `config.toml` via the registry's normal
    `save_workspace` path — the next launch pre-fills from them.
@@ -57,14 +60,13 @@ touching `config.toml`).
 
 ### 2.2 Default timeframe ladder
 
-The default per-instance durations derive from the **same ladder the registry falls back
-to** (`WorkspaceConfig::tf_ladder_defaults`): micro 60 s, fast 180 s, slow/macro from the
-workspace config (`slow_timeframe` / `macro_timeframe`, shipped defaults 300 / 900). The GUI
-Launch Setup wizard reads the same values from `GET /api/config`, so every surface agrees on
-the default pipeline durations. In the wizard's Instances step the four slots are presented
-as the **same timeframe dropdowns the Workspace Settings offer** (`TIMEFRAME_OPTIONS`, 14
-tiers from 1 s to 1 day, plus a disabled "Custom: …" fallback), preseeded with that ladder —
-the CLI prompts and the GUI dropdowns therefore accept the identical duration set.
+There is no default-ladder choice anymore (v11.1): every instance runs the **fixed 10-slot
+ladder** — `WorkspaceConfig::tf_ladder_defaults()` returns `config_models::FIXED_TF_LADDER`
+(`micro1` 1 s, `micro2` 3 s, `fast1` 5 s, `fast2` 15 s, `slow1` 30 s, `slow2` 60 s,
+`macro1` 180 s, `macro2` 300 s, `longterm1` 900 s, `longterm2` 3600 s). The GUI Launch
+Setup wizard reads the same values from `GET /api/config` and **displays** the ladder —
+neither surface offers TF pickers or per-TF dropdowns anymore, so every surface agrees on
+the pipeline slots by construction.
 
 ### 2.3 Terminal monitor output
 
@@ -111,9 +113,10 @@ execution-daemon --mode cli --exchange bitget --currency USDT --interval 10 --sa
 execution-daemon --mode cli --config /path/to/config.toml
 
 # Scripted: existing config.toml instances are kept by pressing Enter through
-# the prompts (exchange, base, 4 TF durations, next-base, then the Review
+# the prompts (exchange, instance keeps — the fixed ladder is displayed, no TF
+# prompts — blank base to finish, TAE activation default N, then the Review
 # confirm 'y').
-printf 'hyperliquid\n\n\n\n\n\n\ny\n' | execution-daemon --mode cli
+printf 'hyperliquid\n\n\n\n\ny\n' | execution-daemon --mode cli
 
 # Wrapper.
 ./manage.sh run-cli

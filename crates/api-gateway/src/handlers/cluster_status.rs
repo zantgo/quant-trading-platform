@@ -24,8 +24,9 @@ pub struct ClusterStatusParams {
     /// `BTC-USDT` (hyphen, internal symbol). When absent, returns the
     /// status of every active pair.
     pub symbol: Option<String>,
-    /// `micro` | `fast` | `slow` | `macro`. When absent (paired with a
-    /// symbol), returns all 4 TF slots for that pair in one payload.
+    /// `micro1`|`micro2`|`fast1`|`fast2`|`slow1`|`slow2`|`macro1`|`macro2`|
+    /// `longterm1`|`longterm2`. When absent (paired with a symbol), returns
+    /// all 10 fixed-ladder TF slots for that pair in one payload.
     pub slot: Option<String>,
 }
 
@@ -49,16 +50,16 @@ pub struct SymbolClusterStatus {
     pub slots: std::collections::BTreeMap<String, ClusterStatusSnapshot>,
 }
 
-/// Validate and normalize the slot query parameter. Returns `Err` with a
-/// stable error string on invalid input.
-fn parse_slot(slot: &str) -> Result<&'static str, String> {
+/// Validate and normalize the slot query parameter (the fixed 10-slot
+/// ladder's canonical wire names). Returns `Err` with a stable error
+/// string on invalid input.
+fn parse_slot(slot: &str) -> Result<core_domain::models::TimeframeSlot, String> {
     match slot {
-        "micro" => Ok("micro"),
-        "fast" => Ok("fast"),
-        "slow" => Ok("slow"),
-        "macro" => Ok("macro"),
+        "micro1" | "micro2" | "fast1" | "fast2" | "slow1" | "slow2" | "macro1" | "macro2"
+        | "longterm1" | "longterm2" => Ok(core_domain::models::TimeframeSlot::parse(slot)),
         other => Err(format!(
-            "invalid slot '{}' (expected one of micro|fast|slow|macro)",
+            "invalid slot '{}' (expected one of \
+             micro1|micro2|fast1|fast2|slow1|slow2|macro1|macro2|longterm1|longterm2)",
             other
         )),
     }
@@ -96,8 +97,8 @@ pub async fn serve_cluster_status(
                     )
                 })?;
             let mut slots = std::collections::BTreeMap::new();
-            for s in ["micro", "fast", "slow", "macro"] {
-                slots.insert(s.to_string(), read_slot_status(&pair, s).await?);
+            for s in core_domain::models::FIXED_TF_SLOTS {
+                slots.insert(s.as_str(), read_slot_status(&pair, s).await?);
             }
             Ok(Json(ClusterStatusResponse::BySymbol {
                 symbol: symbol.to_string(),
@@ -108,8 +109,8 @@ pub async fn serve_cluster_status(
             let mut out = Vec::with_capacity(pairs.len());
             for pair in pairs {
                 let mut slots = std::collections::BTreeMap::new();
-                for s in ["micro", "fast", "slow", "macro"] {
-                    slots.insert(s.to_string(), read_slot_status(&pair, s).await?);
+                for s in core_domain::models::FIXED_TF_SLOTS {
+                    slots.insert(s.as_str(), read_slot_status(&pair, s).await?);
                 }
                 out.push(SymbolClusterStatus {
                     symbol: pair.pair_key(),
@@ -123,23 +124,15 @@ pub async fn serve_cluster_status(
 
 async fn read_slot_status(
     pair: &Arc<portfolio_supervisor::instance::Instance>,
-    slot: &str,
+    slot: core_domain::models::TimeframeSlot,
 ) -> Result<ClusterStatusSnapshot, (StatusCode, String)> {
-    use core_domain::models::TimeframeSlot;
-    let slot_kind = match slot {
-        "micro" => TimeframeSlot::Micro,
-        "fast" => TimeframeSlot::Fast,
-        "slow" => TimeframeSlot::Slow,
-        "macro" => TimeframeSlot::Macro,
-        _ => unreachable!("parse_slot already validated"),
-    };
     let pipe = pair
         .active_pair
-        .pipeline_for_slot(slot_kind)
+        .pipeline_for_slot(slot)
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                format!("slot '{}' not configured for {}", slot, pair.pair_key()),
+                format!("slot '{}' not configured for {}", slot.as_str(), pair.pair_key()),
             )
         })?;
     let guard = pipe.cluster_status.read().await;

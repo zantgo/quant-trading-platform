@@ -496,12 +496,12 @@ function buildAssetRankingRow(
     const riskScore = risk?.overall_risk?.score ?? 0;
     const mtfScore = aln?.mtf_overall_score ?? 0;
     const mtfLabel = aln?.mtf_overall_label ?? 'NO_DATA';
-    const snap = inst.microTerm?.latestSnapshot as { timestamp?: number } | null;
+    const snap = inst.terms?.micro1?.latestSnapshot as { timestamp?: number } | null;
     const ts = snap?.timestamp ?? null;
 
     return {
         symbol: inst.symbol,
-        price_display: inst.microTerm?.priceText ?? '--',
+        price_display: inst.terms?.micro1?.priceText ?? '--',
         bias: analysis?.bias ?? 'Neutral',
         signal,
         direction,

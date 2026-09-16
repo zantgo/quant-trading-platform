@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer
@@ -32,7 +32,7 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 | Field | Type | Description |
 |-------|------|-------------|
 | `symbol` | `string` | The entity under analysis. |
-| `timeframes_present` | `u8` | Count of timeframes contributing (1–4). |
+| `timeframes_present` | `u8` | Count of timeframes contributing (1–10; the fixed 10-slot ladder). |
 | `dimensions` | `AlignmentDimension[10]` | The 10 alignment dimensions (ordered — see §3). |
 | `mtf_trend_alignment` | `f64` | Weighted signed trend consensus `[-1, 1]`. |
 | `mtf_momentum_alignment` | `f64` | Weighted signed momentum consensus `[-1, 1]`. |
@@ -56,7 +56,7 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `timeframe` | `string` | Stable slot label, e.g. `MICRO` / `FAST` / `SLOW` / `MACRO`. |
+| `timeframe` | `string` | Stable slot label, e.g. `MICRO1` … `LONGTERM2` (the fixed 10-slot ladder). |
 | `timeframe_secs` | `u64` | Duration in seconds. |
 | `trend_score` | `f64` | Local trend score `[-1, 1]`. |
 | `momentum_score` | `f64` | Local momentum score `[-1, 1]`. |
@@ -121,9 +121,9 @@ Each contributing timeframe is weighted by its duration, favouring higher timefr
 
 $$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0.2,\ 1.0\right)$$
 
-The divisor is the session's **slowest enabled** tier's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest tier always weights `1.0`; shorter tiers scale down proportionally. This is dynamic rather than the fixed `900 s` constant so custom sessions (e.g. macro = 1 d, or `macro_timeframe.enabled = false`) retain a proper hierarchy instead of clamping the slowest active tier to `1.0` (or, with the bug-fixed rule, leaving an inactive macro as the divisor with no active tier above the clamp ceiling).
+The divisor is the **slowest active** slot's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest slot always weights `1.0`; shorter slots scale down proportionally. With the full active count (v11.2 `active_timeframes = 10` — every slot of the fixed pool running) the slowest slot is `longterm2` (3600 s), so `divisor = 3600 s` and the proportional fallback's clamp floor (0.2) leaves `micro1`…`macro2` (1–300 s) at the 0.20 floor and `longterm1` at 0.25; at smaller active counts the divisor is the slowest ACTIVE slot (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)).
 
-**Divisor rule:** `divisor = max({duration_seconds for tier in enabled_tiers})`. With default durations (micro=60, fast=180, slow=300, macro=900, all enabled): `divisor = 900 s`.
+**Divisor rule:** `divisor = max({duration_seconds for slot in active_slots})`. On the fixed ladder with every slot ACTIVE (`active_timeframes = 10`): `divisor = 3600 s`; the default count (5) resolves it to `slow1` (30 s).
 
 The weighted consensus for a dimension is:
 
@@ -223,23 +223,30 @@ otherwise   → NEUTRAL_MTF
 
 > `AlignState` values on the wire are PascalCase (`"Bullish"`, `"Neutral"`, `"StrongBullish"`, …) — see §3.1 for the state mapping. Dimensions 2 and 3 carry the recomputed §6.1 scores (volume `mean = 0.10` → score 55.0 / confidence 10.0; volatility `mean = 0.20` → score 60.0 / confidence 20.0).
 
-> The example above is a 4-TF snapshot (`timeframes_present: 4`). Per the
+> The example above is a 4-TF snapshot (`timeframes_present: 4`) — a mid-warmup subset of
+> the fixed 10-slot ladder (§2.1: the field ranges 1–10). Per the
 > §4.4 heuristic, `signal_cross_tf_count = round(0.3 × total signals)`;
 > the seed `3` corresponds to ~10 active signals summed across the four
 > timeframes. It is a breadth indicator — not a distinct-key count.
 
 ### 6.1 Worked per-TF decomposition (Volume & Volatility)
 
-The Volume (55.0) and Volatility (60.0) dimension scores above decompose into per-timeframe signed scores as follows (weights per §4.1 with the default durations: micro 0.2, fast 0.2, slow 0.3333, macro 1.0; Σw = 1.7333):
+The Volume (55.0) and Volatility (60.0) dimension scores above decompose into per-slot signed scores as follows (weights per §4.1 on the fixed 10-slot ladder — `micro1`…`macro2` 0.2 (clamp floor), `longterm1` 0.25, `longterm2` 1.0; Σw = 2.85):
 
-| Timeframe | Weight `w` | Volume `s` | Volatility `s` |
+| Slot | Weight `w` | Volume `s` | Volatility `s` |
 |-----------|-----------|-----------|----------------|
-| MICRO | 0.2 | +0.50 | +0.30 |
-| FAST | 0.2 | +0.50 | +0.30 |
-| SLOW | 0.3333 | +0.25 | −0.52 |
-| MACRO | 1.0 | −0.11 | +0.40 |
+| MICRO1 | 0.2 | +0.10 | +0.30 |
+| MICRO2 | 0.2 | +0.10 | +0.30 |
+| FAST1 | 0.2 | +0.10 | +0.15 |
+| FAST2 | 0.2 | +0.10 | +0.15 |
+| SLOW1 | 0.2 | +0.10 | +0.15 |
+| SLOW2 | 0.2 | +0.10 | +0.15 |
+| MACRO1 | 0.2 | +0.10 | +0.15 |
+| MACRO2 | 0.2 | +0.10 | 0.00 |
+| LONGTERM1 | 0.25 | +0.30 | +0.40 |
+| LONGTERM2 | 1.0 | +0.05 | +0.20 |
 
-- **Signed mean** `m = Σ w·s / Σw` (direction, §3.1): Volume `(0.100 + 0.100 + 0.08333 − 0.110) / 1.7333 = 0.17333 / 1.7333 = 0.10` → `mtf_volume_alignment = 0.10`; Volatility `(0.060 + 0.060 − 0.17333 + 0.400) / 1.7333 = 0.34667 / 1.7333 = 0.20` → `mtf_volatility_alignment = 0.20`. Both `|m| ≤ 0.3` → `Neutral`.
+- **Signed mean** `m = Σ w·s / Σw` (direction, §3.1): Volume `(0.2·0.80 + 0.25·0.30 + 1.0·0.05) / 2.85 = (0.160 + 0.075 + 0.050) / 2.85 = 0.285 / 2.85 = 0.10` → `mtf_volume_alignment = 0.10`; Volatility `(0.2·1.35 + 0.25·0.40 + 1.0·0.20) / 2.85 = (0.270 + 0.100 + 0.200) / 2.85 = 0.570 / 2.85 = 0.20` → `mtf_volatility_alignment = 0.20`. Both `|m| ≤ 0.3` → `Neutral`.
 - **Score & confidence** (§3.1 `from_signed`): `score = (m + 1) / 2 × 100`, `confidence = |m| × 100`. Volume → `(0.10 + 1) / 2 × 100 = 55.0`, confidence `10.0`; Volatility → `(0.20 + 1) / 2 × 100 = 60.0`, confidence `20.0`. Both states are `Neutral` (neither mean crosses `±0.3`).
 
 > **Rounding note.** Per-TF values are rounded to 2 dp; weighted aggregates are computed from the unrounded values. Multiple valid per-TF decompositions exist; this one satisfies `m = 0.10` / `0.20` simultaneously. The legacy sign-agreement decomposition (`score = a × 100` → 72.0 / 75.0) does **not** match the code — `from_signed` derives the score from the signed mean, not from the majority-sign share.

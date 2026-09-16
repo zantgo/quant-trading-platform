@@ -98,29 +98,32 @@ pub async fn serve_monitor(
         .into_response();
     };
 
-    let (micro, fast, slow, macro_snap) = pair.latest_snapshots_all_tf().await;
-    let (svm, svf, svs, svmac) = (
-        snap_values(&micro),
-        snap_values(&fast),
-        snap_values(&slow),
-        snap_values(&macro_snap),
-    );
+    // Fixed 10-slot ladder (fastest → slowest): latest snapshot + derived
+    // snapshot values per slot, positionally aligned with
+    // `core_domain::models::FIXED_TF_SLOTS`.
+    let snaps = pair.latest_snapshots_all_tf().await;
+    let svs: Vec<Option<SnapshotValues>> = snaps.iter().map(snap_values).collect();
 
-    let timeframes = vec![
-        tf_summary("MICRO", pair.micro.timeframe_secs, &micro, &svm),
-        tf_summary("FAST", pair.fast.timeframe_secs, &fast, &svf),
-        tf_summary("SLOW", pair.slow.timeframe_secs, &slow, &svs),
-        tf_summary("MACRO", pair.r#macro.timeframe_secs, &macro_snap, &svmac),
-    ];
+    // v11.2: report only the ACTIVE ladder slots (fastest N).
+    let active = pair.active_count.min(10).max(1);
+    let timeframes: Vec<MonitorTimeframe> = core_domain::models::FIXED_TF_SLOTS[..active]
+        .iter()
+        .zip(snaps[..active].iter())
+        .zip(svs[..active].iter())
+        .enumerate()
+        .map(|(i, ((slot, snap), sv))| {
+            let secs = pair
+                .pipeline_for_slot(*slot)
+                .map(|p| p.timeframe_secs)
+                .unwrap_or(config_models::FIXED_TF_LADDER[i]);
+            tf_summary(&slot.display_name(), secs, snap, sv)
+        })
+        .collect();
 
     // MTF per-indicator agreement matrix (directional registry indicators).
     let empty = SnapshotValues::from_map(Default::default(), 0.0);
-    let svs_arr = [
-        svm.as_ref().unwrap_or(&empty),
-        svf.as_ref().unwrap_or(&empty),
-        svs.as_ref().unwrap_or(&empty),
-        svmac.as_ref().unwrap_or(&empty),
-    ];
+    let svs_arr: Vec<&SnapshotValues> =
+        svs.iter().map(|sv| sv.as_ref().unwrap_or(&empty)).collect();
     let mut rows: Vec<MtfIndicatorRow> = Vec::new();
     let mut agree_accum = 0.0;
     let mut agree_n = 0.0;
@@ -152,18 +155,16 @@ pub async fn serve_monitor(
         0.0
     };
 
-    let mtf_align = evaluate_mtf_alignment(
-        svm.as_ref().unwrap_or(&empty),
-        svf.as_ref().unwrap_or(&empty),
-        svs.as_ref().unwrap_or(&empty),
-        svmac.as_ref().unwrap_or(&empty),
-    );
+    // Ladder-ordered slice (fastest → slowest): `evaluate_mtf_alignment`
+    // reads first (fastest), second, and last (slowest); missing slots
+    // degrade to the shared `empty` values exactly as before.
+    let mtf_align = evaluate_mtf_alignment(&svs_arr);
 
-    // Macro context preferred; fall back to micro.
-    let market_context = macro_snap
-        .as_ref()
-        .and_then(|m| m.context.clone())
-        .or_else(|| micro.as_ref().and_then(|m| m.context.clone()));
+    // Macro context preferred; fall back down the ladder toward micro.
+    let market_context = snaps
+        .iter()
+        .rev()
+        .find_map(|s| s.as_ref().and_then(|m| m.context.clone()));
 
     Json(MonitorResponse {
         symbol: pair_key,

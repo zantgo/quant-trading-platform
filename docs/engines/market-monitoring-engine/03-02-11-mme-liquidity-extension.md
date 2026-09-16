@@ -1,6 +1,6 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)
@@ -52,7 +52,7 @@ the strict L4 / L5 orthogonality invariant.
 
 **Outputs (since v6.4.2 — per-timeframe):**
 - `MarketSnapshot.cluster: Option<LiquidationClusterMatrix>` — **per-TF**
-  (one matrix per micro/fast/slow/macro; the WS frame for each slot
+  (one matrix per fixed ladder slot, `micro1`…`longterm2`; the WS frame for each slot
   carries that TF's matrix, not a shared one)
 - `MarketSnapshot.liquidity_signals: Vec<LiquiditySignal>` — **per-TF**
   (computed from this TF's `liquidity` + this TF's `cluster` + funding)

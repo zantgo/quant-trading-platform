@@ -34,7 +34,7 @@ const INSTANCE_ID: &str = "inst_sub_minute";
 /// is seeded with completed `MarketSnapshot`s at `timeframe_secs=secs`.
 /// This mimics what `populate_buffers` does after a historical bootstrap.
 async fn build_router_with_snapshots(
-    secs: u64,
+    _secs: u64,
     snapshots: Vec<MarketSnapshot>,
 ) -> (axum::Router, Arc<AppState>) {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -95,13 +95,20 @@ async fn build_router_with_snapshots(
     let active_pair = Arc::new(ActivePair {
         symbol: PAIR_KEY.to_string(),
         custom_pipelines: std::collections::HashMap::new(),
-        // Micro gets the requested sub-minute duration; the other three
-        // slots use dummy values so `pipeline_for_duration` never has a
-        // collision.
-        micro: build_pipe(TimeframeSlot::Micro, secs, bcast_tx.clone()),
-        fast: build_pipe(TimeframeSlot::Fast, secs + 10, bcast_tx.clone()),
-        slow: build_pipe(TimeframeSlot::Slow, secs + 20, bcast_tx.clone()),
-        r#macro: build_pipe(TimeframeSlot::Macro, secs + 30, bcast_tx),
+        // Fixed 10-slot ladder with canonical durations (1s → Micro1,
+        // 3s → Micro2, 5s → Fast1 …): every pipeline shares the seeded
+        // `snap_hist`, so whichever slot the requested sub-minute duration
+        // resolves to sees the bootstrap snapshots.
+        micro1: build_pipe(TimeframeSlot::Micro1, 1, bcast_tx.clone()),
+        micro2: build_pipe(TimeframeSlot::Micro2, 3, bcast_tx.clone()),
+        fast1: build_pipe(TimeframeSlot::Fast1, 5, bcast_tx.clone()),
+        fast2: build_pipe(TimeframeSlot::Fast2, 15, bcast_tx.clone()),
+        slow1: build_pipe(TimeframeSlot::Slow1, 30, bcast_tx.clone()),
+        slow2: build_pipe(TimeframeSlot::Slow2, 60, bcast_tx.clone()),
+        macro1: build_pipe(TimeframeSlot::Macro1, 180, bcast_tx.clone()),
+        macro2: build_pipe(TimeframeSlot::Macro2, 300, bcast_tx.clone()),
+        longterm1: build_pipe(TimeframeSlot::Longterm1, 900, bcast_tx.clone()),
+        longterm2: build_pipe(TimeframeSlot::Longterm2, 3600, bcast_tx),
         snapshot_tx: mpsc::channel::<core_domain::normalized::NormalizedEvent>(50).0,
         cancel: CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -111,28 +118,20 @@ async fn build_router_with_snapshots(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
-    });
+        active_count: 10,
+});
 
-    let micro_buf = TimeframeBuffers {
-        history: active_pair.micro.history.clone(),
-        latest: active_pair.micro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let fast_buf = TimeframeBuffers {
-        history: active_pair.fast.history.clone(),
-        latest: active_pair.fast.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let slow_buf = TimeframeBuffers {
-        history: active_pair.slow.history.clone(),
-        latest: active_pair.slow.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let macro_buf = TimeframeBuffers {
-        history: active_pair.r#macro.history.clone(),
-        latest: active_pair.r#macro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
+    let buffers: [TimeframeBuffers; 10] = active_pair
+        .all()
+        .iter()
+        .map(|pipe| TimeframeBuffers {
+            history: pipe.history.clone(),
+            latest: pipe.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"));
 
     let instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
@@ -143,10 +142,8 @@ async fn build_router_with_snapshots(
         workspace.clone(),
         Default::default(),
         Default::default(),
-        micro_buf,
-        fast_buf,
-        slow_buf,
-        macro_buf,
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ));
     workspace.insert(PAIR_KEY.to_string(), instance).await;
@@ -197,7 +194,7 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
     let bid = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap_or_default();
     let ask = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap_or_default();
     MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro),
+        timeframe_slot: Some(TimeframeSlot::Micro1),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: secs,
         timestamp,

@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -165,6 +165,28 @@ DELETE mappings by reason (for the summary chips):
 | `DUPLICATE` | Backend returned "already exists" — pair is left untouched in the workspace |
 | `NETWORK_ERROR` | Any other `POST /api/instances` failure |
 
+### 3.5 Per-Instance Status Table (`InstanceStatusTable`, v11.2)
+
+The Market Monitor Overview renders `InstanceStatusTable.svelte` **directly under
+the unified header** (above the Asset Rankings table). One **collapsed row per
+instance** (ordering follows the L7 `asset_ranking` symbol order when present,
+falling back to map insertion order):
+
+| Column | Content |
+|--------|---------|
+| **Expand chevron** | Toggle button (`aria-expanded`) revealing the per-timeframe sub-rows. |
+| **Instance** | Symbol + pair key (small/dim sub-label). |
+| **Decision badge** | The SAME derivation the chart / Recommendation view uses — `computeDecisionRank` + `buildL6DecisionHeader`'s exact badge palette (direction colors for LONG/SHORT, HOLD/STAND ASIDE neutral) rendered with its probability percentage (e.g. **"SHORT 45%"**). No advisory/decision context yet → the grey `—` empty badge (`emptyBadge()` semantics). |
+| **Probability chips** | Three small dim chips `L x% · H y% · S z%` (only when probabilities exist). |
+| **Mode chip** | `observe` / `paper` / `live` (dim). |
+
+An **expand-all** toggle in the table header flips every row at once. Expanding an
+instance reveals **N sub-rows — one per ACTIVE timeframe** (`activeSlotKinds`,
+ladder order) — each showing the slot label + duration and the SAME metrics badge
++ pipeline pill the Alignment tab's `TfStatusTable` shows (`metricsBadgeFor`),
+reusing the `LayerHeader` badge/status CSS classes verbatim. Display-only: no
+state mutation; an instance with no data shows the grey badge and loading pills.
+
 ---
 
 ## 4. Bottom Navbar (Instance-Level)
@@ -188,6 +210,24 @@ It applies an additional CSS class `styles.rowSubTabs` on top of `styles.rowTabs
 | `risk` | Risks | `RiskPanel` |
 | `analysis` | Analysis | `AnalysisPanel` |
 | `advisory` | Decision | `AdvisoryPanel` |
+
+### 4.1.1 Alignment — Per-Timeframe Status Table (`TfStatusTable`)
+
+The Alignment tab renders a **"Per-timeframe status" table** (`TfStatusTable.svelte`)
+directly under the layer header, above the summary card. One row per **ACTIVE**
+ladder slot (v11.2 — N rows, `[workspace].active_timeframes`; inactive slots are
+inert and have no status to show), in ladder order (`MICRO1` up, each with its
+duration label — `1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `1h`):
+
+| Column | Content |
+|--------|---------|
+| **Timeframe** | Uppercase slot label (`TIMEFRAME_SLOT_LABELS[slot].toUpperCase()`) + `· <duration>` sub-label. |
+| **Status** | The SAME badge the Metrics (L1) tab header shows for that TF — single-sourced through `metricsBadgeFor` (`lib/layerHeader.ts`) so the two surfaces can never disagree. Bias label + regime sublabel, tinted via `biasColor`; reuses the `LayerHeader` badge CSS classes verbatim (pixel-identical chrome). |
+| **Pipeline** | The same live/stale/loading/error pipeline pill as the Metrics header (`CandlePipelineState`-derived status dot + label). |
+
+Display-only: no export payload, no interaction, no state mutation. The table
+makes all ACTIVE slots' health scannable at a glance without leaving the
+Alignment tab.
 
 ### 4.2 Active Tab Behavior
 
@@ -381,7 +421,7 @@ Three new engine dashboards follow the same sub-sidebar pattern:
 | Risk Metrics | `'risk'` | Detailed risk analytics cards with gauge bars and interpretative labels |
 | Regime Map | `'regimes'` | Per-regime performance cards (trade count, WR, PF, avg R, P&L) with compatibility labels (Strong/Favorable/Marginal/Avoid). Optimization recommendations |
 | Trade Analytics | `'trades'` | Trade ledger table: Trade ID, Symbol, Direction, Hold time, Gross/Net P&L, ROI, MFE, MAE, Flat flag |
-| **Backtesting** | `'backtesting'` | The v8.2 launcher wizard (Environment → Instances with 4 TF dropdowns + allocation % → Depth 1–365 → Run with progress bar + Cancel) → `POST /api/backtest/run` (async) + `GET /api/backtest/progress/:run_id` → Study Report with NHST verdict block (t, p, MC p, α = 0.05, edge), equity curve, trade log; results re-fetched via `GET /api/backtest/:id` |
+| **Backtesting** | `'backtesting'` | The v8.2 launcher wizard (Environment → Instances with the displayed fixed 10-slot ladder + allocation % → Depth 1–365 → Run with progress bar + Cancel) → `POST /api/backtest/run` (async) + `GET /api/backtest/progress/:run_id` → Study Report with NHST verdict block (t, p, MC p, α = 0.05, edge), equity curve, trade log; results re-fetched via `GET /api/backtest/:id` |
 
 ### 7.3 Distinguishing Rules
 
@@ -443,7 +483,11 @@ The form is loaded once via `GET /api/config` on mount (`$effect`) and re-loaded
 
 ## 9. WorkspaceSettings Grid
 
-The instance-level settings page (`WorkspaceSettings.svelte`, mounted by `AppPageRouter` when `middleTab === 'settings'`) renders a responsive 4-column grid of timeframe cards, one card per timeframe (micro / fast / slow / macro).
+The instance-level settings page (`WorkspaceSettings.svelte`, mounted by `AppPageRouter` when `middleTab === 'settings'`; the editor component is `TimeframeSettings.svelte`) renders a left-rail + right-pane shell of timeframe cards — **one card per ACTIVE slot** (v11.2 — the fastest N of the fixed pool, `[workspace].active_timeframes`, 1..=10 default 5; inactive slots are inert and render no card).
+
+### 9.0 Active Timeframes Selector (v11.2)
+
+A dedicated **"Active timeframes" card** (`.activeCountCard`) sits above the per-TF cards: an integer stepper (`min=1`, `max=10`, `activeCount` bound; validation rejects out-of-range values with "Active timeframes must be between 1 and 10.") and a hint line ("The fastest N slot(s) of the 10-slot ladder run; …"). The count rides the SAME Apply click and dirty-tracking flow as the per-slot indicator overrides, but POSTs to **`/api/config`** (body `{ active_timeframes: N }` — the endpoint that validates 1..=10 and **live-recharges running instances**), then mirrors the new ACTIVE ladder locally (`app.settings.activeTimeframes`, `pair.activeSlots = withActiveSlots(N)`) and forces a WS reconnect so the socket count matches the new ladder.
 
 ### 9.1 Layout
 
@@ -467,8 +511,8 @@ The instance-level settings page (`WorkspaceSettings.svelte`, mounted by `AppPag
 
 Each `.term-card` contains:
 
-1. **Card title** (`.card-title`) — uppercase TF name (e.g. `MICRO`).
-2. **TF select** (`.tf-select`) — single `<select>` bound to `TIMEFRAME_OPTIONS`; sets `barDurationSec`.
+1. **Card title** (`.card-title`) — uppercase slot display name (e.g. `MICRO1`).
+2. **Fixed duration label** — the slot's ladder duration rendered read-only from `TIMEFRAME_SLOT_DURATION_SECS` (e.g. `1s`); since v11.1 the ladder is fixed, so there is **no** TF `<select>` and no `TIMEFRAME_OPTIONS` picker on the card (`TIMEFRAME_OPTIONS` survives in `ui/src/types.ts` only as an unused legacy constant).
 3. **Indicator inputs scroll** (`.indicator-inputs-scroll`) — `max-height: 520 px`, `overflow-y: auto`, contains a vertical list of `.input-row` entries.
 
 ### 9.3 Indicator Inputs (~50 rows per card)
@@ -504,10 +548,10 @@ Each input row is a label + numeric input pair (`flex; justify-content: space-be
 
 Two surgical upgrades landed alongside the v7.0-prod chrome refresh:
 
-1. **Left rail timeframes.** The `WorkspaceSettings` body switched from a 4-column grid of TF cards to a left-rail (`.tfShell-rail`, 180 px) + right-pane (`.tfShell-body`) layout, mirroring `TerminalMonitor`'s rail so the operator learns one selection pattern and uses it across the dashboard. The four rail buttons read **MTF · MICRO · FAST · SLOW · MACRO** top-down (MTF sits in the rail *only* when synthesised as a per-pair override; the micro/fast/slow/macro rail remains the canonical 4-TF editing surface).
+1. **Left rail timeframes.** The `WorkspaceSettings` body uses a left-rail (`.tfShell-rail`, 180 px) + right-pane (`.tfShell-body`) layout, mirroring `TerminalMonitor`'s rail so the operator learns one selection pattern and uses it across the dashboard. The rail buttons read **MTF · MICRO1 · MICRO2 · FAST1 · FAST2 · SLOW1 · SLOW2 · MACRO1 · MACRO2 · LONGTERM1 · LONGTERM2** top-down (MTF sits in the rail *only* when synthesised as a per-pair override; since v11.2 the editing surface is the ACTIVE fastest-N prefix — the grid iterates `activeSlotKinds`; the 10 fixed-slot labels remain the pool vocabulary).
 2. **Liquidation Heatmap leverage tiers card.** Each selected slot now hosts a `LiquidationHeatmapTierPicker` card — chips (`{tier}×`) with a per-chip remove, plus an integer stepper (`min=1`, `max=100`, integer-only — fractional inputs are rejected). The default seed is `[10]` (a single 10× chip). See `docs/operations-and-compliance/03-liq-heatmap-config.md` for the operator workflow and intensity-amplifier semantics (`clusterInHighlight`).
 
-Persisted per-TF as `tf.heatmapLeverageTiers: number[]` and round-tripped to the daemon config body as `heatmap_leverage_tiers` (one entry per slot inside `micro_term.indicators`, `fast_term.indicators`, …).
+Persisted per-TF as `tf.heatmapLeverageTiers: number[]` and round-tripped to the daemon config body as `heatmap_leverage_tiers` (one entry per fixed ladder slot — the POST body carries one `<slot>.indicators` section per slot: `micro1.indicators`, `micro2.indicators`, … `longterm2.indicators`; v11.1).
 
 ---
 
@@ -547,7 +591,7 @@ The shell uses the **Premium Dark Cockpit** aesthetic (see `brutalist-grid.modul
 |-------|---------|
 | `RiskCalculator.svelte` | Interactive risk sizing form: capital, risk %, entry/stop/target, dynamic ATR toggle → live `RiskCalculation` output. |
 | `CommissionCalculator.svelte` | Fee projection: dual-entry breakdown, viability check, break-even profit %. |
-| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (per-TF duration dropdowns, preseeded from the workspace ladder and offering the same `TIMEFRAME_OPTIONS` tiers as the Workspace Settings timeframe selector) → Review → Launch. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
+| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (ticker + allocation % only; since v11.1 the ladder is **displayed**, not picked — no per-TF duration dropdowns and no `TIMEFRAME_OPTIONS` picker; since v11.2 the displayed ladder is the ACTIVE fastest-N prefix of the fixed 10-slot pool, derived from `[workspace].active_timeframes`) → Review → Launch. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
 | `QuitDialog.svelte` | Session termination confirmation modal (triggered from Engines Sidebar footer). Lives at `ui/src/QuitDialog.svelte` (top-level, not under `components/`). See [§14.1](#141-quitdialog). |
 
 ---
@@ -668,20 +712,26 @@ A position-detail modal (560 px wide, `max-height: 80vh`, scrollable) triggered 
 
 All navigation elements are semantic `<a>` tags with real `href` values, enabling browser right-click "Open in new tab", middle-click, and back/forward button support.
 
-### 15.1 URL Scheme
+> **v11.3 — Multi-tab viewers + full deep links.** Every browser tab/window is an independent live viewer: the v6.9 cross-tab WebSocket ownership lock was removed (each tab opens its own sockets; the backend fans out to every subscriber — `MAX_WS_CONNECTIONS` 256). Every engine's selection is URL-addressable (grammar v2 below); reload restores the exact view (BTE/PAE run ids re-fetch their run at boot; cosmetic prefs — chart toggles, console, sidebars — persist via namespaced localStorage). Back/Forward walk the operator's actual navigation: user-initiated view changes push a history entry; boot restore and programmatic sync replace; ephemeral overlays (fullscreen chart) are not history entries. Concurrent tabs stagger their shared polls by a per-tab ±250 ms jitter.
+
+### 15.1 URL Scheme (v2)
 
 ```
-#/engine/{key}/{middleTab}/instance/{pairKey}/view/{view}
+#/engine/{key}/{middleTab}[/instance/{pairKey}][/view/{view}][/tf/{tf}][/run/{runId}]
 ```
+
+`instance`, `view`, `tf`, and `run` are keyed segments (any order after `middleTab`). `tf` = the MME per-pair chart timeframe; `run` = the loaded BTE/PAE run id (re-fetched at boot).
 
 | Example | Interpretation |
 |---------|---------------|
 | `#/engine/market_monitor/workspace` | Market engine, Workspace tab, no instance selected → GeneralDashboard |
 | `#/engine/market_monitor/workspace/instance/BTC-USDT/view/charts` | Market engine, Workspace tab, BTC-USDT instance, Charts sub-tab |
-| `#/engine/trade_automation/overview` | Trade Automation engine, Overview tab → TradeAutomationDashboard |
+| `#/engine/market_monitor/workspace/instance/BTC-USDT/view/terminal/tf/micro1` | Live BTC terminal pinned to the micro1 (1 s) chart |
+| `#/engine/trade_automation/overview/instance/ETH-USDT` | Trade Automation engine, Overview tab, ETH-USDT selected |
+| `#/engine/backtesting/study/instance/BTC-USDT/run/12` | BTE Study Report for run #12 (re-fetched on reload/new tab) |
 | `#/engine/portfolio/overview` | Portfolio engine, Overview tab → PortfolioDashboard |
 | `#/engine/exchange_settings` | Exchange API Keys page (single-page, no middle tabs) |
-| `#/engine/performance/overview` | Performance Analytics, Overview tab → PerformanceDashboard |
+| `#/engine/performance/overview/run/7` | Performance Analytics, run #7 loaded |
 
 ### 15.2 Navigation Elements
 

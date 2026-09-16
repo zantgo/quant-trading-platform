@@ -44,21 +44,23 @@ fn make_test_config(duration_seconds: u64) -> TimeframeConfig {
 }
 
 fn slot_for(tf_secs: u64) -> core_domain::models::TimeframeSlot {
-    use core_domain::models::TimeframeSlot;
-    match tf_secs {
-        x if x <= 60 => TimeframeSlot::Micro,
-        x if x <= 300 => TimeframeSlot::Fast,
-        x if x <= 900 => TimeframeSlot::Slow,
-        _ => TimeframeSlot::Macro,
-    }
+    // Fixed 10-slot ladder: identity is the exact duration.
+    core_domain::models::TimeframeSlot::parse_from_secs(tf_secs)
 }
 
 fn label_for(tf_secs: u64) -> &'static str {
-    match tf_secs {
-        x if x <= 60 => "Micro",
-        x if x <= 300 => "Fast",
-        x if x <= 900 => "Slow",
-        _ => "Macro",
+    match core_domain::models::TimeframeSlot::parse_from_secs(tf_secs) {
+        core_domain::models::TimeframeSlot::Micro1 => "MICRO1",
+        core_domain::models::TimeframeSlot::Micro2 => "MICRO2",
+        core_domain::models::TimeframeSlot::Fast1 => "FAST1",
+        core_domain::models::TimeframeSlot::Fast2 => "FAST2",
+        core_domain::models::TimeframeSlot::Slow1 => "SLOW1",
+        core_domain::models::TimeframeSlot::Slow2 => "SLOW2",
+        core_domain::models::TimeframeSlot::Macro1 => "MACRO1",
+        core_domain::models::TimeframeSlot::Macro2 => "MACRO2",
+        core_domain::models::TimeframeSlot::Longterm1 => "LONGTERM1",
+        core_domain::models::TimeframeSlot::Longterm2 => "LONGTERM2",
+        _ => "CUSTOM",
     }
 }
 
@@ -137,9 +139,8 @@ fn spawn_analyzer_with_warm(
             None,
             OrderBookConfig::default(),
             strategy,
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
+            // Sibling latest-snapshot handles — none in this single-pipeline test.
+            Vec::new(),
             Arc::new(core_domain::LatencyTracker::default()),
             market_analyzer::active_set::ActiveSet::default(),
             None,
@@ -1040,7 +1041,7 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
         &FibonacciConfig::default(),
         "BTC-USDT",
         1,
-        core_domain::models::TimeframeSlot::Micro,
+        core_domain::models::TimeframeSlot::Micro1,
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
         Some(core_domain::normalized::Exchange::Hyperliquid),

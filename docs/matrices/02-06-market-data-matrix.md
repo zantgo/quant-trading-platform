@@ -1,6 +1,6 @@
 # Market Data Matrix Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 2 — Market Data Layer
@@ -76,7 +76,7 @@ A single `NormalizedCandle` represents one completed candle for one symbol at on
 
 ## 4. Multi-Timeframe Output
 
-The Market Data Layer produces candles at up to 4 timeframes simultaneously (micro, fast, slow, macro). Each timeframe has its own independent aggregation buffer per symbol.
+The Market Data Layer produces candles at the 10 fixed ladder timeframes simultaneously (`micro1`…`longterm2`). Each timeframe has its own independent aggregation buffer per symbol.
 
 ---
 
@@ -86,4 +86,4 @@ The Market Data Layer produces candles at up to 4 timeframes simultaneously (mic
 - [DIE Layer 2 — Market Data](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) — Producing-layer specification.
 - [Raw Data Matrix](02-10-raw-data-matrix.md) — Upstream input.
 - [Metrics Matrix](02-07-metrics-matrix.md) — Downstream consumer (MME Layer 1).
-- [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) — Configurable 4-tier durations.
+- [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) — Fixed 10-slot ladder.

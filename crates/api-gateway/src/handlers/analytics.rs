@@ -240,7 +240,8 @@ pub struct BacktestRequest {
 #[derive(serde::Deserialize, Clone)]
 pub struct BacktestSymbolRequest {
     pub symbol: String,
-    /// The full 4-slot ladder (micro/fast/slow/macro seconds).
+    /// The ladder to simulate (1..=10 strictly-ascending values ≥ 60s, the
+    /// archive floor).
     pub timeframes: Vec<u64>,
     /// Per-instance allocation override (1..=100 %). `None` = global.
     #[serde(default)]
@@ -448,14 +449,14 @@ pub async fn serve_backtest_run(
                     )
                         .into_response();
                 }
-                if sym.timeframes.len() != 4
+                if !(1..=10).contains(&sym.timeframes.len())
                     || sym.timeframes.windows(2).any(|w| w[0] >= w[1])
                     || sym.timeframes.iter().any(|tf| *tf < 60)
                 {
                     return (
                         axum::http::StatusCode::BAD_REQUEST,
                         Json(serde_json::json!({
-                            "error": "timeframes must be 4 strictly-ascending values ≥ 60s (the archive floor)",
+                            "error": "timeframes must be 1..=10 strictly-ascending values ≥ 60s (the archive floor)",
                             "code": "invalid_timeframes",
                         })),
                     )
@@ -528,21 +529,25 @@ pub async fn serve_backtest_run(
                 _ => core_domain::normalized::Exchange::Hyperliquid,
             };
             let entry = workspace.instances.iter().find(|e| e.symbol == symbol);
-            let micro = entry
-                .map(|e| e.micro_term.candles.duration_seconds)
-                .unwrap_or(60);
-            let fast = entry
-                .map(|e| e.fast_term.candles.duration_seconds)
-                .unwrap_or(180);
-            let slow = entry
-                .and_then(|e| e.slow_term.as_ref())
-                .map(|t| t.candles.duration_seconds)
-                .unwrap_or(workspace.slow_timeframe.duration_seconds);
-            let macro_tf = entry
-                .and_then(|e| e.macro_term.as_ref())
-                .map(|t| t.candles.duration_seconds)
-                .unwrap_or(workspace.macro_timeframe.duration_seconds);
-            let ladder = vec![micro, fast, slow, macro_tf];
+            // v11.2: bound runs replay the instance's ACTIVE ladder
+            // (fastest N of the fixed pool) intersected with the 60s
+            // archive floor. Empty result => nothing backtestable.
+            let ladder: Vec<u64> = inst
+                .active_secs
+                .iter()
+                .copied()
+                .filter(|t| *t >= 60)
+                .collect();
+            if ladder.is_empty() {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "instance has no archive-eligible active timeframes (raise [workspace].active_timeframes past the 60s slots to backtest)",
+                        "code": "no_active_ladder",
+                    })),
+                )
+                    .into_response();
+            }
             if !ladder.contains(&payload.timeframe_secs) {
                 return (
                     axum::http::StatusCode::BAD_REQUEST,
@@ -553,29 +558,13 @@ pub async fn serve_backtest_run(
                 )
                     .into_response();
             }
-            let micro_cfg = entry.map(|e| e.micro_term.clone()).unwrap_or_else(|| {
-                config_models::TimeframeConfig::new(60, workspace.indicators.clone())
-            });
-            let fast_cfg = entry.map(|e| e.fast_term.clone()).unwrap_or_else(|| {
-                config_models::TimeframeConfig::new(180, workspace.indicators.clone())
-            });
-            let slow_cfg = entry.and_then(|e| e.slow_term.clone()).unwrap_or_else(|| {
-                config_models::TimeframeConfig::new(
-                    workspace.slow_timeframe.duration_seconds,
-                    workspace.indicators.clone(),
-                )
-            });
-            let macro_cfg = entry.and_then(|e| e.macro_term.clone()).unwrap_or_else(|| {
-                config_models::TimeframeConfig::new(
-                    workspace.macro_timeframe.duration_seconds,
-                    workspace.indicators.clone(),
-                )
-            });
             let mut tf_configs = std::collections::HashMap::new();
-            tf_configs.insert(micro_cfg.candles.duration_seconds, micro_cfg);
-            tf_configs.insert(fast_cfg.candles.duration_seconds, fast_cfg);
-            tf_configs.insert(slow_cfg.candles.duration_seconds, slow_cfg);
-            tf_configs.insert(macro_cfg.candles.duration_seconds, macro_cfg);
+            for tf in &ladder {
+                tf_configs.insert(
+                    *tf,
+                    config_models::TimeframeConfig::new(*tf, workspace.indicators.clone()),
+                );
+            }
             specs.push(ResolvedSpec {
                 symbol: symbol.clone(),
                 ladder,
@@ -592,7 +581,7 @@ pub async fn serve_backtest_run(
                 .flat_map(|s| s.ladder.iter())
                 .copied()
                 .max()
-                .unwrap_or(900) as i64;
+                .unwrap_or(3600) as i64;
         let exchange_name = if exchange == core_domain::normalized::Exchange::Bitget {
             "Bitget"
         } else {
@@ -601,6 +590,15 @@ pub async fn serve_backtest_run(
         for spec in &specs {
             let load_from = from_secs - burn_in_secs;
             for tf in &spec.ladder {
+                // Sub-minute ladder slots (<60s) are skipped: they carry no
+                // archive history (HFP-03 — the backfill engine never
+                // stores them), so both the depth ceiling and the
+                // archive-presence checks don't apply. The historical
+                // replay warms whatever the archive holds and tolerates
+                // the missing series.
+                if *tf < 60 {
+                    continue;
+                }
                 let max_depth_secs = backtesting_engine::backfill::exchange_max_depth_secs(
                     exchange_name,
                     *tf,
@@ -1238,28 +1236,15 @@ pub async fn persist_backtest_run(
             t.clone()
         } else if let Some(inst) = bound_instance {
             let symbol = inst.symbol();
-            let entry = workspace.instances.iter().find(|e| e.symbol == symbol);
-            let micro = entry
-                .map(|e| e.micro_term.candles.duration_seconds)
-                .unwrap_or(60);
-            let fast = entry
-                .map(|e| e.fast_term.candles.duration_seconds)
-                .unwrap_or(180);
-            let slow = entry
-                .and_then(|e| e.slow_term.as_ref())
-                .map(|t| t.candles.duration_seconds)
-                .unwrap_or(workspace.slow_timeframe.duration_seconds);
-            let macro_tf = entry
-                .and_then(|e| e.macro_term.as_ref())
-                .map(|t| t.candles.duration_seconds)
-                .unwrap_or(workspace.macro_timeframe.duration_seconds);
-            (symbol, vec![micro, fast, slow, macro_tf])
+            // Fixed 10-slot ladder (instances boot all ten pipelines from
+            // it); sub-minute entries simply find no archive rows.
+            (symbol, config_models::FIXED_TF_LADDER.to_vec())
         } else {
             (String::new(), Vec::new())
         };
         if !symbol.is_empty() {
             let burn_in_secs = workspace.backtest.warmup_bars as i64
-                * ladder.iter().copied().max().unwrap_or(900) as i64;
+                * ladder.iter().copied().max().unwrap_or(3600) as i64;
             if let Ok(mut tx) = pool.begin().await {
                 for tf in ladder {
                     let bars = database_storage::queries::archive::query_archive_window(

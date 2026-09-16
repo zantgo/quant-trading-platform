@@ -86,8 +86,8 @@ describe('export consistency — Alignment tab', () => {
     expectJsonNumberRenderedAsDom(c, '+31', 30.5);
     expect(c.dom).toContain('82%');
     expect(c.payload.hero.trend_agreement_pct).toBe(82);
-    expect(c.dom).toContain('4 TF');
-    expect(c.jsonText).toContain('4 TF');
+    expect(c.dom).toContain('10 TF');
+    expect(c.jsonText).toContain('10 TF');
 
     // Consensus hero (v6.10.20 C): the dial verdict renders as a bold
     // header + grey sub-label — the export's `label_display` mirrors the
@@ -132,7 +132,7 @@ describe('export consistency — Alignment tab', () => {
     // Interpretation — real label (STRONG BULL) and full screen sentence.
     const interpretation = stripTags(c.payload.interpretation);
     expect(interpretation).toContain('strong directional consensus');
-    expect(interpretation).toContain('82% agreement across 4 timeframes');
+    expect(interpretation).toContain('82% agreement across 10 timeframes');
     expect(interpretation).toContain('classified as WEAK BULL');
     expect(interpretation).toContain('2 cross-timeframe signal votes reinforce the current bias.');
     expect(c.dom).toContain(interpretation);
@@ -318,12 +318,12 @@ describe('export consistency — Opportunities tab', () => {
     expect(p.market_position.bias).toBe('Bullish');
     expect(c.jsonText).toContain('Bullish');
     expect(p.market_position.regime).toBe('TrendingBull');
-    expect(p.environment.timeframes_considered_display).toBe('4 Timeframes considered');
+    expect(p.environment.timeframes_considered_display).toBe('10 Timeframes considered');
     // The environment pills moved into the L4 header chip rail — the chip
-    // renders label + value ('Timeframes: 4/4') instead of the old
+    // renders label + value ('Timeframes: 10/10') instead of the old
     // bottom-section sentence.
     expect(c.dom).toContain('Timeframes:');
-    expect(c.dom).toContain('4 TF');
+    expect(c.dom).toContain('10 TF');
     expect(p.environment.confidence_pct).toBe(72);
     expect(c.dom).toContain('Confidence: 72%');
   });
@@ -435,7 +435,7 @@ describe('export consistency — Analysis tab', () => {
 
     // Decomposed signals — same rows as the screen grid squares.
     expect(p.signals.list).toHaveLength(3);
-    expect(p.signals.list.map((s: { timeframe: string }) => s.timeframe)).toEqual(['MICRO', 'FAST', 'MACRO']);
+    expect(p.signals.list.map((s: { timeframe: string }) => s.timeframe)).toEqual(['MICRO1', 'FAST1', 'MACRO1']);
     const micro = p.signals.list[0];
     expect(micro.bucket).toBe('supporting');
     expect(micro.score).toBe(62);
@@ -466,14 +466,14 @@ describe('export consistency — Analysis tab', () => {
     // Per-timeframe alignment — the on-screen gauge grid moved to the
     // Alignment tab (v7.4); the export keeps the raw per-TF payload, so
     // these are JSON-only assertions now.
-    expect(p.per_timeframe_alignment).toHaveLength(4);
+    expect(p.per_timeframe_alignment).toHaveLength(10);
     const microTf = p.per_timeframe_alignment[0];
     expect(microTf.active).toBe(true);
     expect(microTf.trend_display).toBe('+0.45');
     expect(c.jsonText).toContain('+0.45');
     expect(microTf.overall_display).toBe('+1.0');
     expect(microTf.regime).toBe('TRENDING');
-    expect(p.per_timeframe_alignment[3].regime).toBe('RANGE');
+    expect(p.per_timeframe_alignment[6].regime).toBe('RANGE');
 
     // Interpretation + rationale.
     expectInDomAndJson(c, 'Price is making higher highs');
@@ -485,7 +485,7 @@ describe('export consistency — Analysis tab', () => {
     // misleading "31 / 100" percentage.
     expect(c.dom).toContain('+31');
     expect(c.dom).toContain('(Bullish)');
-    expect(c.dom).toContain('4 timeframes aligned');
+    expect(c.dom).toContain('10 timeframes aligned');
     expectJsonNumberRenderedAsDom(c, '83.3%', 83.3);
     expectJsonNumberRenderedAsDom(c, '33.0', 33.0);
 
@@ -881,7 +881,7 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     // MTF sentinel: no single timeframe — timeframe_secs is 0 and the
     // actual TF list is carried in meta.timeframes.
     expect(p.meta.timeframe_secs).toBe(0);
-    expect(p.meta.timeframes).toEqual(['Micro', 'Fast', 'Slow', 'Macro']);
+    expect(p.meta.timeframes).toEqual(['Micro1', 'Micro2', 'Fast1', 'Fast2', 'Slow1', 'Slow2', 'Macro1', 'Macro2', 'Longterm1', 'Longterm2']);
 
     // Registry display names on both surfaces.
     expect(p.indicators.some((r: { display_name: string }) => r.display_name === 'RSI (14)')).toBe(true);
@@ -889,8 +889,8 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
 
     // Per-TF normalized values + agreement.
     const rsi = p.indicators.find((r: { key: string }) => r.key === 'rsi');
-    expect(rsi.values).toHaveLength(4);
-    expect(rsi.values[0].timeframe).toBe('Micro');
+    expect(rsi.values).toHaveLength(10);
+    expect(rsi.values[0].timeframe).toBe('Micro1');
     expect(rsi.values[0].normalized_display).toBe('+0.31');
     expect(c.dom).toContain('+0.31');
     expect(rsi.agreement_label).toBe('BULL');
@@ -904,7 +904,7 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     // Per-TF indicator rows carry the same triple as the single-TF export:
     // raw / raw_display / state_display / state (humanized, matching the
     // screen AND the Metrics tab).
-    const micro = p.timeframes.find((t: { label: string }) => t.label === 'Micro')!;
+    const micro = p.timeframes.find((t: { label: string }) => t.label === 'Micro1')!;
     const rsiMicro = micro.indicators.find((i: { key: string }) => i.key === 'rsi');
     expect(rsiMicro.raw).toBe(63.5);
     expect(rsiMicro.raw_display).toBe('63.50');
@@ -928,7 +928,7 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     expect(Object.keys(p.signals_by_kind).sort()).toEqual([...canonicalKeys].sort());
     // The fixture's micro TF carries a divergence + level-test signal —
     // they must surface in the MTF aggregates.
-    const microTf = p.timeframes.find((t: { label: string }) => t.label === 'Micro')!;
+    const microTf = p.timeframes.find((t: { label: string }) => t.label === 'Micro1')!;
     const microHasDiv = microTf.indicators.some((i: any) =>
       i.signals.some((s: any) => s.kind === 'DIV'));
     const microHasLv = microTf.indicators.some((i: any) =>

@@ -21,13 +21,13 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
     market_regime: 'TrendingBull',
     market_quality: 'Good',
     market_phase: 'Markup',
-    timeframes_considered: 4,
+    timeframes_considered: 10,
     supporting_signals: [
-      'MICRO (bullish): score +35, TRENDING regime, 3 signals',
-      'FAST (bullish): score +25, TRENDING regime, 2 signals',
+      'MICRO1 (bullish): score +35, TRENDING regime, 3 signals',
+      'FAST1 (bullish): score +25, TRENDING regime, 2 signals',
     ],
     contradicting_signals: [
-      'SLOW (bearish): score -30, RANGE regime, 1 signal',
+      'SLOW1 (bearish): score -30, RANGE regime, 1 signal',
     ],
     trend_assessment: 'Developing',
     momentum_assessment: 'Increasing',
@@ -44,7 +44,7 @@ function makeAlignment(): AlignmentMatrix {
   return {
     mtf_overall_score: 75,
     mtf_overall_label: 'STRONG_BULLISH',
-    timeframes_present: 4,
+    timeframes_present: 10,
     signal_cross_tf_count: 3,
     trend_agreement_pct: 75,
     mtf_trend_alignment: 0.45,
@@ -52,8 +52,8 @@ function makeAlignment(): AlignmentMatrix {
     mtf_volume_alignment: 0.1,
     mtf_volatility_alignment: 0.2,
     timeframe_alignments: [
-      { timeframe: 'MICRO', trend_score: 0.42, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5 },
-      { timeframe: 'FAST', trend_score: 0.5, momentum_score: 0.2, overall_score: 0.7, regime: 'EXPANSION', active_signals: 3 },
+      { timeframe: 'MICRO1', trend_score: 0.42, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5 },
+      { timeframe: 'FAST1', trend_score: 0.5, momentum_score: 0.2, overall_score: 0.7, regime: 'EXPANSION', active_signals: 3 },
     ],
   } as unknown as AlignmentMatrix;
 }
@@ -83,7 +83,7 @@ describe('buildAnalysisTabExport', () => {
     expect(p.key_metrics).toEqual({
       mtf_overall_score: 75,
       trend_agreement_pct: 75,
-      timeframes_present: 4,
+      timeframes_present: 10,
       signal_cross_tf_count: 3,
     });
     // Analysis fallback for the timeframe count when alignment is absent.
@@ -97,7 +97,7 @@ describe('buildAnalysisTabExport', () => {
     expect(noAlignment.key_metrics).toEqual({
       mtf_overall_score: null,
       trend_agreement_pct: null,
-      timeframes_present: 4,
+      timeframes_present: 10,
       signal_cross_tf_count: null,
     });
   });
@@ -128,7 +128,7 @@ describe('buildAnalysisTabExport', () => {
     expect(supporting.length).toBe(2);
     expect(supporting[0].score).toBe(35);
     expect(supporting[0].score_display).toBe('+35');
-    expect(supporting[0].timeframe).toBe('MICRO');
+    expect(supporting[0].timeframe).toBe('MICRO1');
     expect(supporting[0].regime).toBe('TRENDING');
     expect(supporting[0].signals_count).toBe(3);
   });
@@ -142,11 +142,11 @@ describe('buildAnalysisTabExport', () => {
       headerSpec,
     }));
     const tfs = p.per_timeframe_alignment;
-    expect(tfs).toHaveLength(4);
-    const slow = tfs.find((t: { name: string }) => t.name === 'SLOW');
+    expect(tfs).toHaveLength(10);
+    const slow = tfs.find((t: { name: string }) => t.name === 'SLOW1');
     expect(slow.active).toBe(false);
     expect(slow.regime).toBe('OFFLINE');
-    const micro = tfs.find((t: { name: string }) => t.name === 'MICRO');
+    const micro = tfs.find((t: { name: string }) => t.name === 'MICRO1');
     expect(micro.trend_display).toBe('+0.42');
     expect(micro.overall_display).toBe('+1.0');
   });
@@ -216,7 +216,7 @@ describe('buildAnalysisTabExport', () => {
   it('split-tone hero label matches the screen ("Split signals", no parenthetical)', () => {
     const split = {
       ...makeAnalysis(),
-      supporting_signals: ['MICRO (bullish): score +35, TRENDING regime, 1 signal'],
+      supporting_signals: ['MICRO1 (bullish): score +35, TRENDING regime, 1 signal'],
       contradicting_signals: ['SLOW (bearish): score -30, RANGE regime, 1 signal'],
     };
     const p = JSON.parse(buildAnalysisTabExport({
@@ -240,10 +240,10 @@ describe('buildAnalysisTabExport', () => {
       bias: 'Neutral' as const,
       supporting_signals: [] as string[],
       contradicting_signals: [
-        'MICRO (bullish): score +26, TRENDING regime, 31 signals',
-        'FAST (bullish): score +56, TRENDING regime, 25 signals',
+        'MICRO1 (bullish): score +26, TRENDING regime, 31 signals',
+        'FAST1 (bullish): score +56, TRENDING regime, 25 signals',
         'SLOW (bullish): score +43, TRENDING regime, 21 signals',
-        'MACRO (bullish): score +17, COMPRESSION regime, 32 signals',
+        'MACRO1 (bullish): score +17, COMPRESSION regime, 32 signals',
       ],
     };
     const p = JSON.parse(buildAnalysisTabExport({
@@ -291,7 +291,7 @@ describe('buildAnalysisTabExport', () => {
     }
     expect(p.qualitative_assessment.cycle_phase).toBe('—');
     expect(p.rationale).toBe('—');
-    expect(p.per_timeframe_alignment).toHaveLength(4);
+    expect(p.per_timeframe_alignment).toHaveLength(10);
     for (const tf of p.per_timeframe_alignment) {
       expect(tf.trend_display).toBe('—');
       expect(tf.regime).toBe('OFFLINE');
@@ -320,8 +320,8 @@ describe('buildAnalysisTabExport', () => {
     const p = JSON.parse(buildAnalysisTabExport({
       analysis: {
         ...makeAnalysis(),
-        supporting_signals: ['MICRO (neutral): score +0, RANGE regime, 0 signals'],
-        contradicting_signals: ['FAST (neutral): score +0, RANGE regime, 0 signals'],
+        supporting_signals: ['MICRO1 (neutral): score +0, RANGE regime, 0 signals'],
+        contradicting_signals: ['FAST1 (neutral): score +0, RANGE regime, 0 signals'],
       } as unknown as AnalysisMatrix,
       alignment: makeAlignment(),
       symbol: 'BTC-USDT',
@@ -355,8 +355,8 @@ describe('buildAnalysisTabExport', () => {
       analysis: {
         ...makeAnalysis(),
         supporting_signals: [
-          'MICRO (bullish): score +35, TRENDING regime, 3 signals',
-          'FAST (bullish): score +25, TRENDING regime, 2 signals',
+          'MICRO1 (bullish): score +35, TRENDING regime, 3 signals',
+          'FAST1 (bullish): score +25, TRENDING regime, 2 signals',
           'SLOW (bullish): score +15, TRENDING regime, 1 signal',
         ],
         contradicting_signals: [],

@@ -2,7 +2,7 @@
     // MtfView — Facet #6 of the redesigned Metrics view.
     //
     // Cross-timeframe comparison: lists every enabled indicator with its
-    // normalized value across the 4 timeframes (Micro / Fast / Slow / Macro)
+    // normalized value across the 10 fixed-ladder timeframes (Micro1..Longterm2)
     // and a per-row agreement ratio (bullish / bearish / mixed). Helps the
     // trader see at a glance which indicators agree across timeframes and
     // which diverge — a key signal of regime change.
@@ -13,8 +13,8 @@
     // tagged with its producing timeframe.
     //
     // v6.13: the freeform cross-TF signals list is replaced by three stacked
-    // 4-TF-column tables in the same visual language as the indicator grid
-    // (each with its own Micro / Fast / Slow / Macro header row):
+    // 10-TF-column tables in the same visual language as the indicator grid
+    // (each with its own Micro1..Longterm2 header row):
     //   SIGNALS      — 12 signal kinds × per-TF active-signal counts
     //   DIVERGENCES  — divergence-capable indicators × strongest sub-type per TF
     //   LEVELS       — 9 level kinds × per-TF LevelTest-signal counts
@@ -38,9 +38,9 @@
     //     support-vs-resistance split.
 
     import type {
-        IndicatorMeta, IndicatorSignal, SignalKind, TimeframeTelemetry,
+        IndicatorMeta, IndicatorSignal, SignalKind, TimeframeSlotKind, TimeframeTelemetry,
     } from '../../types';
-    import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
+    import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../../types';    import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
     import { normColor, ageLabel } from '../../lib/scoreStyles';
     import {
         classifyDivergence, divergenceLabel, divergenceAccent,
@@ -54,16 +54,14 @@
     import styles from './MtfView.module.css';
 
     interface Props {
-        pair: {
-            microTerm: TimeframeTelemetry;
-            fastTerm: TimeframeTelemetry;
-            slowTerm: TimeframeTelemetry;
-            macroTerm: TimeframeTelemetry;
-        };
+        terms: Record<TimeframeSlotKind, TimeframeTelemetry>;
         registry: IndicatorMeta[];
+        /** v11.2 — the ACTIVE slot ladder (fastest N of the fixed pool).
+         *  The grid renders one column per ACTIVE slot; absent → all 10. */
+        activeSlots?: TimeframeSlotKind[];
     }
 
-    let { pair, registry }: Props = $props();
+    let { terms, registry, activeSlots }: Props = $props();
 
     interface TimeframeSlot {
         label: string;
@@ -71,12 +69,13 @@
         secs: number;
     }
 
-    const SLOTS = $derived<TimeframeSlot[]>([
-        { label: 'Micro', tf: pair.microTerm, secs: pair.microTerm.barDurationSec },
-        { label: 'Fast',  tf: pair.fastTerm,  secs: pair.fastTerm.barDurationSec  },
-        { label: 'Slow',  tf: pair.slowTerm,  secs: pair.slowTerm.barDurationSec  },
-        { label: 'Macro', tf: pair.macroTerm, secs: pair.macroTerm.barDurationSec },
-    ]);
+    const SLOTS = $derived<TimeframeSlot[]>(
+        (activeSlots && activeSlots.length > 0 ? activeSlots : [...TIMEFRAME_SLOT_KINDS]).map((slot) => ({
+            label: TIMEFRAME_SLOT_LABELS[slot].toUpperCase(),
+            tf: terms[slot],
+            secs: terms[slot].barDurationSec,
+        }))
+    );
 
     interface IndicatorMtf {
         meta: IndicatorMeta;
@@ -134,7 +133,7 @@
             .filter((g) => g.items.length > 0);
     });
 
-    // ── Indicators heading tally: per-row 4-TF agreement split (only
+    // ── Indicators heading tally: per-row multi-TF agreement split (only
     // rows with at least one real reading contribute). ──
     const indicatorLean = $derived.by(() => {
         const t = { bull: 0, bear: 0, mixed: 0 };
@@ -533,7 +532,7 @@
         <div class={styles.placeholder}>No indicators in the registry yet. Awaiting indicator registry…</div>
     {:else}
         {#if !(collapsed['indicators'] ?? false)}
-            <!-- ── TF summary bar (Micro / Fast / Slow / Macro) — sits above
+            <!-- ── TF summary bar (Micro1..Longterm2) — sits above
                  the Indicators heading so the column header is the first thing
                  a reader sees, then the grid below it. -->
             <div class={styles.summary}>
@@ -566,7 +565,7 @@
                 {rows.length} indicator{rows.length === 1 ? '' : 's'}
             </span>
             {#if indicatorLeanTotal > 0}
-                <span class={styles.headingBadges} title={`BULL ${indicatorLean.bull} · BEAR ${indicatorLean.bear} · MIXED ${indicatorLean.mixed} — per-indicator agreement across all 4 timeframes`}>
+                <span class={styles.headingBadges} title={`BULL ${indicatorLean.bull} · BEAR ${indicatorLean.bear} · MIXED ${indicatorLean.mixed} — per-indicator agreement across all 10 timeframes`}>
                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {indicatorLit === 'bull' ? styles.dirBadgeLit : ''}"
                           data-dir="bull" data-lit={indicatorLit === 'bull' ? 'true' : 'false'}>
                         BULL {indicatorLean.bull}
@@ -632,7 +631,7 @@
         {/if}
 
         <!-- ── Stacked cross-timeframe tables (v6.13 / v6.14) ───────────
-             Signals / Divergences / Levels each rendered as a 4-TF-column
+             Signals / Divergences / Levels each rendered as a 10-TF-column
              table in the same visual language as the indicator grid above:
              a per-table Micro/Fast/Slow/Macro header row, one row per
              entity, '·' in empty cells. Section titles live OUTSIDE the
@@ -665,7 +664,7 @@
                 {totalSignalCount} signal{totalSignalCount === 1 ? '' : 's'}
             </span>
             {#if tallyTotal(globalSignalLean) > 0}
-                <span class={styles.headingBadges} title={`Bullish ${globalSignalLean.bull} · Bearish ${globalSignalLean.bear} · Neutral ${globalSignalLean.neutral} — across all 4 timeframes`}>
+                <span class={styles.headingBadges} title={`Bullish ${globalSignalLean.bull} · Bearish ${globalSignalLean.bear} · Neutral ${globalSignalLean.neutral} — across all 10 timeframes`}>
                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {litSide(globalSignalLean.bull, globalSignalLean.bear) === 'bull' ? styles.dirBadgeLit : ''}"
                           data-dir="bull" data-lit={litSide(globalSignalLean.bull, globalSignalLean.bear) === 'bull' ? 'true' : 'false'}>
                         ▲ {globalSignalLean.bull}
@@ -715,7 +714,7 @@
                                         {/if}
                                     </span>
                                 {/each}
-                                <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Neutral ${totals.neutral} — summed across all 4 timeframes`}>
+                                <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Neutral ${totals.neutral} — summed across all 10 timeframes`}>
                                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
                                           data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
                                         ▲ {totals.bull}
@@ -751,7 +750,7 @@
             </span>
             {#if totalDivergenceCount > 0}
                 {@const lit = globalDivergenceLean === 'BULL' ? 'bull' : globalDivergenceLean === 'BEAR' ? 'bear' : null}
-                <span class={styles.headingBadges} title={`Bullish ${globalDivergenceTally.bull} · Bearish ${globalDivergenceTally.bear} · Unknown ${globalDivergenceTally.unknown} — across all 4 timeframes`}>
+                <span class={styles.headingBadges} title={`Bullish ${globalDivergenceTally.bull} · Bearish ${globalDivergenceTally.bear} · Unknown ${globalDivergenceTally.unknown} — across all 10 timeframes`}>
                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
                           data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
                         ▲ {globalDivergenceTally.bull}
@@ -794,7 +793,7 @@
                                         {sub ? divShort(sub) : '·'}
                                     </span>
                                 {/each}
-                                <span class={styles.tblTotal} title={`Bullish ${r.bullCount} · Bearish ${r.bearCount} · Unknown ${r.unknownCount} — summed across all 4 timeframes`}>
+                                <span class={styles.tblTotal} title={`Bullish ${r.bullCount} · Bearish ${r.bearCount} · Unknown ${r.unknownCount} — summed across all 10 timeframes`}>
                                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {r.directionLabel === 'BULL' ? styles.dirBadgeLit : ''}"
                                           data-dir="bull" data-lit={r.directionLabel === 'BULL' ? 'true' : 'false'}>
                                         ▲ {r.bullCount}

@@ -2,11 +2,16 @@
 //!
 //! Verifies that:
 //!   1. `compute_cluster_for_tf` reads the **TF-specific** history, not
-//!      just the micro TF's history.
-//!   2. Each TF pipeline owns its own `cluster_matrix` handle (4 separate
+//!      just the fastest TF's history.
+//!   2. Each TF pipeline owns its own `cluster_matrix` handle (separate
 //!      `Arc<RwLock<...>>` instances, not a shared one).
-//!   3. Failures (no micro snapshot, no OI, insufficient history) bubble
+//!   3. Failures (no snapshot, no OI, insufficient history) bubble
 //!      up as `ClusterRefreshError` rather than silently returning None.
+//!
+//! v11.1: the ActivePair carries the FIXED 10-slot ladder. These tests use
+//! three distinct ladder slots (closest fixed-ladder equivalents of the
+//! legacy micro@60s / fast@300s / macro@900s trio); every other slot is a
+//! default pipe that the cluster assertions never touch.
 //!
 //! Run via `./manage.sh test-engine`.
 
@@ -22,6 +27,13 @@ use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
 use portfolio_supervisor::session::ExchangeChoice;
 use rust_decimal::Decimal;
+
+/// Ladder indexes under test (positional with `FIXED_TF_SLOTS` /
+/// `FIXED_TF_LADDER`): slow2=60s, macro2=300s, longterm1=900s. The
+/// remaining slots are default pipes; the assertions never touch them.
+const MIDX: usize = 5; // 60s — "micro-equivalent" slot
+const FIDX: usize = 7; // 300s — "fast-equivalent" slot
+const AIDX: usize = 8; // 900s — "macro-equivalent" slot
 
 fn make_pipe(
     slot: TimeframeSlot,
@@ -63,6 +75,47 @@ fn make_pipe(
     }
 }
 
+/// Build a full fixed-ladder `ActivePair`. `overrides` supplies prepared
+/// pipelines at specific ladder indexes; every other slot gets a default
+/// pipe bound to its fixed-ladder duration.
+fn make_full_pair(mut overrides: [Option<TimeframePipeline>; 10]) -> ActivePair {
+    let (tx, _) = broadcast::channel::<MarketSnapshot>(1);
+    let pipes: [TimeframePipeline; 10] = std::array::from_fn(|i| {
+        overrides[i].take().unwrap_or_else(|| {
+            make_pipe(
+                core_domain::models::FIXED_TF_SLOTS[i],
+                config_models::FIXED_TF_LADDER[i],
+                tx.clone(),
+            )
+        })
+    });
+    let [p0, p1, p2, p3, p4, p5, p6, p7, p8, p9] = pipes;
+    ActivePair {
+        symbol: "BTC-USDT".into(),
+        custom_pipelines: std::collections::HashMap::new(),
+        micro1: p0,
+        micro2: p1,
+        fast1: p2,
+        fast2: p3,
+        slow1: p4,
+        slow2: p5,
+        macro1: p6,
+        macro2: p7,
+        longterm1: p8,
+        longterm2: p9,
+        snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
+        cancel: tokio_util::sync::CancellationToken::new(),
+        latest_oi: Arc::new(RwLock::new(None)),
+        latest_funding: Arc::new(RwLock::new(None)),
+        latest_mark_px: Arc::new(RwLock::new(None)),
+        latest_index_px: Arc::new(RwLock::new(None)),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        latency_tracker: Arc::new(Default::default()),
+        active_count: 10,
+    }
+}
+
 fn make_snap_history(closes: Vec<f64>) -> MarketSnapshot {
     use rust_decimal::prelude::FromPrimitive;
     let mut snap = MarketSnapshot::default_for_test("BTC-USDT", 60);
@@ -84,9 +137,25 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
 
     // Three TFs with three different price histories.
     let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(10);
-    let micro_pipe = make_pipe(TimeframeSlot::Micro, 60, bcast_tx.clone());
-    let fast_pipe = make_pipe(TimeframeSlot::Fast, 300, bcast_tx.clone());
-    let macro_pipe = make_pipe(TimeframeSlot::Macro, 900, bcast_tx);
+    let mut slots: [Option<TimeframePipeline>; 10] = std::array::from_fn(|_| None);
+    slots[MIDX] = Some(make_pipe(
+        core_domain::models::FIXED_TF_SLOTS[MIDX],
+        config_models::FIXED_TF_LADDER[MIDX],
+        bcast_tx.clone(),
+    ));
+    slots[FIDX] = Some(make_pipe(
+        core_domain::models::FIXED_TF_SLOTS[FIDX],
+        config_models::FIXED_TF_LADDER[FIDX],
+        bcast_tx.clone(),
+    ));
+    slots[AIDX] = Some(make_pipe(
+        core_domain::models::FIXED_TF_SLOTS[AIDX],
+        config_models::FIXED_TF_LADDER[AIDX],
+        bcast_tx,
+    ));
+    let micro_pipe = slots[MIDX].as_ref().unwrap();
+    let fast_pipe = slots[FIDX].as_ref().unwrap();
+    let macro_pipe = slots[AIDX].as_ref().unwrap();
 
     // Micro history: range 49_500 → 50_500 (down move).
     {
@@ -154,73 +223,63 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
     *fast_pipe.latest_snapshot.write().await = Some(make_snap_history(vec![51_000.0]));
     *macro_pipe.latest_snapshot.write().await = Some(make_snap_history(vec![50_000.0]));
 
-    let active = Arc::new(ActivePair {
-        symbol: "BTC-USDT".into(),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro: micro_pipe,
-        fast: fast_pipe,
-        slow: make_pipe(TimeframeSlot::Slow, 600, {
-            let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-            t
-        }),
-        r#macro: macro_pipe,
-        snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
-        cancel: tokio_util::sync::CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(Some(Decimal::from(1_000_000)))),
-        latest_funding: Arc::new(RwLock::new(Some(
-            Decimal::from_f64_retain(0.0001).unwrap_or_default(),
-        ))),
-        latest_mark_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
-        latest_index_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-        latency_tracker: Arc::new(Default::default()),
-    });
+    let active = Arc::new(make_full_pair(slots));
 
     let cfg = test_config();
 
-    // Compute one cluster for each TF; we use clone of the handle via
-    // `active.{slot}.cluster_matrix` to confirm the per-TF isolation.
+    // Compute one cluster for each TF; we use a clone of the handle via
+    // `active.all()[slot]` to confirm the per-TF isolation.
     let micro_m = compute_cluster_for_tf(
         &active,
-        TimeframeSlot::Micro,
+        core_domain::models::FIXED_TF_SLOTS[MIDX],
         &cfg,
         ExchangeChoice::Hyperliquid,
         &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
     )
     .await
     .expect("micro should compute");
-    active.micro.cluster_matrix.write().await.replace(micro_m);
+    active.all()[MIDX]
+        .cluster_matrix
+        .write()
+        .await
+        .replace(micro_m);
 
     let fast_m = compute_cluster_for_tf(
         &active,
-        TimeframeSlot::Fast,
+        core_domain::models::FIXED_TF_SLOTS[FIDX],
         &cfg,
         ExchangeChoice::Hyperliquid,
         &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
     )
     .await
     .expect("fast should compute");
-    active.fast.cluster_matrix.write().await.replace(fast_m);
+    active.all()[FIDX]
+        .cluster_matrix
+        .write()
+        .await
+        .replace(fast_m);
 
     let macro_m = compute_cluster_for_tf(
         &active,
-        TimeframeSlot::Macro,
+        core_domain::models::FIXED_TF_SLOTS[AIDX],
         &cfg,
         ExchangeChoice::Hyperliquid,
         &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
     )
     .await
     .expect("macro should compute");
-    active.r#macro.cluster_matrix.write().await.replace(macro_m);
+    active.all()[AIDX]
+        .cluster_matrix
+        .write()
+        .await
+        .replace(macro_m);
 
     // Each TF's cluster_matrix handle is now populated with **different**
     // matrices because the price histories differ. Every cluster matrix
     // must be valid (non-empty short/long clusters) even when the
     // histories are different.
     assert!(
-        !active
-            .micro
+        !active.all()[MIDX]
             .cluster_matrix
             .read()
             .await
@@ -228,8 +287,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
             .unwrap()
             .short_clusters
             .is_empty()
-            || !active
-                .micro
+            || !active.all()[MIDX]
                 .cluster_matrix
                 .read()
                 .await
@@ -240,8 +298,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
         "micro cluster should detect at least one cluster with 20-bar history"
     );
     assert!(
-        !active
-            .fast
+        !active.all()[FIDX]
             .cluster_matrix
             .read()
             .await
@@ -249,8 +306,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
             .unwrap()
             .short_clusters
             .is_empty()
-            || !active
-                .fast
+            || !active.all()[FIDX]
                 .cluster_matrix
                 .read()
                 .await
@@ -261,8 +317,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
         "fast cluster should detect at least one cluster"
     );
     assert!(
-        !active
-            .r#macro
+        !active.all()[AIDX]
             .cluster_matrix
             .read()
             .await
@@ -270,8 +325,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
             .unwrap()
             .short_clusters
             .is_empty()
-            || !active
-                .r#macro
+            || !active.all()[AIDX]
                 .cluster_matrix
                 .read()
                 .await
@@ -282,10 +336,10 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
         "macro cluster should detect at least one cluster"
     );
 
-    // All 4 handles are distinct Arc instances (per-TF isolation).
-    let h_micro = Arc::as_ptr(&active.micro.cluster_matrix) as *const u8;
-    let h_fast = Arc::as_ptr(&active.fast.cluster_matrix) as *const u8;
-    let h_macro = Arc::as_ptr(&active.r#macro.cluster_matrix) as *const u8;
+    // All handles are distinct Arc instances (per-TF isolation).
+    let h_micro = Arc::as_ptr(&active.all()[MIDX].cluster_matrix) as *const u8;
+    let h_fast = Arc::as_ptr(&active.all()[FIDX].cluster_matrix) as *const u8;
+    let h_macro = Arc::as_ptr(&active.all()[AIDX].cluster_matrix) as *const u8;
     assert_ne!(h_micro, h_fast, "micro and fast must have distinct handles");
     assert_ne!(h_fast, h_macro, "fast and macro must have distinct handles");
     assert_ne!(
@@ -299,39 +353,19 @@ async fn per_tf_cluster_refresh_returns_error_when_no_snapshot() {
     use portfolio_supervisor::registry::pipelines::compute_cluster_for_tf;
 
     let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(10);
-    let micro_pipe = make_pipe(TimeframeSlot::Micro, 60, bcast_tx);
+    let mut slots: [Option<TimeframePipeline>; 10] = std::array::from_fn(|_| None);
+    slots[MIDX] = Some(make_pipe(
+        core_domain::models::FIXED_TF_SLOTS[MIDX],
+        config_models::FIXED_TF_LADDER[MIDX],
+        bcast_tx,
+    ));
 
-    let active = Arc::new(ActivePair {
-        symbol: "BTC-USDT".into(),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro: micro_pipe,
-        fast: make_pipe(TimeframeSlot::Fast, 300, {
-            let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-            t
-        }),
-        slow: make_pipe(TimeframeSlot::Slow, 600, {
-            let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-            t
-        }),
-        r#macro: make_pipe(TimeframeSlot::Macro, 900, {
-            let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-            t
-        }),
-        snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
-        cancel: tokio_util::sync::CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-        latency_tracker: Arc::new(Default::default()),
-    });
+    let active = Arc::new(make_full_pair(slots));
 
     // No snapshot populated → must return the NoSnapshotYet variant.
     let result = compute_cluster_for_tf(
         &active,
-        TimeframeSlot::Micro,
+        core_domain::models::FIXED_TF_SLOTS[MIDX],
         &test_config(),
         ExchangeChoice::Hyperliquid,
         &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
@@ -349,43 +383,24 @@ async fn per_tf_cluster_refresh_returns_error_when_no_oi() {
     use portfolio_supervisor::registry::pipelines::compute_cluster_for_tf;
 
     let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(10);
-    let micro_pipe = make_pipe(TimeframeSlot::Micro, 60, bcast_tx);
+    let mut slots: [Option<TimeframePipeline>; 10] = std::array::from_fn(|_| None);
+    slots[MIDX] = Some(make_pipe(
+        core_domain::models::FIXED_TF_SLOTS[MIDX],
+        config_models::FIXED_TF_LADDER[MIDX],
+        bcast_tx,
+    ));
+    let micro_pipe = slots[MIDX].as_ref().unwrap();
 
     // Snapshot exists but no OI.
     let mut snap = make_snap_history(vec![50_000.0]);
     snap.open_interest = None;
     *micro_pipe.latest_snapshot.write().await = Some(snap);
 
-    let active = Arc::new(ActivePair {
-        symbol: "BTC-USDT".into(),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro: micro_pipe,
-        fast: make_pipe(TimeframeSlot::Fast, 300, {
-            let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-            t
-        }),
-        slow: make_pipe(TimeframeSlot::Slow, 600, {
-            let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-            t
-        }),
-        r#macro: make_pipe(TimeframeSlot::Macro, 900, {
-            let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-            t
-        }),
-        snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
-        cancel: tokio_util::sync::CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-        latency_tracker: Arc::new(Default::default()),
-    });
+    let active = Arc::new(make_full_pair(slots));
 
     let result = compute_cluster_for_tf(
         &active,
-        TimeframeSlot::Micro,
+        core_domain::models::FIXED_TF_SLOTS[MIDX],
         &test_config(),
         ExchangeChoice::Hyperliquid,
         &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
@@ -404,45 +419,26 @@ async fn cluster_refresh_skip_reason_templates_on_active_exchange() {
 
     async fn build_active() -> Arc<ActivePair> {
         let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(10);
-        let micro_pipe = make_pipe(TimeframeSlot::Micro, 60, bcast_tx);
+        let mut slots: [Option<TimeframePipeline>; 10] = std::array::from_fn(|_| None);
+        slots[MIDX] = Some(make_pipe(
+            core_domain::models::FIXED_TF_SLOTS[MIDX],
+            config_models::FIXED_TF_LADDER[MIDX],
+            bcast_tx,
+        ));
+        let micro_pipe = slots[MIDX].as_ref().unwrap();
 
         // Snapshot exists but no OI → NoOpenInterest variant fires.
         let mut snap = make_snap_history(vec![50_000.0]);
         snap.open_interest = None;
         *micro_pipe.latest_snapshot.write().await = Some(snap);
 
-        Arc::new(ActivePair {
-            symbol: "BTC-USDT".into(),
-            custom_pipelines: std::collections::HashMap::new(),
-            micro: micro_pipe,
-            fast: make_pipe(TimeframeSlot::Fast, 300, {
-                let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-                t
-            }),
-            slow: make_pipe(TimeframeSlot::Slow, 600, {
-                let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-                t
-            }),
-            r#macro: make_pipe(TimeframeSlot::Macro, 900, {
-                let (t, _) = broadcast::channel::<MarketSnapshot>(1);
-                t
-            }),
-            snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
-            cancel: tokio_util::sync::CancellationToken::new(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-            latency_tracker: Arc::new(Default::default()),
-        })
+        Arc::new(make_full_pair(slots))
     }
 
     let active_hl = build_active().await;
     let err_hl = compute_cluster_for_tf(
         &active_hl,
-        TimeframeSlot::Micro,
+        core_domain::models::FIXED_TF_SLOTS[MIDX],
         &test_config(),
         ExchangeChoice::Hyperliquid,
         &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
@@ -464,7 +460,7 @@ async fn cluster_refresh_skip_reason_templates_on_active_exchange() {
     let active_bg = build_active().await;
     let err_bg = compute_cluster_for_tf(
         &active_bg,
-        TimeframeSlot::Micro,
+        core_domain::models::FIXED_TF_SLOTS[MIDX],
         &test_config(),
         ExchangeChoice::Bitget,
         &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
@@ -499,7 +495,7 @@ impl SnapshotTestHelpers for MarketSnapshot {
     fn default_for_test(symbol: &str, _secs: u64) -> MarketSnapshot {
         use std::collections::HashMap;
         MarketSnapshot {
-            timeframe_slot: Some(TimeframeSlot::Micro),
+            timeframe_slot: Some(TimeframeSlot::Micro1),
             exchange: Some(Exchange::Hyperliquid),
             timeframe_secs: 60,
             timestamp: 0,

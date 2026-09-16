@@ -103,10 +103,23 @@ pub struct Instance {
     pub pool: SqlitePool,
     pub workspace: WorkspaceState,
 
-    pub micro: TimeframeBuffers,
-    pub fast: TimeframeBuffers,
-    pub slow: TimeframeBuffers,
-    pub r#macro: TimeframeBuffers,
+    /// Fixed 10-slot ladder buffers (fastest → slowest), positionally
+    /// aligned with `core_domain::models::FIXED_TF_SLOTS` /
+    /// `config_models::FIXED_TF_LADDER`.
+    pub micro1: TimeframeBuffers,
+    pub micro2: TimeframeBuffers,
+    pub fast1: TimeframeBuffers,
+    pub fast2: TimeframeBuffers,
+    pub slow1: TimeframeBuffers,
+    pub slow2: TimeframeBuffers,
+    pub macro1: TimeframeBuffers,
+    pub macro2: TimeframeBuffers,
+    pub longterm1: TimeframeBuffers,
+    pub longterm2: TimeframeBuffers,
+
+    /// v11.2: the ACTIVE ladder durations (fastest N of the fixed pool).
+    /// Slots beyond this count exist in the buffers but never run.
+    pub active_secs: Vec<u64>,
 
     pub lifecycle: RwLock<LifecycleManager>,
 
@@ -127,10 +140,8 @@ impl Instance {
         workspace: WorkspaceState,
         inter_config: IntervalsConfig,
         safe_config: SafetyConfig,
-        micro: TimeframeBuffers,
-        fast: TimeframeBuffers,
-        slow: TimeframeBuffers,
-        r#macro: TimeframeBuffers,
+        buffers: [TimeframeBuffers; 10],
+        active_secs: Vec<u64>,
         operational_mode: config_models::OperationalMode,
     ) -> Self {
         let safety = Arc::new(SafetyManager::new(
@@ -161,10 +172,17 @@ impl Instance {
             active_pair,
             pool,
             workspace,
-            micro,
-            fast,
-            slow,
-            r#macro,
+            micro1: buffers[0].clone(),
+            micro2: buffers[1].clone(),
+            fast1: buffers[2].clone(),
+            fast2: buffers[3].clone(),
+            slow1: buffers[4].clone(),
+            slow2: buffers[5].clone(),
+            macro1: buffers[6].clone(),
+            macro2: buffers[7].clone(),
+            longterm1: buffers[8].clone(),
+            longterm2: buffers[9].clone(),
+            active_secs,
             lifecycle: RwLock::new(lifecycle_mgr),
             execution_mode: RwLock::new(config_models::ExecutionMode::Paper),
         }
@@ -199,8 +217,25 @@ impl Instance {
         format!("{}/{}", self.pair.0, self.pair.1)
     }
 
+    /// All ten fixed-ladder buffers, fastest → slowest (positional with
+    /// `FIXED_TF_SLOTS` / `FIXED_TF_LADDER`).
+    pub fn buffers(&self) -> [&TimeframeBuffers; 10] {
+        [
+            &self.micro1,
+            &self.micro2,
+            &self.fast1,
+            &self.fast2,
+            &self.slow1,
+            &self.slow2,
+            &self.macro1,
+            &self.macro2,
+            &self.longterm1,
+            &self.longterm2,
+        ]
+    }
+
     pub async fn latest_price(&self) -> Option<f64> {
-        self.micro
+        self.micro1
             .latest
             .read()
             .await
@@ -209,7 +244,7 @@ impl Instance {
     }
 
     pub async fn latest_close_str(&self) -> Option<String> {
-        self.micro
+        self.micro1
             .latest
             .read()
             .await
@@ -257,14 +292,17 @@ impl Instance {
 
         let cancel = CancellationToken::new();
         let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(2);
-        let new_pipeline = |slot: core_domain::models::TimeframeSlot| TimeframePipeline {
+        let new_pipeline = |slot: core_domain::models::TimeframeSlot,
+                            secs: u64|
+         -> TimeframePipeline {
+            TimeframePipeline {
             slot,
             history: Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::new())),
             broadcast_tx: bcast_tx.clone(),
             latest_snapshot: Arc::new(RwLock::new(None)),
             snapshot_history: Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new())),
-            timeframe_secs: 60,
-            timeframe_label: "Micro",
+            timeframe_secs: secs,
+            timeframe_label: "TEST",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(
                 market_analyzer::indicators::DivergenceDetector::new(20),
             )),
@@ -298,19 +336,32 @@ impl Instance {
             tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
             buffer_size: 500,
             stale_threshold_secs: 300,
+        }
         };
-        let micro_pipe = new_pipeline(core_domain::models::TimeframeSlot::Micro);
-        let fast_pipe = new_pipeline(core_domain::models::TimeframeSlot::Fast);
-        let slow_pipe = new_pipeline(core_domain::models::TimeframeSlot::Slow);
-        let macro_pipe = new_pipeline(core_domain::models::TimeframeSlot::Macro);
+        let empty_buffers = TimeframeBuffers::new();
+        let workspace = WorkspaceState::empty();
+        // Use a no-op sqlite pool for tests. We never hit the DB.
+        let pool =
+            sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite memory pool");
+
+        let slots = core_domain::models::FIXED_TF_SLOTS;
+        let ladder = config_models::FIXED_TF_LADDER;
+        let [micro_pipe, micro2_pipe, fast1_pipe, fast2_pipe, slow1_pipe, slow2_pipe, macro1_pipe, macro2_pipe, longterm1_pipe, longterm2_pipe] =
+            std::array::from_fn(|i| new_pipeline(slots[i], ladder[i]));
         let internal_symbol = format!("{}-{}", pair.0, pair.1);
         let active_pair = Arc::new(ActivePair {
             symbol: internal_symbol,
             custom_pipelines: std::collections::HashMap::new(),
-            micro: micro_pipe,
-            fast: fast_pipe,
-            slow: slow_pipe,
-            r#macro: macro_pipe,
+            micro1: micro_pipe,
+            micro2: micro2_pipe,
+            fast1: fast1_pipe,
+            fast2: fast2_pipe,
+            slow1: slow1_pipe,
+            slow2: slow2_pipe,
+            macro1: macro1_pipe,
+            macro2: macro2_pipe,
+            longterm1: longterm1_pipe,
+            longterm2: longterm2_pipe,
             snapshot_tx: tokio::sync::mpsc::channel::<NormalizedEvent>(8).0,
             cancel: cancel.clone(),
             latest_oi: Arc::new(RwLock::new(None)),
@@ -320,12 +371,8 @@ impl Instance {
             oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))), // AUDIT-AIU-051: (timestamp_secs, value)
             funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
             latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
+            active_count: 10,
         });
-        let empty_buffers = TimeframeBuffers::new();
-        let workspace = WorkspaceState::empty();
-        // Use a no-op sqlite pool for tests. We never hit the DB.
-        let pool =
-            sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite memory pool");
 
         Self {
             id,
@@ -342,10 +389,17 @@ impl Instance {
             active_pair,
             pool,
             workspace,
-            micro,
-            fast: empty_buffers.clone(),
-            slow: empty_buffers.clone(),
-            r#macro: empty_buffers,
+            micro1: micro,
+            micro2: empty_buffers.clone(),
+            fast1: empty_buffers.clone(),
+            fast2: empty_buffers.clone(),
+            slow1: empty_buffers.clone(),
+            slow2: empty_buffers.clone(),
+            macro1: empty_buffers.clone(),
+            macro2: empty_buffers.clone(),
+            longterm1: empty_buffers.clone(),
+            longterm2: empty_buffers,
+            active_secs: config_models::FIXED_TF_LADDER.to_vec(),
             lifecycle: RwLock::new(LifecycleManager::new_for_mode(
                 None,
                 Some(config_models::ExecutionMode::Paper),

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { makeTerms } from '../tests/makeTerms';
 import {
     aggregateHealthBars,
     collectHealthBarInputs,
@@ -93,10 +94,7 @@ describe('collectHealthBarInputs', () => {
             symbol: 'BTC-USDT',
             exchange: 'Hyperliquid',
             isConnected: true,
-            microTerm: {} as any,
-            fastTerm: {} as any,
-            slowTerm: {} as any,
-            macroTerm: {} as any,
+            terms: makeTerms(),
             historyLatestClose: '0',
             currentView: 'terminal',
             alignment: null,
@@ -156,10 +154,7 @@ describe('computeMarketHealth', () => {
             symbol: 'BTC-USDT',
             exchange: 'Hyperliquid',
             isConnected: true,
-            microTerm: {} as any,
-            fastTerm: {} as any,
-            slowTerm: {} as any,
-            macroTerm: {} as any,
+            terms: makeTerms(),
             historyLatestClose: '0',
             currentView: 'terminal',
             alignment: null,

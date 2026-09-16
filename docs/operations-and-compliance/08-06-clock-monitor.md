@@ -1,6 +1,6 @@
 # Clock Monitor (NTP Drift Enforcement)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 **Module path:** the clock-monitor task is spawned by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `[clock_monitor]` section of `config.toml`.
 
@@ -8,7 +8,7 @@
 
 The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC. A `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, or `:45:00.000`. **The boundary is the integer epoch multiple — never `:MM:59.999`.** This alignment is only correct if the local system clock is within the **≤100 µs drift budget** of true UTC.
 
-**Default budget (2026-08-17 audit).** The shipped `config.toml` and the `config-models` default set `threshold_micros = 10 000` (10 ms) — earlier revisions of this doc claimed a 50 µs default, but the runtime never enforced it (the 50 µs value survives only in `ClockMonitorConfig::default()` inside `network-adapters`, which the daemon does not construct). The 10 ms budget is 200× looser than the original intent: the maximum candle-boundary error stays below 0.17 % of the 60 s micro tier. Operators running direct-exchange colocation may tighten via `[clock_monitor] threshold_micros`; operators on cloud VPS with >100 µs typical jitter should keep the wider default.
+**Default budget (2026-08-17 audit).** The shipped `config.toml` and the `config-models` default set `threshold_micros = 10 000` (10 ms) — earlier revisions of this doc claimed a 50 µs default, but the runtime never enforced it (the 50 µs value survives only in `ClockMonitorConfig::default()` inside `network-adapters`, which the daemon does not construct). The 10 ms budget is 200× looser than the original intent: the maximum candle-boundary error stays below 0.17 % of the 60 s slot (`slow2`, the fastest archive-eligible slot of the fixed ladder). Operators running direct-exchange colocation may tighten via `[clock_monitor] threshold_micros`; operators on cloud VPS with >100 µs typical jitter should keep the wider default.
 
 The `ClockMonitor` enforces this budget by polling NTP servers at a configurable interval and reacting to threshold breaches.
 

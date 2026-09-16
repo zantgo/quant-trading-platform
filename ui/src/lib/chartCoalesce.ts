@@ -1,7 +1,8 @@
 import type { AppStore } from '../state.svelte';
-import type { IndicatorMap, TimeframeTelemetry } from '../types';
+import type { IndicatorMap, TimeframeSlotKind, TimeframeTelemetry } from '../types';
+import { getTerm } from './terms';
 
-export type ChartSlot = 'micro' | 'fast' | 'slow' | 'macro';
+export type ChartSlot = TimeframeSlotKind;
 
 export interface ChartCoalescer {
     effect: () => void;
@@ -49,12 +50,7 @@ export function makeChartCoalescer(
         const curSlot = getSlot();
         const pairVal = app.instancesMap[getPairKey()];
         if (!pairVal) return null;
-
-        const tfVal =
-            curSlot === 'micro' ? pairVal.microTerm :
-            curSlot === 'fast'  ? pairVal.fastTerm  :
-            curSlot === 'slow'  ? pairVal.slowTerm  :
-                                  pairVal.macroTerm;
+        const tfVal = getTerm(pairVal, curSlot);
 
         const rawSnap = tfVal?.latestSnapshot;
         if (!rawSnap) return null;

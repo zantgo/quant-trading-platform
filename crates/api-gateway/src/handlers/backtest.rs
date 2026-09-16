@@ -93,11 +93,11 @@ pub async fn serve_backfill_start(
             )
                 .into_response();
         };
-        let Some(tfs) = payload.timeframes.as_ref().filter(|t| t.len() == 4) else {
+        let Some(tfs) = payload.timeframes.as_ref().filter(|t| (1..=10).contains(&t.len())) else {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
-                    "error": "timeframes must be the 4-slot ladder",
+                    "error": "timeframes must contain 1..=10 values",
                     "code": "invalid_timeframes",
                 })),
             )
@@ -107,7 +107,7 @@ pub async fn serve_backfill_start(
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
-                    "error": "timeframes must be 4 strictly-ascending values ≥ 60s (the archive floor)",
+                    "error": "timeframes must be strictly-ascending values ≥ 60s (the archive floor)",
                     "code": "invalid_timeframes",
                 })),
             )
@@ -154,30 +154,24 @@ pub async fn serve_backfill_start(
         }
         exchange = instance.exchange.as_str().to_string();
         symbol = instance.symbol();
-        let ws = state.workspace.config().await;
-        let entry = ws.instances.iter().find(|e| e.symbol == symbol);
-        let micro = entry
-            .map(|e| e.micro_term.candles.duration_seconds)
-            .unwrap_or(60);
-        let fast = entry
-            .map(|e| e.fast_term.candles.duration_seconds)
-            .unwrap_or(180);
-        let slow = entry
-            .and_then(|e| e.slow_term.as_ref())
-            .map(|t| t.candles.duration_seconds)
-            .unwrap_or(ws.slow_timeframe.duration_seconds);
-        let macro_tf = entry
-            .and_then(|e| e.macro_term.as_ref())
-            .map(|t| t.candles.duration_seconds)
-            .unwrap_or(ws.macro_timeframe.duration_seconds);
-        ladder = vec![micro, fast, slow, macro_tf];
+        // v11.2: backfill follows the instance's ACTIVE ladder (fastest N
+        // of the fixed pool). The sub-minute slots impose no depth
+        // constraint here (the ceiling loop below skips <60s) and the
+        // backfill engine itself skips them downstream (HFP-03).
+        ladder = instance.active_secs.clone();
         job_key = instance_id.to_string();
     }
 
     // v8.2: per-TF depth ceilings — Hyperliquid's 5,000-candle endpoint
     // window and Bitget's per-granularity retention (measured). Validate
     // the requested depth and fail loudly naming the limiting TF.
+    // Sub-minute ladder slots (<60s) are skipped: they carry no archive
+    // history (HFP-03 — the backfill engine skips them downstream), so
+    // they impose no depth constraint.
     for tf in &ladder {
+        if *tf < 60 {
+            continue;
+        }
         let max_depth_secs = backtesting_engine::backfill::exchange_max_depth_secs(
             &exchange,
             *tf,
@@ -442,7 +436,6 @@ pub async fn serve_backtest_coverage(
     let mut exchange_name: Option<String> = None;
     if query.instance_id.is_some() || query.symbol.is_some() {
         if let Some(id) = &query.instance_id {
-            let ws_cfg = state.workspace.config().await;
             let instances = state.workspace.list().await;
             let inst = instances.iter().find(|i| i.id == *id);
             bound_symbols = Some(
@@ -453,31 +446,15 @@ pub async fn serve_backtest_coverage(
                     .collect(),
             );
             exchange_name = inst.map(|i| i.exchange.as_str().to_string());
-            bound_ladder = inst.map(|i| {
-                let symbol = i.symbol();
-                let entry = ws_cfg.instances.iter().find(|e| e.symbol == symbol);
-                let micro = entry
-                    .map(|e| e.micro_term.candles.duration_seconds)
-                    .unwrap_or(60);
-                let fast = entry
-                    .map(|e| e.fast_term.candles.duration_seconds)
-                    .unwrap_or(180);
-                let slow = entry
-                    .and_then(|e| e.slow_term.as_ref())
-                    .map(|t| t.candles.duration_seconds)
-                    .unwrap_or(ws_cfg.slow_timeframe.duration_seconds);
-                let macro_tf = entry
-                    .and_then(|e| e.macro_term.as_ref())
-                    .map(|t| t.candles.duration_seconds)
-                    .unwrap_or(ws_cfg.macro_timeframe.duration_seconds);
-                vec![micro, fast, slow, macro_tf]
-            });
+            // v11.2: coverage reports the ACTIVE ladder; sub-minute rows
+            // simply have no archive depth.
+            bound_ladder = inst.map(|i| i.active_secs.clone());
         } else if let Some(sym) = &query.symbol {
-            // v8.2 standalone: the launcher's ladder (the 4 preseeded
-            // tiers; coverage for the requested symbol).
+            // v8.2 standalone: the launcher's ladder (the archive-eligible
+            // subset of the fixed ladder; coverage for the requested symbol).
             bound_symbols = Some(vec![sym.clone()]);
             exchange_name = query.exchange.clone();
-            bound_ladder = Some(vec![60, 180, 300, 900]);
+            bound_ladder = Some(vec![60, 180, 300, 900, 3600]);
         }
     }
     // v8.2: per-TF max depth ceiling (Hyperliquid 5,000-candle endpoint
@@ -489,7 +466,7 @@ pub async fn serve_backtest_coverage(
         * bound_ladder
             .as_ref()
             .and_then(|l| l.iter().copied().max())
-            .unwrap_or(900) as i64;
+            .unwrap_or(3600) as i64;
     let archive_rows =
         database_storage::queries::archive::query_archive_coverage(&state.pool).await;
     let archive: Vec<serde_json::Value> = archive_rows

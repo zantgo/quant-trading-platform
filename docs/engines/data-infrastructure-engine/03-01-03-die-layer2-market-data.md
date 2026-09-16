@@ -1,6 +1,6 @@
 # DIE Layer 2 — Market Data Layer
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 2 of 4
@@ -97,26 +97,34 @@ The `live` candle returned on every tick is the **shadow** value — the real-ti
 
 ## 4. Multi-Timeframe Aggregation
 
-The platform monitors four timeframes per instance. The base (micro) timeframe is generated directly from ticks; higher timeframes are rolled up.
+The platform monitors the ACTIVE fixed-ladder timeframes per instance (the fastest `[workspace].active_timeframes` slots of the ten-slot pool, v11.2). The base slot (`micro1`, 1 s) is generated directly from ticks; the higher slots are rolled up.
 
-### 4.1 Standard Timeframe Ladder
+### 4.1 Standard Timeframe Ladder (fixed — v11.1)
 
-| Tier | Default Duration | Source |
-|------|------------------|--------|
-| Micro | 60 s | Direct from ticks (`CandleGenerator`). |
-| Fast | 180 s | Rollup / dedicated generator. |
-| Slow | 300 s | Config `[slow_timeframe]`. |
-| Macro | 900 s (configurable, e.g. 3600 s / 86400 s) | Config `[macro_timeframe]` + `CandleAggregator`. |
+| Slot | Duration | Source |
+|------|----------|--------|
+| `micro1` | 1 s | Direct from ticks (`CandleGenerator`). |
+| `micro2` | 3 s | Rollup / dedicated generator. |
+| `fast1` | 5 s | Rollup / dedicated generator. |
+| `fast2` | 15 s | Rollup / dedicated generator. |
+| `slow1` | 30 s | Rollup / dedicated generator. |
+| `slow2` | 60 s (1 m) | Rollup / dedicated generator. |
+| `macro1` | 180 s (3 m) | Rollup / dedicated generator. |
+| `macro2` | 300 s (5 m) | Rollup / dedicated generator. |
+| `longterm1` | 900 s (15 m) | Rollup / dedicated generator. |
+| `longterm2` | 3600 s (1 h) | Rollup / dedicated generator. |
+
+The ladder is **fixed** (`config_models::FIXED_TF_LADDER`) — the legacy `[slow_timeframe]` / `[macro_timeframe]` config keys are parsed but ignored (boot warning).
 
 ### 4.2 Higher-Timeframe Aggregation
 
-The `CandleAggregator` (`crates/market-analyzer/src/candle_aggregator.rs`) rolls the base micro candle stream into the configured `fast`, `slow`, and `macro` timeframe buckets. The duration of each tier is configured in `config.toml` (`[fast_timeframe.duration_seconds]`, `[slow_timeframe.duration_seconds]`, `[macro_timeframe.duration_seconds]`); the default ladder is micro 60 s / fast 180 s / slow 300 s / macro 900 s, but other ladders (e.g. 4h, 1d) are produced the same way when configured.
+The `CandleAggregator` (`crates/market-analyzer/src/candle_aggregator.rs`) rolls the base `micro1` candle stream into the higher fixed-ladder buckets (`micro2` … `longterm2`). The target durations are the fixed ladder constants — no longer read from `config.toml` (`[fast_timeframe.duration_seconds]` and friends are legacy, ignored since v11.1).
 
 ```
-1m close ──► process_1m_candle() ──► (Option<fast>, Option<slow>, Option<macro>)
+micro1 close ──► process_base_candle() ──► (Option<micro2>, …, Option<longterm2>)
              │
-             ├─ update pending_<tf>: high=max, low=min, close=latest, volume+=, count+=
-             └─ on interval rollover: emit completed <tf> candle, reset pending
+             ├─ update pending_<slot>: high=max, low=min, close=latest, volume+=, count+=
+             └─ on interval rollover: emit completed <slot> candle, reset pending
 ```
 
 Aggregation preserves OHLCV integrity: `high = max(highs)`, `low = min(lows)`, `close = last close`, `volume = Σ volumes`, `trades_count = Σ counts`.

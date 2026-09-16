@@ -1,6 +1,6 @@
 # Database Schema Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 
 **Status:** Specified — target of record
 
@@ -381,7 +381,7 @@ CREATE TABLE IF NOT EXISTS connection_quality_samples (
 CREATE INDEX IF NOT EXISTS idx_cq_pair_timeframe_window_time ON connection_quality_samples(pair_key, timeframe_secs, window, timestamp_ms DESC);
 ```
 
-The persistence loop in `crates/network-adapters/src/connection_quality_tracker.rs::run_persistence_loop` writes one row per (tracker × window) every 60 seconds; there is one tracker per `(pair_key, timeframe_secs)` pair, so a workspace with `N` symbols and a 4-tier ladder yields up to `4 × N` trackers, each producing 3 rows per 60s tick (one per window).
+The persistence loop in `crates/network-adapters/src/connection_quality_tracker.rs::run_persistence_loop` writes one row per (tracker × window) every 60 seconds; there is one tracker per `(pair_key, timeframe_secs)` pair, so a workspace with `N` symbols and the fixed 10-slot ladder yields up to `10 × N` trackers, each producing 3 rows per 60s tick (one per window).
 
 ### 3.10 `risk_control_events` — single-operator safety audit (v7)
 
@@ -601,7 +601,7 @@ The canonical v4.0 migration set adds eight changes:
 2. **`risk_control_events` new table** — populated retroactively from any prior in-memory audit log; if absent, history before v4.0 is uncovered (operator-visible notice on first launch).
 3. **`order_fills` activation** — added (live); the PAE contract is upgraded to per-fill attribution.
 4. **`market_snapshots` partial-persistence scope** — schema unchanged; column-level persistence scope documented in §3.1 (the wire contract remains authoritative).
-5. **`connection_quality_samples` instance + timeframe scope** — adds `timeframe_secs` and reindexes `idx_cq_pair_window_time` → `idx_cq_pair_timeframe_window_time`. Existing rows from earlier versions may lack the new `timeframe_secs` column and require the migration to default to `60` (micro).
+5. **`connection_quality_samples` instance + timeframe scope** — adds `timeframe_secs` and reindexes `idx_cq_pair_window_time` → `idx_cq_pair_timeframe_window_time`. Existing rows from earlier versions may lack the new `timeframe_secs` column and require the migration to default to `60` (`slow2`).
 6. **`liquidity_signals_json` always-present policy** — `DEFAULT '[]' CHECK (json_valid(...))`; migration backfills `'[]'` for any prior `NULL` or absent row.
 7. **`funding_rate_8h` nullable semantics** — column type changes from `TEXT NOT NULL '0'` to `TEXT` (nullable) with `CHECK (value IS NULL OR value GLOB ...)`. Existing `0` literals remain `0` (= explicit-disable); missing values become `NULL` (= inherit global). This column is a named exception to the retired per-column GLOB CHECKs (§1.1) and retains its GLOB CHECK until its next migration. See [`06-01 §2.5 / §2.6`](06-01-api-gateway-contract.md).
 8. **`open_orders.is_emergency_liquidation`** — adds `open_orders.is_emergency_liquidation` (active tables unchanged at 26).

@@ -566,7 +566,7 @@ pub async fn serve_get_portfolio(
             let symbol = inst.symbol();
             let engine = &state.execution_engine;
             let mid = {
-                let guard = inst.micro.latest.read().await;
+                let guard = inst.micro1.latest.read().await;
                 guard.as_ref().map(|s| s.mid_price).unwrap_or_default()
             };
             let equity = engine.get_equity_decimal().await;
@@ -728,7 +728,7 @@ pub async fn serve_get_exposure(
     let engine = &state.execution_engine;
     let equity = engine.get_equity_decimal().await;
     let mid = {
-        let guard = inst.micro.latest.read().await;
+        let guard = inst.micro1.latest.read().await;
         guard.as_ref().map(|s| s.mid_price).unwrap_or_default()
     };
 
@@ -800,7 +800,7 @@ pub async fn serve_get_capital(
 
     let position = engine.get_position(&symbol).await;
     let mid = {
-        let guard = inst.micro.latest.read().await;
+        let guard = inst.micro1.latest.read().await;
         guard.as_ref().map(|s| s.mid_price).unwrap_or_default()
     };
     let positions: Vec<core_domain::portfolio::PositionMatrix> = if let Some(pos) = &position {
@@ -1055,7 +1055,7 @@ pub async fn serve_automation_close(
     let symbol = inst.symbol();
 
     let mid = {
-        let guard = inst.micro.latest.read().await;
+        let guard = inst.micro1.latest.read().await;
         guard.as_ref().map(|s| s.mid_price).unwrap_or_default()
     };
     if mid <= rust_decimal::Decimal::ZERO {
@@ -1156,20 +1156,55 @@ pub async fn serve_get_activation(
     .into_response()
 }
 
-/// POST /api/instances/:id/reload?slot=micro|fast|slow|macro|all —
-/// rebuild the instance's pipeline(s) (V7-310…314).
+/// POST /api/instances/:id/reload?slot=micro1|…|longterm2|all —
+/// rebuild the instance's pipeline(s) (V7-310…314). `all` (the default)
+/// delegates to the full recharge, which rebuilds all ten fixed-ladder
+/// TFs.
 pub async fn serve_reload_timeframe(
     State(state): State<Arc<AppState>>,
     Path(instance_id): Path<String>,
     Query(query): Query<InstanceDetailQuery>,
 ) -> impl IntoResponse {
     let slot = query.slot.as_deref().unwrap_or("all");
-    if slot != "all" && !matches!(slot, "micro" | "fast" | "slow" | "macro") {
+    if slot != "all"
+        && !matches!(
+            slot,
+            "micro1"
+                | "micro2"
+                | "fast1"
+                | "fast2"
+                | "slow1"
+                | "slow2"
+                | "macro1"
+                | "macro2"
+                | "longterm1"
+                | "longterm2"
+        )
+    {
         return (
             axum::http::StatusCode::BAD_REQUEST,
-            format!("Unknown slot '{}' (micro|fast|slow|macro|all)", slot),
+            format!(
+                "Unknown slot '{}' (micro1|micro2|fast1|fast2|slow1|slow2|macro1|macro2|longterm1|longterm2|all)",
+                slot
+            ),
         )
             .into_response();
+    }
+
+    if slot == "all" {
+        return match portfolio_supervisor::registry::recharge_instance(
+            &state.registry_context(),
+            &instance_id,
+        )
+        .await
+        {
+            Ok(()) => (
+                axum::http::StatusCode::OK,
+                format!("Instance {} recharged (slot=all)", instance_id),
+            )
+                .into_response(),
+            Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
+        };
     }
 
     match registry::reload_timeframe(&state.registry_context(), &instance_id, slot).await {

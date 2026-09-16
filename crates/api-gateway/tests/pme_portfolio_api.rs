@@ -43,7 +43,7 @@ async fn build_state() -> (Arc<AppState>, Arc<Instance>, Arc<ExecutionEngine>) {
         close: Some(dec!(110)),
         ..core_domain::models::MarketSnapshot::default()
     };
-    *instance.micro.latest.write().await = Some(snap);
+    *instance.micro1.latest.write().await = Some(snap);
 
     let workspace = portfolio_supervisor::workspace_state::WorkspaceState::empty();
     workspace

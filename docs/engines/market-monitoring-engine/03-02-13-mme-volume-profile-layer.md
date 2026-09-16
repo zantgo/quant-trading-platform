@@ -1,6 +1,6 @@
 # 03-02-13: MME Volume Profile Layer (L2.6 — Volume Profile Distribution)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layer:** L2.6 (Volume Profile Distribution)
@@ -115,8 +115,8 @@ the existing indicator cadence — no separate timer or polling.
 
 `ChartToggles.svelte` exposes a "VOL PROFILE" pill in the same group as
 "LIQ HEATMAP". Default state is `false` (opt-in). The flag lives on
-`TimeframeTelemetry.showVolumeProfile` (per-TF; the pill syncs all four
-TFs in the same way as the existing VWAP / Bollinger pills).
+`TimeframeTelemetry.showVolumeProfile` (per-TF; the pill syncs all ACTIVE slots, v11.2
+fixed-ladder TFs in the same way as the existing VWAP / Bollinger pills).
 
 ### Primitive
 
@@ -198,5 +198,5 @@ export interface VolumeProfileSnapshot {
 - `ui/src/lib/volumeProfile.test.ts` — wire-format round-trip, bin math,
   POC/VA identification, edge cases (empty, single bin, 100 bins).
 - `ui/src/components/ChartToggles.test.ts` — toggle flag propagation
-  across all 4 timeframes, toggle-off behavior, independence of the two
+  across all ACTIVE fixed-ladder timeframes (v11.2), toggle-off behavior, independence of the two
   toggle flags.

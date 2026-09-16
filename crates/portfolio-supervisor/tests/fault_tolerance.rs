@@ -27,6 +27,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let (telemetry_tx, _telemetry_rx) = mpsc::channel(10);
 
         let test_workspace = config_models::WorkspaceConfig {
+            active_timeframes: 10,
             id: "test".into(),
             name: "Test".into(),
             default_currency: "USDC".into(),
@@ -91,7 +92,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_pair_key,
                 60,
                 "Micro",
-                core_domain::models::TimeframeSlot::Micro,
+                core_domain::models::TimeframeSlot::Micro1,
                 analyzer_cancel,
                 None,
                 None,
@@ -106,9 +107,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 None,
                 config_models::OrderBookConfig::default(),
                 strategy,
-                Arc::new(RwLock::new(None)),
-                Arc::new(RwLock::new(None)),
-                Arc::new(RwLock::new(None)),
+                Vec::new(),
                 Arc::new(core_domain::LatencyTracker::default()),
                 market_analyzer::active_set::ActiveSet::default(),
                 None,

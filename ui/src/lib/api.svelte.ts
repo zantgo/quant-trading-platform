@@ -1,6 +1,7 @@
 import type { AppStore } from '../state.svelte';
 import type { InstanceState } from '../types';
 import { decide } from './watchlistScanner';
+import { slotsFromSecs } from './terms';
 
 export function formatIntervalRemaining(totalSeconds: number): string {
     const h = Math.floor(totalSeconds / 3600);
@@ -60,18 +61,20 @@ function pairKeyFromDeclaredSymbol(app: AppStore, symbol: string): string {
 export function applyConfigToStore(app: AppStore, config: Record<string, unknown>): ApplyConfigResult {
     app.apiKeyConfigured = (config.api_key_configured as boolean) ?? true;
 
+    // v11.2: `[workspace].active_timeframes` (1..=10, backend default 5) —
+    // how many of the FASTEST slots of the fixed ladder run. Seeded into
+    // the settings store so the MME TimeframeSettings editor starts from
+    // the authoritative value. The wire may carry it top-level or under a
+    // `workspace` sub-object; anything malformed leaves the store as-is.
+    const rawActive = config.active_timeframes
+        ?? (config.workspace as Record<string, unknown> | undefined)?.active_timeframes;
+    if (typeof rawActive === 'number' && Number.isInteger(rawActive) && rawActive >= 1 && rawActive <= 10) {
+        app.settings.activeTimeframes = rawActive;
+    }
+
     if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number };
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
     if (config.indicator_registry) app.indicatorRegistry = config.indicator_registry as import('../types').IndicatorMeta[];
-
-    // v7.2 parity: the workspace slow/macro ladder (registry fallback
-    // source) — the Launch Setup wizard's per-instance TF defaults.
-    const slowTf = (config.slow_timeframe as { duration_seconds?: number } | undefined)
-        ?.duration_seconds;
-    const macroTf = (config.macro_timeframe as { duration_seconds?: number } | undefined)
-        ?.duration_seconds;
-    if (typeof slowTf === 'number' && slowTf > 0) app.workspaceSlowTimeframeSecs = slowTf;
-    if (typeof macroTf === 'number' && macroTf > 0) app.workspaceMacroTimeframeSecs = macroTf;
 
     // `instances` is a `Vec<InstanceEntry>` on the wire (array, not Record)
     // — each entry carries `symbol` (exchange-native, e.g. "BTC-USDT") and
@@ -167,74 +170,13 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
             if (instMode === 'observe' || instMode === 'paper' || instMode === 'live') {
                 targetState.mode = instMode;
             }
-            if (specific.micro_term) {
-                targetState.microTerm.barDurationSec = specific.micro_term.candles.duration_seconds;
-                Object.assign(targetState.microTerm, {
-                    emaFastVal: specific.micro_term.indicators.ema_fast,
-                    emaMediumVal: specific.micro_term.indicators.ema_medium,
-                    emaSlowVal: specific.micro_term.indicators.ema_slow,
-                    emaLongVal: specific.micro_term.indicators.ema_long,
-                    rsiPeriodVal: specific.micro_term.indicators.rsi_period,
-                    macdFastVal: specific.micro_term.indicators.macd_fast,
-                    macdSlowVal: specific.micro_term.indicators.macd_slow,
-                    macdSignalVal: specific.micro_term.indicators.macd_signal,
-                    adxPeriodVal: specific.micro_term.indicators.adx_period,
-                    atrPeriodVal: specific.micro_term.indicators.atr_period,
-                    squeezePeriodVal: specific.micro_term.indicators.squeeze_period,
-                                        ...advancedIndicators(specific.micro_term.indicators as unknown as Record<string, unknown>),
-                });
-            }
-            if (specific.fast_term) {
-                targetState.fastTerm.barDurationSec = specific.fast_term.candles.duration_seconds;
-                Object.assign(targetState.fastTerm, {
-                    emaFastVal: specific.fast_term.indicators.ema_fast,
-                    emaMediumVal: specific.fast_term.indicators.ema_medium,
-                    emaSlowVal: specific.fast_term.indicators.ema_slow,
-                    emaLongVal: specific.fast_term.indicators.ema_long,
-                    rsiPeriodVal: specific.fast_term.indicators.rsi_period,
-                    macdFastVal: specific.fast_term.indicators.macd_fast,
-                    macdSlowVal: specific.fast_term.indicators.macd_slow,
-                    macdSignalVal: specific.fast_term.indicators.macd_signal,
-                    adxPeriodVal: specific.fast_term.indicators.adx_period,
-                    atrPeriodVal: specific.fast_term.indicators.atr_period,
-                    squeezePeriodVal: specific.fast_term.indicators.squeeze_period,
-                                        ...advancedIndicators(specific.fast_term.indicators as unknown as Record<string, unknown>),
-                });
-            }
-            if (specific.slow_term) {
-                targetState.slowTerm.barDurationSec = specific.slow_term.candles.duration_seconds;
-                Object.assign(targetState.slowTerm, {
-                    emaFastVal: specific.slow_term.indicators.ema_fast,
-                    emaMediumVal: specific.slow_term.indicators.ema_medium,
-                    emaSlowVal: specific.slow_term.indicators.ema_slow,
-                    emaLongVal: specific.slow_term.indicators.ema_long,
-                    rsiPeriodVal: specific.slow_term.indicators.rsi_period,
-                    macdFastVal: specific.slow_term.indicators.macd_fast,
-                    macdSlowVal: specific.slow_term.indicators.macd_slow,
-                    macdSignalVal: specific.slow_term.indicators.macd_signal,
-                    adxPeriodVal: specific.slow_term.indicators.adx_period,
-                    atrPeriodVal: specific.slow_term.indicators.atr_period,
-                    squeezePeriodVal: specific.slow_term.indicators.squeeze_period,
-                                        ...advancedIndicators(specific.slow_term.indicators as unknown as Record<string, unknown>),
-                });
-            }
-            if (specific.macro_term) {
-                targetState.macroTerm.barDurationSec = specific.macro_term.candles.duration_seconds;
-                Object.assign(targetState.macroTerm, {
-                    emaFastVal: specific.macro_term.indicators.ema_fast,
-                    emaMediumVal: specific.macro_term.indicators.ema_medium,
-                    emaSlowVal: specific.macro_term.indicators.ema_slow,
-                    emaLongVal: specific.macro_term.indicators.ema_long,
-                    rsiPeriodVal: specific.macro_term.indicators.rsi_period,
-                    macdFastVal: specific.macro_term.indicators.macd_fast,
-                    macdSlowVal: specific.macro_term.indicators.macd_slow,
-                    macdSignalVal: specific.macro_term.indicators.macd_signal,
-                    adxPeriodVal: specific.macro_term.indicators.adx_period,
-                    atrPeriodVal: specific.macro_term.indicators.atr_period,
-                    squeezePeriodVal: specific.macro_term.indicators.squeeze_period,
-                                        ...advancedIndicators(specific.macro_term.indicators as unknown as Record<string, unknown>),
-                });
-            }
+            // v8 fixed ladder: `micro_term`/`fast_term`/`slow_term`/
+            // `macro_term` on the wire are LEGACY and ignored by the
+            // backend. `initInstance` already built `terms` for the 10
+            // fixed slots with the canonical durations and the
+            // workspace-level indicator defaults (`globalIndicatorsConfig`,
+            // set above from `config.indicators`), so there is nothing
+            // per-slot left to map here.
         }
     }
 
@@ -408,12 +350,21 @@ export async function syncInstanceIdsFromList(app: AppStore): Promise<void> {
         const res = await fetch('/api/instances');
         if (!res.ok) return;
         const data = await res.json();
-        const instances: Array<{ id?: string; pair?: string; mode?: 'observe' | 'paper' | 'live' }> = data?.instances ?? [];
+        const instances: Array<{
+            id?: string; pair?: string; mode?: 'observe' | 'paper' | 'live';
+            active_secs?: number[];
+        }> = data?.instances ?? [];
         for (const inst of instances) {
             if (!inst?.id || !inst?.pair) continue;
             const entry = app.instancesMap[inst.pair];
             if (entry && !entry.instanceId) entry.instanceId = inst.id;
             if (entry) entry.mode = inst.mode;
+            // v11.2: mirror the ACTIVE ladder (`active_secs` → slot kinds).
+            // An absent/empty list leaves the store's all-10 default — the
+            // instance payload always carries the field on v11.2+ backends.
+            if (entry && Array.isArray(inst.active_secs) && inst.active_secs.length > 0) {
+                entry.activeSlots = slotsFromSecs(inst.active_secs);
+            }
         }
     } catch (_) {}
 }
@@ -431,7 +382,7 @@ export function readDraftFromPair(pair: InstanceState): {
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
     slowInterval: number; normalInterval: number; fastInterval: number;
 } {
-    const sec = pair.microTerm.barDurationSec;
+    const sec = pair.terms.micro1.barDurationSec;
     let durationValue: number, durationUnit: 'seconds' | 'minutes' | 'hours';
     if (sec % 3600 === 0) { durationValue = sec / 3600; durationUnit = 'hours'; }
     else if (sec % 60 === 0) { durationValue = sec / 60; durationUnit = 'minutes'; }
@@ -448,29 +399,29 @@ export function readDraftFromPair(pair: InstanceState): {
         symbol: pair.symbol,
         exchange: pair.exchange,
         durationValue, durationUnit,
-        emaFast: pair.microTerm.emaFastVal,
-        emaMedium: pair.microTerm.emaMediumVal,
-        emaSlow: pair.microTerm.emaSlowVal,
-        emaLong: pair.microTerm.emaLongVal,
-        rsiPeriod: pair.microTerm.rsiPeriodVal,
-        macdFast: pair.microTerm.macdFastVal,
-        macdSlow: pair.microTerm.macdSlowVal,
-        macdSignal: pair.microTerm.macdSignalVal,
-        adxPeriod: pair.microTerm.adxPeriodVal,
-        atrPeriod: pair.microTerm.atrPeriodVal,
-        squeezePeriod: pair.microTerm.squeezePeriodVal,
-        showEmas: pair.microTerm.showEmas,
-        showBb: pair.microTerm.showBb,
-        showVwap: pair.microTerm.showVwap,
-        showVolume: pair.microTerm.showVolume,
-        showAdx: pair.microTerm.showAdx,
-        showAtr: pair.microTerm.showAtr,
-        showRsi: pair.microTerm.showRsi,
-        showMacd: pair.microTerm.showMacd,
-        showSqueeze: pair.microTerm.showSqueeze,
-    showBbwp: pair.microTerm.showBbwp,
-    showFib: pair.microTerm.showFib,
-    showRvol: pair.microTerm.showRvol,
+        emaFast: pair.terms.micro1.emaFastVal,
+        emaMedium: pair.terms.micro1.emaMediumVal,
+        emaSlow: pair.terms.micro1.emaSlowVal,
+        emaLong: pair.terms.micro1.emaLongVal,
+        rsiPeriod: pair.terms.micro1.rsiPeriodVal,
+        macdFast: pair.terms.micro1.macdFastVal,
+        macdSlow: pair.terms.micro1.macdSlowVal,
+        macdSignal: pair.terms.micro1.macdSignalVal,
+        adxPeriod: pair.terms.micro1.adxPeriodVal,
+        atrPeriod: pair.terms.micro1.atrPeriodVal,
+        squeezePeriod: pair.terms.micro1.squeezePeriodVal,
+        showEmas: pair.terms.micro1.showEmas,
+        showBb: pair.terms.micro1.showBb,
+        showVwap: pair.terms.micro1.showVwap,
+        showVolume: pair.terms.micro1.showVolume,
+        showAdx: pair.terms.micro1.showAdx,
+        showAtr: pair.terms.micro1.showAtr,
+        showRsi: pair.terms.micro1.showRsi,
+        showMacd: pair.terms.micro1.showMacd,
+        showSqueeze: pair.terms.micro1.showSqueeze,
+    showBbwp: pair.terms.micro1.showBbwp,
+    showFib: pair.terms.micro1.showFib,
+    showRvol: pair.terms.micro1.showRvol,
     automationEnabled: pair.automationEnabled,
         automationIntervalValue: autoValue,
         automationIntervalUnit: autoUnit,

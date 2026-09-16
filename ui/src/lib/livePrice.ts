@@ -4,7 +4,7 @@
 // the regression suite (ui/src/tests/snapshot.transform.test.ts) can
 // both exercise the exact same code path.
 //
-// 1. **Stage 1 — Freshest of all four slots:** walk every slot's
+// 1. **Stage 1 — Freshest of all ten slots:** walk every slot's
 //    `priceText` and `latestSnapshot.timestamp`, returning the value from
 //    the slot whose `timestamp` is most recent AND within 30 seconds of
 //    `now`. This keeps the header honest even when one slot is mid-
@@ -16,6 +16,8 @@
 // 3. **Stage 3 — Dashes:** only when no slot has ever received a real
 //    price, fall back to `'--'`.
 
+import { TIMEFRAME_SLOT_KINDS } from '../types';
+
 /// Loose type for any object that carries a `priceText` and an optional
 /// `latestSnapshot`. We deliberately accept a broader shape than
 /// `TimeframeTelemetry` so the test fixtures and the production store
@@ -26,12 +28,22 @@ export interface PricePickLike {
 }
 
 export interface PricePickPairLike {
-    microTerm?: PricePickLike | null;
-    fastTerm?: PricePickLike | null;
-    slowTerm?: PricePickLike | null;
-    /// Backed by TypeScript field name `r#macroTerm` on `TimeframeTelemetry`.
-    /// We expose it as `macroTerm` here so callers can pass either.
-    macroTerm?: PricePickLike | null;
+    /// Per-slot telemetry record keyed by the fixed 10-slot ladder
+    /// (`micro1`..`longterm2`). Partial so the full production
+    /// `Record<TimeframeSlotKind, TimeframeTelemetry>` and loose test
+    /// fixtures both flow through.
+    terms?: {
+        micro1?: PricePickLike | null;
+        micro2?: PricePickLike | null;
+        fast1?: PricePickLike | null;
+        fast2?: PricePickLike | null;
+        slow1?: PricePickLike | null;
+        slow2?: PricePickLike | null;
+        macro1?: PricePickLike | null;
+        macro2?: PricePickLike | null;
+        longterm1?: PricePickLike | null;
+        longterm2?: PricePickLike | null;
+    } | null;
 }
 
 const STALENESS_WINDOW_MS = 30_000;
@@ -51,12 +63,9 @@ function timestampOf(snap: PricePickLike['latestSnapshot']): number {
 }
 
 export function pickInstanceLivePrice(pair: PricePickPairLike, nowMs: number): string {
-    const slots: Array<PricePickLike | null | undefined> = [
-        pair.microTerm,
-        pair.fastTerm,
-        pair.slowTerm,
-        pair.macroTerm,
-    ];
+    const slots: Array<PricePickLike | null | undefined> = TIMEFRAME_SLOT_KINDS.map(
+        (slot) => pair.terms?.[slot],
+    );
 
     // Stage 1 — freshest within the staleness window.
     let bestText: string | null = null;

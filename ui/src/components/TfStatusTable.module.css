@@ -1,0 +1,89 @@
+/* ── TfStatusTable — per-timeframe health at a glance (v10.2) ─────────
+   Dark-theme table consistent with the Alignment panel palette: hairline
+   borders, translucent white surfaces, small-caps mono headers. No new
+   colour tokens — badge colours arrive inline via `metricsBadgeFor` /
+   `biasColor`; pipeline dots come from the LayerHeader classes. */
+
+.tfStatusTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono, 'SF Mono', monospace);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.tfStatusTable th {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    text-align: left;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tfStatusTable td {
+    padding: 7px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    vertical-align: middle;
+}
+
+.tfStatusTable tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.tfRow:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* Column shaping */
+.colPipeline,
+.pipelineCell {
+    text-align: right;
+}
+
+.colTimeframe {
+    width: 24%;
+}
+
+.colStatus {
+    width: 52%;
+}
+
+.colPipeline {
+    width: 24%;
+}
+
+/* The LayerHeader status pill is a block-level flex row; make it inline
+   inside the cell so the right-aligned column actually aligns it. */
+.pipelineCell > * {
+    display: inline-flex;
+}
+
+/* Timeframe identity cell: SLOT LABEL · duration */
+.tfCell {
+    white-space: nowrap;
+}
+
+.tfName {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+}
+
+.tfDuration {
+    font-size: 10px;
+    font-weight: 500;
+    color: #64748b;
+    margin-left: 6px;
+}
+
+/* Status badge column */
+.badgeCell {
+    white-space: nowrap;
+}

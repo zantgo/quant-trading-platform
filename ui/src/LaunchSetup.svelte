@@ -1,7 +1,8 @@
 <script lang="ts">
     import { useAppStore } from './state.svelte';
-    import { createInstance, postInstanceConfig } from './lib/api.svelte';
-    import { TIMEFRAME_OPTIONS } from './types';
+    import { createInstance } from './lib/api.svelte';
+    import { TIMEFRAME_SLOT_DURATION_SECS } from './types';
+    import { withActiveSlots } from './lib/terms';
     import styles from './LaunchSetup.module.css';
 
     const app = useAppStore();
@@ -10,24 +11,20 @@
 
     interface DraftInstance {
         base: string;
-        micro: number;
-        fast: number;
-        slow: number;
-        macro: number;
     }
 
-    // v7.2 parity: the default ladder is the registry's ladder
-    // (`registry::add_instance` fallback): micro 60s, fast 180s, slow/macro
-    // from the workspace config (via /api/config). GUI, CLI, and registry
-    // derive their defaults from the same source.
-    function tfDefaults() {
+    // v11.2: the ladder is the ACTIVE one — the fastest N slots of the
+    // fixed 10-slot pool (`[workspace].active_timeframes`, editable in
+    // Settings). The wizard shows it read-only; the count is a workspace
+    // Settings knob, not a picker.
+    const ACTIVE_LADDER = $derived.by(() => {
+        const slots = withActiveSlots(app.settings.activeTimeframes);
         return {
-            micro: 60,
-            fast: 180,
-            slow: app.workspaceSlowTimeframeSecs > 0 ? app.workspaceSlowTimeframeSecs : 300,
-            macro: app.workspaceMacroTimeframeSecs > 0 ? app.workspaceMacroTimeframeSecs : 900,
+            count: slots.length,
+            durations: slots.map((slot) => tfLabel(TIMEFRAME_SLOT_DURATION_SECS[slot])).join(' · '),
         };
-    }
+    });
+    const ACTIVE_LADDER_TEXT = $derived(`Active ladder (${ACTIVE_LADDER.count}): ${ACTIVE_LADDER.durations}`);
 
     const MODE_META: Record<LaunchMode, { title: string; verb: string; badge: string; description: string }> = {
         observe: {
@@ -65,7 +62,6 @@
     let passphrase = $state('');
     let instances = $state<DraftInstance[]>([]);
     let newBase = $state('');
-    let newTfs = $state(tfDefaults());
     let error = $state<string | null>(null);
     let loading = $state(false);
 
@@ -113,38 +109,13 @@
             error = `${base} is already in the instance list.`;
             return;
         }
-        instances = [
-            ...instances,
-            {
-                base,
-                micro: clampTf(newTfs.micro),
-                fast: clampTf(newTfs.fast),
-                slow: clampTf(newTfs.slow),
-                macro: clampTf(newTfs.macro),
-            },
-        ];
+        instances = [...instances, { base }];
         newBase = '';
-        newTfs = tfDefaults();
         error = null;
     }
 
     function removeInstance(index: number) {
         instances = instances.filter((_, i) => i !== index);
-    }
-
-    function clampTf(v: number): number {
-        const n = Number(v);
-        if (!Number.isFinite(n)) return 60;
-        return Math.min(86400, Math.max(10, Math.round(n)));
-    }
-
-    // v7.3 parity: the Instances step offers the same timeframe dropdown the
-    // Workspace Settings does (TIMEFRAME_OPTIONS). A preset that is not one of
-    // the standard tiers (e.g. a custom slow_timeframe from config.toml)
-    // renders the disabled "Custom: …" fallback option.
-    function selectedOption(seconds: number): number {
-        const found = TIMEFRAME_OPTIONS.find(o => o.seconds === seconds);
-        return found ? found.seconds : -1;
     }
 
     function tfLabel(secs: number): string {
@@ -210,21 +181,12 @@
                 throw new Error(init.error || 'Failed to initialize session.');
             }
 
-            // 3. Create each staged instance with its timeframe configuration.
+            // 3. Create each staged instance (the fixed 10-slot ladder is
+            // applied server-side; no per-slot TF payload is sent).
             for (const draft of instances) {
                 const created = await createInstance(draft.base, app.quote);
                 if (!created.ok) {
                     throw new Error(created.error || `Failed to add ${draft.base}.`);
-                }
-                const instanceId = created.instanceId ?? draft.base;
-                const ok = await postInstanceConfig(instanceId, {
-                    micro_term: { candles: { duration_seconds: draft.micro } },
-                    fast_term: { candles: { duration_seconds: draft.fast } },
-                    slow_term: { candles: { duration_seconds: draft.slow } },
-                    macro_term: { candles: { duration_seconds: draft.macro } },
-                });
-                if (!ok) {
-                    throw new Error(`Instance ${draft.base} was created but its timeframe configuration failed.`);
                 }
                 app.initInstance(draft.base, exchange, created.instanceId);
             }
@@ -380,9 +342,7 @@
                     {#each instances as inst, i (inst.base)}
                         <div class={styles.instanceRow}>
                             <span class={styles.instancePair}>{inst.base} <span class={styles.instanceQuote}>{app.quote}</span></span>
-                            <span class={styles.instanceTfs}>
-                                {tfLabel(inst.micro)} / {tfLabel(inst.fast)} / {tfLabel(inst.slow)} / {tfLabel(inst.macro)}
-                            </span>
+                            <span class={styles.instanceTfs}>{ACTIVE_LADDER_TEXT}</span>
                             <button class={styles.removeBtn} aria-label={`Remove ${inst.base}`}
                                 onclick={() => removeInstance(i)}>✕</button>
                         </div>
@@ -394,23 +354,11 @@
 
                 <div class={styles.addGroup}>
                     <label class={styles.formLabel} for="launch-base">Add instance</label>
+                    <p class={styles.formHint}>Every instance runs the {ACTIVE_LADDER_TEXT}</p>
                     <div class={styles.addRow}>
                         <input id="launch-base" type="text" maxlength="10"
                             class="{styles.formInput} {styles.baseInput}" bind:value={newBase}
                             placeholder="BTC" onkeydown={(e) => e.key === 'Enter' && addInstance()} />
-                        {#each ['micro', 'fast', 'slow', 'macro'] as slot (slot)}
-                            <label class={styles.tfField}>
-                                <span class={styles.tfLabel}>{slot}</span>
-                                <select class={styles.tfSelect}
-                                    value={selectedOption(newTfs[slot as keyof typeof newTfs])}
-                                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) newTfs[slot as keyof typeof newTfs] = v; }}>
-                                    <option value={-1} disabled>Custom: {tfLabel(newTfs[slot as keyof typeof newTfs])}</option>
-                                    {#each TIMEFRAME_OPTIONS as opt}
-                                        <option value={opt.seconds}>{opt.label}</option>
-                                    {/each}
-                                </select>
-                            </label>
-                        {/each}
                         <button class={styles.addBtn} onclick={addInstance}>+ Add</button>
                     </div>
                 </div>
@@ -422,6 +370,7 @@
                     <div class={styles.reviewRow}><span class={styles.reviewKey}>Mode</span><span class={styles.reviewVal}>{MODE_META[mode].title} ({MODE_META[mode].verb})</span></div>
                     <div class={styles.reviewRow}><span class={styles.reviewKey}>Exchange</span><span class={styles.reviewVal}>{exchange}</span></div>
                     <div class={styles.reviewRow}><span class={styles.reviewKey}>Settlement Currency</span><span class={styles.reviewVal}>{currency}</span></div>
+                    <div class={styles.reviewRow}><span class={styles.reviewKey}>Timeframes</span><span class={styles.reviewVal}>{ACTIVE_LADDER_TEXT}</span></div>
                     {#if mode === 'paper'}
                         <div class={styles.reviewRow}><span class={styles.reviewKey}>Portfolio Capital</span><span class={styles.reviewVal}>${Number(capital).toLocaleString()}</span></div>
                     {:else if mode === 'live'}
@@ -443,7 +392,7 @@
                     </div>
                     {#each instances as inst (inst.base)}
                         <div class={styles.reviewRow}><span class={styles.reviewKey}></span><span class={styles.reviewVal}>
-                            {inst.base}-{app.quote} · {tfLabel(inst.micro)} / {tfLabel(inst.fast)} / {tfLabel(inst.slow)} / {tfLabel(inst.macro)}
+                            {inst.base}-{app.quote} · {ACTIVE_LADDER_TEXT}
                         </span></div>
                     {/each}
                 </div>

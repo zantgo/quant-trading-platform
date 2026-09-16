@@ -37,7 +37,7 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
     );
 
     let snap = MarketSnapshot {
-        timeframe_slot: Some(core_domain::models::TimeframeSlot::Micro),
+        timeframe_slot: Some(core_domain::models::TimeframeSlot::Micro1),
         exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
         timeframe_secs: 60,
         timestamp: 1_718_000_000,

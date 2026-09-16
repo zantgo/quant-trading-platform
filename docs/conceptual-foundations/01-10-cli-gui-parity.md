@@ -1,6 +1,6 @@
 # CLI ↔ GUI Observe-Mode Parity Contract
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators and maintainers of the `--mode cli` terminal monitor and the
 Market Overview dashboard.
@@ -68,7 +68,7 @@ must extend both surfaces through the same server-produced payload.
 | C10 | Signal quality + direction distribution buckets | `signal_quality` / `direction_distribution` | same fields | server-computed once |
 | C11 | Market health sub-dimension bars | `market_health_dims` | same `market_health_dims` | server-computed once |
 | C12 | Review → Launch / Review → Start UX | wizard step 4 (Review → Launch) | summary → `Start the monitor now? [Y/n]` | confirm step on both |
-| C13 | Default timeframe ladder | wizard derives from `/api/config` slow/macro | CLI derives from `WorkspaceConfig::tf_ladder_defaults()` | registry fallback 60/180/ws-slow/ws-macro |
+| C13 | Default timeframe ladder | wizard displays the fixed ladder from `/api/config` (`tf_ladder_defaults()` = `FIXED_TF_LADDER`, no TF pickers) | CLI prints `Timeframes (fixed ladder): …` from `WorkspaceConfig::tf_ladder_defaults()` | fixed 10-slot ladder micro1 1 s … longterm2 3600 s |
 | C14 | Session identity (v10) | sidebar chip `SESSION #0007` from `GET /api/session/status` | CLI header `SESSION #0007` in the `session_line` | one persisted `sessions` row per boot |
 | C15 | DS headless reports (v10) | PAE tabs (`/api/sessions/:id/analytics`, `/api/analytics/comparison`) | `--session-report <id>` / `--sessions` — same server-computed payloads | `cli_ds.rs` mirrors the handlers |
 | C16 | Backtest deep view (v10) | Study Report + Chart tab (`input_bars` + enriched trades) | `--backtest-show <id>` — run.json + trades/equity + ds/ file paths | same `persist_backtest_run` artifacts |

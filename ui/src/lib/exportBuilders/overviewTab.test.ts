@@ -6,7 +6,9 @@
 import { describe, it, expect } from 'vitest';
 import { buildOverviewTabExport } from './overviewTab';
 import type { LayerHeaderSpec } from '../layerHeader';
-import type { InstanceState, OpportunityMatrix, AnalysisMatrix, DecisionContext, AdvisoryMatrix, RiskMatrix } from '../../types';
+import type { InstanceState, OpportunityMatrix, AnalysisMatrix, DecisionContext, AdvisoryMatrix, RiskMatrix, TimeframeSlotKind } from '../../types';
+import { TIMEFRAME_SLOT_KINDS } from '../../types';
+import { makeTerms } from '../../tests/makeTerms';
 
 const headerSpec: LayerHeaderSpec = {
   layerNumber: 7,
@@ -19,7 +21,7 @@ const headerSpec: LayerHeaderSpec = {
 const tf = {
   latestSnapshot: { timestamp: 1786752300 },
   priceText: '63006.0',
-} as unknown as InstanceState['microTerm'];
+} as unknown as InstanceState['terms'][TimeframeSlotKind];
 
 function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
   return {
@@ -90,10 +92,7 @@ function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
     exchange: 'Hyperliquid',
     isConnected: true,
     instanceId: 'inst_1',
-    microTerm: tf,
-    fastTerm: tf,
-    slowTerm: tf,
-    macroTerm: tf,
+    terms: makeTerms(Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, tf]))),
     historyLatestClose: '63006.0',
     currentView: { timeframe: 'micro60', symbol: 'BTC-USDC', layer: 'overview' } as never,
     alignment: null,

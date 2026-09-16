@@ -518,6 +518,10 @@ def check_g6_enum_casing():
         # TimeframeSlot + CandleQualityEnvelope sequence integrity
         # (serde without rename → PascalCase on the wire)
         "Micro", "Fast", "Slow", "Macro", "Custom",
+        # Fixed 10-slot ladder display labels (Title-case slot names as
+        # emitted by `TIMEFRAME_SLOT_LABELS` / `FIXED_TF_NAMES` consumers)
+        "Micro1", "Micro2", "Fast1", "Fast2", "Slow1", "Slow2",
+        "Macro1", "Macro2", "Longterm1", "Longterm2",
         "Valid", "OutOfOrder", "Duplicate",
         # L6 advisory
         "StrongLong", "Long", "Short", "StrongShort",

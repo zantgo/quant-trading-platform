@@ -1,6 +1,6 @@
 # DIE Layer 4 — Data Distribution Layer
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 4 of 4
@@ -57,7 +57,7 @@ Consumers subscribe by `(symbol, timeframe_secs)`. The L4 layer maintains a sing
 
 | Consumer | Subscription | Transport |
 |----------|-------------|-----------|
-| Candle aggregator | Base timeframe (micro) closes. | Dedicated `NormalizedCandle` broadcast receiver. |
+| Candle aggregator | Base timeframe (`micro1`) closes. | Dedicated `NormalizedCandle` broadcast receiver. |
 
 The `MarketSnapshot` broadcast channel (which carries indicators, matrices, and telemetry) is an MME L1 artifact produced by the MME analyzer pipeline. Its transport specification, subscriber table (MME L2-L7, telemetry logger, frontend WebSocket), and serialization contract live at [03-02-02-mme-layer1-metrics.md §8](../market-monitoring-engine/03-02-02-mme-layer1-metrics.md).
 

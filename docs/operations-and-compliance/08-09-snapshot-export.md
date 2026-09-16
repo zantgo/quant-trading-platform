@@ -1,6 +1,6 @@
 # Snapshot Export Operator Manual
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators configuring the periodic JSON dump that feeds the offline data-science pipeline.
 
@@ -62,10 +62,9 @@ cargo run --bin execution-daemon -- --mode cli --save
 # Exchange (hyperliquid / bitget) [hyperliquid]: hyperliquid
 # Settlement currency forced to USDC for hyperliquid.
 # Instance #1 base symbol (blank = done) [BTC]: BTC
-#   micro timeframe_secs (default 60s): 60
-#   fast timeframe_secs (default 300s): 300
-#   slow timeframe_secs (default 900s): 900
-#   macro timeframe_secs (default 3600s): 3600
+#   Timeframes (fixed ladder, not editable): micro1 1s, micro2 3s, fast1 5s,
+#     fast2 15s, slow1 30s, slow2 60s, macro1 180s, macro2 300s,
+#     longterm1 900s, longterm2 3600s
 # Instance #2 base symbol (blank = done):            ← Enter finishes
 # ── Summary ───────────────────────────────────────────────────────
 # 💾 Snapshot export ENABLED (--save) → ./snapshots
@@ -90,26 +89,28 @@ Every snapshot tick creates one subdirectory per UTC timestamp, with one JSON fi
 <output_path>/
   2026-08-13/
     14h30m05s/                          ← one tick (UTC timestamp)
-      BTC-USDT.micro.alignment.json
-      BTC-USDT.micro.analysis.json
-      BTC-USDT.micro.advisory.json
-      BTC-USDT.micro.decision.json
-      BTC-USDT.micro.metrics.json
-      BTC-USDT.micro.mtf.json
-      BTC-USDT.micro.opportunity.json
-      BTC-USDT.micro.recommendation.json
-      BTC-USDT.micro.risk.json
-      BTC-USDT.fast.alignment.json
+      BTC-USDT.micro1.alignment.json
+      BTC-USDT.micro1.analysis.json
+      BTC-USDT.micro1.advisory.json
+      BTC-USDT.micro1.decision.json
+      BTC-USDT.micro1.metrics.json
+      BTC-USDT.micro1.mtf.json
+      BTC-USDT.micro1.opportunity.json
+      BTC-USDT.micro1.recommendation.json
+      BTC-USDT.micro1.risk.json
+      BTC-USDT.micro2.alignment.json
       ...
-      BTC-USDT.slow.alignment.json
+      BTC-USDT.fast1.alignment.json
       ...
-      BTC-USDT.macro.alignment.json
+      BTC-USDT.slow2.alignment.json
       ...
-      ETH-USDT.micro.alignment.json
+      BTC-USDT.longterm2.alignment.json
+      ...
+      ETH-USDT.micro1.alignment.json
       ...
 ```
 
-At default 60s cadence × 9 tabs × 4 TF slots × N instances, that's `36 × N` files per minute. The
+At default 60s cadence × 9 tabs × 10 fixed ladder slots × N instances, that's `90 × N` files per minute. The
 **Max snapshots retained** knob bounds the total: at 1000 snapshots retained and 60s cadence, the
 directory tree grows to ~24 hours of history, then rotates.
 

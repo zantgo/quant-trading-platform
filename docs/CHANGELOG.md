@@ -4,6 +4,51 @@
 
 ------
 
+## v11.3 (2026-09-16) — Multi-Tab Viewers, Deep-Link Routing, Smart Port
+
+**The dashboard becomes a first-class multi-tab web application: every browser tab/window is an independent live viewer, every view is deep-linkable by URL, reload restores the exact view, and the browser Back/Forward buttons walk through view history. Plus smart port handling so two folder-per-session deployments coexist without hand-assigning ports.**
+
+- **Cross-tab WebSocket ownership lock REMOVED** (v6.9's claim/heartbeat system never delivered its frame-forwarding half — secondary tabs silently opened zero sockets and froze). Every tab now opens its own sockets; the backend already fans out independently to every subscriber (per-slot Tokio broadcast). Headroom raised: `MAX_WS_CONNECTIONS` 64 → 256, global HTTP rate limiter 30 → 60 req/s.
+- **Complete URL vocabulary (v2)**: `#/engine/<engine>/<middleTab>[/instance/<pair>][/view/<view>][/tf/<tf>][/run/<runId>]` — every engine deep-linkable (TAE/PME/PAE/BTE serialize the shared instance; MME adds sub-view + per-pair TF; BTE/PAE add the loaded run id). Unknown pair/run ids fall back gracefully.
+- **Back/Forward policy**: user-initiated navigation pushes a history entry (Back/Forward walk the operator's actual clicks); boot restore and programmatic sync replace (no history spam); reload stays on the entry; ephemeral overlays (fullscreen chart) are not history.
+- **Reload restore**: BTE run payloads (`btResult` + DS tables) and the PAE selected run moved into the AppStore — a `run/<id>` URL segment re-fetches the run at boot. Cosmetic prefs (chart toggles, console, sidebars) persist via namespaced localStorage (`qtp.*`).
+- **Multi-tab polling jitter** (±250 ms) desynchronizes tabs so concurrent viewers never stampede the shared rate limiter.
+- **Smart port**: new `[server] auto_fallback = true` and `port_fallback_range = 20` — when the resolved port is busy, the daemon probes +1 steps, logs each skip, serves the first free port and prints BOTH ports (`🌐 Dashboard live at http://127.0.0.1:3001 (requested 3000 was in use)`); range exhaustion exits with the tried list; other bind errors fail immediately. The resolved endpoint is published to `.server.port` (removed on graceful shutdown); `manage.sh status` reads it. CORS origins are computed from the ACTUAL port (the listener is probed before `AppState` construction). CLI mode untouched.
+- **Concurrent sessions (documented workflow)**: one folder per session — each folder carries its own `config.toml`, `telemetry.db`, `./ds/`, and auto-negotiates a distinct port. Same-folder dual daemons remain unsupported (shared SQLite + per-process backtest/backfill locks).
+- **Docs sweep**: 06-01 (ServerConfig keys, WS cap, limiter, `.server.port`), 07-01/07-02 (URL grammar v2, multi-tab + Back/Forward + prefs), 08-01 (concurrent-session workflow); corpus re-stamped to 11.3.
+
+------
+
+## v11.2 (2026-09-15) — Variable Active-Timeframe Count (Fastest-N of the Fixed 10-Slot Ladder)
+
+**The fixed 10-slot ladder (micro1 = 1 s … longterm2 = 3600 s) becomes the canonical SLOT POOL; how many slots actually run is now a workspace dial. `[workspace].active_timeframes` (1..=10, default 5) selects the FASTEST N slots — N=5 → micro1/micro2/fast1/fast2/slow1 (1/3/5/15/30 s), N=10 → the full pool, N=1 → micro1 only. Slot names, durations, and the `TimeframeSlot` wire enum are unchanged; identity is untouched.**
+
+- **The dial**: `[workspace].active_timeframes` (usize, 1..=10, serde default 5; boot validation rejects out-of-range values). `WorkspaceConfig::active_ladder()` / `active_slot_names()` expose the active durations + names positionally sliced from `FIXED_TF_LADDER` / `FIXED_TF_NAMES`.
+- **Live-recharge + wire**: `POST /api/config` accepts `active_timeframes` (validated 1..=10 → `400` otherwise) and recharges running instances; `GET /api/config` serializes it. `GET /api/instances` (InstanceSummary) now carries `active_secs: number[]` — the instance's active ladder durations, fastest → slowest.
+- **Inactive slots are INERT**: no pipeline task, no snapshot emission, no WebSocket socket, no bootstrap fetch, no history seed. They remain in the slot enum (`micro1`…`longterm2`) — every map keyed by slot keeps the 10-slot shape; only active slots are populated.
+- **Strategy mapping follows the ACTIVE extremes**: price/mark anchors stay on the fastest ACTIVE slot (`micro1` for every N ≥ 1); `strategy.ladder_roles` decision/stop fall back from `longterm2` to the slowest ACTIVE slot when the configured slot is not running (at the default N=5 that is `slow1`/30 s; the N=1 degenerate case collapses decision == entry == micro1). L2 `tf_weighting` and L7 `tf_decay` keep the 10-slot keys — only active slots contribute; the L2 proportional divisor is the slowest ACTIVE slot duration.
+- **BTE**: bound backtests replay the instance's ACTIVE ladder ∩ ≥ 60 s — at the default N=5 (all sub-minute) that set is EMPTY and bound runs return `400 no_active_ladder` ("raise active_timeframes past the 60 s slots to backtest"); standalone runs are unaffected (explicit ladder, archive-eligible values). Coverage reports the active ladder; backfill follows it (sub-minute slots still skipped; the 60 s archive floor is unchanged).
+- **L7 risk_windows**: per-slot decay weights are sliced to the active set and normalized by the pushed-window sum, so the systemic high-share stays a weighted mean over the windows that actually exist (no behavior surprise at small N).
+- **UI**: `InstanceState.activeSlots: TimeframeSlotKind[]` (fastest-N); N sockets per instance (was 10); every TF rail, sidebar, grid, and export iterates ACTIVE slots only; MME Settings gains an **Active timeframes** 1–10 selector riding the same Apply flow (`POST /api/config` body, dirty-tracked, live-recharge); LaunchSetup displays the ACTIVE ladder; the Alignment per-timeframe status table renders active slots only.
+- **Overview per-instance status table (new)**: the Market Monitor Overview renders `InstanceStatusTable.svelte` directly under the unified header — one collapsible row per instance (decision badge = the same `computeDecisionRank` + `buildL6DecisionHeader` signal + percentage the Recommendation view shows, e.g. "SHORT 45%"; Long/Hold/Short % chips; mode chip) with an expand-all toggle; expanding reveals per-ACTIVE-timeframe rows carrying the same metrics badge + pipeline pill as the Alignment `TfStatusTable`.
+- **Docs sweep**: [01-04](conceptual-foundations/01-04-timeframe-model.md) gains the active-set section (fastest-N selection, inert-slot semantics, per-N table); 06-01 (config/instances/backtest wire), 07-01/07-02/07-05 (UI surface + export meta), 03-03-08 (active-extremes role fallback), 08-01/08-02 (bound-ladder rule), 03-01-01 (active-only pipelines), 03-02-08 (risk-window normalization); corpus re-stamped to 11.2.
+
+------
+
+## v11.1 (2026-09-15) — Fixed 10-Slot Timeframe Ladder + Alignment Per-TF Status Table
+
+**The configurable 4-slot ladder (micro/fast/slow/macro, defaults 60/180/300/900 s) is replaced platform-wide by a FIXED, non-configurable 10-slot ladder (`micro1`…`longterm2`, 1 s → 1 h). Every instance runs all 10 pipelines; the legacy per-instance TOML ladder keys are parsed but ignored with a boot warning. The Alignment tab gains a per-timeframe status table.**
+
+- **Slot identity** (`core_domain::TimeframeSlot`): 10 variants + `Custom{id}` — wire names snake_case `micro1`…`longterm2`, display labels `MICRO1`…`LONGTERM2`; `parse_from_secs` maps the exact durations `[1, 3, 5, 15, 30, 60, 180, 300, 900, 3600]`; `FIXED_TF_SLOTS` / `config_models::FIXED_TF_LADDER` / `FIXED_TF_NAMES` are the positional single source of truth shared by boot, the wizard, the API ladder builders, and `tf_ladder_defaults()`.
+- **Legacy ladder keys ignored**: the per-instance `micro_term` / `fast_term` / `slow_term` / `macro_term` TOML keys are parsed for backward compatibility but IGNORED — boot logs a warning and the fixed ladder applies. There is no operator TF choice anymore.
+- **Sub-minute slots are LIVE-ONLY**: `micro1`–`slow1` (1–30 s) are never REST-backfilled (the 60-second archive floor is unchanged); they warm from state only, keep no chart history, and stay in the UI live ring. BTE historical runs replay archive-eligible TFs only (default standalone ladder `[60, 180, 300, 900, 3600]`; standalone ladders accept 1..=10 strictly-ascending values ≥ 60 s).
+- **Strategy mapping defaults**: `strategy.ladder_roles` = decision_tf/stop_tf `longterm2`, entry_tf/target_tf `micro1` (extremes mapping; the "fastest < 1 h" activation gate now reads micro1 = 1 s); L2 `tf_weighting.weights` 0.1/0.1/0.1/0.1/0.166/0.166/0.5/0.5/1.0/1.0; L7 `tf_decay` 0.05/0.05/0.05/0.1/0.1/0.15/0.15/0.15/0.1/0.1; L5 `micro_fast_blend` pairs micro1/fast1.
+- **UI**: `InstanceState.terms` is a `Record<TimeframeSlotKind, TimeframeTelemetry>` (10 slots), 10 sockets per instance; TF sidebar/rails show 10; the Launch wizard, the CLI launch prompt, and Settings have NO TF pickers (the fixed ladder is displayed); Settings keeps 10 per-TF indicator-override cards.
+- **Alignment per-timeframe status table**: the Alignment tab renders a "Per-timeframe status" table (`TfStatusTable.svelte`) directly under the layer header — one row per slot with the SAME badge the Metrics tab header shows (bias label + regime sublabel via `biasColor`) plus the live/stale/loading/error pipeline pill.
+- **Docs sweep**: [01-04](conceptual-foundations/01-04-timeframe-model.md) rewritten to the 10-tier fixed ladder (slot table, legacy-keys-ignored notice, ×10 pipeline tree, boundary map, N=10 weighting semantics); matrices, engine specs, and integration/UI/ops docs updated from the 4-slot register to the 10-slot register; `03-03-08` ladder-roles defaults rewritten; README/MANIFEST register `03-03-08-tae-ladder-roles.md` (G2 file-count fix: 175 = 172 numbered + 3 governance).
+
+------
+
 ## v11 (2026-08-26) — Execution Model v11: Stop Floor, TP Reachability, TF-Roles, Frequency Defaults
 
 **The short-TF execution model is rebuilt: stops survive micro noise, targets stay reachable, decision/stance move to the macro TF, and the default strategy actually trades 1m ladders. Diagnostics make "why no trades?" one SQL query.**

@@ -1010,7 +1010,7 @@ export function buildMetricsTabExport(args: MetricsTabInputs): string {
   const signalCount = Object.values(signalsByKind).reduce((sum, list) => sum + list.length, 0);
   // Derived-string price: the screen computes every fib / VP / age string
   // from `parseFloat(activeTf.priceText)` (TerminalMonitor). `meta.current_price`
-  // is the freshest price across all 4 slots — keep that envelope as-is, but
+  // is the freshest price across all 10 slots — keep that envelope as-is, but
   // drive the derived strings off the active-TF price so JSON == screen.
   const tfPrice = parseFloat(tf?.priceText ?? '');
   const refPrice = Number.isFinite(tfPrice) && tfPrice > 0 ? tfPrice : meta.current_price;

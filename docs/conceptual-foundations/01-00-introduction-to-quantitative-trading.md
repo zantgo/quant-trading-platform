@@ -1,6 +1,6 @@
 # 01-00 — Introduction to Quantitative Trading
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 
 > **Audience.** This document is the formal theoretical foundation of the platform. It states, in standard institutional-quant terminology, the concepts that underpin every engine, layer, and matrix in this codebase. It is the first document a senior quant reviewer should read.
 >
@@ -25,7 +25,7 @@ The fundamental baseline of quantitative trading is the complete elimination of 
 
 Under the broader umbrellas of systematic macro, algorithmic trading, and quantitative technical trading, this platform is classified as a **Systematic Rule-Based Quantitative Trading** system. Rather than attempting to extract edge from stochastic or time-series prediction models, this paradigm derives its statistical advantage from the systematic, rule-based aggregation, filtering, confluence, and multi-timeframe alignment of deterministic market telemetry.
 
-The modern form of this discipline often substitutes the hand-coded formula of classical econometrics with a machine-learning model trained on historical data. The architecture of this platform, however, follows the classical, indicator-based form of Systematic Rule-Based Quantitative Trading: the predictive model layer is replaced by a deterministic bank of 50 technical indicators synthesized across 4 timeframes, and the strategy layer is replaced by a Boolean predicate evaluator over the resulting decision matrix. See §10 for the explicit justification of this design choice.
+The modern form of this discipline often substitutes the hand-coded formula of classical econometrics with a machine-learning model trained on historical data. The architecture of this platform, however, follows the classical, indicator-based form of Systematic Rule-Based Quantitative Trading: the predictive model layer is replaced by a deterministic bank of 50 technical indicators synthesized across the fixed 10-timeframe ladder, and the strategy layer is replaced by a Boolean predicate evaluator over the resulting decision matrix. See §10 for the explicit justification of this design choice.
 
 ---
 
@@ -303,7 +303,7 @@ The platform's signal layer is a deterministic bank of 50 technical indicators a
 1. **Interpretability**. Every indicator has a closed-form mathematical definition and a documented economic interpretation. A reviewer can audit why a signal fired and contest the assumption.
 2. **No training loop → no overfitting risk**. Without gradient descent on a parameter set, there is no risk of fit-to-noise that requires held-out validation, regularization sweeps, or walk-forward discipline.
 3. **Low CPU cost**. Indicator evaluation is `O(n)` over the lookback buffer with no matrix decompositions; the 52-indicator computation fits in under 10 ms per pipeline (`01-04-timeframe-model.md`).
-4. **Multi-Timeframe consensus as institutional alternative to feature engineering**. The platform's 10 alignment dimensions (`02-01-alignment-matrix.md`) aggregate 52 indicators across 4 timeframes into a single decision vector. This is the institutional equivalent of an ML feature pipeline, but deterministic and auditable.
+4. **Multi-Timeframe consensus as institutional alternative to feature engineering**. The platform's 10 alignment dimensions (`02-01-alignment-matrix.md`) aggregate 52 indicators across the fixed 10-timeframe ladder into a single decision vector. This is the institutional equivalent of an ML feature pipeline, but deterministic and auditable.
 5. **Determinism → auditability → reproducibility**. Given the same input snapshot, the platform produces the same Decision Matrix bit-for-bit. This property is critical for backtesting, regulatory audit, and dispute resolution.
 
 The trade-off: indicator-based systems have lower representational capacity than ML models and require the operator to encode edge via hand-crafted signal logic rather than learned parameters. The platform treats this trade-off as acceptable for the institutional-taker use case.
@@ -362,7 +362,7 @@ The system's multi-feature taxonomy is structured as follows:
    The system computes **50 distinct technical indicators** across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, and Derivatives) [04-02-00-indicator-index.md]. Crucially, the platform converts these from flat scalars into multi-dimensional features by projecting each indicator across **8 Indicator Evaluation Axes** (Value, State, Direction, Strength, Market Regime, Confidence, Freshness, Quality) and extracting **12 SignalKind types** across **10 Signal Evaluation Axes** [01-01-ontology.md, 02-07-metrics-matrix.md].
 
 3. **Cross-Temporal Consensus Features (Layer 2 - Alignment Matrix):**
-   To resolve timeframe conflict, the system projects its primary features onto **10 distinct alignment dimensions** (Trend, Momentum, Volume, Volatility, Structure, Signal, Regime, Confidence, Liquidity, and Tradability), measuring cross-timeframe agreement among micro, fast, slow, and macro horizons [02-01-alignment-matrix.md, 03-02-03-mme-layer2-alignment.md].
+   To resolve timeframe conflict, the system projects its primary features onto **10 distinct alignment dimensions** (Trend, Momentum, Volume, Volatility, Structure, Signal, Regime, Confidence, Liquidity, and Tradability), measuring cross-timeframe agreement across the fixed 10-slot ladder (`micro1`…`longterm2`, 1 s–1 h) [02-01-alignment-matrix.md, 03-02-03-mme-layer2-alignment.md].
 
 4. **Interpretive State Features (Layer 3 - Analysis Matrix):**
    The platform synthesizes these alignments into a categorical direction-neutral state, generating **6 qualitative assessment features** (Trend, Momentum, Structure, Volatility, Volume, and Quality) [02-02-analysis-matrix.md, 03-02-04-mme-layer3-analysis.md].

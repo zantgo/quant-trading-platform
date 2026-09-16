@@ -349,10 +349,10 @@ pub async fn serve_history(
     };
 
     // v6.5: per-TF cluster matrices. Each TF pipeline owns its own
-    // `cluster_matrix` handle, so we read all 4 (micro, fast, slow, macro).
-    // These are the same matrices the WS broadcast already carries on each
-    // snapshot — exposing them here lets the chart render overlays on
-    // first-mount (before the WS delivery has happened).
+    // `cluster_matrix` handle, so we read all 10 fixed-ladder slots
+    // (micro1..longterm2). These are the same matrices the WS broadcast
+    // already carries on each snapshot — exposing them here lets the chart
+    // render overlays on first-mount (before the WS delivery has happened).
     let mut clusters = std::collections::HashMap::new();
     let mut volume_profiles = std::collections::HashMap::new();
     // Phase 0-4: per-TF latest `LiquidityFlow` so the Metrics tab's
@@ -365,17 +365,16 @@ pub async fn serve_history(
     if let Some(pair) = get_active_pair(&state, &pair_key).await {
         // PRI-07: custom slot pipelines (`TimeframeSlot::Custom { id }`,
         // keyed `custom-<id>` on the wire) own full cluster/VP/flow state —
-        // iterate them alongside the 4 default slots so custom-N charts
-        // bootstrap their heatmap/volume-profile overlays from history on
-        // first mount instead of waiting for the next WS frame.
-        let mut slot_pipes: Vec<(String, &TimeframePipeline)> = Vec::with_capacity(4);
-        for (slot_label, pipe) in [
-            ("micro", &pair.micro),
-            ("fast", &pair.fast),
-            ("slow", &pair.slow),
-            ("macro", &pair.r#macro),
-        ] {
-            slot_pipes.push((slot_label.to_string(), pipe));
+        // iterate them alongside the 10 fixed-ladder slots so custom-N
+        // charts bootstrap their heatmap/volume-profile overlays from
+        // history on first mount instead of waiting for the next WS frame.
+        let mut slot_pipes: Vec<(String, &TimeframePipeline)> = Vec::with_capacity(10);
+        // v11.2: only ACTIVE ladder slots (fastest N) + custom pipelines.
+        for (slot, pipe) in core_domain::models::FIXED_TF_SLOTS[..pair.active_count.min(10).max(1)]
+            .iter()
+            .zip(pair.all()[..pair.active_count.min(10).max(1)].iter().copied())
+        {
+            slot_pipes.push((slot.as_str(), pipe));
         }
         for (id, pipe) in &pair.custom_pipelines {
             slot_pipes.push((format!("custom-{id}"), pipe));

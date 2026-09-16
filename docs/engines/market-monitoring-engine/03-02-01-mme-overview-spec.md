@@ -1,6 +1,6 @@
 # Market Monitoring Engine — Overview Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This document specifies the boundaries, module pipeline, concurrency strategy, and instance-management model of the Market Monitoring Engine — the analytical heart of the platform. The MME transforms clean market data into multi-timeframe technical intelligence across seven core analytical layers (L1–L7) with two fractional extension layers (L1.5: Derivatives Telemetry, L2.5: Liquidity Synthesis) — see `01-01-ontology.md` Ch. 6 and `03-02-11-mme-liquidity-extension.md`. L1–L3 sequential, L4 ∥ L5 parallel from L3 (with additional feeds from L1.5 and L2.5), L6–L7 sequential after convergence.
@@ -92,7 +92,7 @@ Shadow snapshots carry updated indicator readings for real-time display, but sig
 | Concern | Strategy |
 |---------|----------|
 | **Per-instance isolation** | Each Market Instance owns an independent async pipeline; no shared mutable state between instances. |
-| **Per-timeframe pipelines** | The four timeframes of an instance run as concurrent `TimeframePipeline`s. |
+| **Per-timeframe pipelines** | The ACTIVE fixed-ladder timeframes (`micro1`… — the fastest `[workspace].active_timeframes` slots, v11.2) of an instance run as concurrent `TimeframePipeline`s. |
 | **Warm-then-stream** | An instance bootstraps (warm-up from history) before subscribing to the live broadcast. |
 | **Lock scope** | Shared registries (symbol mapper, instance registry) use `RwLock` with minimal critical sections. |
 | **Backpressure** | Bounded channels between DIE and MME; broadcast lag is signalled, never silently dropped. |
@@ -103,7 +103,7 @@ Shadow snapshots carry updated indicator readings for real-time display, but sig
 
 ## 4. Symbol-Specific Instance Management
 
-A **Market Instance** (`crates/portfolio-supervisor/src/instance.rs`) is the smallest operational unit: one symbol with its four timeframe pipelines, trading state, safety manager, and config.
+A **Market Instance** (`crates/portfolio-supervisor/src/instance.rs`) is the smallest operational unit: one symbol with its ACTIVE fixed-ladder timeframe pipelines (the fastest `[workspace].active_timeframes` slots, v11.2), trading state, safety manager, and config.
 
 ### 4.1 Instance Lifecycle
 

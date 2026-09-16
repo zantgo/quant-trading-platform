@@ -1,6 +1,6 @@
 # UI Overview Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the Svelte 5 frontend architecture — state management, rune patterns, WebSocket consumption, store layer, inline shell architecture, hash-based URL routing, chart overlay models, CSS architecture, and performance targets. Companion to the [UI Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -64,9 +64,11 @@ export class AppStore {
 ### 2.3 Instance & Telemetry Model
 
 - `instancesMap` — `Record<pairKey, InstanceState>` keyed by pair key (e.g. `"BTC-USDT"`).
-- Each `InstanceState` contains **four** `TimeframeTelemetry` sub-objects named `microTerm`, `fastTerm`, `slowTerm`, `macroTerm`. There is **no** `timeframes.micro` namespace — the canonical names are the `*Term` fields directly on `InstanceState`.
+- Each `InstanceState` carries **`terms: Record<TimeframeSlotKind, TimeframeTelemetry>`** — one entry per fixed ladder slot (`micro1`, `micro2`, `fast1`, `fast2`, `slow1`, `slow2`, `macro1`, `macro2`, `longterm1`, `longterm2`; 10 slots, v11.1). There is **no** `timeframes.micro` namespace and no `microTerm`/`fastTerm`/`slowTerm`/`macroTerm` fields anymore — the canonical access is `terms.<slot>` (e.g. `terms.micro1`, `terms.longterm2`).
+- **`activeSlots?: TimeframeSlotKind[]` (v11.2)** — the ACTIVE ladder as an ordered array (fastest → slowest). Seeded with the full 10-slot ladder and narrowed from the `active_secs` array of `GET /api/instances` (`syncInstanceIdsFromList`); N = `[workspace].active_timeframes` (1..=10, default 5). Slots beyond N are inert — they never emit snapshots and their sockets are never served — so every "walk the ladder" loop resolves telemetry through `activeSlotKinds(pair)` (`lib/terms.ts`) instead of `TIMEFRAME_SLOT_KINDS`. The helper falls back to the full ladder until the payload arrives (or on malformed data).
 - Per-TF telemetry fields:
-  - `barDurationSec` — the timeframe duration in seconds (e.g. `60` for micro).
+  - `slot` — the authoritative slot identity (`micro1`…`longterm2`).
+  - `barDurationSec` — the timeframe duration in seconds (e.g. `60` for `slow2`).
   - `indicators` — the full `NormalizedIndicatorValue` map for that TF.
   - `priceText`, `volText`, `avgVolText` — formatted display strings.
   - `historyPrices`, `latestSnapshot` — chart seed arrays and the most recent raw snapshot.
@@ -74,14 +76,17 @@ export class AppStore {
   - **Liquidity Intelligence (Phase 0-4)** fields: `liquidity: LiquidityFlow | null`, `cluster: LiquidationClusterMatrix | null`, `liquiditySignals: LiquiditySignal[]`. These are surfaced by the WS demux in `ui/src/lib/websocket.svelte.ts` and live directly on each `TimeframeTelemetry` (e.g. `instance.microTerm.liquidity`).
 
 ```ts
-// state.svelte.ts (excerpt)
+// state.svelte.ts (excerpt, v11.2)
 function createInstanceState(symbol: string): InstanceState {
     return {
         symbol, exchange: 'Hyperliquid', isConnected: false,
-        microTerm: createTimeframeTelemetry(symbol,  60),
-        fastTerm:  createTimeframeTelemetry(symbol, 180),
-        slowTerm:  createTimeframeTelemetry(symbol, 300),
-        macroTerm: createTimeframeTelemetry(symbol, 900),
+        mode: undefined,
+        terms: Object.fromEntries(
+            TIMEFRAME_SLOT_KINDS.map((slot) => [slot, createTimeframeTelemetry(symbol, slot, TIMEFRAME_SLOT_DURATION_SECS[slot])]),
+        ) as Record<TimeframeSlotKind, TimeframeTelemetry>,
+        // Defaults to the full ladder until `/api/instances` delivers
+        // `active_secs` (syncInstanceIdsFromList narrows it to the fastest N).
+        activeSlots: [...TIMEFRAME_SLOT_KINDS],
         historyLatestClose: '0',
         currentView: 'terminal',
         alignment: null, analysis: null, risk: null, advisory: null,
@@ -159,7 +164,7 @@ All CSS classes (`.sidebarItem`, `.cell`, `.wsPanelRow`, `.tabCellFill`) carry `
 
 | Property | Value |
 |----------|-------|
-| Connections per instance | 4 parallel (micro/fast/slow/macro). |
+| Connections per instance | N parallel (one per ACTIVE ladder slot; N = `[workspace].active_timeframes`, 1..=10, default 5 — v11.2; inactive slots open no socket and emit no frames). |
 | URL pattern | `ws://host/ws?symbol=BTC-USDT&timeframe_secs=60`. |
 | Protocol | Incoming JSON-RPC 2.0 `broadcast.market_snapshot` notifications. |
 | `applySnapshotToTimeframe()` | Parses nested `snapshot`, writes to `*Term.latestSnapshot` and per-TF `indicators` map. |

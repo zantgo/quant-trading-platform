@@ -194,10 +194,16 @@ fn build_stub_instance(
     let active = Arc::new(ActivePair {
         symbol: format!("{}-{}", base, quote),
         custom_pipelines: std::collections::HashMap::new(),
-        micro: build_pipe(TimeframeSlot::Micro, 60, bcast_tx.clone()),
-        fast: build_pipe(TimeframeSlot::Fast, 180, bcast_tx.clone()),
-        slow: build_pipe(TimeframeSlot::Slow, 300, bcast_tx.clone()),
-        r#macro: build_pipe(TimeframeSlot::Macro, 900, bcast_tx),
+        micro1: build_pipe(TimeframeSlot::Micro1, 1, bcast_tx.clone()),
+        micro2: build_pipe(TimeframeSlot::Micro2, 3, bcast_tx.clone()),
+        fast1: build_pipe(TimeframeSlot::Fast1, 5, bcast_tx.clone()),
+        fast2: build_pipe(TimeframeSlot::Fast2, 15, bcast_tx.clone()),
+        slow1: build_pipe(TimeframeSlot::Slow1, 30, bcast_tx.clone()),
+        slow2: build_pipe(TimeframeSlot::Slow2, 60, bcast_tx.clone()),
+        macro1: build_pipe(TimeframeSlot::Macro1, 180, bcast_tx.clone()),
+        macro2: build_pipe(TimeframeSlot::Macro2, 300, bcast_tx.clone()),
+        longterm1: build_pipe(TimeframeSlot::Longterm1, 900, bcast_tx.clone()),
+        longterm2: build_pipe(TimeframeSlot::Longterm2, 3600, bcast_tx),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -207,27 +213,19 @@ fn build_stub_instance(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
-    });
-    let micro_buf = TimeframeBuffers {
-        history: active.micro.history.clone(),
-        latest: active.micro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let fast_buf = TimeframeBuffers {
-        history: active.fast.history.clone(),
-        latest: active.fast.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let slow_buf = TimeframeBuffers {
-        history: active.slow.history.clone(),
-        latest: active.slow.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let macro_buf = TimeframeBuffers {
-        history: active.r#macro.history.clone(),
-        latest: active.r#macro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
+        active_count: 10,
+});
+    let buffers: [TimeframeBuffers; 10] = active
+        .all()
+        .iter()
+        .map(|pipe| TimeframeBuffers {
+            history: pipe.history.clone(),
+            latest: pipe.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"));
     Arc::new(Instance::new(
         id.to_string(),
         (base.to_string(), quote.to_string()),
@@ -237,10 +235,8 @@ fn build_stub_instance(
         workspace,
         Default::default(),
         Default::default(),
-        micro_buf,
-        fast_buf,
-        slow_buf,
-        macro_buf,
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ))
 }

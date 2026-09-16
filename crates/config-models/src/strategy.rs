@@ -388,10 +388,18 @@ pub struct L2TfWeighting {
 impl Default for L2TfWeighting {
     fn default() -> Self {
         let mut w = std::collections::HashMap::new();
-        w.insert("micro".into(), 0.2);
-        w.insert("fast".into(), 0.2);
-        w.insert("slow".into(), 0.333);
-        w.insert("macro".into(), 1.0);
+        // Fixed 10-slot ladder (family-split defaults: the legacy per-family
+        // values split evenly across each family pair).
+        w.insert("micro1".into(), 0.1);
+        w.insert("micro2".into(), 0.1);
+        w.insert("fast1".into(), 0.1);
+        w.insert("fast2".into(), 0.1);
+        w.insert("slow1".into(), 0.166);
+        w.insert("slow2".into(), 0.166);
+        w.insert("macro1".into(), 0.5);
+        w.insert("macro2".into(), 0.5);
+        w.insert("longterm1".into(), 1.0);
+        w.insert("longterm2".into(), 1.0);
         Self {
             mode: "proportional".into(),
             weights: w,
@@ -1877,10 +1885,17 @@ impl Default for L7Systemic {
         sync.insert("fragmented".into(), 10.0);
         sync.insert("highly_fragmented".into(), 0.0);
         let mut decay = std::collections::HashMap::new();
-        decay.insert("micro".into(), 0.1);
-        decay.insert("fast".into(), 0.2);
-        decay.insert("slow".into(), 0.3);
-        decay.insert("macro".into(), 0.4);
+        // Fixed 10-slot ladder (family-split defaults, Σ = 1.0).
+        decay.insert("micro1".into(), 0.05);
+        decay.insert("micro2".into(), 0.05);
+        decay.insert("fast1".into(), 0.05);
+        decay.insert("fast2".into(), 0.1);
+        decay.insert("slow1".into(), 0.1);
+        decay.insert("slow2".into(), 0.15);
+        decay.insert("macro1".into(), 0.15);
+        decay.insert("macro2".into(), 0.15);
+        decay.insert("longterm1".into(), 0.1);
+        decay.insert("longterm2".into(), 0.1);
         Self {
             weights: [0.6, 0.4],
             sync_penalty: sync,
@@ -2433,10 +2448,13 @@ impl Default for LadderRoles {
     fn default() -> Self {
         Self {
             enabled: false,
-            decision_tf: "macro".into(),
-            entry_tf: "micro".into(),
-            stop_tf: "macro".into(),
-            target_tf: "micro".into(),
+            // Extremes mapping on the fixed 10-slot ladder: decision/stop
+            // anchor on the slowest slot (longterm2, 1h), entry/target on
+            // the fastest (micro1, 1s).
+            decision_tf: "longterm2".into(),
+            entry_tf: "micro1".into(),
+            stop_tf: "longterm2".into(),
+            target_tf: "micro1".into(),
         }
     }
 }

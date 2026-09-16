@@ -281,10 +281,16 @@ pub fn overview_params_from_strategy(
     ];
     let td = &l7.systemic.tf_decay;
     p.tf_decay = [
-        td.get("micro").copied().unwrap_or(0.1),
-        td.get("fast").copied().unwrap_or(0.2),
-        td.get("slow").copied().unwrap_or(0.3),
-        td.get("macro").copied().unwrap_or(0.4),
+        td.get("micro1").copied().unwrap_or(0.05),
+        td.get("micro2").copied().unwrap_or(0.05),
+        td.get("fast1").copied().unwrap_or(0.05),
+        td.get("fast2").copied().unwrap_or(0.1),
+        td.get("slow1").copied().unwrap_or(0.1),
+        td.get("slow2").copied().unwrap_or(0.15),
+        td.get("macro1").copied().unwrap_or(0.15),
+        td.get("macro2").copied().unwrap_or(0.15),
+        td.get("longterm1").copied().unwrap_or(0.1),
+        td.get("longterm2").copied().unwrap_or(0.1),
     ];
     p.cascade_index_fallback = l7.systemic.cascade_index_fallback;
     p.entry_veto_threshold = l7.systemic.entry_veto_threshold;

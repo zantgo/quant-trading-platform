@@ -141,6 +141,8 @@ run_cli() {
 }
 
 stop_instance() {
+    # v11.3 smart port: drop the resolved-endpoint marker on stop.
+    rm -f ".server.port"
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
         echo "🛑 Stopping background instance (PID: $PID)..."
@@ -178,6 +180,18 @@ stop_instance() {
 }
 
 check_status() {
+    # v11.3 smart port: the daemon publishes its resolved bind:port to
+    # `.server.port` on boot — trust it over the configured $PORT when present.
+    if [ -f ".server.port" ]; then
+        PORT_FILE=$(cat "$ROOT/.server.port")
+        FILE_PORT="${PORT_FILE##*:}"
+        FILE_PID=$(lsof -t -i:"$FILE_PORT" 2>/dev/null || true)
+        if [ -n "$FILE_PID" ]; then
+            echo "🟢 Engine status: RUNNING on $PORT_FILE (PID: $FILE_PID)"
+            echo "📝 Log file size: $(du -sh "$LOG_FILE" | cut -f1)"
+            return 0
+        fi
+    fi
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
         if kill -0 "$PID" 2>/dev/null; then

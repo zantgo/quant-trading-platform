@@ -19,15 +19,15 @@ pub struct BootstrapInput {
     pub rest_url: String,
     pub exchange_choice: ExchangeChoice,
     pub pool: SqlitePool,
-    pub micro_cfg: TimeframeConfig,
-    pub fast_cfg: TimeframeConfig,
-    pub slow_cfg: TimeframeConfig,
-    pub macro_cfg: TimeframeConfig,
+    /// Fixed 10-slot ladder configs, positional fastest → slowest
+    /// (aligned with `config_models::FIXED_TF_LADDER`).
+    pub ladder_cfgs: [TimeframeConfig; 10],
     pub fib_config: FibonacciConfig,
-    pub micro_secs: u64,
-    pub fast_secs: u64,
-    pub slow_secs: u64,
-    pub macro_secs: u64,
+    /// Fixed 10-slot ladder durations, positional fastest → slowest.
+    pub ladder_secs: [u64; 10],
+    /// v11.2: how many of the fastest slots actually run (1..=10). Slots
+    /// beyond this are NOT fetched/warmed — they return default state.
+    pub active_count: usize,
     /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     /// Single source of truth for the rolling window. Replaces the previous
     /// per-tier `analysis_limit` field.
@@ -239,17 +239,40 @@ async fn collect_candles(
 /// labels / `confidence = 0.0` until their per-indicator minimum buffers fill.
 pub const MIN_WARMUP_BARS: usize = 200;
 
+/// Per-slot fetch helper — one `collect_candles` call for ladder slot `i`.
+#[allow(clippy::too_many_arguments)]
+async fn collect_slot_candles(
+    input: &BootstrapInput,
+    i: usize,
+    is_bitget: bool,
+    exchange_raw: String,
+    product_type: String,
+    now_ms: u64,
+) -> Result<(Vec<NormalizedCandle>, u64, u64), String> {
+    // v11.2: inactive slots (beyond the fastest `active_count`) are never
+    // fetched — the spawn loop below never runs them.
+    if i >= input.active_count.min(10) {
+        return Ok((Vec::new(), 0, 0));
+    }
+    collect_candles(
+        is_bitget,
+        exchange_raw,
+        input.internal_symbol.clone(),
+        product_type,
+        input.rest_url.clone(),
+        input.pool.clone(),
+        input.ladder_secs[i],
+        input.buffer_size as u64,
+        now_ms,
+        input.fetch_timeout_ms,
+        input.sub_minute_skip_historical,
+    )
+    .await
+}
+
 pub async fn fetch_and_warm_bootstrap(
     input: &BootstrapInput,
-) -> Result<
-    (
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-    ),
-    String,
-> {
+) -> Result<[analyzer::WarmedPipelineState; 10], String> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -263,74 +286,37 @@ pub async fn fetch_and_warm_bootstrap(
         .unwrap_or("")
         .to_string();
 
-    let buffer_size_u64 = input.buffer_size as u64;
-    let fetch_timeout_ms = input.fetch_timeout_ms;
-    let (micro_res, fast_res, slow_res, macro_res) = tokio::join!(
-        collect_candles(
-            is_bitget,
-            exchange_raw.clone(),
-            input.internal_symbol.clone(),
-            product_type.clone(),
-            input.rest_url.clone(),
-            input.pool.clone(),
-            input.micro_secs,
-            buffer_size_u64,
-            now_ms,
-            fetch_timeout_ms,
-            input.sub_minute_skip_historical,
-        ),
-        collect_candles(
-            is_bitget,
-            exchange_raw.clone(),
-            input.internal_symbol.clone(),
-            product_type.clone(),
-            input.rest_url.clone(),
-            input.pool.clone(),
-            input.fast_secs,
-            buffer_size_u64,
-            now_ms,
-            fetch_timeout_ms,
-            input.sub_minute_skip_historical,
-        ),
-        collect_candles(
-            is_bitget,
-            exchange_raw.clone(),
-            input.internal_symbol.clone(),
-            product_type.clone(),
-            input.rest_url.clone(),
-            input.pool.clone(),
-            input.slow_secs,
-            buffer_size_u64,
-            now_ms,
-            fetch_timeout_ms,
-            input.sub_minute_skip_historical,
-        ),
-        collect_candles(
-            is_bitget,
-            exchange_raw.clone(),
-            input.internal_symbol.clone(),
-            product_type.clone(),
-            input.rest_url.clone(),
-            input.pool.clone(),
-            input.macro_secs,
-            buffer_size_u64,
-            now_ms,
-            fetch_timeout_ms,
-            input.sub_minute_skip_historical,
-        ),
+    // Fetch all 10 ladder slots concurrently (one join arm per slot).
+    let (r0, r1, r2, r3, r4, r5, r6, r7, r8, r9) = tokio::join!(
+        collect_slot_candles(input, 0, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 1, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 2, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 3, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 4, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 5, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 6, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 7, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 8, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(input, 9, is_bitget, exchange_raw, product_type, now_ms),
     );
+    let slot_results: [Result<(Vec<NormalizedCandle>, u64, u64), String>; 10] =
+        [r0, r1, r2, r3, r4, r5, r6, r7, r8, r9];
 
-    let (micro_candles, micro_db, micro_rest) = micro_res?;
-    let (fast_candles, fast_db, fast_rest) = fast_res?;
-    let (slow_candles, slow_db, slow_rest) = slow_res?;
-    let (macro_candles, macro_db, macro_rest) = macro_res?;
+    // Fail fast on the first hard error (≥60s slot with unreachable REST
+    // and an empty DB), preserving the pre-ladder behaviour.
+    let mut slot_candles: [Vec<NormalizedCandle>; 10] = std::array::from_fn(|_| Vec::new());
+    let mut total_db: u64 = 0;
+    let mut total_rest: u64 = 0;
+    for (i, res) in slot_results.into_iter().enumerate() {
+        let (candles, db_warm, rest_gap) = res?;
+        total_db += db_warm;
+        total_rest += rest_gap;
+        slot_candles[i] = candles;
+    }
 
     if let Some(ref reliability) = input.reliability {
         reliability
-            .record_bootstrap_sources(
-                micro_db + fast_db + slow_db + macro_db,
-                micro_rest + fast_rest + slow_rest + macro_rest,
-            )
+            .record_bootstrap_sources(total_db, total_rest)
             .await;
     }
 
@@ -345,17 +331,20 @@ pub async fn fetch_and_warm_bootstrap(
             format!("{}s", s)
         }
     };
+    let counts = slot_candles
+        .iter()
+        .map(|c| c.len().to_string())
+        .collect::<Vec<_>>()
+        .join("/");
+    let secs_labels = input
+        .ladder_secs
+        .iter()
+        .map(|&s| label(s))
+        .collect::<Vec<_>>()
+        .join("/");
     println!(
-        "📡 Historical Bootstrap [{}]: Warmed {}/{}/{}/{} candles ({}/{}/{}/{})",
-        input.internal_symbol,
-        micro_candles.len(),
-        fast_candles.len(),
-        slow_candles.len(),
-        macro_candles.len(),
-        label(input.micro_secs),
-        label(input.fast_secs),
-        label(input.slow_secs),
-        label(input.macro_secs),
+        "📡 Historical Bootstrap [{}]: Warmed {} candles ({})",
+        input.internal_symbol, counts, secs_labels,
     );
 
     let warn_empty = |candles: &[NormalizedCandle], secs: u64| {
@@ -374,13 +363,6 @@ pub async fn fetch_and_warm_bootstrap(
             }
         }
     };
-    warn_empty(&micro_candles, input.micro_secs);
-    warn_empty(&fast_candles, input.fast_secs);
-    warn_empty(&slow_candles, input.slow_secs);
-    warn_empty(&macro_candles, input.macro_secs);
-
-    // min_warmup_bars gate (03-01-04 §2.1.1): warm-up proceeds best-effort,
-    // but a tier seeded below the gate is flagged as partially warmed.
     let gate_warn = |candles: &[NormalizedCandle], secs: u64| {
         if !candles.is_empty() && candles.len() < MIN_WARMUP_BARS {
             eprintln!(
@@ -392,10 +374,13 @@ pub async fn fetch_and_warm_bootstrap(
             );
         }
     };
-    gate_warn(&micro_candles, input.micro_secs);
-    gate_warn(&fast_candles, input.fast_secs);
-    gate_warn(&slow_candles, input.slow_secs);
-    gate_warn(&macro_candles, input.macro_secs);
+    for i in 0..10 {
+        warn_empty(&slot_candles[i], input.ladder_secs[i]);
+        // min_warmup_bars gate (03-01-04 §2.1.1): warm-up proceeds
+        // best-effort, but a slot seeded below the gate is flagged as
+        // partially warmed.
+        gate_warn(&slot_candles[i], input.ladder_secs[i]);
+    }
 
     // v6.10 (Phase 5 / E1): bootstrap warm-up runs with all indicators enabled
     // by default. Per-instance activation sets are constructed later in
@@ -410,71 +395,30 @@ pub async fn fetch_and_warm_bootstrap(
         ExchangeChoice::Bitget => core_domain::normalized::Exchange::Bitget,
     };
 
-    let w_micro = analyzer::warm_indicators_for_timeframe(
-        micro_candles,
-        &input.micro_cfg,
-        &input.fib_config,
-        &input.internal_symbol,
-        input.micro_secs,
-        core_domain::models::TimeframeSlot::Micro,
-        input.buffer_size,
-        &warm_active_set,
-        Some(warm_exchange),
-    );
-    let w_fast = analyzer::warm_indicators_for_timeframe(
-        fast_candles,
-        &input.fast_cfg,
-        &input.fib_config,
-        &input.internal_symbol,
-        input.fast_secs,
-        core_domain::models::TimeframeSlot::Fast,
-        input.buffer_size,
-        &warm_active_set,
-        Some(warm_exchange),
-    );
-    let w_slow = analyzer::warm_indicators_for_timeframe(
-        slow_candles,
-        &input.slow_cfg,
-        &input.fib_config,
-        &input.internal_symbol,
-        input.slow_secs,
-        core_domain::models::TimeframeSlot::Slow,
-        input.buffer_size,
-        &warm_active_set,
-        Some(warm_exchange),
-    );
-    let w_macro = analyzer::warm_indicators_for_timeframe(
-        macro_candles,
-        &input.macro_cfg,
-        &input.fib_config,
-        &input.internal_symbol,
-        input.macro_secs,
-        core_domain::models::TimeframeSlot::Macro,
-        input.buffer_size,
-        &warm_active_set,
-        Some(warm_exchange),
-    );
+    // Warm each fixed-ladder slot with its own candles, config, and slot
+    // identity (positional with `FIXED_TF_SLOTS` / `FIXED_TF_LADDER`).
+    let warmed: [analyzer::WarmedPipelineState; 10] = std::array::from_fn(|i| {
+        analyzer::warm_indicators_for_timeframe(
+            std::mem::take(&mut slot_candles[i]),
+            &input.ladder_cfgs[i],
+            &input.fib_config,
+            &input.internal_symbol,
+            input.ladder_secs[i],
+            core_domain::models::FIXED_TF_SLOTS[i],
+            input.buffer_size,
+            &warm_active_set,
+            Some(warm_exchange),
+        )
+    });
 
-    Ok((w_micro, w_fast, w_slow, w_macro))
+    Ok(warmed)
 }
 
 pub(crate) async fn populate_buffers(
-    warmed_micro: &Option<analyzer::WarmedPipelineState>,
-    warmed_fast: &Option<analyzer::WarmedPipelineState>,
-    warmed_slow: &Option<analyzer::WarmedPipelineState>,
-    warmed_macro: &Option<analyzer::WarmedPipelineState>,
-    micro_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    fast_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    slow_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    macro_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    micro_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    fast_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    slow_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    macro_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    micro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    fast_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    slow_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    macro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    warmed: &[Option<analyzer::WarmedPipelineState>; 10],
+    histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>; 10],
+    latests: &[Arc<RwLock<Option<MarketSnapshot>>>; 10],
+    snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>; 10],
     latest_oi: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
     latest_funding: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
     latest_mark_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
@@ -485,47 +429,15 @@ pub(crate) async fn populate_buffers(
     // PRI-08: per-slot flag — `true` for ≥60s slots (warm snapshots become
     // chart history), `false` for sub-minute slots (state-replay warmup
     // must NOT pollute the chart's `snapshot_history` or `latest_snapshot`).
-    warm_snapshots: [bool; 4],
+    // Positional with `FIXED_TF_LADDER` (fastest → slowest).
+    warm_snapshots: [bool; 10],
 ) {
-    // All four timeframes share the same per-pair derivatives state
-    // (latest_* locks and rolling history), so any warmed TF carries
-    // the right restored values for them.
-    if let Some(ref w) = warmed_micro {
+    // All ten timeframes share the same per-pair derivatives state
+    // (latest_* locks and rolling history), so the first warmed slot in
+    // ladder order carries the right restored values for them.
+    if let Some(first) = warmed.iter().flatten().next() {
         populate_derivatives(
-            w,
-            latest_oi,
-            latest_funding,
-            latest_mark_px,
-            latest_index_px,
-            oi_history,
-            funding_history,
-        )
-        .await;
-    } else if let Some(ref w) = warmed_fast {
-        populate_derivatives(
-            w,
-            latest_oi,
-            latest_funding,
-            latest_mark_px,
-            latest_index_px,
-            oi_history,
-            funding_history,
-        )
-        .await;
-    } else if let Some(ref w) = warmed_slow {
-        populate_derivatives(
-            w,
-            latest_oi,
-            latest_funding,
-            latest_mark_px,
-            latest_index_px,
-            oi_history,
-            funding_history,
-        )
-        .await;
-    } else if let Some(ref w) = warmed_macro {
-        populate_derivatives(
-            w,
+            first,
             latest_oi,
             latest_funding,
             latest_mark_px,
@@ -536,38 +448,16 @@ pub(crate) async fn populate_buffers(
         .await;
     }
 
-    populate_single(
-        warmed_micro,
-        micro_history,
-        micro_latest,
-        micro_snapshot_history,
-        warm_snapshots[0],
-    )
-    .await;
-    populate_single(
-        warmed_fast,
-        fast_history,
-        fast_latest,
-        fast_snapshot_history,
-        warm_snapshots[1],
-    )
-    .await;
-    populate_single(
-        warmed_slow,
-        slow_history,
-        slow_latest,
-        slow_snapshot_history,
-        warm_snapshots[2],
-    )
-    .await;
-    populate_single(
-        warmed_macro,
-        macro_history,
-        macro_latest,
-        macro_snapshot_history,
-        warm_snapshots[3],
-    )
-    .await;
+    for i in 0..10 {
+        populate_single(
+            &warmed[i],
+            &histories[i],
+            &latests[i],
+            &snapshot_histories[i],
+            warm_snapshots[i],
+        )
+        .await;
+    }
 }
 
 /// Restore derivatives locks from a warmed state. Mirrors
@@ -883,21 +773,24 @@ mod cold_start_sub_minute_tests {
     async fn fetch_and_warm_bootstrap_returns_empty_snapshot_history_for_sub_minute() {
         let pool = empty_pool().await;
         let input = BootstrapInput {
+            active_count: 10,
             base: "BTC".to_string(),
             internal_symbol: "BTC-USDC".to_string(),
             quote: Currency::USDC,
             rest_url: "ws://unreachable.invalid".to_string(),
             exchange_choice: ExchangeChoice::Hyperliquid,
             pool,
-            micro_cfg: TimeframeConfig::new(1, config_models::IndicatorsConfig::default()),
-            fast_cfg: TimeframeConfig::new(3, config_models::IndicatorsConfig::default()),
-            slow_cfg: TimeframeConfig::new(5, config_models::IndicatorsConfig::default()),
-            macro_cfg: TimeframeConfig::new(15, config_models::IndicatorsConfig::default()),
+            ladder_cfgs: std::array::from_fn(|i| {
+                TimeframeConfig::new(
+                    config_models::FIXED_TF_LADDER[i],
+                    config_models::IndicatorsConfig::default(),
+                )
+            }),
             fib_config: FibonacciConfig::default(),
-            micro_secs: 1,  // sub-minute
-            fast_secs: 3,   // sub-minute
-            slow_secs: 5,   // sub-minute
-            macro_secs: 15, // sub-minute
+            // The fixed 10-slot ladder. The sub-minute slots under test
+            // (1s/3s/5s/15s) are the first four entries; all follow the
+            // state-only warmup path.
+            ladder_secs: config_models::FIXED_TF_LADDER,
             buffer_size: 500,
             stale_threshold_secs: 300,
             fetch_timeout_ms: 100,
@@ -905,14 +798,11 @@ mod cold_start_sub_minute_tests {
             reliability: None,
         };
 
-        // ≥60s TFs are required in BootstrapInput via `secs`. None of our
-        // four slots qualify as ≥60s here, so the macro fetch will fail
-        // (REST unreachable). That's a hard error per the policy path —
-        // for THIS test we want to assert the sub-minute TFs produce
-        // empty warmed state before the macro fetch has a chance to
-        // fail. Easier: assert that `collect_candles` (already pinned
-        // above) returns empty for each sub-minute slot. The
-        // end-to-end path follows from that.
+        // ≥60s TFs are required in BootstrapInput via `secs`. The ladder
+        // carries several ≥60s slots, but THIS test only drives
+        // `collect_candles` directly for the four sub-minute slots —
+        // asserting each returns an empty warm result before any ≥60s
+        // fetch could fail. The end-to-end path follows from that.
 
         let (candles_1s, _, _) = collect_candles(
             false,
@@ -921,7 +811,7 @@ mod cold_start_sub_minute_tests {
             String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
-            input.micro_secs,
+            input.ladder_secs[0],
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
@@ -936,7 +826,7 @@ mod cold_start_sub_minute_tests {
             String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
-            input.fast_secs,
+            input.ladder_secs[1],
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
@@ -951,7 +841,7 @@ mod cold_start_sub_minute_tests {
             String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
-            input.slow_secs,
+            input.ladder_secs[2],
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
@@ -966,7 +856,7 @@ mod cold_start_sub_minute_tests {
             String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
-            input.macro_secs,
+            input.ladder_secs[3],
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,

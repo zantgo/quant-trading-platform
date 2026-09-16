@@ -53,7 +53,7 @@
     // between candle closes. The snapshot field is kept as a fallback for
     // the brief warmup window.
     const decisionContext = $derived<any>(
-        (pair?.decisionContext ?? (pair?.microTerm?.latestSnapshot as any)?.decision_context ?? null),
+        (pair?.decisionContext ?? (pair?.terms?.micro1?.latestSnapshot as any)?.decision_context ?? null),
     );
 
     const plan = $derived(deriveTradePlan({

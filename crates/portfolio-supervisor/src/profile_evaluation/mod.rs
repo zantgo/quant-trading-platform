@@ -121,23 +121,30 @@ pub struct MtfTrendAlignment {
     pub structural_trend: String,
 }
 
-pub fn evaluate_mtf_alignment(
-    micro: &SnapshotValues,
-    fast: &SnapshotValues,
-    slow_snap: &SnapshotValues,
-    macro_snap: &SnapshotValues,
-) -> MtfTrendAlignment {
-    let structural_trend = match (
-        macro_snap.sub("ema_stack", "long"),
-        macro_snap.current_price,
-    ) {
+/// Multi-TF trend alignment over a fixed-ladder snapshot slice (v11.1: the
+/// legacy 4-arg `micro, fast, slow, macro` signature became a slice).
+///
+/// `snaps` is ordered fastest → slowest (ladder order). Semantics preserved
+/// from the 4-arg version, generalized positionally:
+///   - `structural_trend` reads the SLOWEST snapshot (was `macro`),
+///   - `micro_aligned`  = EMA bucket of the FASTEST == second element
+///     (was micro == fast),
+///   - `slow_aligned`   = EMA bucket of the second == SLOWEST
+///     (was fast == slow).
+pub fn evaluate_mtf_alignment(snaps: &[&SnapshotValues]) -> MtfTrendAlignment {
+    let empty = SnapshotValues::from_map(HashMap::new(), 0.0);
+    let first = snaps.first().copied().unwrap_or(&empty);
+    let second = snaps.get(1).copied().unwrap_or(&empty);
+    let last = snaps.last().copied().unwrap_or(&empty);
+
+    let structural_trend = match (last.sub("ema_stack", "long"), last.current_price) {
         (Some(ema), close) if close > ema => "BULLISH".to_string(),
         (Some(ema), close) if close < ema => "BEARISH".to_string(),
         _ => "NEUTRAL".to_string(),
     };
 
-    let micro_aligned = ema_bucket(micro) == ema_bucket(fast);
-    let slow_aligned = ema_bucket(fast) == ema_bucket(slow_snap);
+    let micro_aligned = ema_bucket(first) == ema_bucket(second);
+    let slow_aligned = ema_bucket(second) == ema_bucket(last);
 
     MtfTrendAlignment {
         micro_aligned,

@@ -1,11 +1,17 @@
 <script lang="ts">
     // PAE History tab — persisted backtest runs (GET /api/backtest/list)
     // with click-to-load via GET /api/backtest/:id.
+    //
+    // Phase 3: the selected run lives in the AppStore (`app.paeSelectedRun`)
+    // so `#/engine/performance/history/run/<id>` deep links restore it.
     import { onMount } from 'svelte';
     import ExportDataButton from './../ExportDataButton.svelte';
     import { buildEngineExport } from '../../lib/engineExport';
+    import { useAppStore } from '../../state.svelte';
     import styles from '../../styles/engine-dashboard.module.css';
     import { fmtNum } from '../../lib/format';
+
+    const app = useAppStore();
 
     interface HistoryRow {
         id: number;
@@ -17,9 +23,11 @@
     let rows: HistoryRow[] = $state([]);
     let loading = $state(true);
     let error = $state('');
-    let selectedId = $state<number | null>(null);
-    let selectedRun: any = $state(null);
-    let loadingRun = $state(false);
+
+    // Store-backed selected run (shared with the URL router).
+    const selectedId = $derived(app.paeSelectedRunId);
+    const selectedRun = $derived(app.paeSelectedRun);
+    const loadingRun = $derived(app.paeRunLoading);
 
     async function loadList() {
         try {
@@ -35,19 +43,9 @@
     }
 
     async function loadRun(id: number) {
-        selectedId = id;
-        selectedRun = null;
-        loadingRun = true;
-        try {
-            const res = await fetch(`/api/backtest/${id}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            selectedRun = await res.json();
-            error = '';
-        } catch (e: any) {
-            error = e?.message ?? 'Failed to load run';
-        } finally {
-            loadingRun = false;
-        }
+        error = '';
+        await app.loadPaeRun(id);
+        if (app.paeRunError) error = app.paeRunError;
     }
 
     onMount(loadList);

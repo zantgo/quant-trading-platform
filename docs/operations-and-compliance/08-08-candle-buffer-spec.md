@@ -1,6 +1,6 @@
 # Candle Buffer Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** network-adapters + portfolio-supervisor + market-analyzer
@@ -9,7 +9,7 @@
 
 ## §1 Purpose
 
-This document is the **single source of truth** for the platform's candle buffer behavior across all exchanges and all four timeframes. The candle universe is governed by **three independent numbers** — each with its own role, never interchangeable:
+This document is the **single source of truth** for the platform's candle buffer behavior across all exchanges and the fixed-ladder slots (`micro1`…`longterm2`; v11.1 pool — v11.2 runs its fastest `[workspace].active_timeframes` slots, the rest are inert). The candle universe is governed by **three independent numbers** — each with its own role, never interchangeable:
 
 | Tier | Value | Constant / config | Role |
 |------|-------|-------------------|------|
@@ -36,7 +36,7 @@ The platform now has one canonical behavior per tier. Every exchange, every time
 | **CB-08** | **≥ 1 minute timeframes (`timeframe_secs ≥ 60`) always start with exactly `candle_buffer.size` historical candles.** The platform paginates the exchange REST endpoint until either `size` candles are returned or the exchange's earliest available history is reached, then merges with the SQLite `market_snapshots` cache (newest DB takes precedence on overlap), then caps at `size`. |
 | **CB-09** | A ≥ 1 minute cold start always completes with **all 52 indicators in `IndicatorLifecycleState::Live`** (every indicator's `bars_required ≤ INDICATORS_MAX_BARS_REQUIRED = 300 ≤ size = 500`). The user sees a chart with full history on first paint; the only visible loading state is the brief exchange-REST round-trip. |
 | **CB-10** | Per-exchange REST pagination is the responsibility of the `HistoricalFetchPolicy` trait ([03-01-07](../engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md)). Bitget must paginate against its 200-row limit until `size` rows are returned; Hyperliquid must paginate against its implicit return-size cap using backward `startTime` cursors. Both adapters **must converge to exactly `size`** rows from a cold start whenever the exchange has sufficient history. |
-| **CB-11** | A **timeframe change** (the operator alters `micro.duration_seconds`, `fast.duration_seconds`, `slow.duration_seconds`, or `macro.duration_seconds`) triggers a **single-TF reload** of only the affected pipeline via the `reload_timeframe` API ([03-04 PMPE](../engines/portfolio-management-engine) / `portfolio-supervisor`). The other three pipelines continue uninterrupted. The reload tears down the affected `TimeframePipeline`, re-runs bootstrap against the new `timeframe_secs`, and re-emits `INITIALIZING → LOADING → LIVE` on the new pipeline. |
+| **CB-11** | A **single-slot reload** request (`POST /api/instances/:id/reload?slot=<name>`, one of `micro1`…`longterm2`; since v11.1 slot durations are fixed, so the API serves operational recovery — stuck pipeline, warm-handover shortfall — not duration edits) triggers a **single-TF reload** of only the affected pipeline via the `reload_timeframe` API (`portfolio-supervisor`). The other nine pipelines continue uninterrupted. The reload tears down the affected `TimeframePipeline`, re-runs bootstrap against its fixed `timeframe_secs`, and re-emits `INITIALIZING → LOADING → LIVE` on the new pipeline. |
 | **CB-12** | SQLite retains its existing **7-day** retention policy unchanged. The `market_snapshots` table is the long-term log; the in-memory `candle_buffer.size` rolling window is the only thing bounded by `size`. On eviction the candle leaves memory; the corresponding SQLite row remains queryable until the 7-day cleanup deletes it. |
 
 ## §3 Configuration schema
@@ -64,7 +64,7 @@ Per-instance `analysis_limit` blocks and the `analysis_limit` field on `Timefram
 | Live completed candle | Push back; if buffer length would exceed `size`, pop front (CB-03) |
 | Reconstructed candle (gap fill) | Push back; pop front; increment indicator `bars_seen` but does **not** promote `Loading → Live` on its own (CB-06) |
 | Operator TF change | Tear down + rebuild only that TF via `reload_timeframe` (CB-11) |
-| Operator full restart | All 4 TFs rebuild from cold via CB-05/CB-08 rules |
+| Operator full restart | All 10 ladder slots rebuild from cold via CB-05/CB-08 rules |
 | Connection loss + reconnect | Reconstruction path per `[08-04]`; pipeline remains in its current state |
 | Indicator `bars_seen ≥ bars_required` and parent TF = `LIVE` | Indicator transitions `Loading → Live` ([03-02-15](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)) |
 | `(now - last_updated_at) > stale_threshold_secs` and `bars_seen < bars_required` | Indicator transitions `Loading → Failed`; TF follows (CB-06, see [03-01-06 §4](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md)) |
@@ -75,11 +75,12 @@ The `reload_timeframe` API is the canonical entry point for all in-place changes
 
 | Trigger | Reload scope | Pipeline state after reload |
 |---------|--------------|-----------------------------|
-| Operator edits `micro.duration_seconds` (or fast/slow/macro) in the dashboard | micro only (or fast/slow/macro only) | `INITIALIZING → LOADING → LIVE` (CB-11) |
-| Operator invokes `/api/instances/:id/reload?slot=micro` | micro only | same |
-| Operator invokes `/api/instances/:id/reload?slot=all` | all four TFs | each follows the above |
-| Boot-time instance spawn | all four TFs | `INITIALIZING → LOADING → LIVE` per CB-05/CB-08 |
-| Recharge (existing API) | all four TFs | same |
+| Operator invokes `/api/instances/:id/reload?slot=<name>` (one of `micro1|micro2|fast1|fast2|slow1|slow2|macro1|macro2|longterm1|longterm2`) | that slot only | `INITIALIZING → LOADING → LIVE` (CB-11) |
+| Operator invokes `/api/instances/:id/reload?slot=all` | every ACTIVE ladder slot (v11.2) | each follows the above |
+| Boot-time instance spawn | every ACTIVE ladder slot (v11.2 — the fastest-N prefix) | `INITIALIZING → LOADING → LIVE` per CB-05/CB-08 |
+| Recharge (existing API) | every ACTIVE ladder slot (v11.2) | same |
+
+Slot durations are fixed (v11.1) — there is no operator duration edit that would force a reload; the API remains for operational recovery (stuck pipeline, warm-handover shortfall).
 
 Other reload triggers (clock-drift panic, exchange key rotation) continue to follow their existing per-trigger paths.
 

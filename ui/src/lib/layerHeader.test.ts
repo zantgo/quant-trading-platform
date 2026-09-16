@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import {
     buildL1MetricsHeader,
     buildL1MtfHeader,
+    metricsBadgeFor,
     buildL2AlignmentHeader,
     buildL3AnalysisHeader,
     buildL4OpportunityHeader,
@@ -64,6 +65,7 @@ function ctx(overrides: Partial<MarketContext> = {}): MarketContext {
 
 function tfStub(context: MarketContext | null) {
     return {
+        slot: 'micro1',
         context,
         indicators: {},
         isCompleted: context != null,
@@ -308,7 +310,7 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
         // The node test env has no global WebSocket — polyfill the two
         // constants tfStatusFrom reads.
         (globalThis as any).WebSocket = { OPEN: 1, CLOSED: 3 };
-        const closedWs = { wsMicro: { readyState: 3 /* CLOSED */ } as WebSocket };
+        const closedWs = { sockets: { micro1: { readyState: 3 /* CLOSED */ } as WebSocket } };
         expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL' })), closedWs).status).toBe('error');
         const stale = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
         stale.pipelineState = 'STALE';
@@ -328,6 +330,57 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
         expect(buildL1MetricsHeader(loading).status).toBe('loading');
         // Healthy completed tick stays live.
         expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL' }))).status).toBe('live');
+    });
+});
+
+// ── metricsBadgeFor (single-source L1 badge — v10.2 TF status table) ────
+
+describe('metricsBadgeFor (single-source L1 badge)', () => {
+    it('returns the empty badge + loading when the TF is missing or has no context label', () => {
+        for (const tf of [null, undefined, tfStub(null), tfStub(ctx({ overall_label: null as any }))]) {
+            const info = metricsBadgeFor(tf, null);
+            expect(info.badge.label).toBe('\u2014');
+            expect(info.badge.state).toBe('empty');
+            expect(info.status).toBe('loading');
+        }
+    });
+
+    it('badge = prettified overall_label + biasColor + regime sublabel rule (identical to the L1 header badge)', () => {
+        const info = metricsBadgeFor(tfStub(ctx({ overall_label: 'STRONG_BULL', regime: 'CONTRACTION', overall_score: 80 })), null);
+        expect(info.badge.label).toBe('STRONG BULL');
+        expect(info.badge.color).toBe(biasColor('STRONG_BULL'));
+        expect(info.badge.background).toBe(hexToRgba(biasColor('STRONG_BULL'), 0.08));
+        expect(info.badge.sublabel).toBe('CONTRACTION');
+        expect(info.badge.state).toBe('valid');
+        // Regime implied by the label → suppressed (same rule as the header).
+        const implied = metricsBadgeFor(tfStub(ctx({ overall_label: 'STRONG_BULL', regime: 'TRENDING' })), null);
+        expect(implied.badge.sublabel).toBeUndefined();
+    });
+
+    it('status flows through tfStatusFrom (M-4 semantics)', () => {
+        (globalThis as any).WebSocket = { OPEN: 1, CLOSED: 3 };
+        const closedWs = { sockets: { micro1: { readyState: 3 /* CLOSED */ } as WebSocket } };
+        expect(metricsBadgeFor(tfStub(ctx({ overall_label: 'STRONG_BULL' })), closedWs).status).toBe('error');
+        const stale = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
+        stale.pipelineState = 'STALE';
+        expect(metricsBadgeFor(stale, null).status).toBe('stale');
+        const loading = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
+        loading.pipelineState = 'LOADING';
+        expect(metricsBadgeFor(loading, null).status).toBe('loading');
+        expect(metricsBadgeFor(tfStub(ctx({ overall_label: 'STRONG_BULL' })), null).status).toBe('live');
+    });
+
+    it('buildL1MetricsHeader delegates to metricsBadgeFor — badge + status are identical objects', () => {
+        const tf = tfStub(ctx({ overall_label: 'WEAK_BEAR', regime: 'EXPANSION', overall_score: 42 }));
+        const info = metricsBadgeFor(tf, null);
+        const spec = buildL1MetricsHeader(tf, null);
+        expect(spec.badge).toEqual(info.badge);
+        expect(spec.status).toBe(info.status);
+        // Empty branch too.
+        const emptyInfo = metricsBadgeFor(null, null);
+        const emptySpec = buildL1MetricsHeader(null, null);
+        expect(emptySpec.badge).toEqual(emptyInfo.badge);
+        expect(emptySpec.status).toBe(emptyInfo.status);
     });
 });
 

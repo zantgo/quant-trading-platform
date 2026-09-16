@@ -25,7 +25,7 @@ fn sample_indicators() -> HashMap<String, NormalizedIndicatorValue> {
 #[test]
 fn test_market_snapshot_json_roundtrip() {
     let snap = MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro),
+        timeframe_slot: Some(TimeframeSlot::Micro1),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 60,
         timestamp: 1718000000,
@@ -93,7 +93,7 @@ fn test_market_snapshot_json_roundtrip() {
 #[test]
 fn test_market_snapshot_empty_indicators() {
     let snap = MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro),
+        timeframe_slot: Some(TimeframeSlot::Micro1),
         exchange: None,
         timeframe_secs: 0,
         timestamp: 0,

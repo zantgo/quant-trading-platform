@@ -8,7 +8,9 @@
 import type {
   AnalysisMatrix,
   AlignmentMatrix,
+  TimeframeSlotKind,
 } from '../../types';
+import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../../types';
 import {
   buildPriceBlock,
   buildHeaderBlock,
@@ -167,10 +169,15 @@ function signedStr(n: number, decimals: number): string {
 /** Timeframe sort rank — mirrors `AnalysisPanel.svelte::timeframeRank`. */
 function timeframeRank(signal: string): number {
   const s = (signal || '').toUpperCase();
+  // Fixed 10-slot ladder order: MICRO1..LONGTERM2 (fastest → slowest).
+  const slotOrder = ['MICRO1','MICRO2','FAST1','FAST2','SLOW1','SLOW2','MACRO1','MACRO2','LONGTERM1','LONGTERM2'];
+  for (let i = 0; i < slotOrder.length; i++) {
+      if (s.includes(slotOrder[i])) return i;
+  }
   if (s.includes('MICRO')) return 0;
-  if (s.includes('FAST')) return 1;
-  if (s.includes('SLOW')) return 2;
-  if (s.includes('MACRO')) return 3;
+  if (s.includes('FAST')) return 2;
+  if (s.includes('SLOW')) return 4;
+  if (s.includes('MACRO')) return 6;
   if (s.includes('1S') || s.includes('3S') || s.includes('5S') || s.includes('15S') || s.includes('30S') || s.includes('1M')) return 0;
   if (s.includes('3M') || s.includes('5M')) return 1;
   if (s.includes('15M') || s.includes('30M')) return 2;
@@ -181,7 +188,7 @@ function timeframeRank(signal: string): number {
 function decomposeSignal(raw: string): DecomposedSignal {
   const t = raw || '';
   let timeframe = 'GLOBAL';
-  const tfMatch = t.match(/\[?(MICRO|FAST|SLOW|MACRO|1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D)\]?/i);
+  const tfMatch = t.match(/\[?(MICRO1|MICRO2|FAST1|FAST2|SLOW1|SLOW2|MACRO1|MACRO2|LONGTERM1|LONGTERM2|MICRO|FAST|SLOW|MACRO|1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D)\]?/i);
   if (tfMatch) timeframe = tfMatch[1].toUpperCase();
   let score: number | null = null;
   const scoreMatch = t.match(/score\s+([+\-]?\d+)/i);
@@ -335,8 +342,12 @@ function buildQualitativeBlock(analysis: AnalysisMatrix | null): QualitativeAsse
   };
 }
 
-function buildPerTimeframeBlock(alignment: AlignmentMatrix | null): PerTimeframeAlignmentRow[] {
-  const order = ['MICRO', 'FAST', 'SLOW', 'MACRO'];
+function buildPerTimeframeBlock(
+  alignment: AlignmentMatrix | null,
+  activeSlots?: readonly TimeframeSlotKind[],
+): PerTimeframeAlignmentRow[] {
+  const slots = activeSlots && activeSlots.length > 0 ? activeSlots : [...TIMEFRAME_SLOT_KINDS];
+  const order = slots.map((slot) => TIMEFRAME_SLOT_LABELS[slot].toUpperCase());
   const alignments = alignment?.timeframe_alignments ?? [];
   return order.map((slot) => {
     const found = alignments.find((a) => a.timeframe.toUpperCase() === slot);
@@ -383,6 +394,9 @@ export interface AnalysisTabInputs {
   markPrice?: number | null;
   isCompleted?: boolean;
   terms?: InstanceTermsLike;
+  /** v11.2 — the ACTIVE slot ladder; the per-timeframe order array and
+   *  the price-block snapshot walk follow it. Absent → all 10. */
+  activeSlots?: TimeframeSlotKind[];
   headerSpec: LayerHeaderSpec;
 }
 
@@ -390,10 +404,14 @@ export interface AnalysisTabInputs {
  * Build the Analysis tab export payload. Mirrors `AnalysisPanel.svelte` 1:1.
  */
 export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
+  const activeSlots = args.activeSlots && args.activeSlots.length > 0
+    ? args.activeSlots
+    : [...TIMEFRAME_SLOT_KINDS];
   const { meta } = buildPriceBlock({
     symbol: args.symbol,
     exchange: args.exchange,
     terms: args.terms,
+    activeSlots,
     fallbackMarkPrice: args.markPrice,
     tfSecs: args.tfSecs,
     timestamp: args.timestamp,
@@ -411,7 +429,7 @@ export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
     signal_lean_hero: buildSignalLeanHero(analysis),
     signals: buildSignalsBlock(analysis),
     qualitative_assessment: buildQualitativeBlock(analysis),
-    per_timeframe_alignment: buildPerTimeframeBlock(args.alignment),
+    per_timeframe_alignment: buildPerTimeframeBlock(args.alignment, activeSlots),
     interpretation: analysis?.market_interpretation ?? '',
     // Screen renders the interpretation with keyword bolding; mirror
     // the marked-up HTML in `interpretation_display` for export parity.

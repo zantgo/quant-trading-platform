@@ -871,14 +871,10 @@ fn warm_tf(
         .unwrap_or_else(|| {
             config_models::TimeframeConfig::new(tf, config_models::IndicatorsConfig::default())
         });
-    let slot = match tf {
-        _ if tf == ladder.first().copied().unwrap_or(0) => {
-            core_domain::models::TimeframeSlot::Micro
-        }
-        _ if tf == ladder.get(1).copied().unwrap_or(0) => core_domain::models::TimeframeSlot::Fast,
-        _ if tf == ladder.get(2).copied().unwrap_or(0) => core_domain::models::TimeframeSlot::Slow,
-        _ => core_domain::models::TimeframeSlot::Macro,
-    };
+    // Fixed 10-slot ladder: slot identity is the exact duration (the same
+    // mapping the registry boot uses). Non-ladder durations resolve to
+    // `Custom`, preserving the legacy fallback semantics.
+    let slot = core_domain::models::TimeframeSlot::parse_from_secs(tf);
     let symbol = run_cfg
         .symbols
         .iter()

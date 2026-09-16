@@ -42,6 +42,7 @@
     import MarketHealthCard from './dashboard/MarketHealthCard.svelte';
     import RegimeDistributionCard from './dashboard/RegimeDistributionCard.svelte';
     import AssetRankingsTable from './dashboard/AssetRankingsTable.svelte';
+    import InstanceStatusTable from './InstanceStatusTable.svelte';
     import ExportDataButton from './ExportDataButton.svelte';
     import { buildOverviewTabExport } from '../lib/exportBuilders/overviewTab';
 
@@ -168,6 +169,11 @@
                     {/if}
                 </div>
             </div>
+
+            <!-- v11.2: per-instance status table (collapsed rows + the
+                 same decision badge the Recommendation view derives) —
+                 sits between the unified header and the hero. -->
+            <InstanceStatusTable {wssMap} />
 
             <RecommendationHero />
 

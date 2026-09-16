@@ -124,13 +124,27 @@ fn build_stub_instance(
         stale_threshold_secs: 300,
     };
 
+    // Full fixed-ladder ActivePair (10 slots, fastest → slowest).
+    let [p0, p1, p2, p3, p4, p5, p6, p7, p8, p9] = std::array::from_fn(|i| {
+        build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[i],
+            config_models::FIXED_TF_LADDER[i],
+            bcast_tx.clone(),
+        )
+    });
     let active = Arc::new(ActivePair {
         symbol: format!("{}-{}", base, quote),
         custom_pipelines: std::collections::HashMap::new(),
-        micro: build_pipe(TimeframeSlot::Micro, 60, bcast_tx.clone()),
-        fast: build_pipe(TimeframeSlot::Fast, 180, bcast_tx.clone()),
-        slow: build_pipe(TimeframeSlot::Slow, 300, bcast_tx.clone()),
-        r#macro: build_pipe(TimeframeSlot::Macro, 900, bcast_tx),
+        micro1: p0,
+        micro2: p1,
+        fast1: p2,
+        fast2: p3,
+        slow1: p4,
+        slow2: p5,
+        macro1: p6,
+        macro2: p7,
+        longterm1: p8,
+        longterm2: p9,
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: tokio_util::sync::CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -140,28 +154,17 @@ fn build_stub_instance(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
+            active_count: 10,
     });
 
-    let micro_buf = TimeframeBuffers {
-        history: active.micro.history.clone(),
-        latest: active.micro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let fast_buf = TimeframeBuffers {
-        history: active.fast.history.clone(),
-        latest: active.fast.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let slow_buf = TimeframeBuffers {
-        history: active.slow.history.clone(),
-        latest: active.slow.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let macro_buf = TimeframeBuffers {
-        history: active.r#macro.history.clone(),
-        latest: active.r#macro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
+    let buffers: [TimeframeBuffers; 10] = std::array::from_fn(|i| {
+        let p = active.all()[i];
+        TimeframeBuffers {
+            history: p.history.clone(),
+            latest: p.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        }
+    });
 
     Arc::new(portfolio_supervisor::instance::Instance::new(
         id.to_string(),
@@ -177,10 +180,8 @@ fn build_stub_instance(
         workspace,
         Default::default(),
         Default::default(),
-        micro_buf,
-        fast_buf,
-        slow_buf,
-        macro_buf,
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ))
 }
@@ -437,10 +438,56 @@ fn build_stub_instance_v2(
     let active = Arc::new(ActivePair {
         symbol: format!("{}-{}", base, quote),
         custom_pipelines: std::collections::HashMap::new(),
-        micro: build_pipe(TimeframeSlot::Micro, 60, bcast_tx.clone()),
-        fast: build_pipe(TimeframeSlot::Fast, 180, bcast_tx.clone()),
-        slow: build_pipe(TimeframeSlot::Slow, 300, bcast_tx.clone()),
-        r#macro: build_pipe(TimeframeSlot::Macro, 900, bcast_tx),
+        micro1: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[0],
+            config_models::FIXED_TF_LADDER[0],
+            bcast_tx.clone(),
+        ),
+        micro2: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[1],
+            config_models::FIXED_TF_LADDER[1],
+            bcast_tx.clone(),
+        ),
+        fast1: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[2],
+            config_models::FIXED_TF_LADDER[2],
+            bcast_tx.clone(),
+        ),
+        fast2: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[3],
+            config_models::FIXED_TF_LADDER[3],
+            bcast_tx.clone(),
+        ),
+        slow1: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[4],
+            config_models::FIXED_TF_LADDER[4],
+            bcast_tx.clone(),
+        ),
+        slow2: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[5],
+            config_models::FIXED_TF_LADDER[5],
+            bcast_tx.clone(),
+        ),
+        macro1: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[6],
+            config_models::FIXED_TF_LADDER[6],
+            bcast_tx.clone(),
+        ),
+        macro2: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[7],
+            config_models::FIXED_TF_LADDER[7],
+            bcast_tx.clone(),
+        ),
+        longterm1: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[8],
+            config_models::FIXED_TF_LADDER[8],
+            bcast_tx.clone(),
+        ),
+        longterm2: build_pipe(
+            core_domain::models::FIXED_TF_SLOTS[9],
+            config_models::FIXED_TF_LADDER[9],
+            bcast_tx,
+        ),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: tokio_util::sync::CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -450,28 +497,17 @@ fn build_stub_instance_v2(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
+            active_count: 10,
     });
 
-    let micro_buf = TimeframeBuffers {
-        history: active.micro.history.clone(),
-        latest: active.micro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let fast_buf = TimeframeBuffers {
-        history: active.fast.history.clone(),
-        latest: active.fast.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let slow_buf = TimeframeBuffers {
-        history: active.slow.history.clone(),
-        latest: active.slow.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let macro_buf = TimeframeBuffers {
-        history: active.r#macro.history.clone(),
-        latest: active.r#macro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
+    let buffers: [TimeframeBuffers; 10] = std::array::from_fn(|i| {
+        let p = active.all()[i];
+        TimeframeBuffers {
+            history: p.history.clone(),
+            latest: p.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        }
+    });
 
     Arc::new(portfolio_supervisor::instance::Instance::new(
         id.to_string(),
@@ -482,10 +518,8 @@ fn build_stub_instance_v2(
         workspace,
         Default::default(),
         Default::default(),
-        micro_buf,
-        fast_buf,
-        slow_buf,
-        macro_buf,
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ))
 }

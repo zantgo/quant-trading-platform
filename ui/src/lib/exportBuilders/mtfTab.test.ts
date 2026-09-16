@@ -1,6 +1,7 @@
 // Regression tests for the v7.0-audit MTF tab export.
 
 import { describe, it, expect } from 'vitest';
+import { makeTerms } from '../../tests/makeTerms';
 import { buildMtfExportJson } from './mtfTab';
 import type { LayerHeaderSpec } from '../layerHeader';
 import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto } from '../../types';
@@ -46,12 +47,12 @@ describe('buildMtfExportJson', () => {
       markPrice: 63390,
       headerSpec,
       registry,
-      pair: {
-        microTerm: makeTf('Micro', '63390'),
-        fastTerm: makeTf('Fast', '63395'),
-        slowTerm: makeTf('Slow', '63300'),
-        macroTerm: makeTf('Macro', '63000'),
-      },
+      terms: makeTerms({
+          micro1: makeTf('Micro', '63390'),
+          fast1: makeTf('Fast', '63395'),
+          slow1: makeTf('Slow', '63300'),
+          macro1: makeTf('Macro', '63000'),
+      }),
     }));
     expect(p.meta.pair).toBe('BTC-USDT');
     expect(p.header.layer_name).toBe('Metrics · MTF');
@@ -59,7 +60,7 @@ describe('buildMtfExportJson', () => {
     const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
     expect(rsi.period).toBe(14);
     expect(rsi.display_name).toBe('RSI 14');
-    expect(rsi.values).toHaveLength(4);
+    expect(rsi.values).toHaveLength(10);
     expect(rsi.values[0].normalized_display).toBe('+0.24');
     expect(typeof rsi.agreement).toBe('number');
     expect(['BULL', 'BEAR', 'MIXED']).toContain(rsi.agreement_label);
@@ -71,14 +72,14 @@ describe('buildMtfExportJson', () => {
       markPrice: 63390,
       headerSpec,
       registry,
-      pair: {
-        microTerm: makeTf('Micro', '63390'),
-        fastTerm: makeTf('Fast', '63395'),
-        slowTerm: makeTf('Slow', '63300'),
-        macroTerm: makeTf('Macro', '63000'),
-      },
+      terms: makeTerms({
+          micro1: makeTf('Micro', '63390'),
+          fast1: makeTf('Fast', '63395'),
+          slow1: makeTf('Slow', '63300'),
+          macro1: makeTf('Macro', '63000'),
+      }),
     }));
-    expect(p.timeframes).toHaveLength(4);
+    expect(p.timeframes).toHaveLength(10);
     expect(p.timeframes[0].fibonacci_summary.present).toBe(false);
     expect(p.timeframes[0].fibonacci_summary.swing_direction).toBe('NEUTRAL SWING');
   });
@@ -135,12 +136,12 @@ describe('buildMtfExportJson', () => {
       markPrice: 63000,
       headerSpec,
       registry: confRegistry,
-      pair: {
-        microTerm: makeTfWith('Micro', 1.0, 0.9, 'RSI_MICRO_BULLISH'),
-        fastTerm: makeTfWith('Fast', 0.6, -0.5, 'RSI_FAST_BEARISH'),
-        slowTerm: makeTfWith('Slow', 0.4, 0.2, 'RSI_SLOW_BULLISH'),
-        macroTerm: makeTfWith('Macro', 0.5, -0.1, 'RSI_MACRO_BEARISH'),
-      },
+      terms: makeTerms({
+          micro1: makeTfWith('Micro', 1.0, 0.9, 'RSI_MICRO_BULLISH'),
+          fast1: makeTfWith('Fast', 0.6, -0.5, 'RSI_FAST_BEARISH'),
+          slow1: makeTfWith('Slow', 0.4, 0.2, 'RSI_SLOW_BULLISH'),
+          macro1: makeTfWith('Macro', 0.5, -0.1, 'RSI_MACRO_BEARISH'),
+      }),
     }));
 
     // The merged indicator must reflect the MICRO reading (conf 1.00):
@@ -177,12 +178,12 @@ it('zero-fills missing-DTO registry entries in the MTF indicator list', () => {
     markPrice: 63390,
     headerSpec,
     registry: wideRegistry,
-    pair: {
-      microTerm: makeTf('Micro', '63390'),
-      fastTerm: makeTf('Fast', '63395'),
-      slowTerm: makeTf('Slow', '63300'),
-      macroTerm: makeTf('Macro', '63000'),
-    },
+    terms: makeTerms({
+        micro1: makeTf('Micro', '63390'),
+        fast1: makeTf('Fast', '63395'),
+        slow1: makeTf('Slow', '63300'),
+        macro1: makeTf('Macro', '63000'),
+    }),
   }));
   const rows = p.indicators as Array<{ key: string; values: Array<{ active: boolean; normalized: number }> }>;
   expect(rows).toHaveLength(2);
@@ -225,12 +226,12 @@ it('warming placeholders and gated rows are inactive in MTF cells', () => {
     markPrice: 63390,
     headerSpec,
     registry: warmRegistry,
-    pair: {
-      microTerm: makeWarmTf('Micro'),
-      fastTerm: makeWarmTf('Fast'),
-      slowTerm: makeWarmTf('Slow'),
-      macroTerm: makeWarmTf('Macro'),
-    },
+    terms: makeTerms({
+        micro1: makeWarmTf('Micro'),
+        fast1: makeWarmTf('Fast'),
+        slow1: makeWarmTf('Slow'),
+        macro1: makeWarmTf('Macro'),
+    }),
   }));
   const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
   // WARMING → inactive, dash display, excluded from the agreement mean.
@@ -285,12 +286,12 @@ it('cross_tf_tables carries per-TF signal tallies and totals', () => {
     markPrice: 63390,
     headerSpec,
     registry: sigRegistry,
-    pair: {
-      microTerm: makeSigTf('Micro', 'Bullish'),
-      fastTerm: makeSigTf('Fast', 'Bullish'),
-      slowTerm: makeSigTf('Slow', 'Bearish'),
-      macroTerm: makeSigTf('Macro', 'Bearish'),
-    },
+    terms: makeTerms({
+        micro1: makeSigTf('Micro', 'Bullish'),
+        fast1: makeSigTf('Fast', 'Bullish'),
+        slow1: makeSigTf('Slow', 'Bearish'),
+        macro1: makeSigTf('Macro', 'Bearish'),
+    }),
   }));
   const signals = p.cross_tf_tables.signals as Array<{
     kind: string;
@@ -300,7 +301,7 @@ it('cross_tf_tables carries per-TF signal tallies and totals', () => {
   const th = signals.find((s) => s.kind === 'Threshold');
   expect(th).toBeDefined();
   expect(th!.per_timeframe.map((c) => [c.bull, c.bear])).toEqual([
-    [1, 0], [1, 0], [0, 1], [0, 1],
+    [1, 0], [0, 0], [1, 0], [0, 0], [0, 1], [0, 0], [0, 1], [0, 0], [0, 0], [0, 0],
   ]);
   expect(th!.totals).toEqual({ bull: 2, bear: 2, neutral: 0 });
   expect(th!.per_timeframe[0].entries).toHaveLength(1);

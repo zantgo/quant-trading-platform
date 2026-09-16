@@ -22,7 +22,10 @@ use crate::AppState;
 /// upgrades whose `Origin`/`Sec-Fetch-Site` prove a foreign site, (b) cap
 /// concurrent sockets (each holds a broadcast receiver and a task), and
 /// (c) never hold a socket open for a pair that does not exist.
-const MAX_WS_CONNECTIONS: usize = 64;
+// v11.3: raised 64 → 256 — multi-tab viewers each open their own socket
+// set (instances × active slots × tabs); the backend fans out to every
+// subscriber independently via per-slot Tokio broadcast channels.
+const MAX_WS_CONNECTIONS: usize = 256;
 static ACTIVE_WS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// RAII guard — decrements the connection counter when the socket task
@@ -94,7 +97,7 @@ pub async fn ws_handler(
     };
     let tf_secs = query.timeframe_secs.unwrap_or(60);
     // `slot` is the authoritative wire-side identifier. New clients send
-    // `?slot=micro|fast|slow|macro`; legacy clients omit it and we derive
+    // `?slot=micro1|…|longterm2`; legacy clients omit it and we derive
     // a best-effort slot from the requested duration. Once the connection
     // is bound, every notification carries `timeframe_slot` so the
     // frontend never has to re-derive slot from duration.
@@ -199,25 +202,25 @@ async fn handle_ws_socket(
     // Audit fix (M3): `subscribe_broadcast_by_slot` returns None for
     // Custom{id} slots (custom pipelines are never instantiated) — the
     // previous `rx_stream.expect(...)` panicked the socket task and killed
-    // the connection. Fall back to the micro channel (best-effort slot
-    // resolution per 06-01 §3.1) so slot-less legacy clients and custom
-    // durations stay alive and receive data.
+    // the connection. Fall back to the micro1 channel (fastest ladder slot;
+    // best-effort slot resolution per 06-01 §3.1) so slot-less legacy
+    // clients and custom durations stay alive and receive data.
     let mut rx_stream: broadcast::Receiver<MarketSnapshot> = match rx_stream {
         Some(rx) => rx,
         None => {
             eprintln!(
-                "WS: no pipeline for slot {:?} (pair {}) — falling back to micro",
+                "WS: no pipeline for slot {:?} (pair {}) — falling back to micro1",
                 requested_slot, pair_key
             );
             match state
                 .get_active_pair(&pair_key)
                 .await
-                .and_then(|p| p.subscribe_broadcast_by_slot(TimeframeSlot::Micro))
+                .and_then(|p| p.subscribe_broadcast_by_slot(TimeframeSlot::Micro1))
             {
                 Some(rx) => rx,
                 None => {
                     eprintln!(
-                        "WS: micro pipeline missing for '{}' (pair deleted mid-upgrade) — closing socket",
+                        "WS: micro1 pipeline missing for '{}' (pair deleted mid-upgrade) — closing socket",
                         pair_key
                     );
                     return;

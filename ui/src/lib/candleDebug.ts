@@ -2,7 +2,7 @@
  * Browser console debug dump for candle + indicator-overlay verification.
  *
  * Fires on **every completed candle** (is_completed === true) for any
- * (instance, slot). Payload aggregates **all** instances × 4 slots,
+ * (instance, slot). Payload aggregates **all** instances × 10 slots,
  * including background timeframes, so a single log line gives a full
  * cross-section of warmup + rolling buffer state.
  *
@@ -16,6 +16,7 @@
  * One `console.log` per completed candle: `[CANDLE_DEBUG] <json>`
  */
 import type { AppStore } from '../state.svelte';
+import { activeSlotKinds } from './terms';
 import { getResolvedHistory } from './indicatorHistory';
 
 declare global {
@@ -48,7 +49,7 @@ export interface CandleDebugOverlayDump {
 }
 
 export interface CandleDebugTimeframe {
-    slot: 'micro' | 'fast' | 'slow' | 'macro';
+    slot: import('../types').TimeframeSlotKind;
     timeframe_secs: number;
     barDurationSec: number;
     pipelineState: string | undefined;
@@ -142,9 +143,11 @@ export function buildCandleDebugPayload(
     let allLte1000 = true;
 
     for (const [pairKey, inst] of Object.entries(app.instancesMap)) {
-        const slots: Array<'micro' | 'fast' | 'slow' | 'macro'> = ['micro', 'fast', 'slow', 'macro'];
+        // v11.2: walk the ACTIVE ladder only — inactive slots never stream
+        // and would only add all-empty noise to the dump.
+        const slots = activeSlotKinds(inst);
         const tfs: CandleDebugTimeframe[] = slots.map((slot) => {
-            const tf = (inst as unknown as Record<string, unknown>)[`${slot}Term`] as import('../types').TimeframeTelemetry | undefined;
+            const tf = (inst as { terms?: Record<string, import('../types').TimeframeTelemetry> }).terms?.[slot];
             const barDurationSec = tf?.barDurationSec ?? 0;
             const hist = getResolvedHistory(pairKey, barDurationSec, slot);
             const candles: CandleDebugTimeframe['candles'] = [];

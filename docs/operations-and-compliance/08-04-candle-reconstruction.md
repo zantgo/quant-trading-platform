@@ -1,6 +1,6 @@
 # Candle Reconstruction
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 
 ## Glossary (canonical)
@@ -69,7 +69,7 @@ The flat-candle assumption is explicit: with no trade tape to reconstruct from, 
 >
 > **Volume rollup rule.** Sub-minute reconstructed candles have `volume = 0` (no trade tape) by design. When rolled up to a higher timeframe (e.g. 15s → 1m), the aggregate macro volume is the **sum** of the constituent micro volumes: `aggregated_volume = Σ sub_candle.volume`. A reconstructed sub-candle contributes `0` to the sum (no trade tape), but non-reconstructed constituents retain their original volume. A contamination rule (`aggregated_volume = 0` if *any* constituent was reconstructed) would destroy the volume from non-reconstructed constituents in the same rolled-up interval — the sum rule is the canonical aggregator. Operators should treat volume from intervals containing reconstructed sub-minute candles as informational only when the macro-level volume is entirely from reconstructed constituents; mixed intervals retain the legitimate non-reconstructed portion.
 >
-> **Cold-start minimums.** The reconstruction engine requires: (a) ≥ 2 recent closes for linear extrapolation fallback (sub-minute), (b) ≥ 50 recent closes for EMA synthesis (sub-minute preferred), (c) ≥ 50 closes per timeframe for indicator warm-up (any timeframe). On cold start with zero history, all indicators emit `state_label = INSUFFICIENT_DATA` and `confidence = 0.0` until the minimum buffer is reached. The minimum warm-up duration is `min_buffer × duration_seconds` — for a 1m micro timeframe with 50-bar minimum EMA warm-up, this is ~50 minutes.
+> **Cold-start minimums.** The reconstruction engine requires: (a) ≥ 2 recent closes for linear extrapolation fallback (sub-minute), (b) ≥ 50 recent closes for EMA synthesis (sub-minute preferred), (c) ≥ 50 closes per timeframe for indicator warm-up (any timeframe). On cold start with zero history, all indicators emit `state_label = INSUFFICIENT_DATA` and `confidence = 0.0` until the minimum buffer is reached. The minimum warm-up duration is `min_buffer × duration_seconds` — for a 60 s slot (e.g. `slow2`) with 50-bar minimum EMA warm-up, this is ~50 minutes.
 
 > **Interaction with the per-indicator lifecycle (v6.5).** Reconstructed candles **count toward** each indicator's `bars_seen` ([03-02-15 ILS-13](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)), so a freshly-reconstructed gap can push an indicator past its `bars_required` threshold and trigger a `Loading → Live` transition — but only if the parent `CandlePipelineState` is itself `LIVE` per [03-01-06 DCP-04](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md). For sub-minute pipelines, reconstructed candles **alone** are not enough to promote `Loading → Live` because the pipeline is not yet `LIVE` (it needs `size` candles; see [08-08 CB-06](../operations-and-compliance/08-08-candle-buffer-spec.md)). The reconstructed candle's `reconstructed: Some(ExponentialMovingAverage | LinearExtrapolation | ExchangeHistorical)` flag is preserved in `MarketSnapshot.quality_envelope.is_gap_filled` so downstream consumers can render a synthesized badge.
 
@@ -110,7 +110,7 @@ pub fn detect_gap(
 
 Returns `Some((gap_start, gap_end))` when the elapsed time since the last persisted candle exceeds the threshold; `None` otherwise. The threshold is configurable per-exchange.
 
-**Default value.** `gap_threshold_secs = 2 × candles.duration_seconds` (twice the base micro timeframe duration, e.g. `120` for the default `micro60`). This prevents false gap detections from clock jitter while still catching real disconnects. Gap detection is the analyzer's inline sequence audit (`MAX_GAP_FILL_BARS`); no `[adapters.<exchange>.gap_threshold_secs]` config exists (corrected 2026-08-17). Setting the threshold below the base candle duration will trigger false gap detections.
+**Default value.** `gap_threshold_secs = 2 × candles.duration_seconds` (twice the base slot duration — `2` for `micro1`, the 1 s base of the fixed 10-slot ladder). This prevents false gap detections from clock jitter while still catching real disconnects. Gap detection is the analyzer's inline sequence audit (`MAX_GAP_FILL_BARS`); no `[adapters.<exchange>.gap_threshold_secs]` config exists (corrected 2026-08-17). Setting the threshold below the base candle duration will trigger false gap detections.
 
 ## Serialization
 

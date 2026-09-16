@@ -1,6 +1,6 @@
 # Engine Dashboard Vocabulary (v10.1)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical specification for the **engine dashboards** — Data Infrastructure (DIE), Trade Automation (TAE), Portfolio Management (PME) and Performance Analytics (PAE) — and the rule that unifies them with the Market Monitor (MME). It defines: the shared design tokens, the shared components, the canonical **tab order = layer order** rule, the per-engine × per-mode tab maps, the Export Data contract, and the config-driven values policy.
 
@@ -90,14 +90,17 @@ Run) with Back/Continue/Cancel and a run progress bar:
   ladder, capital).
 - **Environment step:** exchange (Hyperliquid / Bitget), settlement
   currency (USDC for HL, USDT for Bitget), starting capital.
-- **Instances step:** add-instance list — ticker + the 4 timeframe
-  dropdowns (the standard tier list, preseeded 1m/3m/5m/15m) +
-  **allocation %** per instance with a live Σ ≤ 100 % guard and a
-  100-instance cap (mirrors `[workspace.minimal_tae].allocation_pct`).
+- **Instances step:** add-instance list — ticker + the displayed FIXED
+  10-slot ladder (no TF pickers since v11.1; every instance runs
+  `micro1`…`longterm2`) + **allocation %** per instance with a live
+  Σ ≤ 100 % guard and a 100-instance cap (mirrors
+  `[workspace.minimal_tae].allocation_pct`).
 - **Historical Data step:** the archive-depth control (slider + typed
   input, validated 1..=365) is the only window control — no date range
-  pickers. Per-TF readiness chips (MICRO/FAST/SLOW/MACRO · READY/FETCHING)
-  render the four timeframes; the burn-in note and the **per-exchange
+  pickers. Per-TF readiness chips render the archive-eligible slots of
+  the fixed ladder (60 s floor and above — `slow2`…`longterm2`; the
+  sub-minute slots are live-only and never backfilled) with
+  READY/FETCHING states; the burn-in note and the **per-exchange
   max-depth display** (Hyperliquid's 5,000-candle ceiling per TF) are
   shown here.
 - **Run step:** a `<progress>` bar with phases

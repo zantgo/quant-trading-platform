@@ -261,13 +261,16 @@ async fn coverage_returns_extended_shape() {
     );
     assert!(json["archive"].is_array(), "archive rows present");
     assert!(json["backfill_jobs"].is_array(), "job list present");
-    // v8.1: the data-prep contract — burn-in + the four-timeframe ladder.
+    // v8.1: the data-prep contract — burn-in + the fixed 10-slot ladder.
     assert!(
         json["burn_in_secs"].as_i64().unwrap_or(0) > 0,
         "burn_in_secs present"
     );
     let ladder = json["ladder"].as_array().expect("ladder present");
-    assert_eq!(ladder.len(), 4, "micro/fast/slow/macro ladder");
+    assert_eq!(ladder.len(), 10, "fixed 10-slot ladder");
+    for (v, expected) in ladder.iter().zip(config_models::FIXED_TF_LADDER) {
+        assert_eq!(v.as_u64(), Some(expected), "ladder entry {expected}s");
+    }
 }
 
 #[tokio::test]

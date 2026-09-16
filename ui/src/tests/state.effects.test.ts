@@ -18,14 +18,14 @@ describe('TEST-UI: State Reactive Effects', () => {
         expect(pair.exchange).toBe('Hyperliquid');
 
         // All four timeframes should exist with default values
-        expect(pair.microTerm).toBeDefined();
-        expect(pair.fastTerm).toBeDefined();
-        expect(pair.slowTerm).toBeDefined();
-        expect(pair.macroTerm).toBeDefined();
+        expect(pair.terms.micro1).toBeDefined();
+        expect(pair.terms.fast1).toBeDefined();
+        expect(pair.terms.slow1).toBeDefined();
+        expect(pair.terms.longterm1).toBeDefined();
 
         // Micro-term defaults
-        expect(pair.microTerm.priceText).toBe('--');
-        expect(pair.microTerm.indicators).toEqual({});
+        expect(pair.terms.micro1.priceText).toBe('--');
+        expect(pair.terms.micro1.indicators).toEqual({});
         expect(pair.isConnected).toBe(false);
     });
 
@@ -62,7 +62,7 @@ describe('TEST-UI: State Reactive Effects', () => {
         const pair = app.instancesMap['BTC-USDT'];
 
         // Simulate receiving a market snapshot
-        pair.microTerm.latestSnapshot = {
+        pair.terms.micro1.latestSnapshot = {
             mid_price: '65000.00',
             exchange: 'Hyperliquid',
             symbol: 'BTC',
@@ -81,8 +81,8 @@ describe('TEST-UI: State Reactive Effects', () => {
             is_completed: true,
         };
 
-        expect(pair.microTerm.latestSnapshot).not.toBeNull();
-        const snap = pair.microTerm.latestSnapshot!;
+        expect(pair.terms.micro1.latestSnapshot).not.toBeNull();
+        const snap = pair.terms.micro1.latestSnapshot!;
         expect(snap.mid_price).toBe('65000.00');
         expect(snap.symbol).toBe('BTC');
         expect(snap.is_completed).toBe(true);
@@ -92,22 +92,22 @@ describe('TEST-UI: State Reactive Effects', () => {
         app.initInstance('ETH');
 
         // Set values on BTC micro-term
-        app.instancesMap['BTC-USDT'].microTerm.priceText = '65000.00';
-        app.instancesMap['BTC-USDT'].microTerm.indicators = {
+        app.instancesMap['BTC-USDT'].terms.micro1.priceText = '65000.00';
+        app.instancesMap['BTC-USDT'].terms.micro1.indicators = {
             rsi: { raw_value: 62.5, normalized: 0.44, state_label: 'BULLISH_MOMENTUM' },
         };
 
         // Set values on ETH small-term
-        app.instancesMap['ETH-USDT'].fastTerm.priceText = '3200.00';
-        app.instancesMap['ETH-USDT'].fastTerm.indicators = {
+        app.instancesMap['ETH-USDT'].terms.fast1.priceText = '3200.00';
+        app.instancesMap['ETH-USDT'].terms.fast1.indicators = {
             rsi: { raw_value: 45.0, normalized: -0.18, state_label: 'BEARISH_MOMENTUM' },
         };
 
         // BTC micro-term unchanged
-        expect(app.instancesMap['BTC-USDT'].microTerm.priceText).toBe('65000.00');
+        expect(app.instancesMap['BTC-USDT'].terms.micro1.priceText).toBe('65000.00');
         // ETH small-term holds its value
-        expect(app.instancesMap['ETH-USDT'].fastTerm.priceText).toBe('3200.00');
+        expect(app.instancesMap['ETH-USDT'].terms.fast1.priceText).toBe('3200.00');
         // ETH micro-term still default
-        expect(app.instancesMap['ETH-USDT'].microTerm.priceText).toBe('--');
+        expect(app.instancesMap['ETH-USDT'].terms.micro1.priceText).toBe('--');
     });
 });

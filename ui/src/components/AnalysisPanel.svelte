@@ -3,6 +3,7 @@
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import { buildAnalysisTabExport } from '../lib/exportBuilders/analysisTab';
+    import { activeSlotKinds } from '../lib/terms';
     import { prettifyPhase, highlightKeywords as importedHighlightKeywords } from '../lib/prettifyPhase';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
@@ -46,7 +47,7 @@
             bias != null && bias !== 'Neutral' && score != null && Math.abs(score) <= 20;
         return { score, bias, agreement, tfs, bbwp, adx, signals, label, lifted };
     });
-    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.micro1);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
     const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
@@ -84,12 +85,9 @@
             timestamp,
             markPrice,
             headerSpec,
-            terms: {
-                microTerm: instance?.microTerm as any,
-                fastTerm: instance?.fastTerm as any,
-                slowTerm: instance?.slowTerm as any,
-                macroTerm: instance?.macroTerm as any,
-            },
+            terms: instance?.terms,
+            // v11.2: the per-timeframe order array follows the ACTIVE ladder.
+            activeSlots: activeSlotKinds(instance),
         });
     }
 
@@ -213,10 +211,15 @@
     // Timeframe sorting helper for signal lists
     function timeframeRank(signal: string): number {
         const s = (signal || '').toUpperCase();
+        // Fixed 10-slot ladder order: MICRO1..LONGTERM2 (fastest → slowest).
+        const slotOrder = ['MICRO1','MICRO2','FAST1','FAST2','SLOW1','SLOW2','MACRO1','MACRO2','LONGTERM1','LONGTERM2'];
+        for (let i = 0; i < slotOrder.length; i++) {
+            if (s.includes(slotOrder[i])) return i;
+        }
         if (s.includes('MICRO')) return 0;
-        if (s.includes('FAST')) return 1;
-        if (s.includes('SLOW')) return 2;
-        if (s.includes('MACRO')) return 3;
+        if (s.includes('FAST')) return 2;
+        if (s.includes('SLOW')) return 4;
+        if (s.includes('MACRO')) return 6;
         
         // Fallback checks for explicit candle durations:
         if (s.includes('1S') || s.includes('3S') || s.includes('5S') || s.includes('15S') || s.includes('30S') || s.includes('1M')) return 0;

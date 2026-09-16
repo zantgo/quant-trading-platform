@@ -33,21 +33,21 @@ export function seedRichInstance(): void {
   app.initInstance('BTC');
   const entry = app.instancesMap[PAIR];
 
-  entry.microTerm.priceText = String(MARK_PRICE);
-  entry.microTerm.barDurationSec = 60;
-  entry.microTerm.isCompleted = true;
-  entry.fastTerm.priceText = '63395.00';
-  entry.fastTerm.barDurationSec = 180;
-  entry.fastTerm.isCompleted = true;
-  entry.slowTerm.priceText = '63380.00';
-  entry.slowTerm.barDurationSec = 300;
-  entry.slowTerm.isCompleted = true;
-  entry.macroTerm.priceText = '63360.00';
-  entry.macroTerm.barDurationSec = 900;
-  entry.macroTerm.isCompleted = true;
+  entry.terms.micro1.priceText = String(MARK_PRICE);
+  entry.terms.micro1.barDurationSec = 60;
+  entry.terms.micro1.isCompleted = true;
+  entry.terms.fast1.priceText = '63395.00';
+  entry.terms.fast1.barDurationSec = 180;
+  entry.terms.fast1.isCompleted = true;
+  entry.terms.slow1.priceText = '63380.00';
+  entry.terms.slow1.barDurationSec = 300;
+  entry.terms.slow1.isCompleted = true;
+  entry.terms.longterm1.priceText = '63360.00';
+  entry.terms.longterm1.barDurationSec = 900;
+  entry.terms.longterm1.isCompleted = true;
   entry.lastCompletedClose = String(MARK_PRICE);
 
-  entry.microTerm.latestSnapshot = {
+  entry.terms.micro1.latestSnapshot = {
     timestamp: 1_700_000_000,
     mid_price: MARK_PRICE,
     prev_day_px: 62000,
@@ -56,9 +56,9 @@ export function seedRichInstance(): void {
     liquidity: makeFlow(),
     cluster: makeCluster(),
   } as unknown as Record<string, unknown>;
-  entry.fastTerm.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63395, is_completed: true } as unknown as Record<string, unknown>;
-  entry.slowTerm.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63380, is_completed: true } as unknown as Record<string, unknown>;
-  entry.macroTerm.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63360, is_completed: true } as unknown as Record<string, unknown>;
+  entry.terms.fast1.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63395, is_completed: true } as unknown as Record<string, unknown>;
+  entry.terms.slow1.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63380, is_completed: true } as unknown as Record<string, unknown>;
+  entry.terms.longterm1.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63360, is_completed: true } as unknown as Record<string, unknown>;
 
   entry.alignment = makeAlignment();
   entry.analysis = makeAnalysis();
@@ -67,15 +67,15 @@ export function seedRichInstance(): void {
   entry.advisory = makeAdvisory();
   entry.decisionContext = makeDecisionContext();
 
-  entry.microTerm.indicators = makeMicroIndicators();
-  entry.microTerm.indicatorLifecycle = makeMicroLifecycle() as unknown as Record<string, IndicatorLifecycleStatus>;
-  entry.microTerm.context = makeContext();
-  entry.microTerm.volumeProfile = makeVolumeProfile();
-  entry.microTerm.cluster = makeCluster();
-  entry.microTerm.liquidity = makeFlow();
-  entry.microTerm.liquiditySignals = [];
-  entry.fastTerm.indicators = makeMicroIndicators();
-  entry.fastTerm.indicators['rsi_14'] = {
+  entry.terms.micro1.indicators = makeMicroIndicators();
+  entry.terms.micro1.indicatorLifecycle = makeMicroLifecycle() as unknown as Record<string, IndicatorLifecycleStatus>;
+  entry.terms.micro1.context = makeContext();
+  entry.terms.micro1.volumeProfile = makeVolumeProfile();
+  entry.terms.micro1.cluster = makeCluster();
+  entry.terms.micro1.liquidity = makeFlow();
+  entry.terms.micro1.liquiditySignals = [];
+  entry.terms.fast1.indicators = makeMicroIndicators();
+  entry.terms.fast1.indicators['rsi_14'] = {
     raw_value: 63.5,
     normalized: 0.31,
     state_label: 'LIVE',
@@ -83,8 +83,8 @@ export function seedRichInstance(): void {
     values: null,
     signals: [],
   } as IndicatorDto;
-  entry.slowTerm.indicators = makeMicroIndicators();
-  entry.macroTerm.indicators = makeMicroIndicators();
+  entry.terms.slow1.indicators = makeMicroIndicators();
+  entry.terms.longterm1.indicators = makeMicroIndicators();
 
   app.indicatorRegistry = makeRegistry();
 }
@@ -236,7 +236,7 @@ export function makeContext(): MarketContext {
 export function makeVolumeProfile(): VolumeProfileSnapshot {
   return {
     symbol: PAIR,
-    timeframe_slot: 'MICRO',
+    timeframe_slot: 'micro1',
     timeframe_secs: 60,
     poc_price: 63300,
     value_area_high: 63700,
@@ -304,7 +304,7 @@ export function makeAlignment(): AlignmentMatrix {
   const dim = (score: number, state: string, confidence: number) => ({ score, state, confidence });
   return {
     symbol: PAIR,
-    timeframes_present: 4,
+    timeframes_present: 10,
     dimensions: [
       dim(75, 'STRONG_BULLISH', 78),
       dim(60, 'BULLISH', 72),
@@ -324,10 +324,16 @@ export function makeAlignment(): AlignmentMatrix {
     mtf_overall_score: 30.5,
     mtf_overall_label: 'WEAK_BULL_MTF',
     timeframe_alignments: [
-      { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: MARK_PRICE },
-      { timeframe: 'FAST', timeframe_secs: 180, trend_score: 0.32, momentum_score: 0.25, overall_score: 0.6, regime: 'TRENDING', active_signals: 3, price: MARK_PRICE },
-      { timeframe: 'SLOW', timeframe_secs: 300, trend_score: 0.15, momentum_score: 0.1, overall_score: 0.3, regime: 'RANGE', active_signals: 1, price: MARK_PRICE },
-      { timeframe: 'MACRO', timeframe_secs: 900, trend_score: -0.1, momentum_score: -0.05, overall_score: -0.2, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: 'MICRO1', timeframe_secs: 60, trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: MARK_PRICE },
+      { timeframe: 'MICRO2', timeframe_secs: 3, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: 'FAST1', timeframe_secs: 180, trend_score: 0.32, momentum_score: 0.25, overall_score: 0.6, regime: 'TRENDING', active_signals: 3, price: MARK_PRICE },
+      { timeframe: 'FAST2', timeframe_secs: 15, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: 'SLOW1', timeframe_secs: 300, trend_score: 0.15, momentum_score: 0.1, overall_score: 0.3, regime: 'RANGE', active_signals: 1, price: MARK_PRICE },
+      { timeframe: 'SLOW2', timeframe_secs: 60, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: 'MACRO1', timeframe_secs: 180, trend_score: -0.1, momentum_score: -0.05, overall_score: -0.2, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: 'MACRO2', timeframe_secs: 300, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: 'LONGTERM1', timeframe_secs: 900, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: 'LONGTERM2', timeframe_secs: 3600, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
     ],
     signal_cross_tf_count: 2,
     trend_agreement_pct: 82,
@@ -362,13 +368,13 @@ export function makeAnalysis(): AnalysisMatrix {
     market_interpretation: 'Price is making higher highs and higher lows on strong volume. Momentum is increasing and structure remains intact.',
     rationale: 'The market is in a healthy uptrend with broad participation across timeframes.',
     supporting_signals: [
-      'MICRO (bullish): rsi_14 score +62, TRENDING regime, 3 signals',
-      'FAST (bullish): macd_12_26_9 score +45, TRENDING regime, 2 signals',
+      'MICRO1 (bullish): rsi_14 score +62, TRENDING regime, 3 signals',
+      'FAST1 (bullish): macd_12_26_9 score +45, TRENDING regime, 2 signals',
     ],
     contradicting_signals: [
-      'MACRO (bearish): obv score -20, RANGE regime, 1 signals',
+      'MACRO1 (bearish): obv score -20, RANGE regime, 1 signals',
     ],
-    timeframes_considered: 4,
+    timeframes_considered: 10,
   };
 }
 

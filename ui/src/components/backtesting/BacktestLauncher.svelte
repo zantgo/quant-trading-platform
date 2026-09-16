@@ -6,7 +6,7 @@
     // archive depth (1–365 days) — there are no date range pickers. The
     // launcher is standalone: it works with no running instance (preseeded
     // from a bound instance when one is selected).
-    import { TIMEFRAME_OPTIONS } from '../../types';
+    import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_DURATION_SECS } from '../../types';
     import styles from './BacktestLauncher.module.css';
 
     interface BoundInfo {
@@ -29,6 +29,11 @@
     const MAX_DEPTH = 365;
     const MAX_INSTANCES = 100;
 
+    // v8 fixed ladder: every backtest replays the canonical 10-slot ladder
+    // (micro1..longterm2) — there is no per-slot TF choice.
+    const FIXED_LADDER_SECS: number[] = TIMEFRAME_SLOT_KINDS.map((slot) => TIMEFRAME_SLOT_DURATION_SECS[slot]);
+    const FIXED_LADDER_LABEL = FIXED_LADDER_SECS.map((s) => tfLabel(s)).join(' · ');
+
     // Hard clamp: smallest TF determines max days per exchange.
     function bitgetRetentionDays(tf: number): number {
         if (tf <= 1800) return 30;
@@ -43,10 +48,6 @@
 
     interface DraftInstance {
         base: string;
-        micro: number;
-        fast: number;
-        slow: number;
-        macro: number;
         allocation: number;
     }
 
@@ -56,7 +57,6 @@
     let capital = $state(1000);
     let instances = $state<DraftInstance[]>([]);
     let newBase = $state('');
-    let newTfs = $state({ micro: 60, fast: 180, slow: 300, macro: 900 });
     let newAllocation = $state(10);
     let depthDays = $state((() => depthDefault)());
     let depthInput = $state((() => String(depthDefault))());
@@ -121,11 +121,8 @@
     const allocationInvalid = $derived(allocationTotal > 100 + 1e-9);
     const instancesFull = $derived(instances.length >= MAX_INSTANCES);
 
-    // All TFs across all instances — smallest TF limits depth.
-    const allTfs = $derived.by(() => {
-        if (instances.length > 0) return instances.flatMap((i) => [i.micro, i.fast, i.slow, i.macro]);
-        return [newTfs.micro, newTfs.fast, newTfs.slow, newTfs.macro];
-    });
+    // All TFs of the fixed ladder — smallest TF limits depth.
+    const allTfs = $derived.by(() => FIXED_LADDER_SECS);
     const adaptiveMax = $derived.by(() => {
         if (allTfs.length === 0) return MAX_DEPTH;
         return Math.min(...allTfs.map((tf) => exchangeMaxDays(exchange, tf)));
@@ -148,11 +145,9 @@
     // We keep depthInput and depthDays in sync only via explicit handlers
     // (slider oninput, typed onchange) — no unconditional $effect mirror.
 
-    // Burn-in for the chosen ladder (warmup_bars × macro TF) — the same
+    // Burn-in for the fixed ladder (warmup_bars × slowest TF) — the same
     // formula the server validates coverage with.
-    const macroTf = $derived(
-        instances.length > 0 ? Math.max(...instances.map((i) => i.macro)) : 900,
-    );
+    const macroTf = $derived(FIXED_LADDER_SECS[FIXED_LADDER_SECS.length - 1]);
     const burnInSecs = $derived(warmupBars * macroTf);
     const burnInDays = $derived(Math.ceil(burnInSecs / 86400));
     const depthTooSmall = $derived(depthDays < burnInDays);
@@ -161,10 +156,6 @@
         if (secs % 3600 === 0) return `${secs / 3600}h`;
         if (secs % 60 === 0) return `${secs / 60}m`;
         return `${secs}s`;
-    }
-
-    function selectedOption(seconds: number): number {
-        return TIMEFRAME_OPTIONS.some((o) => o.seconds === seconds) ? seconds : -1;
     }
 
     function symbolOf(base: string): string {
@@ -212,15 +203,10 @@
             ...instances,
             {
                 base,
-                micro: newTfs.micro,
-                fast: newTfs.fast,
-                slow: newTfs.slow,
-                macro: newTfs.macro,
                 allocation: Math.min(100, Math.max(1, newAllocation || 10)),
             },
         ];
         newBase = '';
-        newTfs = { micro: 60, fast: 180, slow: 300, macro: 900 };
         newAllocation = 10;
         error = '';
     }
@@ -246,10 +232,10 @@
     async function ensureArchive(): Promise<boolean> {
         for (const inst of instances) {
             const symbol = symbolOf(inst.base);
-            const tfs = [inst.micro, inst.fast, inst.slow, inst.macro].slice().sort((a, b) => a - b);
+            const tfs = FIXED_LADDER_SECS;
             // Coverage is per-symbol×TF; we require depth+burnIn on *every* TF.
-            // If any TF lacks coverage we backfill the whole 4-TF ladder in a
-            // single standalone request (backend requires timeframes.len()==4).
+            // If any TF lacks coverage we backfill the whole fixed 10-slot
+            // ladder in a single standalone request.
             let needsBackfill = false;
             let coverageRes: Response | null = null;
             try {
@@ -402,7 +388,7 @@
         const fromMs = toMs - (depthDays * 864e5 - burnInSecs * 1000);
         const symbols = instances.map((i) => ({
             symbol: symbolOf(i.base),
-            timeframes: [i.micro, i.fast, i.slow, i.macro],
+            timeframes: FIXED_LADDER_SECS,
             allocation_pct: i.allocation,
         }));
 
@@ -553,16 +539,15 @@
         <section class={styles.section}>
             <h2 class={styles.sectionTitle}>Instances</h2>
             <p class={styles.hint}>
-                One or more instances, each with its own 4-timeframe ladder and allocation %
-                (1–100). The sum of all allocations must be ≤ 100 % (up to {MAX_INSTANCES} instances).
+                One or more instances, each running the fixed {FIXED_LADDER_SECS.length}-slot ladder
+                ({FIXED_LADDER_LABEL}) with an allocation % (1–100). The sum of all allocations
+                must be ≤ 100 % (up to {MAX_INSTANCES} instances).
             </p>
             <div class={styles.instanceList}>
                 {#each instances as inst, i (inst.base)}
                     <div class={styles.instanceRow}>
                         <span class={styles.instancePair}>{inst.base}</span>
-                        <span class={styles.instanceTfs}>
-                            {tfLabel(inst.micro)} / {tfLabel(inst.fast)} / {tfLabel(inst.slow)} / {tfLabel(inst.macro)}
-                        </span>
+                        <span class={styles.instanceTfs}>{FIXED_LADDER_LABEL}</span>
                         <span class={styles.instanceAlloc}>{inst.allocation}%</span>
                         <button class={styles.removeBtn} aria-label={`Remove ${inst.base}`} onclick={() => removeInstance(i)}>✕</button>
                     </div>
@@ -581,23 +566,6 @@
                         bind:value={newBase}
                         onkeydown={(e) => e.key === 'Enter' && addInstance()}
                     />
-                    {#each ['micro', 'fast', 'slow', 'macro'] as slot (slot)}
-                        <label class={styles.tfField}>
-                            <span class={styles.tfLabel}>{slot}</span>
-                            <select
-                                class={styles.tfSelect}
-                                value={selectedOption(newTfs[slot as keyof typeof newTfs])}
-                                onchange={(e) => {
-                                    const v = parseInt(e.currentTarget.value);
-                                    if (v > 0) newTfs[slot as keyof typeof newTfs] = v;
-                                }}
-                            >
-                                {#each TIMEFRAME_OPTIONS as opt}
-                                    <option value={opt.seconds}>{opt.label}</option>
-                                {/each}
-                            </select>
-                        </label>
-                    {/each}
                     <label class={styles.tfField}>
                         <span class={styles.tfLabel}>alloc %</span>
                         <input class={styles.allocInput} type="number" min="1" max="100" bind:value={newAllocation} />
@@ -651,7 +619,7 @@
             </div>
             {#if instances.length > 0}
                 <p class={styles.hint}>
-                    Fetching data for <strong>{instances.length} instance(s)</strong> × 4 timeframes.
+                    Fetching data for <strong>{instances.length} instance(s)</strong> × {FIXED_LADDER_SECS.length} timeframes.
                     Missing history is fetched automatically when you press Run (with live
                     progress); re-runs skip already-covered spans.
                 </p>

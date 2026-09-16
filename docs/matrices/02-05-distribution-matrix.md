@@ -1,6 +1,6 @@
 # Distribution Matrix Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 4 — Data Distribution Layer
@@ -26,7 +26,7 @@ The Distribution Matrix itself is not a single data structure but a **multiplexe
 
 | Component | Description |
 |-----------|-------------|
-| **Channel per `(symbol, timeframe)` pipeline** | Each `(symbol, timeframe_secs)` combination owns a dedicated `NormalizedCandle` broadcast channel. A 4-tier ladder with one symbol thus yields four channels. |
+| **Channel per `(symbol, timeframe)` pipeline** | Each `(symbol, timeframe_secs)` combination owns a dedicated `NormalizedCandle` broadcast channel. The fixed 10-slot ladder with one symbol thus yields ten channels. |
 | **Candle Aggregator subscriber** | The Candle Aggregator subscribes to the micro (base) timeframe `NormalizedCandle` channel for higher-timeframe rollup. |
 | **Channel capacity** | 10,000 buffered events per channel. |
 

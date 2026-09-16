@@ -2283,10 +2283,22 @@ pub fn synthesize_cross_tf(
         let decision_label = params.ladder_roles.decision_tf.as_str();
         let mut rest: Vec<(u64, &MarketSnapshot)> = Vec::new();
         for item in tf_snapshots {
-            if slot_label(item.1) == decision_label {
+            // Case-insensitive: role names are lowercase snake on the wire
+            // ("longterm2"), slot labels are uppercase ("LONGTERM2").
+            if slot_label(item.1).eq_ignore_ascii_case(decision_label) {
                 ordered.push(*item);
             } else {
                 rest.push(*item);
+            }
+        }
+        // v11.2 active-extremes fallback: when the configured decision slot
+        // is NOT in the active set (e.g. decision_tf = "longterm2" with the
+        // default fastest-5 count), the SLOWEST ACTIVE snapshot leads the
+        // merge instead — the decision role stays anchored to the slow
+        // horizon the operator asked for, never to the fastest.
+        if ordered.is_empty() {
+            if let Some(slowest) = tf_snapshots.iter().max_by_key(|(secs, _)| *secs) {
+                ordered.push(*slowest);
             }
         }
         ordered.extend(rest);
@@ -2457,13 +2469,9 @@ fn nearest_sr_distance_atr(
 }
 
 fn slot_label(snap: &MarketSnapshot) -> String {
-    match snap.timeframe_slot.unwrap_or(TimeframeSlot::Micro) {
-        TimeframeSlot::Micro => "MICRO".to_string(),
-        TimeframeSlot::Fast => "FAST".to_string(),
-        TimeframeSlot::Slow => "SLOW".to_string(),
-        TimeframeSlot::Macro => "MACRO".to_string(),
-        TimeframeSlot::Custom { id } => format!("CUSTOM-{}", id),
-    }
+    snap.timeframe_slot
+        .unwrap_or(TimeframeSlot::Micro1)
+        .display_name()
 }
 
 #[allow(dead_code)]

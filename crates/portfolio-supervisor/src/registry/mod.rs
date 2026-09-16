@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use crate::instance::{ConfigState, Instance, InstanceStatus};
+use crate::instance::{ConfigState, Instance, InstanceStatus, TimeframeBuffers};
 use crate::lifecycle::LifecycleManager;
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
@@ -29,6 +29,8 @@ pub struct InstanceSummary {
     /// v10.1: the instance lifecycle state (RUNNING | PAUSED | STOPPING |
     /// STOPPED) — TAE activation is the lifecycle.
     pub lifecycle: String,
+    /// v11.2: the ACTIVE ladder durations (fastest N of the fixed pool).
+    pub active_secs: Vec<u64>,
 }
 
 /// Add a new instance to the state, starting all pipeline tasks.
@@ -144,36 +146,21 @@ pub async fn add_instance(
         .iter()
         .find(|i| i.symbol == pair_key)
         .cloned();
-    let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
     let intervals_config = config_guard.intervals.clone();
 
-    let micro_cfg = pair_cfg
-        .as_ref()
-        .map(|p| p.micro_term.clone())
-        .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
-    let fast_cfg = pair_cfg
-        .as_ref()
-        .map(|p| p.fast_term.clone())
-        .unwrap_or_else(|| TimeframeConfig::new(180, default_indicators.clone()));
-    let slow_cfg = pair_cfg
-        .as_ref()
-        .and_then(|p| p.slow_term.clone())
-        .unwrap_or_else(|| {
-            TimeframeConfig::new(
-                config_guard.slow_timeframe.duration_seconds,
-                default_indicators.clone(),
-            )
-        });
-    let macro_cfg = pair_cfg
-        .as_ref()
-        .and_then(|p| p.macro_term.clone())
-        .unwrap_or_else(|| {
-            TimeframeConfig::new(
-                config_guard.macro_timeframe.duration_seconds,
-                default_indicators.clone(),
-            )
-        });
+    // v11.1: the FIXED 10-slot ladder — every instance runs the same slots
+    // (positional with `config_models::FIXED_TF_LADDER`), with indicator
+    // knobs from the workspace-level defaults. The legacy per-instance
+    // `micro_term`/`fast_term`/`slow_term`/`macro_term` keys are parsed for
+    // TOML compatibility and intentionally IGNORED (no per-TF overrides).
+    let ws_indicators = config_guard.indicators.clone();
+    let ladder_cfgs: [TimeframeConfig; 10] = std::array::from_fn(|i| {
+        TimeframeConfig::new(config_models::FIXED_TF_LADDER[i], ws_indicators.clone())
+    });
+    let ladder_secs: [u64; 10] = config_models::FIXED_TF_LADDER;
+    // v11.2: only the FASTEST `active_timeframes` slots run (1..=10, default 5).
+    let config_guard_active_timeframes = config_guard.active_timeframes.clamp(1, 10);
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
         _ => state.platform.read().await.hyperliquid.rest_url(),
@@ -234,11 +221,6 @@ pub async fn add_instance(
         }
     };
 
-    let micro_secs = micro_cfg.candles.duration_seconds;
-    let fast_secs = fast_cfg.candles.duration_seconds;
-    let slow_secs = slow_cfg.candles.duration_seconds;
-    let macro_secs = macro_cfg.candles.duration_seconds;
-
     // Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     // Single source of truth for the rolling window length. Replaces the
     // previous per-instance `analysis_limit` field and the historical
@@ -257,15 +239,10 @@ pub async fn add_instance(
         rest_url,
         exchange_choice,
         pool: state.pool.clone(),
-        micro_cfg: micro_cfg.clone(),
-        fast_cfg: fast_cfg.clone(),
-        slow_cfg: slow_cfg.clone(),
-        macro_cfg: macro_cfg.clone(),
+        ladder_cfgs: ladder_cfgs.clone(),
         fib_config: drop_fib.clone(),
-        micro_secs,
-        fast_secs,
-        slow_secs,
-        macro_secs,
+        ladder_secs,
+        active_count: config_guard_active_timeframes,
         buffer_size,
         stale_threshold_secs,
         fetch_timeout_ms,
@@ -283,10 +260,8 @@ pub async fn add_instance(
         quote,
         pair_key: pair_key.clone(),
         exchange_choice,
-        micro_cfg: micro_cfg.clone(),
-        fast_cfg: fast_cfg.clone(),
-        slow_cfg: slow_cfg.clone(),
-        macro_cfg: macro_cfg.clone(),
+        active_count: config_guard_active_timeframes,
+        ladder_cfgs,
         fib_config: drop_fib,
         safety_config,
         intervals_config: intervals_config.clone(),
@@ -312,24 +287,16 @@ pub async fn add_instance(
     artifacts.instance.boot_lifecycle(execution_mode).await;
 
     // Populates buffers directly if warmed states are present
-    if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
+    if let Ok(ref warmed) = warmed_states {
+        // Positional with the fixed ladder (fastest → slowest).
+        let slot_buffers: [&TimeframeBuffers; 10] = artifacts.instance.buffers();
+        let warmed_opts: [Option<market_analyzer::analyzer::WarmedPipelineState>; 10] =
+            std::array::from_fn(|i| Some(warmed[i].clone()));
         bootstrap::populate_buffers(
-            &Some(wm.clone()),
-            &Some(ws.clone()),
-            &Some(wmed.clone()),
-            &Some(wl.clone()),
-            &artifacts.micro.history,
-            &artifacts.fast.history,
-            &artifacts.slow.history,
-            &artifacts.r#macro.history,
-            &artifacts.micro.latest,
-            &artifacts.fast.latest,
-            &artifacts.slow.latest,
-            &artifacts.r#macro.latest,
-            &artifacts.micro.snapshot_history,
-            &artifacts.fast.snapshot_history,
-            &artifacts.slow.snapshot_history,
-            &artifacts.r#macro.snapshot_history,
+            &warmed_opts,
+            &std::array::from_fn(|i| slot_buffers[i].history.clone()),
+            &std::array::from_fn(|i| slot_buffers[i].latest.clone()),
+            &std::array::from_fn(|i| slot_buffers[i].snapshot_history.clone()),
             &artifacts.instance.active_pair.latest_oi,
             &artifacts.instance.active_pair.latest_funding,
             &artifacts.instance.active_pair.latest_mark_px,
@@ -338,12 +305,7 @@ pub async fn add_instance(
             &artifacts.instance.active_pair.funding_history,
             // PRI-08: only ≥60s slots propagate warmed snapshots to the
             // chart; sub-minute slots warm state + history only.
-            [
-                micro_secs >= 60,
-                fast_secs >= 60,
-                slow_secs >= 60,
-                macro_secs >= 60,
-            ],
+            std::array::from_fn(|i| config_models::FIXED_TF_LADDER[i] >= 60),
         )
         .await;
     }
@@ -383,10 +345,12 @@ pub async fn add_instance(
                 symbol: pair_key.clone(),
                 quote: quote.as_str().to_string(),
                 status: config_models::InstanceStatus::Running,
-                micro_term: micro_cfg.clone(),
-                fast_term: fast_cfg.clone(),
-                slow_term: Some(slow_cfg.clone()),
-                macro_term: Some(macro_cfg.clone()),
+                // v11.1: legacy per-TF keys are ignored — the fixed ladder
+                // plus workspace indicator defaults governs all slots.
+                micro_term: TimeframeConfig::default(),
+                fast_term: TimeframeConfig::default(),
+                slow_term: None,
+                macro_term: None,
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: operational_mode.clone(),
                 mode: execution_mode,
@@ -575,18 +539,11 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
     // 2. Drain the per-TF history buffers so the in-memory footprint
     //    is reclaimed immediately, not on the next session restart.
     {
-        instance.micro.history.write().await.clear();
-        instance.fast.history.write().await.clear();
-        instance.slow.history.write().await.clear();
-        instance.r#macro.history.write().await.clear();
-        instance.micro.latest.write().await.take();
-        instance.fast.latest.write().await.take();
-        instance.slow.latest.write().await.take();
-        instance.r#macro.latest.write().await.take();
-        instance.micro.snapshot_history.write().await.clear();
-        instance.fast.snapshot_history.write().await.clear();
-        instance.slow.snapshot_history.write().await.clear();
-        instance.r#macro.snapshot_history.write().await.clear();
+        for buf in instance.buffers() {
+            buf.history.write().await.clear();
+            buf.latest.write().await.take();
+            buf.snapshot_history.write().await.clear();
+        }
     }
 
     // 3. Drop from the live map.
@@ -635,18 +592,14 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     // Cancel all active tasks for old instance
     old_instance.cancel.cancel();
 
-    // Drain old buffers
+    // Drain old buffers (all 10 fixed-ladder slots; the recharged instance
+    // gets fresh buffers from `build_pipelines`).
     {
-        old_instance.micro.history.write().await.clear();
-        old_instance.fast.history.write().await.clear();
-        old_instance.slow.history.write().await.clear();
-        old_instance.r#macro.history.write().await.clear();
-        *old_instance.fast.latest.write().await = None;
-        *old_instance.slow.latest.write().await = None;
-        *old_instance.r#macro.latest.write().await = None;
-        old_instance.fast.snapshot_history.write().await.clear();
-        old_instance.slow.snapshot_history.write().await.clear();
-        old_instance.r#macro.snapshot_history.write().await.clear();
+        for buf in old_instance.buffers() {
+            buf.history.write().await.clear();
+            buf.latest.write().await.take();
+            buf.snapshot_history.write().await.clear();
+        }
     }
 
     // Build fresh pipeline configs from saved TOML config
@@ -658,7 +611,6 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         .find(|i| i.symbol == pair_key)
         .cloned()
         .ok_or_else(|| format!("No saved config for pair {}", pair_key))?;
-    let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
     // v9: the PME safety envelope comes from the bound strategy's `pme.safety`.
     let safety_config = {
@@ -702,23 +654,18 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
             eprintln!("strategy resolution failed ({e}); using built-in default");
             config_models::StrategyConfig::default()
         });
+    // v11.1: the FIXED 10-slot ladder governs all slots (same rule as
+    // add_instance). The legacy per-instance `micro_term`/`fast_term`/
+    // `slow_term`/`macro_term` keys are ignored; indicator knobs come
+    // from the workspace-level defaults.
+    let ws_indicators = config_guard.indicators.clone();
+    let ladder_cfgs: [TimeframeConfig; 10] = std::array::from_fn(|i| {
+        TimeframeConfig::new(config_models::FIXED_TF_LADDER[i], ws_indicators.clone())
+    });
+    let ladder_secs: [u64; 10] = config_models::FIXED_TF_LADDER;
+    // v11.2: only the FASTEST `active_timeframes` slots run (1..=10, default 5).
+    let config_guard_active_timeframes = config_guard.active_timeframes.clamp(1, 10);
     drop(config_guard);
-
-    let micro_cfg = pair_cfg.micro_term.clone();
-    let fast_cfg = pair_cfg.fast_term.clone();
-    let slow_cfg = pair_cfg
-        .slow_term
-        .clone()
-        .unwrap_or_else(|| TimeframeConfig::new(300, default_indicators.clone()));
-    let macro_cfg = pair_cfg
-        .macro_term
-        .clone()
-        .unwrap_or_else(|| TimeframeConfig::new(900, default_indicators.clone()));
-
-    let micro_secs = micro_cfg.candles.duration_seconds;
-    let fast_secs = fast_cfg.candles.duration_seconds;
-    let slow_secs = slow_cfg.candles.duration_seconds;
-    let macro_secs = macro_cfg.candles.duration_seconds;
 
     // Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     // Single source of truth for the rolling window length.
@@ -736,15 +683,10 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         rest_url,
         exchange_choice,
         pool: state.pool.clone(),
-        micro_cfg: micro_cfg.clone(),
-        fast_cfg: fast_cfg.clone(),
-        slow_cfg: slow_cfg.clone(),
-        macro_cfg: macro_cfg.clone(),
+        ladder_cfgs: ladder_cfgs.clone(),
         fib_config: fib_config.clone(),
-        micro_secs,
-        fast_secs,
-        slow_secs,
-        macro_secs,
+        ladder_secs,
+        active_count: config_guard_active_timeframes,
         buffer_size,
         stale_threshold_secs,
         fetch_timeout_ms,
@@ -763,10 +705,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         quote,
         pair_key: pair_key.to_string(),
         exchange_choice,
-        micro_cfg: micro_cfg.clone(),
-        fast_cfg: fast_cfg.clone(),
-        slow_cfg: slow_cfg.clone(),
-        macro_cfg: macro_cfg.clone(),
+        active_count: config_guard_active_timeframes,
+        ladder_cfgs,
         fib_config,
         safety_config: safety_config.clone(),
         intervals_config: intervals_config.clone(),
@@ -792,24 +732,16 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     artifacts.instance.boot_lifecycle(pair_cfg.mode).await;
 
     // Populate buffers from warmed states
-    if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
+    if let Ok(ref warmed) = warmed_states {
+        // Positional with the fixed ladder (fastest → slowest).
+        let slot_buffers: [&TimeframeBuffers; 10] = artifacts.instance.buffers();
+        let warmed_opts: [Option<market_analyzer::analyzer::WarmedPipelineState>; 10] =
+            std::array::from_fn(|i| Some(warmed[i].clone()));
         bootstrap::populate_buffers(
-            &Some(wm.clone()),
-            &Some(ws.clone()),
-            &Some(wmed.clone()),
-            &Some(wl.clone()),
-            &artifacts.micro.history,
-            &artifacts.fast.history,
-            &artifacts.slow.history,
-            &artifacts.r#macro.history,
-            &artifacts.micro.latest,
-            &artifacts.fast.latest,
-            &artifacts.slow.latest,
-            &artifacts.r#macro.latest,
-            &artifacts.micro.snapshot_history,
-            &artifacts.fast.snapshot_history,
-            &artifacts.slow.snapshot_history,
-            &artifacts.r#macro.snapshot_history,
+            &warmed_opts,
+            &std::array::from_fn(|i| slot_buffers[i].history.clone()),
+            &std::array::from_fn(|i| slot_buffers[i].latest.clone()),
+            &std::array::from_fn(|i| slot_buffers[i].snapshot_history.clone()),
             &artifacts.instance.active_pair.latest_oi,
             &artifacts.instance.active_pair.latest_funding,
             &artifacts.instance.active_pair.latest_mark_px,
@@ -818,18 +750,28 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
             &artifacts.instance.active_pair.funding_history,
             // PRI-08: only ≥60s slots propagate warmed snapshots to the
             // chart; sub-minute slots warm state + history only.
-            [
-                micro_secs >= 60,
-                fast_secs >= 60,
-                slow_secs >= 60,
-                macro_secs >= 60,
-            ],
+            std::array::from_fn(|i| config_models::FIXED_TF_LADDER[i] >= 60),
         )
         .await;
     }
 
+    let recharged_active_pair = artifacts.instance.active_pair.clone();
+    let pipelines::PipelineArtifacts {
+        instance: _,
+        micro1,
+        micro2,
+        fast1,
+        fast2,
+        slow1,
+        slow2,
+        macro1,
+        macro2,
+        longterm1,
+        longterm2,
+    } = artifacts;
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
+        active_secs: config_models::FIXED_TF_LADDER[..config_guard_active_timeframes].to_vec(),
         pair: old_instance.pair.clone(),
         exchange: old_instance.exchange,
         cancel: cancel.clone(),
@@ -843,13 +785,19 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         )),
         safety_config,
         safety: old_instance.safety.clone(),
-        active_pair: artifacts.instance.active_pair.clone(),
+        active_pair: recharged_active_pair,
         pool: old_instance.pool.clone(),
         workspace: old_instance.workspace.clone(),
-        micro: artifacts.micro,
-        fast: artifacts.fast,
-        slow: artifacts.slow,
-        r#macro: artifacts.r#macro,
+        micro1,
+        micro2,
+        fast1,
+        fast2,
+        slow1,
+        slow2,
+        macro1,
+        macro2,
+        longterm1,
+        longterm2,
         lifecycle: RwLock::new(LifecycleManager::new_for_mode(None, Some(pair_cfg.mode))),
         execution_mode: tokio::sync::RwLock::new(pair_cfg.mode),
     });
@@ -862,14 +810,16 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
 
     sync_exchange_status_active_pairs(state).await;
 
+    let secs_list = config_models::FIXED_TF_LADDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .join("/");
     println!(
-        "⚡ Instance recharged: {} ({}) — micro={}s fast={}s slow={}s macro={}s",
+        "⚡ Instance recharged: {} ({}) — ladder {}s",
         new_instance.pair_display(),
         new_instance.id,
-        micro_secs,
-        fast_secs,
-        slow_secs,
-        macro_secs,
+        secs_list,
     );
 
     Ok(())
@@ -890,21 +840,23 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
             safety_state: inst.safety.safety_state.read().await.as_str().to_string(),
             mode: inst.execution_mode().await,
             lifecycle: inst.lifecycle.read().await.state.as_str().to_string(),
+            active_secs: inst.active_secs.clone(),
         });
     }
     summaries
 }
 
 /// Tear down and rebuild **only one timeframe pipeline** of one instance
-/// (v6.5, CB-11 / DCP-09 / ILS-13). The other three TFs continue uninterrupted.
+/// (v6.5, CB-11 / DCP-09 / ILS-13). The other TFs continue uninterrupted.
 ///
-/// Slot must be one of `"micro" | "fast" | "slow" | "macro"` (case-sensitive,
-/// matching the wire-format from `TimeframeSlot::as_str`).
+/// `slot` must be one of the canonical fixed-ladder wire names
+/// (`"micro1"` … `"longterm2"`, case-sensitive, matching
+/// `TimeframeSlot::as_str`).
 ///
 /// Behavior:
 ///   1. Look up the instance by `instance_id` (must exist).
 ///   2. Resolve the matching `TimeframePipeline` and **drain** its `history`
-///      and `snapshot_history` deques. The other three TFs' buffers are
+///      and `snapshot_history` deques. The other TFs' buffers are
 ///      untouched.
 ///   3. Reset the slot's `pipeline_state` to `Initializing`.
 ///   4. Re-run `collect_candles` for the slot's timeframe against the
@@ -916,7 +868,7 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
 ///
 /// **AUDIT-V7-313.** Full implementation is staged behind this entry
 /// point; the current revision logs the intent and delegates to
-/// `recharge_instance` (which rebuilds all four TFs) so the contract is
+/// `recharge_instance` (which rebuilds all ten TFs) so the contract is
 /// observable end-to-end. A future commit will replace the delegation
 /// with single-TF teardown+rebuild.
 pub async fn reload_timeframe(
@@ -926,10 +878,16 @@ pub async fn reload_timeframe(
 ) -> Result<(), String> {
     use core_domain::models::{CandlePipelineState, TimeframeSlot};
     let slot_enum = match slot {
-        "micro" => TimeframeSlot::Micro,
-        "fast" => TimeframeSlot::Fast,
-        "slow" => TimeframeSlot::Slow,
-        "macro" => TimeframeSlot::Macro,
+        "micro1" => TimeframeSlot::Micro1,
+        "micro2" => TimeframeSlot::Micro2,
+        "fast1" => TimeframeSlot::Fast1,
+        "fast2" => TimeframeSlot::Fast2,
+        "slow1" => TimeframeSlot::Slow1,
+        "slow2" => TimeframeSlot::Slow2,
+        "macro1" => TimeframeSlot::Macro1,
+        "macro2" => TimeframeSlot::Macro2,
+        "longterm1" => TimeframeSlot::Longterm1,
+        "longterm2" => TimeframeSlot::Longterm2,
         _ => return Err(format!("Unknown slot '{}'", slot)),
     };
 
@@ -946,8 +904,7 @@ pub async fn reload_timeframe(
     );
 
     // Reset only the slot's pipeline_state so the next emitted snapshot
-    // carries the LOADING badge. Custom slots route to a full recharge
-    // since the legacy 4-slot reset can't address them individually.
+    // carries the LOADING badge.
     let Some(pipeline) = instance.active_pair.pipeline_for_slot(slot_enum) else {
         return recharge_instance(state, instance_id).await;
     };
@@ -955,6 +912,6 @@ pub async fn reload_timeframe(
     pipeline.indicator_lifecycle.write().await.clear();
 
     // Full implementation deferred: delegate to recharge_instance which
-    // rebuilds all four TFs. This is conservative but observable.
+    // rebuilds all ten TFs. This is conservative but observable.
     recharge_instance(state, instance_id).await
 }

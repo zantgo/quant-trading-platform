@@ -19,8 +19,8 @@
     const instance = $derived(app.instancesMap[pairKey]);
     const advisory = $derived<AdvisoryMatrix | null>(instance?.advisory ?? null);
 
-    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
-    const snapshot = $derived(instance?.microTerm.latestSnapshot as unknown as MarketSnapshot | undefined);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.micro1);
+    const snapshot = $derived(instance?.terms.micro1.latestSnapshot as unknown as MarketSnapshot | undefined);
     // ── Bind contract: `instance.decisionContext` is the mirror field
     // populated once per completed candle by `applySnapshotToTimeframe`.
     // Reading it first avoids the shadow-tick wipe that used to null-out
@@ -40,7 +40,7 @@
         // only for the brief warmup window before any slot has closed.
         const completedClose = parseFloat(instance?.lastCompletedClose ?? '');
         if (Number.isFinite(completedClose) && completedClose > 0) return completedClose;
-        return parseFloat(instance?.microTerm?.priceText ?? '0') || 0;
+        return parseFloat(instance?.terms?.micro1?.priceText ?? '0') || 0;
     });
     const timestamp = $derived<number | null>(
         snapshot && typeof (snapshot as any).timestamp === 'number'
@@ -149,12 +149,7 @@
             overallRisk: instance?.risk?.overall_risk?.score ?? null,
             headerSpec,
             projection,
-            terms: {
-                microTerm: instance?.microTerm as any,
-                fastTerm: instance?.fastTerm as any,
-                slowTerm: instance?.slowTerm as any,
-                macroTerm: instance?.macroTerm as any,
-            },
+            terms: instance?.terms,
         });
     }
 
@@ -188,8 +183,8 @@
         advisory,
         analysis: instance?.analysis ?? null,
         decisionContext: decisionCtx,
-        tf: instance?.microTerm,
-        microTf: instance?.microTerm,
+        tf: instance?.terms.micro1,
+        microTf: instance?.terms.micro1,
         overallRisk: instance?.risk?.overall_risk?.score,
     }));
 

@@ -15,7 +15,7 @@ import {
 describe('buildPriceBlock', () => {
   it('computes current price, prev day and change from snapshot terms', () => {
     const terms = {
-      microTerm: {
+      micro1: {
         priceText: '65000.00',
         latestSnapshot: {
           timestamp: 1_700_000_000,

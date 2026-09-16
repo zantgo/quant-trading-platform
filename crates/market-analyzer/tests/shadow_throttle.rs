@@ -53,26 +53,23 @@ async fn spawn_analyzer(
     let snap_hist = Arc::new(RwLock::new(VecDeque::new()));
 
     let slot = match duration_seconds {
-        ..=180 => core_domain::models::TimeframeSlot::Micro,
-        181..=300 => core_domain::models::TimeframeSlot::Fast,
-        301..=900 => core_domain::models::TimeframeSlot::Slow,
-        _ => core_domain::models::TimeframeSlot::Macro,
+        ..=180 => core_domain::models::TimeframeSlot::Micro1,
+        181..=300 => core_domain::models::TimeframeSlot::Fast1,
+        301..=900 => core_domain::models::TimeframeSlot::Slow1,
+        _ => core_domain::models::TimeframeSlot::Longterm1,
     };
     let label = match slot {
-        core_domain::models::TimeframeSlot::Micro => "Micro",
-        core_domain::models::TimeframeSlot::Fast => "Fast",
-        core_domain::models::TimeframeSlot::Slow => "Slow",
-        core_domain::models::TimeframeSlot::Macro => "Macro",
-        core_domain::models::TimeframeSlot::Custom { id } => {
-            // Custom slot: map to the closest legacy label by id parity.
-            // The test only fires under 60s (id=60) or 1s (id=1) so the
-            // legacy labels remain meaningful.
-            if id % 60 == 0 {
-                "Macro"
-            } else {
-                "Micro"
-            }
-        }
+        core_domain::models::TimeframeSlot::Micro1 => "MICRO1",
+        core_domain::models::TimeframeSlot::Micro2 => "MICRO2",
+        core_domain::models::TimeframeSlot::Fast1 => "FAST1",
+        core_domain::models::TimeframeSlot::Fast2 => "FAST2",
+        core_domain::models::TimeframeSlot::Slow1 => "SLOW1",
+        core_domain::models::TimeframeSlot::Slow2 => "SLOW2",
+        core_domain::models::TimeframeSlot::Macro1 => "MACRO1",
+        core_domain::models::TimeframeSlot::Macro2 => "MACRO2",
+        core_domain::models::TimeframeSlot::Longterm1 => "LONGTERM1",
+        core_domain::models::TimeframeSlot::Longterm2 => "LONGTERM2",
+        core_domain::models::TimeframeSlot::Custom { .. } => "CUSTOM",
     };
 
     tokio::spawn(async move {
@@ -107,9 +104,8 @@ async fn spawn_analyzer(
             None, // heatmap_config (None)
             OrderBookConfig::default(),
             strategy,
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
+            // Sibling latest-snapshot handles — none in this single-pipeline test.
+            Vec::new(),
             Arc::new(core_domain::LatencyTracker::default()),
             market_analyzer::active_set::ActiveSet::default(),
             None,

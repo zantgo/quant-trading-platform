@@ -1,10 +1,13 @@
 <script lang="ts">
-    import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo, TimeframeTelemetry } from '../types';
+    import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo, TimeframeSlotKind, TimeframeTelemetry } from '../types';
+    import { TIMEFRAME_SLOT_LABELS } from '../types';
+    import { activeSlotKinds } from '../lib/terms';
     import { useAppStore } from '../state.svelte';
     import type { WsState } from '../lib/websocket.svelte';
     import { buildAlignmentTabExport } from '../lib/exportBuilders/alignmentTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
+    import TfStatusTable from './TfStatusTable.svelte';
     import SummaryCard from './SummaryCard.svelte';
     import { buildL2AlignmentHeader, mLabel, type LayerHeaderSpec } from '../lib/layerHeader';
     import { regimeTone } from '../lib/dashboardColors';
@@ -14,7 +17,7 @@
     let { pairKey, wssState }: { pairKey: string; wssState?: WsState } = $props();
     const instance = $derived(app.instancesMap[pairKey]);
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
-    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.micro1);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
     const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
@@ -31,12 +34,7 @@
             timestamp,
             markPrice,
             headerSpec,
-            terms: {
-                microTerm: instance?.microTerm as any,
-                fastTerm: instance?.fastTerm as any,
-                slowTerm: instance?.slowTerm as any,
-                macroTerm: instance?.macroTerm as any,
-            },
+            terms: instance?.terms,
         });
     }
 
@@ -88,10 +86,11 @@
         return styles.tfRegimeNeutral;
     }
 
-    // ── Per-Timeframe gauge grid (v7.4): MICRO/FAST/SLOW/MACRO order with
-    // a ring gauge per TF — the markup transplanted from the Analysis tab.
+    // ── Per-Timeframe gauge grid (v8 fixed ladder): ACTIVE slots in
+    // MICRO1..LONGTERM2 order (v11.2) with a ring gauge per TF — the
+    // markup transplanted from the Analysis tab.
     const timeframeSlots = $derived.by(() => {
-        const order = ['MICRO', 'FAST', 'SLOW', 'MACRO'];
+        const order = activeSlotKinds(instance).map((slot) => TIMEFRAME_SLOT_LABELS[slot].toUpperCase());
         const alignments = alignment?.timeframe_alignments ?? [];
         return order.map(slot => {
             const found = alignments.find(a => a.timeframe.toUpperCase() === slot);
@@ -288,6 +287,12 @@
             <ExportDataButton onExport={buildExport} title="Copy all Alignment data as JSON" />
         {/snippet}
     </LayerHeader>
+
+    <!-- v10.2: Timeframe Status table — one row per ladder slot mirroring
+         the SAME per-TF badge the Metrics tab header shows (single-sourced
+         through `metricsBadgeFor`), so all 10 timeframes' health is
+         scannable at a glance. -->
+    <TfStatusTable pairKey={pairKey} wssState={wssState} />
 
     <!-- ── ALIGNMENT SUMMARY (v7.0): the interpretation prose moved from
          the bottom of the panel into the head-badge zone. Gray premium

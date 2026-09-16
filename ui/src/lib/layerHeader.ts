@@ -24,6 +24,7 @@ import type {
     OpportunityMatrix,
     OverviewMatrix,
     RiskMatrix,
+    TimeframeSlotKind,
     TimeframeTelemetry,
 } from '../types';
 
@@ -219,10 +220,14 @@ export function tfAgeBars(tf: TimeframeTelemetry | null | undefined): number | n
  */
 export function tfStatusFrom(
     tf: TimeframeTelemetry | null | undefined,
-    wss: { wsMicro: WebSocket | null } | null | undefined,
+    wss: { sockets: Partial<Record<TimeframeSlotKind, WebSocket | null>> } | null | undefined,
 ): 'live' | 'stale' | 'loading' | 'error' {
-    if (wss?.wsMicro && wss.wsMicro.readyState === WebSocket.OPEN && !tf) return 'loading';
-    if (wss?.wsMicro && wss.wsMicro.readyState === WebSocket.CLOSED) return 'error';
+    // Read THIS tf's slot socket; with no tf yet, fall back to any open socket.
+    const ws = tf
+        ? wss?.sockets?.[tf.slot]
+        : Object.values(wss?.sockets ?? {}).find((s) => s && s.readyState === WebSocket.OPEN);
+    if (ws && ws.readyState === WebSocket.OPEN && !tf) return 'loading';
+    if (ws && ws.readyState === WebSocket.CLOSED) return 'error';
     if (!tf) return 'loading';
     if (tf.pipelineState === 'FAILED') return 'error';
     if (tf.pipelineState === 'STALE') return 'stale';
@@ -236,6 +241,43 @@ export function tfStatusFrom(
 
 // ── Builders ────────────────────────────────────────────────────────────
 
+// Single-source L1 badge (v10.2). The Metrics tab header badge and the
+// Alignment tab's Timeframe Status table (TfStatusTable) MUST render the
+// identical per-TF badge + pipeline status, so the label/sublabel/
+// colour/background/state decision and the `tfStatusFrom` derivation live
+// here exactly once. `buildL1MetricsHeader` consumes this and adds only
+// its meta chip rail.
+export interface TfBadgeInfo {
+    badge: BadgeSpec;
+    status: 'live' | 'stale' | 'loading' | 'error';
+}
+
+export function metricsBadgeFor(
+    tf: TimeframeTelemetry | null | undefined,
+    wss: { sockets: Partial<Record<TimeframeSlotKind, WebSocket | null>> } | null | undefined = null,
+): TfBadgeInfo {
+    const ctx = tf?.context ?? null;
+    const label = ctx?.overall_label ?? null;
+    if (!tf || !label) {
+        return { badge: emptyBadge(), status: 'loading' };
+    }
+    const regime = ctx?.regime ?? null;
+    const regimeImplied =
+        (regime === 'TRENDING' && (label.includes('BULL') || label.includes('BEAR'))) ||
+        (regime === 'RANGE' && label === 'NEUTRAL');
+    const color = biasColor(label);
+    return {
+        badge: {
+            label: prettifyEnum(label),
+            sublabel: regimeImplied ? undefined : regime ? prettifyEnum(regime) : undefined,
+            color,
+            background: hexToRgba(color, 0.08),
+            state: 'valid',
+        },
+        status: tfStatusFrom(tf, wss),
+    };
+}
+
 // L1 — Metrics (per-timeframe)
 // Real wire shape: `tf.context.overall_label`, `tf.context.overall_score`,
 // `tf.context.regime`. The headline number is the per-TF overall score
@@ -245,10 +287,13 @@ export function tfStatusFrom(
 // (ws open/closed + pipeline STALE/FAILED) instead of the raw
 // `tf.isCompleted` flip — the previous code flashed "loading" between
 // candle closes without surfacing pipeline states.
+// v10.2: the badge + status decision is delegated to `metricsBadgeFor`
+// (shared with the Alignment tab's Timeframe Status table).
 export function buildL1MetricsHeader(
     tf: TimeframeTelemetry | null | undefined,
-    wss: { wsMicro: WebSocket | null } | null | undefined = null,
+    wss: { sockets: Partial<Record<TimeframeSlotKind, WebSocket | null>> } | null | undefined = null,
 ): LayerHeaderSpec {
+    const { badge, status } = metricsBadgeFor(tf, wss);
     const ctx = tf?.context ?? null;
     const label = ctx?.overall_label ?? null;
     const regime = ctx?.regime ?? null;
@@ -258,13 +303,11 @@ export function buildL1MetricsHeader(
         return {
             layerNumber: 1,
             layerName: 'Metrics',
-            badge: emptyBadge(),
+            badge,
             meta: [],
-            status: 'loading',
+            status,
         };
     }
-    const badgeLabel = prettifyEnum(label);
-    const badgeColor = biasColor(label);
     const meta: MetaChipSpec[] = [
         chip('Score', score, score, scoreColor),
         chip('Signals', signalCount(tf), signalCount(tf), null, true),
@@ -287,15 +330,9 @@ export function buildL1MetricsHeader(
     return {
         layerNumber: 1,
         layerName: 'Metrics',
-        badge: {
-            label: badgeLabel,
-            sublabel: regimeImplied ? undefined : regime ? prettifyEnum(regime) : undefined,
-            color: badgeColor,
-            background: hexToRgba(badgeColor, 0.08),
-            state: 'valid',
-        },
+        badge,
         meta,
-        status: tfStatusFrom(tf, wss),
+        status,
     };
 }
 

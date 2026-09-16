@@ -1,6 +1,6 @@
 # TAE Strategy Settings — Spec (v10)
 
-**Version:** 11.0 (2026-08-26) — v11: stop floor (l6_formula/atr_mult), max_tp_rr cap, ladder_roles. See docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — v11: stop floor (l6_formula/atr_mult), max_tp_rr cap, ladder_roles. See docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Trade Automation Engine (TAE)
 
@@ -175,7 +175,7 @@ UI buttons on the TAE dashboard header (paper + live; disabled in observe).
 
 ## Guarantees
 
-- Intake always evaluates all 4 TF snapshots (no TF-preference knob).
+- Intake always evaluates all ACTIVE TF snapshots of the fixed ladder (v11.2 — the fastest `[workspace].active_timeframes` slots; no TF-preference knob).
 - Params-at-entry freeze: trailing/breakeven/time-stop/confidence
   baselines are stamped at entry; recharge affects new setups only.
 - Safety precedence: the PME soft gate and the L6/L7 strategy gates (risk

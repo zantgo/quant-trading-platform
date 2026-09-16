@@ -1111,7 +1111,7 @@ mod tests {
             oi_delta_1h: None,
             prev_day_px: None,
             pipeline_state: CandlePipelineState::Loading,
-            timeframe_slot: Some(TimeframeSlot::Micro),
+            timeframe_slot: Some(TimeframeSlot::Micro1),
             indicator_lifecycle: std::collections::HashMap::new(),
             indicators: Default::default(),
             alignment: None,

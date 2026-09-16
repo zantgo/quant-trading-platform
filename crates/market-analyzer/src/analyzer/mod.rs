@@ -158,16 +158,27 @@ pub struct TimeframePipeline {
 
 pub struct ActivePair {
     pub symbol: String,
-    pub micro: TimeframePipeline,
-    pub fast: TimeframePipeline,
-    pub slow: TimeframePipeline,
-    pub r#macro: TimeframePipeline,
-    /// Operator-defined custom slot pipelines (`TimeframeSlot::Custom { id }`).
-    /// Empty for the default 4-slot ladder; populated when the operator
-    /// selects additional timeframes from `[instances.*].timeframes`.
-    /// The slot id (`u16`) acts as the key; the registry that maps id →
-    /// name lives in `config_models::TimeframeSlotsConfig`.
+    /// Fixed 10-slot ladder (fastest → slowest): micro1=1s, micro2=3s,
+    /// fast1=5s, fast2=15s, slow1=30s, slow2=60s, macro1=180s, macro2=300s,
+    /// longterm1=900s, longterm2=3600s. Positionally aligned with
+    /// `core_domain::FIXED_TF_SLOTS` / `config_models::FIXED_TF_LADDER`.
+    pub micro1: TimeframePipeline,
+    pub micro2: TimeframePipeline,
+    pub fast1: TimeframePipeline,
+    pub fast2: TimeframePipeline,
+    pub slow1: TimeframePipeline,
+    pub slow2: TimeframePipeline,
+    pub macro1: TimeframePipeline,
+    pub macro2: TimeframePipeline,
+    pub longterm1: TimeframePipeline,
+    pub longterm2: TimeframePipeline,
+    /// Operator-defined custom pipelines (`TimeframeSlot::Custom { id }`).
+    /// Always empty for the fixed ladder; retained for non-ladder duration
+    /// dispatch (`Custom` slots from ad-hoc resolution).
     pub custom_pipelines: std::collections::HashMap<u16, TimeframePipeline>,
+    /// v11.2: how many of the fastest slots actually run (1..=10). Slots
+    /// beyond this exist as inert pipelines (never spawned, never emit).
+    pub active_count: usize,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
     /// Latest Open Interest (shared across all timeframes, updated by WS events).
@@ -196,41 +207,44 @@ pub struct ActivePair {
 }
 
 impl ActivePair {
+    /// All ten fixed-ladder pipelines, fastest → slowest.
+    pub fn all(&self) -> [&TimeframePipeline; 10] {
+        [
+            &self.micro1, &self.micro2, &self.fast1, &self.fast2, &self.slow1, &self.slow2,
+            &self.macro1, &self.macro2, &self.longterm1, &self.longterm2,
+        ]
+    }
+
     /// O(1) slot-based dispatch. Replaces the legacy `pipeline_for(secs)`
     /// linear lookup that collapsed duplicate durations and silently
     /// defaulted to `micro` for any unmatched frame.
     pub fn pipeline_for_slot(&self, slot: TimeframeSlot) -> Option<&TimeframePipeline> {
         match slot {
-            TimeframeSlot::Micro => Some(&self.micro),
-            TimeframeSlot::Fast => Some(&self.fast),
-            TimeframeSlot::Slow => Some(&self.slow),
-            TimeframeSlot::Macro => Some(&self.r#macro),
+            TimeframeSlot::Micro1 => Some(&self.micro1),
+            TimeframeSlot::Micro2 => Some(&self.micro2),
+            TimeframeSlot::Fast1 => Some(&self.fast1),
+            TimeframeSlot::Fast2 => Some(&self.fast2),
+            TimeframeSlot::Slow1 => Some(&self.slow1),
+            TimeframeSlot::Slow2 => Some(&self.slow2),
+            TimeframeSlot::Macro1 => Some(&self.macro1),
+            TimeframeSlot::Macro2 => Some(&self.macro2),
+            TimeframeSlot::Longterm1 => Some(&self.longterm1),
+            TimeframeSlot::Longterm2 => Some(&self.longterm2),
             TimeframeSlot::Custom { id } => self.custom_pipelines.get(&id),
         }
     }
 
     /// Legacy shim for callers that still key on a duration. Picks the
-    /// matching slot; when multiple slots share the same duration, micro
-    /// (the fastest pipeline) is returned deterministically. Returns
+    /// matching slot; when multiple slots share the same duration, the
+    /// fastest matching pipeline is returned deterministically. Returns
     /// `Err` only when no slot at all matches the requested duration.
     pub fn pipeline_for_duration(&self, timeframe_secs: u64) -> Result<&TimeframePipeline, String> {
-        let mut hits: Vec<(&'static str, &TimeframePipeline)> = Vec::new();
-        if self.micro.timeframe_secs == timeframe_secs {
-            hits.push(("micro", &self.micro));
+        for p in self.all() {
+            if p.timeframe_secs == timeframe_secs {
+                return Ok(p);
+            }
         }
-        if self.fast.timeframe_secs == timeframe_secs {
-            hits.push(("fast", &self.fast));
-        }
-        if self.slow.timeframe_secs == timeframe_secs {
-            hits.push(("slow", &self.slow));
-        }
-        if self.r#macro.timeframe_secs == timeframe_secs {
-            hits.push(("macro", &self.r#macro));
-        }
-        match hits.len() {
-            0 => Err(format!("No slot matches timeframe_secs={timeframe_secs}")),
-            _ => Ok(hits[0].1),
-        }
+        Err(format!("No slot matches timeframe_secs={timeframe_secs}"))
     }
 
     pub fn subscribe_broadcast_by_slot(
@@ -242,12 +256,12 @@ impl ActivePair {
     }
 
     pub async fn latest_close_str(&self) -> Option<String> {
-        let hist = self.micro.history.read().await;
+        let hist = self.micro1.history.read().await;
         hist.back().map(|c| c.close.to_string())
     }
 
     pub async fn latest_price(&self) -> Option<f64> {
-        let snap = self.micro.latest_snapshot.read().await;
+        let snap = self.micro1.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
     }
@@ -314,37 +328,29 @@ impl ActivePair {
         }
     }
 
-    /// Latest completed snapshot for each of the four timeframes
-    /// (micro, fast, slow, macro), for cross-timeframe synthesis.
+    /// Latest completed snapshot for each of the ten fixed-ladder
+    /// timeframes (fastest → slowest), for cross-timeframe synthesis.
     pub async fn latest_snapshots_all_tf(
         &self,
-    ) -> (
-        Option<MarketSnapshot>,
-        Option<MarketSnapshot>,
-        Option<MarketSnapshot>,
-        Option<MarketSnapshot>,
-    ) {
-        (
-            self.micro.latest_snapshot.read().await.clone(),
-            self.fast.latest_snapshot.read().await.clone(),
-            self.slow.latest_snapshot.read().await.clone(),
-            self.r#macro.latest_snapshot.read().await.clone(),
-        )
+    ) -> [Option<MarketSnapshot>; 10] {
+        let mut out = [None, None, None, None, None, None, None, None, None, None];
+        for (i, p) in self.all().iter().enumerate() {
+            out[i] = p.latest_snapshot.read().await.clone();
+        }
+        out
     }
 }
 
 pub async fn run_event_router(
     mut rx: Receiver<NormalizedEvent>,
-    micro_tx: Sender<NormalizedEvent>,
-    fast_tx: Sender<NormalizedEvent>,
-    slow_tx: Sender<NormalizedEvent>,
-    macro_tx: Sender<NormalizedEvent>,
+    pipeline_txs: Vec<Sender<NormalizedEvent>>,
     symbol: String,
     cancel: CancellationToken,
 ) {
     println!(
-        "🔄 Event Router: Started for {} (fanning out to 4 timeframes)...",
-        symbol
+        "🔄 Event Router: Started for {} (fanning out to {} timeframes)...",
+        symbol,
+        pipeline_txs.len()
     );
 
     loop {
@@ -367,14 +373,16 @@ pub async fn run_event_router(
 
         // AUDIT-L6: `send().await` blocked the router when any single
         // pipeline's 200-cap channel was full — one stalled TF (slow
-        // consumer, backpressure) stalled the fan-out to ALL four TFs.
+        // consumer, backpressure) stalled the fan-out to ALL TFs.
         // `try_send` drops the event for the congested TF only; the
         // broadcast channel's `Lagged` handling + the TF's own
         // staleness machinery keep the pipeline consistent.
-        let _ = micro_tx.try_send(event.clone());
-        let _ = fast_tx.try_send(event.clone());
-        let _ = slow_tx.try_send(event.clone());
-        let _ = macro_tx.try_send(event);
+        if let Some((last, others)) = pipeline_txs.split_last() {
+            for tx in others {
+                let _ = tx.try_send(event.clone());
+            }
+            let _ = last.try_send(event);
+        }
     }
 }
 
@@ -708,9 +716,10 @@ pub async fn run_single(
     // Owned (cloned once per pipeline spawn) so callers never wrestle
     // with borrow lifetimes across the spawned task.
     strategy: StrategyConfig,
-    cross_tf_snapshot_a: Arc<RwLock<Option<MarketSnapshot>>>,
-    cross_tf_snapshot_b: Arc<RwLock<Option<MarketSnapshot>>>,
-    cross_tf_snapshot_c: Arc<RwLock<Option<MarketSnapshot>>>,
+    // Sibling pipelines' latest-snapshot handles (every OTHER fixed-ladder
+    // slot, excluding this pipeline's own). Ten-slot generalization of the
+    // former a/b/c trio.
+    cross_tf_snapshots: Vec<Arc<RwLock<Option<MarketSnapshot>>>>,
     latency_tracker: core_domain::SharedLatencyTracker,
     active_set: crate::active_set::ActiveSet,
     quality_config: Option<QualityConfig>,
@@ -1500,9 +1509,7 @@ pub async fn run_single(
                             &oi_history,
                             &funding_history,
                             &order_book_analysis,
-                            &cross_tf_snapshot_a,
-                            &cross_tf_snapshot_b,
-                            &cross_tf_snapshot_c,
+                            &cross_tf_snapshots,
                             &cluster_matrix,
                             &indicator_lifecycle,
                             &pipeline_state_handle,
@@ -2450,9 +2457,7 @@ pub async fn run_single(
                         &oi_history,
                         &funding_history,
                         &order_book_analysis,
-                        &cross_tf_snapshot_a,
-                        &cross_tf_snapshot_b,
-                        &cross_tf_snapshot_c,
+                        &cross_tf_snapshots,
                         &cluster_matrix,
                         &indicator_lifecycle,
                         &pipeline_state_handle,
@@ -2834,9 +2839,7 @@ async fn synthesize_completed_candle(
     oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
     funding_history: &Arc<RwLock<VecDeque<f64>>>,
     order_book_analysis: &OrderBookAnalysis,
-    cross_tf_snapshot_a: &Arc<RwLock<Option<MarketSnapshot>>>,
-    cross_tf_snapshot_b: &Arc<RwLock<Option<MarketSnapshot>>>,
-    cross_tf_snapshot_c: &Arc<RwLock<Option<MarketSnapshot>>>,
+    cross_tf_snapshots: &[Arc<RwLock<Option<MarketSnapshot>>>],
     cluster_matrix: &Arc<RwLock<Option<LiquidationClusterMatrix>>>,
     indicator_lifecycle: &Arc<RwLock<IndicatorLifecycleMap>>,
     pipeline_state_handle: &Arc<RwLock<CandlePipelineState>>,
@@ -3477,13 +3480,10 @@ async fn synthesize_completed_candle(
         quality_envelope: Some(quality_envelope.clone()),
     };
 
-    let mut cross_tf_snaps: Vec<(u64, MarketSnapshot)> = Vec::with_capacity(4);
+    let mut cross_tf_snaps: Vec<(u64, MarketSnapshot)> =
+        Vec::with_capacity(1 + cross_tf_snapshots.len());
     cross_tf_snaps.push((timeframe_secs, this_snapshot_for_synth));
-    for arc in [
-        &cross_tf_snapshot_a,
-        &cross_tf_snapshot_b,
-        &cross_tf_snapshot_c,
-    ] {
+    for arc in cross_tf_snapshots {
         if let Some(s) = arc.read().await.clone() {
             if !cross_tf_snaps
                 .iter()
@@ -3526,11 +3526,7 @@ async fn synthesize_completed_candle(
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             spins += 1;
-            for arc in [
-                &cross_tf_snapshot_a,
-                &cross_tf_snapshot_b,
-                &cross_tf_snapshot_c,
-            ] {
+            for arc in cross_tf_snapshots {
                 if let Some(s) = arc.read().await.clone() {
                     let idx = cross_tf_snaps
                         .iter()

@@ -159,12 +159,6 @@ async fn test_websocket_stream_with_active_pair() {
 
     let workspace = WorkspaceState::empty();
 
-    // Create broadcast channels for the pair
-    let (mid_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
-    let (long_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
-    let (macro_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
-    let (supermacro_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
-
     let (snapshot_tx, _snapshot_rx) =
         mpsc::channel::<core_domain::normalized::NormalizedEvent>(100);
     let cancel = tokio_util::sync::CancellationToken::new();
@@ -172,6 +166,38 @@ async fn test_websocket_stream_with_active_pair() {
     let snap_hist = Arc::new(RwLock::new(
         std::collections::VecDeque::<MarketSnapshot>::new(),
     ));
+    let make_pipe = |slot: TimeframeSlot,
+                     secs: u64,
+                     tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
+        slot,
+        history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
+        broadcast_tx: tx,
+        latest_snapshot: Arc::new(RwLock::new(None)),
+        snapshot_history: snap_hist.clone(),
+        timeframe_secs: secs,
+        timeframe_label: "Test",
+        divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+        sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
+        fibonacci: FibonacciConfig::default(),
+        latest_oi: Arc::new(RwLock::new(None)),
+        latest_funding: Arc::new(RwLock::new(None)),
+        latest_mark_px: Arc::new(RwLock::new(None)),
+        latest_index_px: Arc::new(RwLock::new(None)),
+        active_set: Default::default(),
+        cluster_matrix: Arc::new(RwLock::new(None)),
+        cluster_status: Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+        )),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
+        )),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        advisory: Arc::new(RwLock::new(None)),
+        tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
+    };
+    let throwaway = || broadcast::channel::<MarketSnapshot>(10).0;
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -182,125 +208,32 @@ async fn test_websocket_stream_with_active_pair() {
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         custom_pipelines: std::collections::HashMap::new(),
-        micro: TimeframePipeline {
-            slot: TimeframeSlot::Micro,
-            history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-            broadcast_tx: mid_bcast.clone(),
-            latest_snapshot: Arc::new(RwLock::new(None)),
-            snapshot_history: snap_hist.clone(),
-            timeframe_secs: 60,
-            timeframe_label: "Micro",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
-            fibonacci: FibonacciConfig::default(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
-            cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-            )),
-            pipeline_state: Arc::new(RwLock::new(
-                core_domain::models::CandlePipelineState::Initializing,
-            )),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
-        },
-        fast: TimeframePipeline {
-            slot: TimeframeSlot::Fast,
-            history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-            broadcast_tx: long_bcast,
-            latest_snapshot: Arc::new(RwLock::new(None)),
-            snapshot_history: snap_hist.clone(),
-            timeframe_secs: 300,
-            timeframe_label: "Fast",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
-            fibonacci: FibonacciConfig::default(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
-            cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-            )),
-            pipeline_state: Arc::new(RwLock::new(
-                core_domain::models::CandlePipelineState::Initializing,
-            )),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
-        },
-        slow: TimeframePipeline {
-            slot: TimeframeSlot::Slow,
-            history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-            broadcast_tx: macro_bcast,
-            latest_snapshot: Arc::new(RwLock::new(None)),
-            snapshot_history: snap_hist.clone(),
-            timeframe_secs: 900,
-            timeframe_label: "Slow",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
-            fibonacci: FibonacciConfig::default(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
-            cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-            )),
-            pipeline_state: Arc::new(RwLock::new(
-                core_domain::models::CandlePipelineState::Initializing,
-            )),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
-        },
-        r#macro: TimeframePipeline {
-            slot: TimeframeSlot::Macro,
-            history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-            broadcast_tx: supermacro_bcast,
-            latest_snapshot: Arc::new(RwLock::new(None)),
-            snapshot_history: snap_hist.clone(),
-            timeframe_secs: 3600,
-            timeframe_label: "Macro",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
-            fibonacci: FibonacciConfig::default(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
-            cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-            )),
-            pipeline_state: Arc::new(RwLock::new(
-                core_domain::models::CandlePipelineState::Initializing,
-            )),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
-        },
+        micro1: make_pipe(TimeframeSlot::Micro1, 1, throwaway()),
+        micro2: make_pipe(TimeframeSlot::Micro2, 3, throwaway()),
+        fast1: make_pipe(TimeframeSlot::Fast1, 5, throwaway()),
+        fast2: make_pipe(TimeframeSlot::Fast2, 15, throwaway()),
+        slow1: make_pipe(TimeframeSlot::Slow1, 30, throwaway()),
+        slow2: make_pipe(TimeframeSlot::Slow2, 60, throwaway()),
+        macro1: make_pipe(TimeframeSlot::Macro1, 180, throwaway()),
+        macro2: make_pipe(TimeframeSlot::Macro2, 300, throwaway()),
+        longterm1: make_pipe(TimeframeSlot::Longterm1, 900, throwaway()),
+        longterm2: make_pipe(TimeframeSlot::Longterm2, 3600, throwaway()),
         snapshot_tx,
         cancel,
-    });
+        active_count: 10,
+});
+
+    let buffers: [TimeframeBuffers; 10] = pair
+        .all()
+        .iter()
+        .map(|pipe| TimeframeBuffers {
+            history: pipe.history.clone(),
+            latest: pipe.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"));
 
     let instance = Arc::new(portfolio_supervisor::instance::Instance::new(
         "inst_test".to_string(),
@@ -311,26 +244,8 @@ async fn test_websocket_stream_with_active_pair() {
         workspace.clone(),
         Default::default(),
         Default::default(),
-        TimeframeBuffers {
-            history: pair.micro.history.clone(),
-            latest: pair.micro.latest_snapshot.clone(),
-            snapshot_history: snap_hist.clone(),
-        },
-        TimeframeBuffers {
-            history: pair.fast.history.clone(),
-            latest: pair.fast.latest_snapshot.clone(),
-            snapshot_history: snap_hist.clone(),
-        },
-        TimeframeBuffers {
-            history: pair.slow.history.clone(),
-            latest: pair.slow.latest_snapshot.clone(),
-            snapshot_history: snap_hist.clone(),
-        },
-        TimeframeBuffers {
-            history: pair.r#macro.history.clone(),
-            latest: pair.r#macro.latest_snapshot.clone(),
-            snapshot_history: snap_hist.clone(),
-        },
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ));
     let workspace = WorkspaceState::empty();

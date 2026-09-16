@@ -50,7 +50,7 @@ impl Default for CliBacktestArgs {
         Self {
             exchange: "Hyperliquid".to_string(),
             symbols: vec!["BTC".to_string()],
-            tf: vec![60, 180, 300, 900],
+            tf: vec![60, 180, 300, 900, 3600],
             depth_days: 180,
             portfolio_capital: 1000.0,
             strategy_name: None,
@@ -60,16 +60,16 @@ impl Default for CliBacktestArgs {
 }
 
 /// Parse the `--tf` argument ("60,180,300,900") — each slot must be a
-/// standard tier; slots below the archive floor are rejected.
+/// standard tier (1..=10 slots); slots below the archive floor are rejected.
 pub fn parse_tf(raw: &str) -> Result<Vec<u64>, String> {
     let parts: Vec<u64> = raw
         .split(',')
         .map(|p| p.trim().parse::<u64>())
         .collect::<Result<_, _>>()
         .map_err(|_| format!("--tf '{raw}' is not a comma-separated list of seconds"))?;
-    if parts.is_empty() || parts.len() > 4 {
+    if parts.is_empty() || parts.len() > 10 {
         return Err(format!(
-            "--tf must contain 1..4 ascending timeframes, got {}",
+            "--tf must contain 1..=10 ascending timeframes, got {}",
             parts.len()
         ));
     }
@@ -705,12 +705,12 @@ pub fn prompt_backtest_args(workspace: &WorkspaceConfig) -> CliBacktestArgs {
         .filter(|s| !s.is_empty())
         .collect();
     let tf_raw = crate::prompt(
-        "Timeframe ladder (1..4 ascending seconds)",
-        "60,180,300,900",
+        "Timeframe ladder (1..=10 ascending seconds)",
+        "60,180,300,900,3600",
     );
     let tf = parse_tf(&tf_raw).unwrap_or_else(|e| {
         eprintln!("  ⚠️  {e} — using the default ladder");
-        vec![60, 180, 300, 900]
+        vec![60, 180, 300, 900, 3600]
     });
     let depth_days = crate::prompt(
         "Archive depth (1–365 days)",
@@ -765,14 +765,28 @@ mod tests {
     }
 
     #[test]
-    fn parse_tf_accepts_one_to_four_slots() {
+    fn parse_tf_accepts_one_to_ten_slots() {
         assert_eq!(parse_tf("60").unwrap(), vec![60]);
         assert_eq!(parse_tf("60,180").unwrap(), vec![60, 180]);
         assert_eq!(parse_tf("60,180,300").unwrap(), vec![60, 180, 300]);
         assert_eq!(parse_tf("60,180,300,900").unwrap(), vec![60, 180, 300, 900]);
+        assert_eq!(
+            parse_tf("60,180,300,900,3600").unwrap(),
+            vec![60, 180, 300, 900, 3600]
+        );
         assert!(parse_tf("").is_err());
-        let err = parse_tf("60,180,300,900,1800").unwrap_err();
-        assert!(err.contains("1..4"), "{err}");
+        // Sub-minute slots still fail the 60s archive floor even though
+        // the count bound now accepts up to 10 slots.
+        let err = parse_tf("1,3").unwrap_err();
+        assert!(err.contains("below 60s"), "{err}");
+        // 10 slots pass the count gate — only 9 standard tiers sit ≥60s,
+        // so a 10-slot ladder proves count acceptance by failing the
+        // (later) floor rule, never the count rule.
+        let err = parse_tf("1,3,5,15,30,60,180,300,900,1800").unwrap_err();
+        assert!(err.contains("below 60s"), "{err}");
+        // More than 10 slots → count error.
+        let err = parse_tf("60,60,60,60,60,60,60,60,60,60,60").unwrap_err();
+        assert!(err.contains("1..=10"), "{err}");
     }
 
     #[test]

@@ -32,6 +32,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use api_gateway::{self, AppState};
@@ -133,54 +134,84 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        micro: new_pipe(
-            60,
-            "Micro",
-            core_domain::models::TimeframeSlot::Micro,
+        // Fixed 10-slot ladder; the four representative broadcast channels
+        // ride on micro1/fast1/slow1/macro1, the rest on throwaways.
+        micro1: new_pipe(
+            1,
+            "Micro1",
+            core_domain::models::TimeframeSlot::Micro1,
             mid_bcast.clone(),
         ),
-        fast: new_pipe(
-            180,
-            "Fast",
-            core_domain::models::TimeframeSlot::Fast,
+        micro2: new_pipe(
+            3,
+            "Micro2",
+            core_domain::models::TimeframeSlot::Micro2,
+            broadcast::channel(8).0,
+        ),
+        fast1: new_pipe(
+            5,
+            "Fast1",
+            core_domain::models::TimeframeSlot::Fast1,
             fast_bcast.clone(),
         ),
-        slow: new_pipe(
-            300,
-            "Slow",
-            core_domain::models::TimeframeSlot::Slow,
+        fast2: new_pipe(
+            15,
+            "Fast2",
+            core_domain::models::TimeframeSlot::Fast2,
+            broadcast::channel(8).0,
+        ),
+        slow1: new_pipe(
+            30,
+            "Slow1",
+            core_domain::models::TimeframeSlot::Slow1,
             slow_bcast.clone(),
         ),
-        r#macro: new_pipe(
-            900,
-            "Macro",
-            core_domain::models::TimeframeSlot::Macro,
+        slow2: new_pipe(
+            60,
+            "Slow2",
+            core_domain::models::TimeframeSlot::Slow2,
+            broadcast::channel(8).0,
+        ),
+        macro1: new_pipe(
+            180,
+            "Macro1",
+            core_domain::models::TimeframeSlot::Macro1,
             macro_bcast.clone(),
+        ),
+        macro2: new_pipe(
+            300,
+            "Macro2",
+            core_domain::models::TimeframeSlot::Macro2,
+            broadcast::channel(8).0,
+        ),
+        longterm1: new_pipe(
+            900,
+            "Longterm1",
+            core_domain::models::TimeframeSlot::Longterm1,
+            broadcast::channel(8).0,
+        ),
+        longterm2: new_pipe(
+            3600,
+            "Longterm2",
+            core_domain::models::TimeframeSlot::Longterm2,
+            broadcast::channel(8).0,
         ),
         snapshot_tx,
         cancel,
-    });
+        active_count: 10,
+});
 
-    let micro_buf = TimeframeBuffers {
-        history: pair.micro.history.clone(),
-        latest: pair.micro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let fast_buf = TimeframeBuffers {
-        history: pair.fast.history.clone(),
-        latest: pair.fast.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let slow_buf = TimeframeBuffers {
-        history: pair.slow.history.clone(),
-        latest: pair.slow.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let macro_buf = TimeframeBuffers {
-        history: pair.r#macro.history.clone(),
-        latest: pair.r#macro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
+    let buffers: [TimeframeBuffers; 10] = pair
+        .all()
+        .iter()
+        .map(|pipe| TimeframeBuffers {
+            history: pipe.history.clone(),
+            latest: pipe.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"));
 
     let instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
@@ -191,10 +222,8 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         workspace.clone(),
         Default::default(),
         Default::default(),
-        micro_buf,
-        fast_buf,
-        slow_buf,
-        macro_buf,
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ));
 
@@ -263,8 +292,49 @@ fn default_body(micro_secs: u64) -> serde_json::Value {
     })
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_instance_config_by_uuid_recharges_in_memory_state() {
+/// Run an async test body on a dedicated multi-thread runtime whose worker
+/// threads get an 8 MiB stack. The save path re-parses `config.toml` inside
+/// `config_models::save_workspace`, and in debug builds the combined
+/// winnow/tower stack frames exceed tokio's default 2 MiB worker stack.
+/// Release builds are unaffected; this is purely a test-harness
+/// accommodation.
+fn run_on_big_stack<F, Fut>(name: &str, f: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_stack_size(8 * 1024 * 1024)
+                .enable_all()
+                .build()
+                .expect("tokio runtime")
+                .block_on(f())
+        })
+        .expect("failed to spawn big-stack test thread")
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+}
+
+// The three tests in this file share the process CWD's `config.toml`
+// (the instance-config POST persists the workspace there). Running them
+// in parallel races the read-modify-write — serialize them explicitly.
+static CONFIG_FILE_LOCK: Mutex<()> = Mutex::new(());
+
+#[test]
+fn post_instance_config_by_uuid_recharges_in_memory_state() {
+    let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    run_on_big_stack(
+        "save_recharge_uuid",
+        || post_instance_config_by_uuid_recharges_in_memory_state_inner(),
+    );
+}
+
+async fn post_instance_config_by_uuid_recharges_in_memory_state_inner() {
     tokio::time::timeout(Duration::from_secs(60), async {
         let state = setup_app_with_instance().await;
         let addr = serve_for(state.clone()).await;
@@ -315,8 +385,16 @@ async fn post_instance_config_by_uuid_recharges_in_memory_state() {
     .expect("save->recharge cycle exceeded 15 s budget");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_instance_config_by_pairkey_is_rejected_with_404() {
+#[test]
+fn post_instance_config_by_pairkey_is_rejected_with_404() {
+    let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    run_on_big_stack(
+        "save_recharge_404",
+        || post_instance_config_by_pairkey_is_rejected_with_404_inner(),
+    );
+}
+
+async fn post_instance_config_by_pairkey_is_rejected_with_404_inner() {
     tokio::time::timeout(Duration::from_secs(10), async {
         let state = setup_app_with_instance().await;
         let addr = serve_for(state).await;
@@ -337,8 +415,16 @@ async fn post_instance_config_by_pairkey_is_rejected_with_404() {
     .expect("404 path exceeded 10 s budget");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_instance_config_uses_session_quote_in_default_pair_key() {
+#[test]
+fn post_instance_config_uses_session_quote_in_default_pair_key() {
+    let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    run_on_big_stack(
+        "save_recharge_quote",
+        || post_instance_config_uses_session_quote_in_default_pair_key_inner(),
+    );
+}
+
+async fn post_instance_config_uses_session_quote_in_default_pair_key_inner() {
     // The /api/history?symbol= (no symbol) fallback path must honour the
     // session quote. With a USDC session, `default_pair_key("BTC-USDT")` is
     // expected to round-trip to "BTC-USDC" rather than "BTC-USDT-USDT".

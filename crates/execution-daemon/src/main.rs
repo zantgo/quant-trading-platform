@@ -11,8 +11,9 @@
 //!   (Observe / Simulate / Execute), exchange, currency, and instances
 //!   before entering the workspace.
 //! - `--mode cli`: interactive terminal launch (exchange, currency,
-//!   instances with per-TF durations), then a live terminal monitor that
-//!   redraws the L7 overview + per-instance rows. Supports
+//!   instances — every pair runs the fixed 10-slot TF ladder), then a
+//!   live terminal monitor that redraws the L7 overview + per-instance
+//!   rows. Supports
 //!   `--trading observe|paper|live` (default observe); paper reuses the
 //!   same `PaperSimulation` engine as `--mode web`. No HTTP server is bound;
 //!   the SQLite telemetry DB is still used for analytics.
@@ -430,8 +431,9 @@ impl CliArgs {
 // The flow mirrors the GUI Launch Setup wizard (observe-only for now):
 //   1. Exchange          — pre-filled from --exchange or workspace default.
 //   2. Settlement currency — forced per exchange (HL=USDC, Bitget=USDT).
-//   3. Instances         — one or more (base symbol + per-TF durations),
-//                          pre-filled from existing workspace.instances[].
+//   3. Instances         — one or more (base symbol only — every pair
+//                          runs the fixed 10-slot TF ladder), pre-filled
+//                          from existing workspace.instances[].
 //   4. Confirm           — then the instances just run in the terminal
 //                          monitor. No config.toml is rewritten by the
 //                          prompts; created instances persist via the
@@ -480,34 +482,11 @@ fn confirm(label: &str, default_yes: bool) -> bool {
     }
 }
 
-const TIMEFRAME_FLOOR_SECS: u64 = 1;
-const TIMEFRAME_CEIL_SECS: u64 = 86_400;
-
-fn prompt_timeframe_secs(label: &str, default_secs: u64) -> u64 {
-    loop {
-        let raw = prompt(label, &default_secs.to_string());
-        match raw.parse::<u64>() {
-            Ok(n) if (TIMEFRAME_FLOOR_SECS..=TIMEFRAME_CEIL_SECS).contains(&n) => return n,
-            Ok(n) => {
-                eprintln!(
-                    "  ⚠️  {}s is outside the allowed range [{}, {}].",
-                    n, TIMEFRAME_FLOOR_SECS, TIMEFRAME_CEIL_SECS
-                );
-            }
-            Err(_) => {
-                eprintln!("  ⚠️  '{}' is not a number.", raw);
-            }
-        }
-    }
-}
-
-/// One instance configured in the CLI launch prompt.
+/// One instance configured in the CLI launch prompt. Durations are no
+/// longer prompted — every instance runs the fixed 10-slot ladder
+/// (`config_models::FIXED_TF_LADDER`).
 struct CliInstance {
     base: String,
-    micro: u64,
-    fast: u64,
-    slow: Option<u64>,
-    r#macro: Option<u64>,
 }
 
 /// The full CLI launch plan: exchange + currency + instances.
@@ -523,19 +502,25 @@ struct CliLaunchPlan {
     trading: String,
 }
 
-/// v7.2 parity: the default timeframe ladder is the registry's ladder
-/// (`registry::add_instance` fallback): micro 60s, fast 180s, slow/macro
-/// from the workspace defaults — one canonical source for CLI, GUI, and
-/// registry.
-fn tf_default(slot: &str, workspace: &config_models::WorkspaceConfig) -> u64 {
-    let (micro, fast, slow, r#macro) = workspace.tf_ladder_defaults();
-    match slot {
-        "micro" => micro,
-        "fast" => fast,
-        "slow" => slow,
-        "macro" => r#macro,
-        _ => slow,
-    }
+/// The ACTIVE ladder (fastest N of the fixed pool), rendered compactly for
+/// the launch prompt and the summary ("1s/3s/5s/15s/30s" at the default
+/// count of 5). `config_models::FIXED_TF_LADDER` is the single source of
+/// truth for CLI, GUI, and registry alike; `[workspace].active_timeframes`
+/// selects how many of the fastest slots run.
+/// Best-effort read of `[workspace].active_timeframes` for CLI display.
+fn cli_ws_active_timeframes() -> usize {
+    load_workspace()
+        .map(|ws| ws.active_timeframes)
+        .unwrap_or(config_models::DEFAULT_ACTIVE_TIMEFRAMES)
+}
+
+fn fixed_ladder_display(active_count: usize) -> String {
+    let n = active_count.clamp(1, config_models::FIXED_TF_LADDER.len());
+    config_models::FIXED_TF_LADDER[..n]
+        .iter()
+        .map(|s| tf_label(*s))
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn tf_label(secs: u64) -> String {
@@ -598,7 +583,8 @@ fn cli_launch_plan(
     };
     println!("  → Settlement currency forced to {}", currency);
 
-    // 2. Instances — pre-seed from workspace.instances[].
+    // 2. Instances — pre-seed from workspace.instances[]. Durations are
+    //    not carried: the fixed 10-slot ladder is registry-driven.
     let mut instances: Vec<CliInstance> = workspace
         .instances
         .iter()
@@ -612,13 +598,7 @@ fn cli_launch_plan(
             if base.is_empty() {
                 return None;
             }
-            Some(CliInstance {
-                base,
-                micro: e.micro_term.candles.duration_seconds,
-                fast: e.fast_term.candles.duration_seconds,
-                slow: e.slow_term.as_ref().map(|t| t.candles.duration_seconds),
-                r#macro: e.macro_term.as_ref().map(|t| t.candles.duration_seconds),
-            })
+            Some(CliInstance { base })
         })
         .collect();
 
@@ -626,6 +606,7 @@ fn cli_launch_plan(
         "\nInstances (blank base = finish). {} configured in config.toml — press Enter to keep.",
         instances.len()
     );
+    println!("  Timeframes (active ladder): {}", fixed_ladder_display(cli_ws_active_timeframes()));
     loop {
         let default_base = if instances.is_empty() {
             "BTC".to_string()
@@ -651,78 +632,7 @@ fn cli_launch_plan(
             eprintln!("  ⚠️  {} is already in the list.", cleaned);
             continue;
         }
-        let micro = prompt_timeframe_secs(
-            &format!(
-                "  micro timeframe_secs (default {}s)",
-                tf_default("micro", workspace)
-            ),
-            tf_default("micro", workspace),
-        );
-        let fast = loop {
-            let v = prompt_timeframe_secs(
-                &format!(
-                    "  fast timeframe_secs (default {}s)",
-                    tf_default("fast", workspace)
-                ),
-                tf_default("fast", workspace),
-            );
-            if v == micro {
-                eprintln!("  ⚠️  fast must differ from micro ({}s) — pick a distinct duration.", micro);
-                continue;
-            }
-            break v;
-        };
-        let slow = if confirm("  Enable slow timeframe? Y/n", true) {
-            loop {
-                let v = prompt_timeframe_secs(
-                    &format!(
-                        "  slow timeframe_secs (default {}s)",
-                        tf_default("slow", workspace)
-                    ),
-                    tf_default("slow", workspace),
-                );
-                if v == micro || v == fast {
-                    eprintln!("  ⚠️  slow must be distinct from micro ({}s) and fast ({}s).", micro, fast);
-                    continue;
-                }
-                break Some(v);
-            }
-        } else {
-            None
-        };
-        let r#macro = if confirm("  Enable macro timeframe? Y/n", true) {
-            loop {
-                let v = prompt_timeframe_secs(
-                    &format!(
-                        "  macro timeframe_secs (default {}s)",
-                        tf_default("macro", workspace)
-                    ),
-                    tf_default("macro", workspace),
-                );
-                let mut seen = vec![micro, fast];
-                if let Some(s) = slow { seen.push(s); }
-                if seen.contains(&v) {
-                    eprintln!("  ⚠️  macro must be distinct from {} — pick another.", seen.iter().map(|s| format!("{}s", s)).collect::<Vec<_>>().join(", "));
-                    continue;
-                }
-                break Some(v);
-            }
-        } else {
-            None
-        };
-        // Validate 2–4 distinct: micro+fast always, slow/macro optional
-        let active_count = 2 + slow.is_some() as usize + r#macro.is_some() as usize;
-        if active_count < 2 {
-            eprintln!("  ⚠️  At least 2 timeframes required (micro+fast).");
-            continue;
-        }
-        instances.push(CliInstance {
-            base: cleaned,
-            micro,
-            fast,
-            slow,
-            r#macro,
-        });
+        instances.push(CliInstance { base: cleaned });
     }
 
     if instances.is_empty() {
@@ -746,19 +656,11 @@ fn cli_launch_plan(
     );
     println!("  Exchange             : {}", exchange);
     println!("  Settlement currency  : {}", currency);
+    println!("  Active TF ladder     : {}", fixed_ladder_display(cli_ws_active_timeframes()));
     for inst in &instances {
-        let slow_s = inst.slow.map(tf_label).unwrap_or_else(|| "—".to_string());
-        let macro_s = inst.r#macro.map(tf_label).unwrap_or_else(|| "—".to_string());
         println!(
-            "  Instance             : {}-{} — micro {} · fast {} · slow {} · macro {} ({}, {} TFs)",
-            inst.base,
-            currency,
-            tf_label(inst.micro),
-            tf_label(inst.fast),
-            slow_s,
-            macro_s,
-            cli_trading,
-            2 + inst.slow.is_some() as usize + inst.r#macro.is_some() as usize,
+            "  Instance             : {}-{} ({})",
+            inst.base, currency, cli_trading,
         );
     }
     println!("──────────────────────────────────────────────\n");
@@ -835,8 +737,21 @@ fn canonical_overall_risk(micro_risk: Option<f64>, risk_count: u32, risk_sum: f6
     })
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // v11.1: the fixed 10-slot ladder multiplies the per-pipeline future
+    // state (per-slot arrays inside `build_pipelines`/`spawn_tasks`), which
+    // overflows tokio's default 2 MiB worker stack in debug builds when an
+    // instance is created. 16 MiB workers keep the same headroom margin the
+    // 4-slot ladder had. (Test binaries set the same size individually.)
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(16 * 1024 * 1024)
+        .build()
+        .expect("failed to build tokio runtime")
+        .block_on(async_main());
+}
+
+async fn async_main() {
     let cli = parse_args();
 
     // If --config is provided, set the env var that config-models reads.
@@ -909,6 +824,62 @@ async fn main() {
             );
             std::process::exit(1);
         }
+    }
+    // v11.3 smart port: probe + fallback BEFORE AppState construction so
+    // CORS origins match the port we actually bind. The winning listener
+    // is held open and handed to the web server block below (no TOCTOU).
+    let requested_port = server_port;
+    let (web_listener, server_port, port_fell_back) = {
+        let attempts = if platform.server.auto_fallback {
+            platform.server.port_fallback_range.max(1)
+        } else {
+            1
+        };
+        let mut result: Option<(tokio::net::TcpListener, u16)> = None;
+        let mut tried: Vec<u16> = Vec::new();
+        for offset in 0..attempts {
+            let candidate = requested_port.saturating_add(offset);
+            if offset > 0 {
+                println!(
+                    "🌐 Smart port: {requested_port} in use — trying {candidate}…"
+                );
+            }
+            tried.push(candidate);
+            match tokio::net::TcpListener::bind((server_bind.as_str(), candidate)).await {
+                Ok(l) => {
+                    result = Some((l, candidate));
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
+                Err(e) => {
+                    eprintln!(
+                        "❌ Web Server Setup: Failed to bind {server_bind}:{candidate} ({e})."
+                    );
+                    std::process::exit(1);
+                }
+            }
+        }
+        match result {
+            Some((l, p)) => (l, p, p != requested_port),
+            None => {
+                let list = tried
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                eprintln!(
+                    "❌ Web Server Setup: no free port for {server_bind} in [{list}] — \
+                     free one or raise [server].port_fallback_range (auto_fallback={}).",
+                    platform.server.auto_fallback
+                );
+                std::process::exit(1);
+            }
+        }
+    };
+    if port_fell_back {
+        println!(
+            "🌐 Smart port: Dashboard will live on {server_bind}:{server_port} (requested {requested_port} was in use)."
+        );
     }
     let allowed_origins = api_gateway::default_allowed_origins(&server_bind, server_port);
     println!(
@@ -1029,7 +1000,7 @@ async fn main() {
                         std::process::exit(1);
                     }
                 },
-                None => vec![60, 180, 300, 900],
+                None => config_models::FIXED_TF_LADDER.to_vec(),
             },
             depth_days: cli
                 .bt_depth
@@ -1243,10 +1214,10 @@ async fn main() {
 
     // ── Launch plan (CLI mode: interactive; web mode: config-driven) ──
     //
-    // CLI mode prompts the operator for exchange/currency/instances BEFORE
-    // spawning anything — the plan is written into the workspace config so
-    // `registry::add_instance` resolves the per-TF durations, then every
-    // instance is spawned with the boot retry policy.
+// CLI mode prompts the operator for exchange/currency/instances BEFORE
+// spawning anything — the plan is written into the workspace config so
+// `registry::add_instance` binds each pair to the fixed 10-slot TF
+// ladder, then every instance is spawned with the boot retry policy.
     // v8.2: the prompt offers a Backtest choice — the interactive sibling
     // of the GUI launcher (runs the simulation, then exits).
     let cli_plan: Option<CliLaunchPlan> = if matches!(cli.mode, LaunchMode::Cli) {
@@ -1322,7 +1293,7 @@ async fn main() {
         }
     }
 
-    // ── CLI plan → workspace config (per-instance TF durations) ────
+    // ── CLI plan → workspace config (fixed 10-slot TF ladder) ──────
     if let Some(plan) = &cli_plan {
         let mut cfg = workspace_state.config().await;
         let exec_mode = match plan.trading.as_str() {
@@ -1335,17 +1306,20 @@ async fn main() {
             if cfg.instances.iter().any(|e| e.symbol == symbol) {
                 continue;
             }
-            let indicators = config_models::IndicatorsConfig::default();
-            let tf = |secs: u64| config_models::TimeframeConfig::new(secs, indicators.clone());
+            // Legacy per-slot fields are parsed but IGNORED by the loader —
+            // every instance runs the fixed 10-slot ladder
+            // (`FIXED_TF_LADDER`) with workspace-level indicator defaults.
+            // Defaults suffice: `TimeframeConfig::default()` for the always
+            // present micro_term/fast_term, `None` for slow/macro.
             cfg.instances.push(config_models::InstanceEntry {
                 id: format!("inst_{}", inst.base.to_lowercase()),
                 symbol,
                 quote: plan.currency.clone(),
                 status: config_models::InstanceStatus::Running,
-                micro_term: tf(inst.micro),
-                fast_term: tf(inst.fast),
-                slow_term: inst.slow.map(|s| tf(s)),
-                macro_term: inst.r#macro.map(|s| tf(s)),
+                micro_term: config_models::TimeframeConfig::default(),
+                fast_term: config_models::TimeframeConfig::default(),
+                slow_term: None,
+                macro_term: None,
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: config_models::OperationalMode::Advisory,
                 mode: exec_mode.clone(),
@@ -1725,7 +1699,7 @@ async fn main() {
                             let mut guards: Vec<tokio::sync::RwLockReadGuard<
                                 Option<core_domain::models::MarketSnapshot>,
                             >> = Vec::new();
-                            for buf in [&inst.micro, &inst.fast, &inst.slow, &inst.r#macro] {
+                            for buf in inst.buffers() {
                                 guards.push(buf.latest.read().await);
                             }
                             let snaps: Vec<&core_domain::models::MarketSnapshot> =
@@ -1977,29 +1951,25 @@ async fn main() {
                     Vec::new();
                 for inst in &instances {
                     let snapshots = inst.active_pair.latest_snapshots_all_tf().await;
-                    // v6.10.18 (I-2): the L7 aggregates ALL FOUR timeframe
-                    // windows (micro / fast / slow / macro) — per-window
+                    // v6.10.18 (I-2): the L7 aggregates ALL TEN fixed-ladder
+                    // timeframe windows (micro1..longterm2) — per-window
                     // advisories feed the breadth / bias / opportunity /
                     // regime tallies. The previous slow-300s-only basis
                     // made the dashboard headline contradict every panel
                     // (e.g. HIGH_RISK next to an avg-risk of 41, or a
                     // stale "Pullback" while the Opportunity tab shows
                     // Scalp).
-                    // v6.10.19a: the canonical per-pair risk is the MICRO
-                    // window's L5 score (the same number the Risk panel,
-                    // the dashboard KPI, and the asset rows show) — the
-                    // TF-window MEAN drifted upward whenever the macro
-                    // window scored high (MAX_COMPRESSION / thin
+                    // v6.10.19a: the canonical per-pair risk is the fastest
+                    // window's (micro1) L5 score (the same number the Risk
+                    // panel, the dashboard KPI, and the asset rows show) —
+                    // the TF-window MEAN drifted upward whenever the slow
+                    // windows scored high (MAX_COMPRESSION / thin
                     // participation) and rendered "HIGH_RISK" next to a
                     // visible avg-risk of 41–46. The window mean remains
-                    // the warmup fallback when micro has no risk matrix
+                    // the warmup fallback when micro1 has no risk matrix
                     // yet.
-                    let snaps = [
-                        snapshots.0.as_ref(),
-                        snapshots.1.as_ref(),
-                        snapshots.2.as_ref(),
-                        snapshots.3.as_ref(),
-                    ];
+                    let snaps: [Option<&core_domain::models::MarketSnapshot>; 10] =
+                        std::array::from_fn(|i| snapshots[i].as_ref());
                     // Audit fix (M6): `instance_count`/`is_active` must
                     // reflect actual monitoring — the previous `!cancel`
                     // check only flipped on delete/recharge, so a
@@ -2012,12 +1982,16 @@ async fn main() {
                     let is_active = !inst.cancel.is_cancelled()
                         && lifecycle_state != config_models::LifecycleState::Stopped
                         && lifecycle_state != config_models::LifecycleState::Stopping;
-                    // v6.10.19 (P7): per-TF-window risk pairs with decay
-                    // weights (micro 0.1 / fast 0.2 / slow 0.3 / macro
-                    // 0.4) — the L7 SYSTEMIC path must stay anchored to
-                    // macro stability so a transient micro risk spike can
-                    // never fire the PME safety veto.
-                    let tf_weights = [0.1_f64, 0.2, 0.3, 0.4];
+                    // v6.10.19 (P7) / 10-slot ladder: per-slot-window risk
+                    // pairs with decay weights (micro1/micro2/fast1 0.05 ·
+                    // fast2/slow1 0.1 · slow2/macro1/macro2 0.15 ·
+                    // longterm1/longterm2 0.1 — Σ = 1.0) — the L7 SYSTEMIC
+                    // path stays anchored to the slower windows so a
+                    // transient micro risk spike can never fire the PME
+                    // safety veto.
+                    let tf_weights = [
+                        0.05_f64, 0.05, 0.05, 0.1, 0.1, 0.15, 0.15, 0.15, 0.1, 0.1,
+                    ];
                     let mut risk_windows: Vec<(f64, f64)> = Vec::new();
                     let mut risk_sum = 0.0;
                     let mut risk_count = 0u32;
@@ -2053,7 +2027,13 @@ async fn main() {
                         // `inst.symbol()` (active_pair.symbol, e.g.
                         // "BTC-USDT").
                         symbol: inst.symbol(),
-                        timeframe_secs: 300,
+                        // tf-average label: the meta describes the whole
+                        // 10-slot aggregate — the representative duration is
+                        // the ladder max (3600s), never a single slot's.
+                        timeframe_secs: *config_models::FIXED_TF_LADDER
+                            .iter()
+                            .max()
+                            .unwrap_or(&900),
                         timeframe_label: "tf-average".into(),
                         is_active,
                         // L7-A (v6.10.13): the per-symbol L5 overall risk —
@@ -2191,24 +2171,26 @@ async fn main() {
         ));
     } else {
         let app = build_router(app_state.clone());
+        // v11.3 smart port: the listener was probed and bound before AppState
+        // construction (so CORS origins match the actual port); reuse it.
+        let listener = web_listener;
         let bind_addr = format!("{server_bind}:{server_port}");
-        let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!(
-                    "❌ Web Server Setup: Failed to bind {bind_addr} ({e}). \
-                     Another session may already use this port — set a distinct \
-                     `[server] port` (or PLATFORM_PORT / --port) per folder."
-                );
-                std::process::exit(1);
-            }
-        };
 
         println!("🌐 Web Server Setup: Dashboard live at http://{bind_addr}");
+        if port_fell_back {
+            println!(
+                "🌐 Smart port: requested {requested_port} was in use — serving on {server_port}."
+            );
+        }
+        // v11.3: publish the resolved endpoint for scripts/`manage.sh`.
+        if let Err(e) = std::fs::write(".server.port", format!("{server_bind}:{server_port}\n")) {
+            eprintln!("⚠️  Could not write .server.port: {e}");
+        }
 
         let server_handle = tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, app).await {
                 eprintln!("❌ Web Server Setup: Fatal crash running Axum HTTP server: {e}");
+                let _ = std::fs::remove_file(".server.port");
                 std::process::exit(1);
             }
         });
@@ -2306,6 +2288,8 @@ async fn main() {
             _ = sigterm.recv() => {},
         }
         eprintln!("📥 Signal received — graceful shutdown");
+        // v11.3: best-effort cleanup of the smart-port marker file.
+        let _ = std::fs::remove_file(".server.port");
         let live = shutdown_state.workspace.list().await;
         for inst in &live {
             inst.cancel.cancel();
@@ -2333,6 +2317,31 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::canonical_overall_risk;
+
+    // v11.3 smart port: the probe semantics the web bind block relies on —
+    // a held listener reports AddrInUse for the same port and the +1
+    // fallback candidate is free (two concurrent sessions, folder-per-session).
+    #[tokio::test]
+    async fn smart_port_falls_back_to_next_free_port() {
+        let l1 = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let held = l1.local_addr().unwrap().port();
+        // Same port → AddrInUse (the probe's skip condition).
+        let again = tokio::net::TcpListener::bind(("127.0.0.1", held)).await;
+        assert!(again.is_err());
+        assert_eq!(again.unwrap_err().kind(), std::io::ErrorKind::AddrInUse);
+        // +1 candidate (or the first free after it) binds successfully.
+        let mut candidate = held.saturating_add(1);
+        let l2 = loop {
+            match tokio::net::TcpListener::bind(("127.0.0.1", candidate)).await {
+                Ok(l) => break l,
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                    candidate = candidate.saturating_add(1);
+                }
+                Err(e) => panic!("unexpected bind error: {e}"),
+            }
+        };
+        assert_ne!(l2.local_addr().unwrap().port(), held);
+    }
 
     // v6.10.19a: the L7 canonical risk is the MICRO window's L5 score —
     // the visible number. The window-mean drift (macro MAX_COMPRESSION

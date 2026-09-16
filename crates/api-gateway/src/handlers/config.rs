@@ -49,6 +49,9 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
 pub struct ConfigUpdateRequest {
     #[serde(default)]
     pub candles: Option<config_models::CandlesConfig>,
+    /// v11.2: active-timeframe count (fastest N of the fixed pool, 1..=10).
+    #[serde(default)]
+    pub active_timeframes: Option<usize>,
     #[serde(default)]
     pub indicators: Option<config_models::IndicatorsConfig>,
     #[serde(default)]
@@ -91,6 +94,11 @@ pub struct ConfigUpdateRequest {
 /// first offending field description (the dashboard mirrors these ranges).
 fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
     let f = |v: f64, min: f64, max: f64| v >= min && v <= max;
+    if let Some(n) = payload.active_timeframes {
+        if !(1..=10).contains(&n) {
+            return Some("active_timeframes must be 1–10".into());
+        }
+    }
     if let Some(fees) = &payload.fees {
         if !f(fees.maker_fee_pct, 0.0, 5.0) {
             return Some("fees.maker_fee_pct must be 0–5".into());
@@ -222,11 +230,17 @@ pub async fn update_config(
         || payload.fees.is_some()
         || payload.leverage.is_some()
         || payload.activation.is_some()
-        || payload.backtest.is_some();
+        || payload.backtest.is_some()
+        // v11.2: the active-timeframe count reshapes every running
+        // instance's pipeline set — recharge so the change applies live.
+        || payload.active_timeframes.is_some();
 
     let mut merged = state.workspace.config().await;
     if let Some(candles) = payload.candles {
         merged.candles = candles;
+    }
+    if let Some(n) = payload.active_timeframes {
+        merged.active_timeframes = n;
     }
     if let Some(indicators) = payload.indicators {
         merged.indicators = indicators;

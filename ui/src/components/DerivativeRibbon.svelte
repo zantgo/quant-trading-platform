@@ -15,17 +15,14 @@
     import styles from './DerivativeRibbon.module.css';
     import { iRaw, iNorm, fmt, fmtPrice } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
+    import { getTerm } from '../lib/terms';
+    import type { TimeframeSlotKind } from '../types';
 
     const app = useAppStore();
-    let { slot }: { slot: 'micro' | 'fast' | 'slow' | 'macro' } = $props();
+    let { slot }: { slot: TimeframeSlotKind } = $props();
 
     const pair = $derived(app.instancesMap[app.activeTab] ?? null);
-    const tf = $derived(
-        slot === 'micro' ? pair?.microTerm :
-        slot === 'fast'  ? pair?.fastTerm :
-        slot === 'slow'  ? pair?.slowTerm :
-                          pair?.macroTerm
-    );
+    const tf = $derived(getTerm(pair, slot));
 
     const snap = $derived(tf?.latestSnapshot ?? null);
     const indicators = $derived<IndicatorMap>((tf?.indicators ?? {}) as IndicatorMap);

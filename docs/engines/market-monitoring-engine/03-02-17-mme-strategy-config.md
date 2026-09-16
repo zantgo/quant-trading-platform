@@ -1,6 +1,6 @@
 # MME Strategy Configuration — Canonical Spec (v11)
 
-**Version:** 11.0 (2026-08-26) — v11: quantity-first defaults + ladder_roles. See docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — v11: quantity-first defaults + ladder_roles. See docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Market Monitoring Engine (MME) — Layers L1 · L1.5 · L2 · L2.5 · L3 · L4 · L5 · L6 · L7
 **Method:** Spec-driven development — this document is the contract. Code, UI,
@@ -119,7 +119,9 @@ backtesting engine.
 
   "l2": {
     "tf_weighting": { "mode": "proportional",
-                      "weights": { "micro": 0.2, "fast": 0.2, "slow": 0.333, "macro": 1.0 },
+                      "weights": { "micro1": 0.1, "micro2": 0.1, "fast1": 0.1, "fast2": 0.1,
+                                   "slow1": 0.166, "slow2": 0.166, "macro1": 0.5, "macro2": 0.5,
+                                   "longterm1": 1.0, "longterm2": 1.0 },
                       "floor": 0.2, "ceil": 1.0 },
     "overall_blend": { "trend": 0.5, "momentum": 0.3, "volatility": 0.1, "volume": 0.1 },
     "thin_volume": { "enabled": true, "threshold": 25.0,
@@ -275,10 +277,10 @@ backtesting engine.
 
   "ladder_roles": {
     "enabled": true,
-    "decision_tf": "macro",
-    "entry_tf": "micro",
-    "stop_tf": "macro",
-    "target_tf": "micro"
+    "decision_tf": "longterm2",
+    "entry_tf": "micro1",
+    "stop_tf": "longterm2",
+    "target_tf": "micro1"
   },
 
   "l7": {
@@ -291,8 +293,11 @@ backtesting engine.
                   "sync_penalty": { "highly_synchronized": 100, "synchronized": 60,
                                     "mixed": 30, "fragmented": 10,
                                     "highly_fragmented": 0 },
-                  "tf_decay": { "micro": 0.1, "fast": 0.2,
-                                "slow": 0.3, "macro": 0.4 },
+                  "tf_decay": { "micro1": 0.05, "micro2": 0.05,
+                                "fast1": 0.05, "fast2": 0.1,
+                                "slow1": 0.1, "slow2": 0.15,
+                                "macro1": 0.15, "macro2": 0.15,
+                                "longterm1": 0.1, "longterm2": 0.1 },
                   "cascade_index_fallback": 50.0,
                   "entry_veto_threshold": 80.0 },
     "asset_rank": { "slope": 0.5, "offset": 50.0 },
@@ -307,6 +312,16 @@ backtesting engine.
 the 52 registry keys, all `1.0`. `l1.signals.confidence_boost` is `{}` =
 detector defaults. `l2_5.oi_split.funding_anchor: null` = follow
 `l1_5.funding_extreme_pct` (the v9 F-01 fix).
+
+**v11.1 slot keys (fixed 10-slot ladder).** Every per-TF strategy key is now
+indexed by the fixed slot names `micro1`, `micro2`, `fast1`, `fast2`, `slow1`,
+`slow2`, `macro1`, `macro2`, `longterm1`, `longterm2` (the legacy `micro` /
+`fast` / `slow` / `macro` keys are gone):
+
+- `l2.tf_weighting.weights` defaults `0.1 / 0.1 / 0.1 / 0.1 / 0.166 / 0.166 / 0.5 / 0.5 / 1.0 / 1.0` (family-split: each legacy family value is split evenly across its pair).
+- `l7.systemic.tf_decay` defaults `0.05 / 0.05 / 0.05 / 0.1 / 0.1 / 0.15 / 0.15 / 0.15 / 0.1 / 0.1` (Σ = 1.0).
+- `l5.volatility.micro_fast_blend` `[0.7, 0.3]` pairs the `micro1` / `fast1` slots (fastest two sub-minute slots of their families).
+- `ladder_roles` defaults `decision_tf` / `stop_tf` = `longterm2` (the slowest slot — bias, regime, stance, SL floor) and `entry_tf` / `target_tf` = `micro1` (the fastest slot — zones and timing); see [03-03-08-tae-ladder-roles.md](../trade-automation-engine/03-03-08-tae-ladder-roles.md).
 
 ## 4. Bug fixes & erasures (implementation order — COMPLETED)
 

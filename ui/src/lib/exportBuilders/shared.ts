@@ -16,6 +16,8 @@ import type { AppStore } from '../../state.svelte';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { pickInstanceLivePrice } from '../livePrice';
 import { buildEmaRibbonView } from '../telemetry';
+import type { TimeframeSlotKind } from '../../types';
+import { TIMEFRAME_SLOT_KINDS } from '../../types';
 
 // ── Source-tab discriminator ──────────────────────────────────────────────
 
@@ -216,17 +218,25 @@ export function buildEmaBlock(
 
 // ── Instance identity helper (build the meta block from snapshot terms) ──
 
+export interface InstanceTermLike {
+  priceText?: string | null;
+  latestSnapshot?: Record<string, unknown> | null;
+  barDurationSec?: number | null;
+}
+
+/// Per-slot terms keyed by the fixed 10-slot ladder (`micro1`..`longterm2`).
+/// Loose/partial so test fixtures and the production store both flow through.
 export interface InstanceTermsLike {
-  microTerm?: { priceText?: string | null; latestSnapshot?: Record<string, unknown> | null; barDurationSec?: number | null };
-  fastTerm?: { priceText?: string | null; latestSnapshot?: Record<string, unknown> | null; barDurationSec?: number | null };
-  slowTerm?: { priceText?: string | null; latestSnapshot?: Record<string, unknown> | null; barDurationSec?: number | null };
-  macroTerm?: { priceText?: string | null; latestSnapshot?: Record<string, unknown> | null; barDurationSec?: number | null };
+  [slot: string]: InstanceTermLike | undefined;
 }
 
 export function buildPriceBlock(args: {
   symbol: string;
   exchange?: string;
   terms?: InstanceTermsLike;
+  /** v11.2 — the ACTIVE slot ladder; snapshot/live-price picking walks
+   *  only these slots (inactive slots never carry data). Absent → all 10. */
+  activeSlots?: TimeframeSlotKind[];
   fallbackMarkPrice?: number | string | null;
   tfSecs?: number | null;
   timestamp?: number | null;
@@ -234,16 +244,13 @@ export function buildPriceBlock(args: {
   nowMs?: number;
 }): { meta: MetaEnvelope } {
   const now = args.nowMs ?? Date.now();
-  const snap = pickLatestSnapshot(args.terms);
-  const liveStr = pickInstanceLivePrice(
-    {
-      microTerm: args.terms?.microTerm,
-      fastTerm: args.terms?.fastTerm,
-      slowTerm: args.terms?.slowTerm,
-      macroTerm: args.terms?.macroTerm,
-    },
-    now,
-  );
+  // v11.2: inactive slots never carry data — walk only the ACTIVE ladder
+  // (absent/empty → the full 10-slot pool, matching `activeSlotKinds`).
+  const activeSlots = args.activeSlots && args.activeSlots.length > 0
+    ? args.activeSlots
+    : TIMEFRAME_SLOT_KINDS;
+  const snap = pickLatestSnapshot(args.terms, activeSlots);
+  const liveStr = pickInstanceLivePrice(args.terms ?? {}, now);
   const liveNum = parseFloat(liveStr);
   const snapMark = parseFloat(String((snap as { mid_price?: number } | null)?.mid_price ?? ''));
   const mid = Number.isFinite(liveNum) && liveNum > 0
@@ -278,9 +285,12 @@ export function buildPriceBlock(args: {
   };
 }
 
-function pickLatestSnapshot(terms: InstanceTermsLike | undefined): Record<string, unknown> | null {
+function pickLatestSnapshot(
+  terms: InstanceTermsLike | undefined,
+  activeSlots?: readonly TimeframeSlotKind[],
+): Record<string, unknown> | null {
   if (!terms) return null;
-  const slots = [terms.microTerm, terms.fastTerm, terms.slowTerm, terms.macroTerm];
+  const slots = (activeSlots ?? TIMEFRAME_SLOT_KINDS).map((slot) => terms[slot]);
   let best: Record<string, unknown> | null = null;
   let bestTs = -Infinity;
   for (const slot of slots) {
@@ -296,14 +306,17 @@ function pickLatestSnapshot(terms: InstanceTermsLike | undefined): Record<string
 }
 
 /**
- * Latest snapshot across the 4 TFs that has `is_completed === true`.
+ * Latest snapshot across the 10 TFs that has `is_completed === true`.
  * Shadow (live-tick) frames drop `prev_day_px` / `price_change`, so the
  * canonical anchor for the meta price block must prefer a completed frame.
  * Falls back to the newest frame if no completed frame is present yet.
  */
-function pickLatestCompletedSnapshot(terms: InstanceTermsLike | undefined): Record<string, unknown> | null {
+function pickLatestCompletedSnapshot(
+  terms: InstanceTermsLike | undefined,
+  activeSlots?: readonly TimeframeSlotKind[],
+): Record<string, unknown> | null {
   if (!terms) return null;
-  const slots = [terms.microTerm, terms.fastTerm, terms.slowTerm, terms.macroTerm];
+  const slots = (activeSlots ?? TIMEFRAME_SLOT_KINDS).map((slot) => terms[slot]);
   let best: Record<string, unknown> | null = null;
   let bestTs = -Infinity;
   for (const slot of slots) {

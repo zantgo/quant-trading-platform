@@ -1,6 +1,6 @@
 # Trading Platform Architecture Specification
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the six core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
 > **Implementation status (v10.1).** All six engines are implemented: DIE and MME end-to-end, TAE as a setup executor on the unified execution engine (paper default, live Hyperliquid + Bitget dispatch, v10 lifecycle hardening), PME as an informational portfolio mirror, PAE with live analytics + recorded-decision backtest + significance treatment, and BTE with deep-history pipeline replay + DS persistence. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
@@ -87,7 +87,7 @@ Layers 4 and 5 read the Analysis Matrix independently and run in parallel (ortho
 
 #### Layer 2: Alignment Layer
 *   **Purpose:** Evaluate spatial-temporal consensus across multiple time horizons.
-*   **Processing:** Calculate alignment indices between micro, fast, slow, and macro timeframes for trend direction, momentum vectors, and key support/resistance blocks.
+*   **Processing:** Calculate alignment indices between the ACTIVE fixed ladder timeframes (the fastest `[workspace].active_timeframes` slots of the `micro1`…`longterm2` pool, v11.2) for trend direction, momentum vectors, and key support/resistance blocks.
 *   **Output (Alignment Matrix):** Unified multi-timeframe alignment and structural confluence scores.
 
 #### Layer 3: Analysis Layer
@@ -333,7 +333,7 @@ To illustrate the complete pipeline in practice, below is the sequence of events
 
 1.  **Ingest:** A rapid tick update occurs on the BTCUSDT exchange. The Data Infrastructure Engine (DIE) ingests the event via the *Raw Data Layer*, packages it as standard OHLCV data in the *Market Data Layer*, validates it in the *Data Quality Layer*, and the *Distribution Layer* publishes the validated `NormalizedCandle` to the Candle Aggregator for higher-timeframe rollup. The **Market Monitoring Engine (MME L1)** consumes the completed candle, builds the `MarketSnapshot` (containing indicators, signals, and the full analytical cascade), and publishes it over the `MarketSnapshot` broadcast channel — fanning it out to MME L2–L7, the UI, and the telemetry logger (see `03-02-02-mme-layer1-metrics.md §8`).
 2.  **Telemetry:** The Market Monitoring Engine (MME) receives the update. The *Metrics Layer* recalculates indicators and detects signals, immediately projecting them onto their respective multi-dimensional Evaluation Axes (e.g., extracting State, Direction, Strength, and Quality) and updating the **Metrics Matrix**.
-3.  **Consensus:** The *Alignment Layer* checks for trend agreement across micro, fast, slow, and macro time horizons, updating the **Alignment Matrix**.
+3.  **Consensus:** The *Alignment Layer* checks for trend agreement across the ACTIVE fixed ladder time horizons (the fastest `[workspace].active_timeframes` slots of the `micro1`…`longterm2` pool, v11.2), updating the **Alignment Matrix**.
 4.  **Diagnosis:** The *Analysis Layer* confirms a transition to a `TRENDING_BULL` regime under a `STRONG_BULLISH` bias (with a `Market Bias Score: +0.82`), updating the **Analysis Matrix**.
 5.  **Opportunity:** The *Opportunity Layer* detects a high-probability breakout setup and logs an `Opportunity Score: 85` in the **Opportunity Matrix**.
 6.  **Risk:** The *Risk Layer* consumes the Analysis Matrix (L3) and the underlying indicator map — running in parallel with the Opportunity Layer (L4) and independent of the Opportunity Matrix — assesses close proximity to major support, and logs a low `Overall Risk Score: 28` in the **Risk Matrix**. The Risk Matrix reads Analysis Matrix fields such as `market_quality` (L3) but does *not* consume the L4 Opportunity Matrix itself.

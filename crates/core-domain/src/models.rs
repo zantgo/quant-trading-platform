@@ -47,23 +47,50 @@ impl Default for LiquidityActivation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TimeframeSlot {
+    /// 1s — fastest slot of the fixed 10-slot ladder.
     #[default]
-    Micro,
-    Fast,
-    Slow,
-    #[serde(alias = "macro")]
-    Macro,
-    /// Operator-defined custom slot. The 16-bit `id` is an index into the
-    /// slot-name registry carried by `TimeframeSlotsConfig`. The original
-    /// name is preserved in the registry for display and DB persistence.
-    /// Custom slots come from `[instances.*].timeframes` extras and carry
-    /// their `timeframe_secs` and inferred `TimeframeCategory` in the slot
-    /// metadata. Default ladder (Micro/Fast/Slow/Macro) continues to work
-    /// for backward compatibility.
+    Micro1,
+    /// 3s
+    Micro2,
+    /// 5s
+    Fast1,
+    /// 15s
+    Fast2,
+    /// 30s
+    Slow1,
+    /// 60s (1m)
+    Slow2,
+    /// 180s (3m)
+    Macro1,
+    /// 300s (5m)
+    Macro2,
+    /// 900s (15m)
+    Longterm1,
+    /// 3600s (1h) — slowest slot of the fixed ladder.
+    Longterm2,
+    /// Operator-defined custom slot (non-ladder durations, e.g. ad-hoc
+    /// `/api/history?timeframe_secs=` requests). The 16-bit `id` carries the
+    /// duration in seconds for display and DB persistence.
     Custom {
         id: u16,
     },
 }
+
+/// The fixed 10-slot ladder: canonical order (fastest → slowest) and the
+/// exact `timeframe_secs` each slot is bound to. Single source of truth for
+/// boot, the wizard, the API ladder builders, and `parse_from_secs`.
+pub const FIXED_TF_SLOTS: [TimeframeSlot; 10] = [
+    TimeframeSlot::Micro1,
+    TimeframeSlot::Micro2,
+    TimeframeSlot::Fast1,
+    TimeframeSlot::Fast2,
+    TimeframeSlot::Slow1,
+    TimeframeSlot::Slow2,
+    TimeframeSlot::Macro1,
+    TimeframeSlot::Macro2,
+    TimeframeSlot::Longterm1,
+    TimeframeSlot::Longterm2,
+];
 
 /// Per-timeframe pipeline lifecycle state. One value per `(instance, slot)`.
 /// Published on every emitted `MarketSnapshot` as `pipeline_state`. The most-
@@ -131,10 +158,16 @@ impl TimeframeSlot {
     /// a `&` (e.g. `&slot.as_str()`) which deref-coerces.
     pub fn as_str(&self) -> String {
         match self {
-            TimeframeSlot::Micro => "micro".to_string(),
-            TimeframeSlot::Fast => "fast".to_string(),
-            TimeframeSlot::Slow => "slow".to_string(),
-            TimeframeSlot::Macro => "macro".to_string(),
+            TimeframeSlot::Micro1 => "micro1".to_string(),
+            TimeframeSlot::Micro2 => "micro2".to_string(),
+            TimeframeSlot::Fast1 => "fast1".to_string(),
+            TimeframeSlot::Fast2 => "fast2".to_string(),
+            TimeframeSlot::Slow1 => "slow1".to_string(),
+            TimeframeSlot::Slow2 => "slow2".to_string(),
+            TimeframeSlot::Macro1 => "macro1".to_string(),
+            TimeframeSlot::Macro2 => "macro2".to_string(),
+            TimeframeSlot::Longterm1 => "longterm1".to_string(),
+            TimeframeSlot::Longterm2 => "longterm2".to_string(),
             TimeframeSlot::Custom { id } => format!("custom-{}", id),
         }
     }
@@ -142,38 +175,59 @@ impl TimeframeSlot {
     /// Uppercase label rendered in the UI column header.
     pub fn display_name(&self) -> String {
         match self {
-            TimeframeSlot::Micro => "MICRO".to_string(),
-            TimeframeSlot::Fast => "FAST".to_string(),
-            TimeframeSlot::Slow => "SLOW".to_string(),
-            TimeframeSlot::Macro => "MACRO".to_string(),
+            TimeframeSlot::Micro1 => "MICRO1".to_string(),
+            TimeframeSlot::Micro2 => "MICRO2".to_string(),
+            TimeframeSlot::Fast1 => "FAST1".to_string(),
+            TimeframeSlot::Fast2 => "FAST2".to_string(),
+            TimeframeSlot::Slow1 => "SLOW1".to_string(),
+            TimeframeSlot::Slow2 => "SLOW2".to_string(),
+            TimeframeSlot::Macro1 => "MACRO1".to_string(),
+            TimeframeSlot::Macro2 => "MACRO2".to_string(),
+            TimeframeSlot::Longterm1 => "LONGTERM1".to_string(),
+            TimeframeSlot::Longterm2 => "LONGTERM2".to_string(),
             TimeframeSlot::Custom { id } => format!("CUSTOM-{}", id),
         }
     }
 
-    /// Inverse lookup. Unknown / legacy values default to `Micro` so a
+    /// Inverse lookup. Unknown / legacy values default to `Micro1` so a
     /// stale wire or older client never silently reroutes to the wrong slot.
-    /// Custom slot names are NOT routed to `Custom` here — only the slot-name
-    /// registry can produce a `Custom { id }`. This preserves the legacy
-    /// 4-slot dispatcher contract that 0.6-era clients depend on.
+    /// Custom slot names are NOT routed to `Custom` here — only ad-hoc
+    /// duration resolution via `parse_from_secs` can produce a
+    /// `Custom { id }`. The legacy 4-slot wire names (`micro`/`fast`/
+    /// `slow`/`macro`) intentionally fall through to the default: the fixed
+    /// 10-slot ladder replaced them and no current producer emits them.
     pub fn parse(raw: &str) -> TimeframeSlot {
         match raw {
-            "micro" => TimeframeSlot::Micro,
-            "fast" => TimeframeSlot::Fast,
-            "slow" => TimeframeSlot::Slow,
-            "macro" | "r#macro" => TimeframeSlot::Macro,
-            _ => TimeframeSlot::Micro,
+            "micro1" => TimeframeSlot::Micro1,
+            "micro2" => TimeframeSlot::Micro2,
+            "fast1" => TimeframeSlot::Fast1,
+            "fast2" => TimeframeSlot::Fast2,
+            "slow1" => TimeframeSlot::Slow1,
+            "slow2" => TimeframeSlot::Slow2,
+            "macro1" => TimeframeSlot::Macro1,
+            "macro2" => TimeframeSlot::Macro2,
+            "longterm1" => TimeframeSlot::Longterm1,
+            "longterm2" => TimeframeSlot::Longterm2,
+            _ => TimeframeSlot::Micro1,
         }
     }
 
     /// Best-effort slot reconstruction when only the historical timeframe
     /// duration is available (e.g. snapshot rows read from `market_snapshots`
-    /// before the slot column was introduced).
+    /// before the slot column was introduced). The fixed ladder durations
+    /// resolve to their named slots; every other duration maps to `Custom`.
     pub fn parse_from_secs(secs: u64) -> TimeframeSlot {
         match secs {
-            60 => TimeframeSlot::Micro,
-            180 => TimeframeSlot::Fast,
-            300 => TimeframeSlot::Slow,
-            900 => TimeframeSlot::Macro,
+            1 => TimeframeSlot::Micro1,
+            3 => TimeframeSlot::Micro2,
+            5 => TimeframeSlot::Fast1,
+            15 => TimeframeSlot::Fast2,
+            30 => TimeframeSlot::Slow1,
+            60 => TimeframeSlot::Slow2,
+            180 => TimeframeSlot::Macro1,
+            300 => TimeframeSlot::Macro2,
+            900 => TimeframeSlot::Longterm1,
+            3600 => TimeframeSlot::Longterm2,
             _ => TimeframeSlot::Custom { id: secs as u16 },
         }
     }

@@ -197,7 +197,7 @@ export interface MetricsConfig {
  * fields are optional because some only populate on completed candles.
  */
 export interface MarketSnapshot {
-    /** Wire slot key (`micro`/`fast`/`slow`/`macro`, or `custom-<id>`).
+    /** Wire slot key (`micro1`..`longterm2`, or `custom-<id>`).
      *  The WS handler stamps it on every frame; the frontend dispatcher
      *  reads it via the raw envelope before applying. */
     timeframe_slot?: string | null;
@@ -771,21 +771,45 @@ export function emptyIndicator(): IndicatorDto {
     return { raw_value: 0, normalized: 0, state_label: 'UNKNOWN', values: null };
 }
 
-/// Stable slot identity. The four timeframes are positional; their actual
-/// `barDurationSec` may be any positive value the user picked. Slot identity
-/// travels on the wire as `timeframe_slot` (`micro`/`fast`/`slow`/`macro`)
-/// and is stamped by the analyzer onto every snapshot. Consumers that need
-/// to bind a chart to a column should key by slot, never by duration.
-export type TimeframeSlotKind = 'micro' | 'fast' | 'slow' | 'macro';
+/// Stable slot identity. The FIXED 10-slot ladder is positional
+/// (fastest → slowest): micro1, micro2, fast1, fast2, slow1, slow2,
+/// macro1, macro2, longterm1, longterm2. Slot identity travels on the
+/// wire as `timeframe_slot` and is stamped by the analyzer onto every
+/// snapshot. Consumers that need to bind a chart to a column should key
+/// by slot, never by duration.
+export type TimeframeSlotKind =
+    | 'micro1' | 'micro2'
+    | 'fast1' | 'fast2'
+    | 'slow1' | 'slow2'
+    | 'macro1' | 'macro2'
+    | 'longterm1' | 'longterm2';
 
-export const TIMEFRAME_SLOT_KINDS: readonly TimeframeSlotKind[] = ['micro', 'fast', 'slow', 'macro'] as const;
+export const TIMEFRAME_SLOT_KINDS: readonly TimeframeSlotKind[] = [
+    'micro1', 'micro2', 'fast1', 'fast2', 'slow1', 'slow2',
+    'macro1', 'macro2', 'longterm1', 'longterm2',
+] as const;
 
 export function isTimeframeSlotKind(s: unknown): s is TimeframeSlotKind {
-    return s === 'micro' || s === 'fast' || s === 'slow' || s === 'macro';
+    return typeof s === 'string' && (TIMEFRAME_SLOT_KINDS as readonly string[]).includes(s);
 }
 
+/// Fixed ladder durations (seconds), fastest → slowest. Every instance
+/// runs exactly these 10 pipelines.
+export const TIMEFRAME_SLOT_DURATION_SECS: Record<TimeframeSlotKind, number> = {
+    micro1: 1, micro2: 3, fast1: 5, fast2: 15,
+    slow1: 30, slow2: 60, macro1: 180, macro2: 300,
+    longterm1: 900, longterm2: 3600,
+};
+
+/// Display labels (Title-case) for the 10 slots, in ladder order.
+export const TIMEFRAME_SLOT_LABELS: Record<TimeframeSlotKind, string> = {
+    micro1: 'Micro1', micro2: 'Micro2', fast1: 'Fast1', fast2: 'Fast2',
+    slow1: 'Slow1', slow2: 'Slow2', macro1: 'Macro1', macro2: 'Macro2',
+    longterm1: 'Longterm1', longterm2: 'Longterm2',
+};
+
 export interface TimeframeTelemetry {
-    /// Authoritative slot identity (`micro`/`fast`/`slow`/`macro`). A
+    /// Authoritative slot identity (`micro1`..`longterm2`). A
     /// `TimeframeTelemetry` lives on a known slot — never derive slot from
     /// `barDurationSec`.
     slot: TimeframeSlotKind;
@@ -940,10 +964,19 @@ export interface InstanceState {
     /// launch. Populated from `GET /api/instances` via
     /// `syncInstanceIdsFromList`. Drives mode-aware tabs + banners.
     mode?: 'observe' | 'paper' | 'live';
-    microTerm: TimeframeTelemetry;
-    fastTerm: TimeframeTelemetry;
-    slowTerm: TimeframeTelemetry;
-    macroTerm: TimeframeTelemetry;
+    /// Per-slot telemetry, keyed by the fixed 10-slot ladder identity
+    /// (`micro1`..`longterm2`). Every instance runs exactly 10 pipelines.
+    /// NOTE (v11.2): the RECORD stays TOTAL (10 entries) but only the
+    /// ACTIVE slots ever populate — inactive entries stay at their
+    /// initial placeholder. Walk `activeSlotKinds(pair)`, not the keys.
+    terms: Record<TimeframeSlotKind, TimeframeTelemetry>;
+    /// v11.2 — the ACTIVE ladder: the fastest N slot kinds of the fixed
+    /// 10-slot pool (`[workspace].active_timeframes`, 1..=10, default 5),
+    /// mirrored from `InstanceSummary.active_secs` on `GET /api/instances`.
+    /// Slots beyond N are INERT: no snapshots, no WS sockets. `undefined`
+    /// until the payload arrives — consumers fall back to all 10 via
+    /// `activeSlotKinds(pair)` (lib/terms.ts).
+    activeSlots?: TimeframeSlotKind[];
     historyLatestClose: string;
     currentView: CurrentView;
     alignment: AlignmentMatrix | null;
@@ -961,7 +994,7 @@ export interface InstanceState {
      *  setup profiles. Only the completed-candle WS frame carries this
      *  payload (`broadcast_live_snapshot` zeroes it for performance), so
      *  it is mirrored at the pair level by `applySnapshotToTimeframe`
-     *  rather than read from `microTerm.latestSnapshot` (which gets
+     *  rather than read from `terms.micro1.latestSnapshot` (which gets
      *  overwritten by shadow ticks). */
     opportunity: OpportunityMatrix | null;
     /// Last candle-close timestamp (epoch seconds) whose WS frame was
@@ -996,11 +1029,11 @@ export interface InstanceState {
     showEmaMedium: boolean;
     showEmaSlow: boolean;
     showEmaLong: boolean;
-    /** LiveTerminal active timeframe (micro/fast/slow/macro) — persisted per-instance
+    /** LiveTerminal active timeframe (one of the 10 fixed slots) — persisted per-instance
      *  so sub-minute selection survives Charts↔Metrics tab switches and engine
-     *  view unmounts (previously `activeTf` was local `$state('micro')` and
-     *  reset on every LiveTerminal remount, hiding the chosen 5s/15s TF). */
-    activeTf?: 'micro' | 'fast' | 'slow' | 'macro';
+     *  view unmounts (previously `activeTf` was local `$state('micro1')` and
+     *  reset on every LiveTerminal remount, hiding the chosen sub-minute TF). */
+    activeTf?: TimeframeSlotKind;
 }
 
 export interface ScaleInPortion {
@@ -1484,4 +1517,34 @@ export interface SnapshotExportConfigPatch {
     interval_secs?: number;
     max_snapshots_retained?: number;
     tabs?: string[];
+}
+
+// ─── BTE run payloads (shared by the Backtesting shell + the store;
+//     moved component-local → types in v11.2 Phase 3) ─────────────────
+
+export interface BteResult {
+    backtest_id: number;
+    mode?: string;
+    params: { symbol: string; timeframe_secs: number; from_secs: number; to_secs: number; portfolio_capital_usd: number };
+    summary: {
+        total_trades: number; win_count: number; loss_count: number; win_rate: number;
+        gross_profit: number; gross_loss: number; profit_factor: number | null;
+        expectancy: number; max_drawdown_pct: number;
+    };
+    stats: any;
+    trades: { timestamp: number; direction: string; entry_price: number; exit_price: number; size: number; pnl: number; exit_reason: string }[];
+    equity_curve: [number, number][];
+}
+
+/** `GET /api/backtest/:id/portfolio` */
+export interface BtePortfolioPayload {
+    run_id: number;
+    portfolio: any[];
+}
+
+/** `GET /api/backtest/:id/signals` */
+export interface BteSignalsPayload {
+    run_id: number;
+    count: number;
+    signals: any[];
 }

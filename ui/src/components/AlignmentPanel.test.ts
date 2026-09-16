@@ -18,6 +18,7 @@ import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import AlignmentPanel from './AlignmentPanel.svelte';
 import styles from './AlignmentPanel.module.css';
+import headerStyles from './LayerHeader.module.css';
 import { useAppStore } from '../state.svelte';
 import type { AlignmentMatrix, AlignmentDimension } from '../types';
 
@@ -246,20 +247,38 @@ describe('AlignmentPanel — SUMMARY head card (v7.0)', () => {
   });
 });
 
+describe('AlignmentPanel — Timeframe Status table (v10.2)', () => {
+  it('renders the per-timeframe status table between the layer header and the summary card', () => {
+    seed(makeAlignment());
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    const table = screen.getByLabelText('Per-timeframe status');
+    expect(table).toBeTruthy();
+    // One row per fixed-ladder slot (10 rows), each carrying a LayerHeader badge.
+    const rows = table.querySelectorAll('tbody tr');
+    expect(rows.length).toBe(10);
+    expect(table.querySelectorAll(`.${headerStyles.badge}`).length).toBe(10);
+    // Order: directly after the </LayerHeader>, before the SUMMARY card.
+    const headerRoot = document.querySelector(`.${headerStyles.layerHeader}`)!;
+    const card = screen.getByLabelText('SUMMARY');
+    expect(headerRoot.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(table.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
 describe('AlignmentPanel — Per-Timeframe gauge grid (v7.4, moved from the Analysis tab)', () => {
-  it('renders the ring-gauge 2×2 grid in MICRO/FAST/SLOW/MACRO order', () => {
+  it('renders the ring-gauge grid in MICRO1..LONGTERM2 ladder order', () => {
     seed(makeAlignment({
       timeframe_alignments: [
-        { timeframe: 'MACRO', timeframe_secs: 900, trend_score: 0.4, momentum_score: 0.3, overall_score: 0.5, regime: 'RANGE', active_signals: 2, price: 63390 },
-        { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
+        { timeframe: 'MACRO1', timeframe_secs: 180, trend_score: 0.4, momentum_score: 0.3, overall_score: 0.5, regime: 'RANGE', active_signals: 2, price: 63390 },
+        { timeframe: 'MICRO1', timeframe_secs: 1, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
       ],
     }));
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
     const cards = Array.from(document.querySelectorAll(`.${styles.tfSquare}`));
-    // All four ladder slots render (inactive ones show placeholders).
-    expect(cards.length).toBe(4);
-    expect(cards.map((c) => c.textContent?.match(/MICRO|FAST|SLOW|MACRO/)?.[0])).toEqual([
-      'MICRO', 'FAST', 'SLOW', 'MACRO',
+    // All ten ladder slots render (inactive ones show placeholders).
+    expect(cards.length).toBe(10);
+    expect(cards.map((c) => c.textContent?.match(/MICRO1|MICRO2|FAST1|FAST2|SLOW1|SLOW2|MACRO1|MACRO2|LONGTERM1|LONGTERM2/)?.[0])).toEqual([
+      'MICRO1', 'MICRO2', 'FAST1', 'FAST2', 'SLOW1', 'SLOW2', 'MACRO1', 'MACRO2', 'LONGTERM1', 'LONGTERM2',
     ]);
     // Active cards carry the ring gauge, the stat rows, and the regime badge.
     expect(cards[0].querySelector(`.${styles.tfGaugeProgress}`)).toBeTruthy();
@@ -272,8 +291,8 @@ describe('AlignmentPanel — Per-Timeframe gauge grid (v7.4, moved from the Anal
     expect(cards[0].textContent).toContain('5 signals');
     // Inactive slots render the offline placeholder, not fabricated data.
     expect(cards[1].textContent).toContain('OFFLINE');
-    expect(cards[3].textContent).toContain('MACRO');
-    expect(cards[3].textContent).toContain('+0.40');
+    expect(cards[6].textContent).toContain('MACRO1');
+    expect(cards[6].textContent).toContain('+0.40');
   });
 
   it('renders the awaiting note when no timeframe alignments exist', () => {

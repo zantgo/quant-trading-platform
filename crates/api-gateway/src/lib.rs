@@ -735,15 +735,17 @@ async fn reject_cross_site(
     next.run(req).await
 }
 
-/// Global rate limiter (single-operator loopback, 30 req/s).
+/// Global rate limiter (single-operator loopback, 60 req/s).
 /// Uses a sliding window of 1 s kept in a process-wide `Mutex<VecDeque>`.
 /// `429 Too Many Requests` when the window is full; no per-IP tracking
 /// needed because the server binds loopback-only (one operator).
 /// Burst of 5-10 parallel dashboard polls (overview + instances + coverage)
 /// previously hit the old 10/s ceiling and surfaced as `Backfill failed`.
+/// v11.3: raised 30 → 60 req/s for multi-tab viewers (each tab polls
+/// its own overview/instances cycle).
 async fn rate_limit_middleware(req: Request, next: Next) -> axum::response::Response {
     static WINDOW: Duration = Duration::from_secs(1);
-    const LIMIT: usize = 30;
+    const LIMIT: usize = 60;
     static STATE: LazyLock<Mutex<VecDeque<Instant>>> =
         LazyLock::new(|| Mutex::new(VecDeque::new()));
 
@@ -768,7 +770,7 @@ async fn rate_limit_middleware(req: Request, next: Next) -> axum::response::Resp
         return (
             StatusCode::TOO_MANY_REQUESTS,
             [(axum::http::header::RETRY_AFTER, "1")],
-            "Rate limit exceeded: 30 req/s",
+            "Rate limit exceeded: 60 req/s",
         )
             .into_response();
     }

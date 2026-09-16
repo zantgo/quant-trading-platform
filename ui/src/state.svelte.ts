@@ -3,22 +3,35 @@ import type {
     DecisionProfile, DecisionScore,
     RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection,
     DashboardStats, TradeLedgerRecord, TradeJournalRecord,
-    InstanceState, TimeframeTelemetry,
+    InstanceState, TimeframeTelemetry, TimeframeSlotKind,
     ScaleInPortion, TakeProfitTarget, UserTrade,
     CurrentView,
     AlignmentMatrix, AnalysisMatrix, OverviewMatrix,
     ExchangeAccount,
     SnapshotExportStatus, SnapshotExportConfigPatch,
+    BteResult, BtePortfolioPayload, BteSignalsPayload,
 } from './types';
+import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_DURATION_SECS } from './types';
 import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
 import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 import { ENGINE_DEFAULT_TAB } from './lib/engineTabs';
+import { loadPref } from './lib/prefs';
+import { applyChartOverlays } from './lib/chartOverlays';
+import type { NavOrigin } from './lib/router.svelte';
+
+// ─── Phase 4: polling jitter ──────────────────────────────────────────
+// Computed ONCE per module load so every polling loop in this file
+// shares the same phase offset. ±250 ms one-off offset applied to the
+// FIRST tick only — subsequent cycles stay exactly `intervalMs` apart,
+// but multiple browser tabs open on the same dashboard no longer fire
+// their 3 s polls on the same millisecond.
+const TAB_JITTER_MS = Math.floor(Math.random() * 500) - 250;
 
 function createTimeframeTelemetry(
     symbol: string,
-    slot: 'micro' | 'fast' | 'slow' | 'macro',
+    slot: TimeframeSlotKind,
     barDurationSec: number,
 ): TimeframeTelemetry {
     return {
@@ -75,13 +88,15 @@ function createInstanceState(symbol: string): InstanceState {
         // sync populates it) so App-level `activeMode` derivations are
         // reactive to the later assignment.
         mode: undefined,
-        microTerm: createTimeframeTelemetry(symbol, 'micro', 60),
-        fastTerm: createTimeframeTelemetry(symbol, 'fast', 180),
-        slowTerm: createTimeframeTelemetry(symbol, 'slow', 300),
-        macroTerm: createTimeframeTelemetry(symbol, 'macro', 900),
+        terms: Object.fromEntries(
+            TIMEFRAME_SLOT_KINDS.map((slot) => [slot, createTimeframeTelemetry(symbol, slot, TIMEFRAME_SLOT_DURATION_SECS[slot])]),
+        ) as Record<TimeframeSlotKind, TimeframeTelemetry>,
+        // v11.2: default to the full ladder until `/api/instances` delivers
+        // `active_secs` (syncInstanceIdsFromList narrows it to the fastest N).
+        activeSlots: [...TIMEFRAME_SLOT_KINDS],
         historyLatestClose: '0',
         currentView: 'terminal',
-        activeTf: 'micro',
+        activeTf: 'micro1',
         alignment: null,
         analysis: null,
         risk: null,
@@ -126,8 +141,8 @@ export class AppStore {
     // Rendered at the root of App.svelte so it escapes the grid container's
     // stacking context and covers the entire viewport (including the top
     // navigation bar). null = modal closed.
-    fullscreenChart = $state<{ chartType: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; pairKey: string } | null>(null);
-    openFullscreenChart(chartType: string, slot: 'micro' | 'fast' | 'slow' | 'macro', pairKey: string) {
+    fullscreenChart = $state<{ chartType: string; slot: TimeframeSlotKind; pairKey: string } | null>(null);
+    openFullscreenChart(chartType: string, slot: TimeframeSlotKind, pairKey: string) {
         this.fullscreenChart = { chartType, slot, pairKey };
     }
     closeFullscreenChart() {
@@ -145,7 +160,29 @@ export class AppStore {
     /// Overview / History / Settings.
     btSessionActive = $state(false);
 
+    // ─── History policy: navigation origin ────────────────────────────
+    // Plain (non-reactive) flag read once by App.svelte's state→URL
+    // effect: 'user' → history.pushState (the click deserves a Back
+    // entry); 'sync' → history.replaceState (boot / programmatic / URL
+    // -driven applies never pollute the history stack). Mutators that
+    // represent user navigation mark 'user'; `applyRouteToStore` forces
+    // 'sync' at the end so URL applies can never re-push.
+    private _navOrigin: NavOrigin = 'sync';
+
+    markNavOrigin(origin: NavOrigin): void {
+        this._navOrigin = origin;
+    }
+
+    /// Read-and-reset: the App.svelte effect consumes the flag exactly
+    /// once per emission and it falls back to 'sync' afterwards.
+    consumeNavOrigin(): NavOrigin {
+        const v = this._navOrigin;
+        this._navOrigin = 'sync';
+        return v;
+    }
+
     selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings' | 'backtesting') {
+        this.markNavOrigin('user');
         this.currentEngine = engine;
         this.middleTab = ENGINE_DEFAULT_TAB[engine];
         if (engine === 'market_monitor') {
@@ -154,6 +191,7 @@ export class AppStore {
     }
 
     enterInstance(pairKey: string) {
+        this.markNavOrigin('user');
         const base = pairKey.includes('-') ? pairKey.split('-')[0] : pairKey;
         if (!this.instancesMap[pairKey]) this.initInstance(base);
         this.selectedInstance = pairKey;
@@ -165,8 +203,113 @@ export class AppStore {
     }
 
     exitInstance() {
+        this.markNavOrigin('user');
         this.selectedInstance = null;
         this.activeEngineTab = 'overview';
+    }
+
+    switchTab(key: string) {
+        this.markNavOrigin('user');
+        this.activeTab = key;
+    }    /// Per-pair LiveTerminal timeframe selection. Routed through a
+    /// mutator so the state→URL effect can push a history entry for the
+    /// TF change (Phase 2 history policy).
+    setActiveTf(pairKey: string, tf: TimeframeSlotKind) {
+        this.markNavOrigin('user');
+        const p = this.instancesMap[pairKey];
+        if (p) p.activeTf = tf;
+    }
+
+    // ─── BTE run state (moved from BacktestingDashboard, Phase 3) ─────
+    // One shared home so the URL router can deep-link a study
+    // (`#/engine/backtesting/<tab>/run/<id>`) and every BTE tab renders
+    // from the same payload.
+    bteRunId = $state<number | null>(null);
+    bteResult = $state<BteResult | null>(null);
+    btePortfolio = $state<BtePortfolioPayload | null>(null);
+    bteSignals = $state<BteSignalsPayload | null>(null);
+    /// v10.1 per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR/ES +
+    /// log Sharpe) as the key/value map from /api/backtest/:id/metrics.
+    bteMetrics = $state<Record<string, string> | null>(null);
+    bteLoading = $state(false);
+    bteError = $state<string | null>(null);
+    private _bteWarnedRuns = new Set<number>();
+
+    /// Load a persisted BTE run (result + DS payloads). Unknown id /
+    /// network failure → the store keeps its empty state (tabs render
+    /// their normal empty states) and a single console.warn is emitted
+    /// per id. Marks 'user' (run open); `applyRouteToStore` overrides
+    /// back to 'sync' for URL-driven loads.
+    async loadBteRun(id: number): Promise<void> {
+        this.markNavOrigin('user');
+        this.bteRunId = id;
+        this.bteLoading = true;
+        this.bteError = null;
+        try {
+            const res = await fetch(`/api/backtest/${id}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            this.bteResult = await res.json();
+            await this.loadBteDsFor(id);
+        } catch (e: any) {
+            if (!this._bteWarnedRuns.has(id)) {
+                this._bteWarnedRuns.add(id);
+                console.warn(`BTE run #${id} could not be loaded: ${e?.message ?? 'unknown error'}`);
+            }
+            this.bteError = e?.message ?? 'Failed to load run';
+        } finally {
+            this.bteLoading = false;
+        }
+    }
+
+    private async loadBteDsFor(runId: number): Promise<void> {
+        try {
+            const [pRes, sRes, mRes] = await Promise.all([
+                fetch(`/api/backtest/${runId}/portfolio`),
+                fetch(`/api/backtest/${runId}/signals`),
+                fetch(`/api/backtest/${runId}/metrics`),
+            ]);
+            if (pRes.ok) this.btePortfolio = await pRes.json();
+            if (sRes.ok) this.bteSignals = await sRes.json();
+            if (mRes.ok) {
+                const m = await mRes.json();
+                const map: Record<string, string> = {};
+                for (const row of Array.isArray(m) ? m : m?.metrics ?? []) {
+                    if (row?.key) map[row.key] = row.value;
+                }
+                this.bteMetrics = map;
+            }
+        } catch (_) { /* DS payloads are additive — tolerate */ }
+    }
+
+    // ─── PAE selected run (moved from HistoryTab, Phase 3) ────────────
+    paeSelectedRunId = $state<number | null>(null);
+    paeSelectedRun = $state<Record<string, any> | null>(null);
+    paeRunLoading = $state(false);
+    paeRunError = $state<string | null>(null);
+    private _paeWarnedRuns = new Set<number>();
+
+    /// Same contract as `loadBteRun`, for the PAE History tab's
+    /// click-to-load run detail (and `#/engine/performance/.../run/<id>`
+    /// deep links).
+    async loadPaeRun(id: number): Promise<void> {
+        this.markNavOrigin('user');
+        this.paeSelectedRunId = id;
+        this.paeSelectedRun = null;
+        this.paeRunLoading = true;
+        this.paeRunError = null;
+        try {
+            const res = await fetch(`/api/backtest/${id}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            this.paeSelectedRun = await res.json();
+        } catch (e: any) {
+            if (!this._paeWarnedRuns.has(id)) {
+                this._paeWarnedRuns.add(id);
+                console.warn(`PAE run #${id} could not be loaded: ${e?.message ?? 'unknown error'}`);
+            }
+            this.paeRunError = e?.message ?? 'Failed to load run';
+        } finally {
+            this.paeRunLoading = false;
+        }
     }
 
     // ─── Paper Trading State ──────────────────────────────────────────
@@ -194,8 +337,12 @@ export class AppStore {
 
     // ─── Trade Plan (L4/L6 → BottomConsole bracket creator) ──
     activePlan = $state<Record<string, unknown> | null>(null);
-    activeConsoleOpen = $state(false);
-    activeConsoleTab = $state<'positions' | 'orders' | 'history' | 'plan'>('positions');
+    // Phase 3: console open/tab persist across reloads (localStorage,
+    // NOT the URL — chrome, not navigation).
+    activeConsoleOpen = $state(loadPref<boolean>('consoleOpen', false));
+    activeConsoleTab = $state<'positions' | 'orders' | 'history' | 'plan'>(
+        loadPref<'positions' | 'orders' | 'history' | 'plan'>('consoleTab', 'positions'),
+    );
 
     async fetchPaperStatus() { /***/ }
     async fetchOpenOrders() { /***/ }
@@ -215,6 +362,9 @@ export class AppStore {
     // cards. Errors are tolerated silently — the per-instance derivation
     // in `GeneralDashboard` provides the fallback.
     private _overviewTimer: ReturnType<typeof setInterval> | null = null;
+    /// Phase 4: one-off jittered timer for the FIRST tick — cleared once
+    /// the exact-cadence interval takes over (and by `stopOverviewPolling`).
+    private _overviewStartTimer: ReturnType<typeof setTimeout> | null = null;
     private _overviewFetchInFlight = false;
     private _overviewPollTicks = 0;
     /// Wall-clock timestamp (ms since epoch) of the most recent successful
@@ -339,19 +489,31 @@ export class AppStore {
     }
 
     startOverviewPolling(intervalMs = 3000): void {
-        if (this._overviewTimer != null) return;
-        // Initial fetch — fire-and-forget to avoid blocking the caller.
-        void this.fetchOverview();
-        this._overviewTimer = setInterval(() => {
+        if (this._overviewTimer != null || this._overviewStartTimer != null) return;
+        // Phase 4: the FIRST tick fires after the module-level ±250 ms
+        // TAB_JITTER_MS offset (clamped to ≥ 0 — the platform treats
+        // negative timeouts as 0). Multiple browser tabs therefore poll
+        // out of phase, while every cycle after the first stays exactly
+        // `intervalMs` apart.
+        this._overviewStartTimer = setTimeout(() => {
+            this._overviewStartTimer = null;
+            // Initial fetch — fire-and-forget to avoid blocking the caller.
             void this.fetchOverview();
-            this._overviewPollTicks++;
-            if (this._overviewPollTicks % 10 === 0) {
-                void this.reconcileInstances();
-            }
-        }, intervalMs);
+            this._overviewTimer = setInterval(() => {
+                void this.fetchOverview();
+                this._overviewPollTicks++;
+                if (this._overviewPollTicks % 10 === 0) {
+                    void this.reconcileInstances();
+                }
+            }, intervalMs);
+        }, Math.max(0, TAB_JITTER_MS));
     }
 
     stopOverviewPolling(): void {
+        if (this._overviewStartTimer != null) {
+            clearTimeout(this._overviewStartTimer);
+            this._overviewStartTimer = null;
+        }
         if (this._overviewTimer != null) {
             clearInterval(this._overviewTimer);
             this._overviewTimer = null;
@@ -479,7 +641,7 @@ export class AppStore {
             'apiKeyConfigured', 'rulesContent', 'globalCandlesConfig',
             'globalIndicatorsConfig', 'indicatorRegistry', 'emaFastLabel', 'emaMediumLabel',
             'emaSlowLabel', 'emaLongLabel', 'rsiLabel', 'adxLabel', 'atrLabel',
-            'macdLabel', 'workspaceSlowTimeframeSecs', 'workspaceMacroTimeframeSecs',
+            'macdLabel',
         ]);
 
         this._delegate(this.analytics, [
@@ -539,7 +701,7 @@ export class AppStore {
 
     async evaluateDecision(profileId: number) {
         const pair = this.activeInstance();
-        await this.profiles.evaluateDecision(profileId, this.activeTab, pair.microTerm.latestSnapshot);
+        await this.profiles.evaluateDecision(profileId, this.activeTab, pair.terms.micro1.latestSnapshot);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────
@@ -551,7 +713,8 @@ export class AppStore {
         return this.instancesMap[this.activeTab];
     }
 
-    micro(): TimeframeTelemetry { return this.activeInstance().microTerm; }
+    /// Fastest slot of the active instance (`terms.micro1`).
+    micro(): TimeframeTelemetry { return this.activeInstance().terms.micro1; }
 
     // ─── Quote-asset abstraction ─────────────────────────────────────
     get quote(): string { return this.sessionCurrency || 'USDT'; }
@@ -563,13 +726,17 @@ export class AppStore {
         if (!this.instancesMap[key]) {
             const created = createInstanceState(symbol);
             if (instanceId) created.instanceId = instanceId;
+            // Phase 3: restore the operator's saved chart overlay pills
+            // (EMA stack, VWAP, SMC, …) for this pair before it renders.
+            applyChartOverlays(key, created);
             this.instancesMap[key] = created;
         } else {
             if (instanceId && !this.instancesMap[key].instanceId) {
                 this.instancesMap[key].instanceId = instanceId;
             }
             const pair = this.instancesMap[key];
-            for (const tf of [pair.microTerm, pair.fastTerm, pair.slowTerm, pair.macroTerm] as TimeframeTelemetry[]) {
+            for (const slot of TIMEFRAME_SLOT_KINDS) {
+                const tf = pair.terms[slot];
                 tf.emaFastVal = this.settings.globalIndicatorsConfig.ema_fast;
                 tf.emaMediumVal = this.settings.globalIndicatorsConfig.ema_medium;
                 tf.emaSlowVal = this.settings.globalIndicatorsConfig.ema_slow;
@@ -591,8 +758,6 @@ export class AppStore {
 
     removeInstance(key: string) { delete this.instancesMap[key]; }
 
-    switchTab(key: string) { this.activeTab = key; }
-
     /// Signal the WS reconnect effect in `App.svelte` to tear down and
     /// re-attach all WebSocket connections with the current per-slot
     /// durations. Must be called after every save in `WorkspaceSettings`
@@ -602,10 +767,9 @@ export class AppStore {
 
     // ─── Instance / Telemetry Accessors ──────────────────────────────
 
-    get microTerm() { return this.activeInstance().microTerm; }
-    get fastTerm() { return this.activeInstance().fastTerm; }
-    get slowTerm() { return this.activeInstance().slowTerm; }
-    get macroTerm() { return this.activeInstance().macroTerm; }
+    /// Per-slot telemetry record for the active instance
+    /// (`terms.micro1` .. `terms.longterm2`).
+    get terms() { return this.activeInstance().terms; }
     get activeSymbol() { return this.activeInstance().symbol; }
     get activeExchange() { return this.activeInstance().exchange; }
     get isConnected() { return this.activeInstance().isConnected; }

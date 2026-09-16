@@ -2,10 +2,12 @@
 // Test for the LIQ HEATMAP and VOL PROFILE toggle pills in ChartToggles.svelte.
 //
 // Verifies that toggling a flag on the TF state object propagates correctly
-// across all 4 timeframes (since the toggle is sync-all, like VWAP/Bollinger).
+// across all 10 timeframes (since the toggle is sync-all, like VWAP/Bollinger).
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import type { InstanceState } from '../types';
+import { TIMEFRAME_SLOT_KINDS } from '../types';
+import { makeTerms } from '../tests/makeTerms';
+import type { InstanceState, TimeframeSlotKind } from '../types';
 
 beforeEach(() => {
     (globalThis as any).__appStore = {
@@ -18,10 +20,7 @@ function makeInstance(): InstanceState {
         symbol: 'BTC-USDT',
         exchange: 'Hyperliquid',
         isConnected: true,
-        microTerm: makeTf('micro'),
-        fastTerm: makeTf('fast'),
-        slowTerm: makeTf('slow'),
-        macroTerm: makeTf('macro'),
+        terms: makeTerms(Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, makeTf(slot)]))),
         historyLatestClose: '0',
         currentView: 'terminal',
         alignment: null,
@@ -47,7 +46,7 @@ function makeInstance(): InstanceState {
     };
 }
 
-function makeTf(slot: 'micro' | 'fast' | 'slow' | 'macro') {
+function makeTf(slot: TimeframeSlotKind) {
     return {
         slot,
         symbol: 'BTC-USDT',
@@ -98,67 +97,61 @@ function makeTf(slot: 'micro' | 'fast' | 'slow' | 'macro') {
 describe('ChartToggles overlay state propagation', () => {
     it('defaults showLiqHeatmap to false on every timeframe', () => {
         const inst = makeInstance();
-        expect(inst.microTerm.showLiqHeatmap).toBe(false);
-        expect(inst.fastTerm.showLiqHeatmap).toBe(false);
-        expect(inst.slowTerm.showLiqHeatmap).toBe(false);
-        expect(inst.macroTerm.showLiqHeatmap).toBe(false);
+        for (const slot of TIMEFRAME_SLOT_KINDS) expect(inst.terms[slot].showLiqHeatmap).toBe(false);
     });
 
     it('defaults showVolumeProfile to false on every timeframe', () => {
         const inst = makeInstance();
-        expect(inst.microTerm.showVolumeProfile).toBe(false);
-        expect(inst.fastTerm.showVolumeProfile).toBe(false);
-        expect(inst.slowTerm.showVolumeProfile).toBe(false);
-        expect(inst.macroTerm.showVolumeProfile).toBe(false);
+        for (const slot of TIMEFRAME_SLOT_KINDS) expect(inst.terms[slot].showVolumeProfile).toBe(false);
     });
 
     it('LIQ HEATMAP toggle flips all four timeframes in sync', () => {
         const inst = makeInstance();
         // Simulate the syncAll() pattern used by ChartToggles.
-        const v = !inst.microTerm.showLiqHeatmap;
-        const tfs = [inst.microTerm, inst.fastTerm, inst.slowTerm, inst.macroTerm];
+        const v = !inst.terms.micro1.showLiqHeatmap;
+        const tfs = TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms[slot]);
         for (const tf of tfs) tf.showLiqHeatmap = v;
 
-        expect(inst.microTerm.showLiqHeatmap).toBe(true);
-        expect(inst.fastTerm.showLiqHeatmap).toBe(true);
-        expect(inst.slowTerm.showLiqHeatmap).toBe(true);
-        expect(inst.macroTerm.showLiqHeatmap).toBe(true);
+        expect(inst.terms.micro1.showLiqHeatmap).toBe(true);
+        expect(inst.terms.fast1.showLiqHeatmap).toBe(true);
+        expect(inst.terms.slow1.showLiqHeatmap).toBe(true);
+        expect(inst.terms.longterm1.showLiqHeatmap).toBe(true);
     });
 
     it('VOL PROFILE toggle flips all four timeframes in sync', () => {
         const inst = makeInstance();
-        const v = !inst.microTerm.showVolumeProfile;
-        const tfs = [inst.microTerm, inst.fastTerm, inst.slowTerm, inst.macroTerm];
+        const v = !inst.terms.micro1.showVolumeProfile;
+        const tfs = TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms[slot]);
         for (const tf of tfs) tf.showVolumeProfile = v;
 
-        expect(inst.microTerm.showVolumeProfile).toBe(true);
-        expect(inst.fastTerm.showVolumeProfile).toBe(true);
-        expect(inst.slowTerm.showVolumeProfile).toBe(true);
-        expect(inst.macroTerm.showVolumeProfile).toBe(true);
+        expect(inst.terms.micro1.showVolumeProfile).toBe(true);
+        expect(inst.terms.fast1.showVolumeProfile).toBe(true);
+        expect(inst.terms.slow1.showVolumeProfile).toBe(true);
+        expect(inst.terms.longterm1.showVolumeProfile).toBe(true);
     });
 
     it('toggling LIQ HEATMAP off syncs the off state too', () => {
         const inst = makeInstance();
         // First turn on
-        for (const tf of [inst.microTerm, inst.fastTerm, inst.slowTerm, inst.macroTerm]) {
+        for (const tf of TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms[slot])) {
             tf.showLiqHeatmap = true;
         }
-        expect(inst.macroTerm.showLiqHeatmap).toBe(true);
+        expect(inst.terms.longterm1.showLiqHeatmap).toBe(true);
         // Then turn off
-        const v = !inst.microTerm.showLiqHeatmap; // false
-        for (const tf of [inst.microTerm, inst.fastTerm, inst.slowTerm, inst.macroTerm]) {
+        const v = !inst.terms.micro1.showLiqHeatmap; // false
+        for (const tf of TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms[slot])) {
             tf.showLiqHeatmap = v;
         }
-        expect(inst.microTerm.showLiqHeatmap).toBe(false);
-        expect(inst.macroTerm.showLiqHeatmap).toBe(false);
+        expect(inst.terms.micro1.showLiqHeatmap).toBe(false);
+        expect(inst.terms.longterm1.showLiqHeatmap).toBe(false);
     });
 
     it('LIQ HEATMAP and VOL PROFILE toggles are independent', () => {
         const inst = makeInstance();
-        inst.microTerm.showLiqHeatmap = true;
+        inst.terms.micro1.showLiqHeatmap = true;
         // Volume profile should not be affected.
-        expect(inst.microTerm.showVolumeProfile).toBe(false);
-        inst.microTerm.showVolumeProfile = true;
-        expect(inst.microTerm.showLiqHeatmap).toBe(true);
+        expect(inst.terms.micro1.showVolumeProfile).toBe(false);
+        inst.terms.micro1.showVolumeProfile = true;
+        expect(inst.terms.micro1.showLiqHeatmap).toBe(true);
     });
 });

@@ -1,0 +1,225 @@
+/* ── InstanceStatusTable — per-instance status on the Overview tab ──────
+   Dark-theme table in the exact palette vocabulary of TfStatusTable /
+   AlignmentPanel: hairline borders, translucent white surfaces,
+   small-caps mono headers. No new colour tokens — badge colours arrive
+   inline via `buildL6DecisionHeader` / `metricsBadgeFor`; pipeline dots
+   come from the LayerHeader classes. */
+
+.wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.toolbar-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #64748b;
+}
+
+.expand-all-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 4px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.expand-all-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono, 'SF Mono', monospace);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table th {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    text-align: left;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.inst-row:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* Sub-rows (per ACTIVE slot) sit visually under their instance row. */
+.tf-row {
+    background: rgba(255, 255, 255, 0.012);
+}
+
+.tf-row td {
+    padding-top: 5px;
+    padding-bottom: 5px;
+}
+
+/* Column shaping */
+.col-toggle {
+    width: 36px;
+}
+
+.col-instance {
+    width: 22%;
+}
+
+.col-decision {
+    width: 24%;
+}
+
+.col-probs {
+    width: 30%;
+}
+
+.col-mode {
+    width: 14%;
+    text-align: right;
+}
+
+.mode-cell {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.probs-cell {
+    white-space: nowrap;
+}
+
+.toggle-cell {
+    white-space: nowrap;
+}
+
+.chevron-btn {
+    background: none;
+    border: none;
+    padding: 2px 6px;
+    cursor: pointer;
+    color: #64748b;
+    line-height: 1;
+}
+
+.chevron-btn:hover {
+    color: #e2e8f0;
+}
+
+.chevron {
+    display: inline-block;
+    font-size: 9px;
+    transition: transform 0.15s ease;
+}
+
+.chevron-open {
+    transform: rotate(90deg);
+}
+
+.instance-cell {
+    white-space: nowrap;
+}
+
+.symbol {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #e2e8f0;
+    margin-right: 8px;
+}
+
+.pair-key {
+    font-size: 10px;
+    font-weight: 500;
+    color: #64748b;
+}
+
+.badge-cell {
+    white-space: nowrap;
+}
+
+.prob-chip {
+    font-size: 10px;
+    font-weight: 500;
+    color: #64748b;
+    margin-right: 10px;
+}
+
+.prob-chip:last-child {
+    margin-right: 0;
+}
+
+.mode-chip {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    padding: 2px 8px;
+}
+
+.tf-cell {
+    white-space: nowrap;
+    padding-left: 18px;
+}
+
+.tf-name {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+}
+
+.tf-duration {
+    font-size: 10px;
+    font-weight: 500;
+    color: #64748b;
+    margin-left: 6px;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}

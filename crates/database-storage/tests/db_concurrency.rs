@@ -53,7 +53,7 @@ async fn test_concurrent_snapshot_writes_no_panic() {
             barrier.wait().await;
             for i in 0..5 {
                 let snap = MarketSnapshot {
-                    timeframe_slot: Some(core_domain::models::TimeframeSlot::Micro),
+                    timeframe_slot: Some(core_domain::models::TimeframeSlot::Micro1),
                     exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
                     timeframe_secs: 60,
                     timestamp: (thread_idx * 1000 + i) as u64,

@@ -20,14 +20,14 @@
         connectWsForInstance, disconnectWsForInstance, shouldReconnect,
         type WsState,
     } from './lib/websocket.svelte';
-    import { buildEngineHash, parseEngineHash } from './lib/router.svelte';
+    import { buildEngineHash, parseEngineHash, currentHashFor, applyRouteToStore, writeHash } from './lib/router.svelte';
+    import { loadPref, savePref } from './lib/prefs';
     import {
         applyResilientCache,
         type PairCacheEntry,
     } from './lib/resilientActivePair';
     import {
         ENGINE_TABS,
-        ENGINE_DEFAULT_TAB,
         BTE_TABS_NO_INSTANCE,
         tabsForMode,
         type EngineKey,
@@ -49,8 +49,6 @@
 
     let configReady = $state(false);
     let pendingSessionConfigRefresh = $state(false);
-    let isSidebarOpen = $state(false);
-    let isWorkspacePanelOpen = $state(false);
     let showQuitDialog = $state(false);
     // v10.1: row actions now include the TAE activation toggle (start /
     // pause ride the instance lifecycle endpoint).
@@ -179,31 +177,15 @@
 
     const livePrice = $derived.by(() => {
         if (!resilientActivePair) return '--';
-        return pickInstanceLivePrice(
-            {
-                microTerm: resilientActivePair.microTerm,
-                fastTerm: resilientActivePair.fastTerm,
-                slowTerm: resilientActivePair.slowTerm,
-                macroTerm: resilientActivePair.macroTerm,
-            },
-            Date.now(),
-        );
+        return pickInstanceLivePrice({ terms: resilientActivePair.terms }, Date.now());
     });
 
     const change24h = $derived.by<number | null>(() => {
         if (!resilientActivePair) return null;
-        const snap = resilientActivePair.microTerm.latestSnapshot || resilientActivePair.fastTerm.latestSnapshot;
+        const snap = resilientActivePair.terms.micro1.latestSnapshot || resilientActivePair.terms.micro2.latestSnapshot;
         if (!snap) return null;
 
-        const priceStr = pickInstanceLivePrice(
-            {
-                microTerm: resilientActivePair.microTerm,
-                fastTerm: resilientActivePair.fastTerm,
-                slowTerm: resilientActivePair.slowTerm,
-                macroTerm: resilientActivePair.macroTerm,
-            },
-            Date.now(),
-        );
+        const priceStr = pickInstanceLivePrice({ terms: resilientActivePair.terms }, Date.now());
 
         const mid = priceStr !== '--' && priceStr !== ''
             ? parseFloat(priceStr)
@@ -241,74 +223,28 @@
     // effects conspire to keep state and URL in sync:
     //
     //   1. `popstate` / `hashchange` (URL → state). Calls
-    //      `applyRoute(...)` which sets `routeSource = 'url'`, then
-    //      mutates the store. The state→URL effect skips itself while
-    //      `routeSource === 'url'` so it doesn't fight the user's
-    //      navigation.
+    //      `applyRoute(...)` with origin 'sync', which mutates the store
+    //      via `applyRouteToStore` and sets `routeSource = 'url'`. The
+    //      state→URL effect skips itself while `routeSource === 'url'`
+    //      so it doesn't fight the user's navigation.
     //   2. The state→URL `$effect`. Runs on every state change and
-    //      calls `history.replaceState` to push the new URL — but only
-    //      when the change didn't originate from the URL itself.
+    //      writes the new URL — pushing a history entry when the change
+    //      originated from a user action (`navOrigin === 'user'`, set by
+    //      the store mutators) and `replaceState` when it originated
+    //      from boot / programmatic sync / a URL-driven apply.
     //
-    // The previous implementation used a single `restoringFromHash`
-    // flag flipped by `setTimeout(50)`, which raced on fast back/forward
-    // navigation and silently overwrote the user's URL choice (Bug 3).
+    // The grammar lives in `lib/router.svelte.ts`:
+    //   #/engine/<engine>/<middleTab>[/instance/<pairKey>][/view/<view>][/tf/<tf>][/run/<runId>]
     let routeSource: 'url' | 'state' = $state('state');
 
     function currentHash(): string {
-        // Only Market Monitor owns the instance/view segment. For every other
-        // engine (Backtesting, TAE, PME, PAE, DIE, Profile) the hash is flat:
-        // `#/engine/<engine>/<middleTab>` — the shared `selectedInstance` is
-        // kept in state for preseed (BTE) but never serialized into the URL.
-        // This prevents `#/engine/backtesting/.../instance/BTC/instance/.../view/recommendation`
-        // leaks that made the BTE navbar flip 3→10 tabs after a leak.
-        if (app.currentEngine === 'market_monitor') {
-            const pair = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
-            return buildEngineHash(
-                app.currentEngine,
-                app.middleTab,
-                app.selectedInstance ?? undefined,
-                pair?.currentView !== 'terminal' ? pair?.currentView : undefined,
-            );
-        }
-        return buildEngineHash(app.currentEngine, app.middleTab);
+        return currentHashFor(app);
     }
 
-    function applyRoute(engine: string, middleTab?: string, instance?: string, view?: string) {
-        const e = engine as EngineKey;
+    function applyRoute(route: ReturnType<typeof parseEngineHash>, origin: 'user' | 'sync' = 'sync') {
+        if (!route) return;
         routeSource = 'url';
-        app.selectEngine(e);
-        // Reset `middleTab` to the engine default when the URL omits it,
-        // so back-navigating to `#/engine/market_monitor` does NOT leave
-        // the engine stuck on `workspace`. The previous code only
-        // overwrote middleTab when the URL provided one — which meant a
-        // back-button jump from `…/workspace/…` to `#/engine/market_monitor`
-        // silently conflicted with the state→URL effect that wanted to
-        // restore `…/workspace/…` on top of the user's navigation.
-        if (middleTab) {
-            app.middleTab = middleTab;
-        } else {
-            app.middleTab = ENGINE_DEFAULT_TAB[e];
-        }
-        // Only Market Monitor routes carry an instance. For every other engine
-        // the `instance`/`view` segments are ignored — the global
-        // `selectedInstance` survives in state (so BTE can preseed) but the
-        // URL never owns it. This matches the spec: BTE binds via the shared
-        // selection (right Instances panel), not via `#/.../instance/...`.
-        if (e === 'market_monitor' && instance && app.instancesMap[instance]) {
-            app.selectedInstance = instance;
-            app.activeTab = instance;
-            app.activeEngineTab = 'instance';
-            const p = app.instancesMap[instance];
-            if (p) p.currentView = (view as CurrentView) ?? 'terminal';
-        } else if (e === 'market_monitor') {
-            const shouldClear = middleTab === 'overview';
-            if (shouldClear) app.exitInstance();
-        } else {
-            // Non-MME engine: strip leaked instance/view. Keep the globally
-            // selected instance for BTE preseed, but never overwrite it from
-            // the URL and never set currentView.
-            // No-op: selectedInstance stays as-is from the MME workspace.
-        }
+        applyRouteToStore(app, route, origin);
         // `tick()` is a microtask boundary — by the time it resolves
         // the state→URL `$effect` has already observed the new state
         // (and the URL hasn't changed), so flipping `routeSource` back
@@ -327,20 +263,30 @@
         if (!href) return;
         const route = parseEngineHash(href);
         if (!route) return;
-        applyRoute(route.engine, route.middleTab, route.instance, route.view);
+        // Anchor clicks are user navigation → push a history entry.
+        applyRoute(route, 'user');
     }
 
     $effect(() => {
         if (routeSource !== 'state' || !configReady || !app.sessionActive) return;
-        const hash = currentHash();
-        if (window.location.hash !== hash) {
-            // Click-driven navigation already updated `window.location`
-            // (the `<a href>` was followed), so this branch is hit only
-            // when state was mutated by code rather than by the user —
-            // e.g. programmatic `app.selectEngine(...)` from the
-            // sidebar. Use `replaceState` so the back button still works.
-            history.replaceState(null, '', hash);
-        }
+        // Consume the navigation origin exactly once per emission: the
+        // store mutators stamp 'user' for operator actions, everything
+        // else falls back to 'sync' (→ replaceState, no history spam).
+        const origin = app.consumeNavOrigin();
+        // writeHash compares against `window.location.hash` first, so an
+        // apply that merely canonicalizes to the identical hash never
+        // loops, and URL-driven applies never re-push their own entry.
+        writeHash(currentHash(), origin);
+    });
+
+    // Phase 3: sidebar / workspace-panel open flags persist across
+    // reloads (localStorage, never the URL — chrome, not navigation).
+    let isSidebarOpen = $state(loadPref<boolean>('sidebarOpen', false));
+    let isWorkspacePanelOpen = $state(loadPref<boolean>('workspacePanelOpen', false));
+    $effect(() => { savePref('sidebarOpen', isSidebarOpen); });
+    $effect(() => { savePref('workspacePanelOpen', isWorkspacePanelOpen); });
+    $effect(() => {
+        savePref('console', { open: app.activeConsoleOpen, tab: app.activeConsoleTab });
     });
 
     $effect(() => {
@@ -383,7 +329,9 @@
         app.startOverviewPolling(3000);
         const route = parseEngineHash(window.location.hash);
         if (route && configReady && app.sessionActive) {
-            applyRoute(route.engine, route.middleTab, route.instance, route.view);
+            // Boot deep-link: sync origin → replaceState (never pushes a
+            // duplicate history entry for the URL the user just opened).
+            applyRoute(route, 'sync');
         } else if (app.sessionActive) {
             history.replaceState(null, '', currentHash());
         }
@@ -391,10 +339,10 @@
         // (back/forward only) route into `applyRoute`. Listening on both
         // is redundant on modern browsers but cheap and resilient: if a
         // browser ever fires only one of the two for a back-button tap,
-        // the dashboard still picks up the URL change.
+        // the dashboard still picks up the URL change. Sync origin —
+        // URL-driven applies must never re-push.
         const onHashChange = () => {
-            const r = parseEngineHash(window.location.hash);
-            if (r) applyRoute(r.engine, r.middleTab, r.instance, r.view);
+            applyRoute(parseEngineHash(window.location.hash), 'sync');
         };
         window.addEventListener('hashchange', onHashChange);
         window.addEventListener('popstate', onHashChange);

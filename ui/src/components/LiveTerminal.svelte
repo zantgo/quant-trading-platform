@@ -14,7 +14,9 @@
     // column with the price chart when that pane is pinned.
     import { useAppStore } from '../state.svelte';
     import styles from './LiveTerminal.module.css';
-    import type { TimeframeTelemetry } from '../types';
+    import type { TimeframeSlotKind, TimeframeTelemetry } from '../types';
+    import { TIMEFRAME_SLOT_LABELS } from '../types';
+    import { activeSlotKinds } from '../lib/terms';
     import ChartToggles from './ChartToggles.svelte';
     import PriceChart from './PriceChart.svelte';
     import VolumeChart from './VolumeChart.svelte';
@@ -54,15 +56,17 @@
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
 
-    type TfKey = 'micro' | 'fast' | 'slow' | 'macro';
-    type TfLabel = 'MICRO' | 'FAST' | 'SLOW' | 'MACRO';
+    type TfKey = TimeframeSlotKind;
+    type TfLabel = string;
     // Persist active timeframe per-instance (survives LiveTerminal unmount on
-    // Charts↔Metrics tab switches). Previously `$state('micro')` reset on every
-    // mount, hiding the sub-minute 5s/15s selection.
-    let activeTf = $derived((app.instancesMap[pairKey]?.activeTf as TfKey | undefined) ?? 'micro' as TfKey);
+    // Charts↔Metrics tab switches). Previously `$state('micro1')` reset on every
+    // mount, hiding the sub-minute selection.
+    let activeTf = $derived((app.instancesMap[pairKey]?.activeTf as TfKey | undefined) ?? 'micro1' as TfKey);
+    // Routed through the store mutator so a TF change pushes a history
+    // entry (Phase 2 navigation policy) — `app.setActiveTf` marks the
+    // nav origin 'user'.
     function setActiveTf(k: TfKey) {
-        const p = app.instancesMap[pairKey];
-        if (p) p.activeTf = k;
+        app.setActiveTf(pairKey, k);
     }
 
     let expandedTf = $state<string | null>(null);
@@ -81,7 +85,7 @@
     });
 
     /// Format the `(suffix)` portion of a column header. Always pairs with the
-    /// positional MICRO/FAST/SLOW/MACRO label from the column's slot.
+    /// positional slot label (MICRO1..LONGTERM2) from the column's slot.
     function durationSuffix(sec: number): string {
         if (sec >= 86400) return `${sec / 86400}d`;
         if (sec >= 3600) return `${sec / 3600}h`;
@@ -90,10 +94,9 @@
     }
 
     /// Column label = positional slot name + the duration suffix. The name
-    /// is derived from `tf.slot`, never from duration bands, so the four
-    /// columns always read MICRO/FAST/SLOW/MACRO left-to-right regardless of
-    /// the user's chosen durations.
-    function termLabel(name: 'MICRO' | 'FAST' | 'SLOW' | 'MACRO', tf: TimeframeTelemetry): string {
+    /// is derived from `tf.slot`, never from duration bands, so the ten
+    /// columns always read MICRO1..LONGTERM2 left-to-right in ladder order.
+    function termLabel(name: TfLabel, tf: TimeframeTelemetry): string {
         return `${name} (${durationSuffix(tf.barDurationSec)})`;
     }
 
@@ -102,7 +105,7 @@
     }
 
     function handleChartDblClick(chartType: string, slot: string, _timeframe: number) {
-        app.openFullscreenChart(chartType, slot as 'micro' | 'fast' | 'slow' | 'macro', pairKey);
+        app.openFullscreenChart(chartType, slot as TimeframeSlotKind, pairKey);
     }
 
     function chartKey(t: TimeframeTelemetry, chartType: string): string {
@@ -210,28 +213,25 @@
         CONTEXT_GROUP,
     ];
 
-    /// Static descriptor for each sidebar entry. The label feeds the header
-    /// (`termLabel`) and the secsFn keeps the duration live against the
-    /// currently-streaming pair state.
-    const TERMS: { key: TfKey; label: TfLabel; secsFn: (p: any) => number }[] = [
-        { key: 'micro', label: 'MICRO', secsFn: (p) => p.microTerm.barDurationSec },
-        { key: 'fast',  label: 'FAST',  secsFn: (p) => p.fastTerm.barDurationSec  },
-        { key: 'slow',  label: 'SLOW',  secsFn: (p) => p.slowTerm.barDurationSec  },
-        { key: 'macro', label: 'MACRO', secsFn: (p) => p.macroTerm.barDurationSec },
-    ];
+    /// Sidebar entries for the instance's ACTIVE slots (v11.2 — the
+    /// fastest N of the fixed ladder; inactive slots never stream).
+    /// Derived so a settings save (which narrows/widens `activeSlots`)
+    /// re-renders the rail without a remount.
+    const TERMS = $derived.by(() => {
+        const pairState = app.instancesMap[pairKey];
+        return activeSlotKinds(pairState).map((slot) => ({
+            key: slot as TfKey,
+            label: TIMEFRAME_SLOT_LABELS[slot].toUpperCase() as TfLabel,
+            secsFn: (p: any) => p.terms[slot].barDurationSec,
+        }));
+    });
 
     function activeTermFor(p: any): TimeframeTelemetry {
-        return p[activeTf === 'micro' ? 'microTerm'
-              : activeTf === 'fast'  ? 'fastTerm'
-              : activeTf === 'slow'  ? 'slowTerm'
-              : 'macroTerm'];
+        return p.terms[activeTf];
     }
 
     function activeLabelFor(k: TfKey): TfLabel {
-        return k === 'micro' ? 'MICRO'
-             : k === 'fast'  ? 'FAST'
-             : k === 'slow'  ? 'SLOW'
-             : 'MACRO';
+        return TIMEFRAME_SLOT_LABELS[k].toUpperCase();
     }
 
     function takeColumnScreenshot() {

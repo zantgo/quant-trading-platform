@@ -1,6 +1,6 @@
 # Snapshot Export — On-Disk JSON Schema
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 
 <!-- pascal-display-strings -->
@@ -31,11 +31,11 @@ interface SnapshotMetadata {
   tab: string;
   /// Pair-key, e.g. `"BTC-USDT"`.
   pair_key: string;
-  /// TF slot — from the snapshot's own `TimeframeSlot` (`micro` / `fast` / `slow` / `macro`).
+  /// TF slot — from the snapshot's own `TimeframeSlot` (fixed ladder:
+  /// `micro1` … `longterm2`; `custom` for non-ladder durations).
   timeframe_slot: string;
-  /// TF in seconds — the snapshot's ACTUAL configured duration (never a
-  /// hardcoded 60/300/900/3600; a non-default `micro=1s` or `macro=1800s`
-  /// config produces its real value here).
+  /// TF in seconds — the snapshot's ACTUAL slot duration (the fixed
+  /// ladder: 1/3/5/15/30/60/180/300/900/3600).
   timeframe_secs: number;
 }
 ```
@@ -57,9 +57,9 @@ state.
 | Component | Convention | Example |
 |---|---|---|
 | `pair_key` | Same as the live `MarketSnapshot.symbol` field | `BTC-USDT` |
-| `timeframe_slot` | `micro` / `fast` / `slow` / `macro` | `slow` |
+| `timeframe_slot` | `micro1` … `longterm2` (fixed ladder) | `longterm1` |
 | `tab` | Canonical id (§3) | `alignment` |
-| Filename | `{sanitized_pair_key}.{slot}.{tab}.json` | `BTC_USDT.slow.alignment.json` |
+| Filename | `{sanitized_pair_key}.{slot}.{tab}.json` | `BTC_USDT.longterm1.alignment.json` |
 
 `sanitize` replaces every non-`[A-Za-z0-9]` character with `_`. Pair-keys always contain `-`, so
 the rename is the only sanitisation applied.
@@ -75,7 +75,7 @@ the `tabs` array of `SnapshotExportConfig`.
 | Tab id | Source matrix | Payload shape |
 |---|---|---|
 | `metrics` | `MarketSnapshot` itself (the full per-TF record) | The entire `MarketSnapshot` object — every per-TF field. Largest of the 9 payloads. |
-| `mtf` | Multi-timeframe wrapper | Small synthetic object joining the per-TF records: `{ slot, timeframe_secs, indicators, alignment, analysis, advisory, decision_context }`. `slot` is a string taken from the snapshot's `TimeframeSlot` (e.g. `"micro"`); `timeframe_secs` is the snapshot's actual configured duration; `indicators` is the indicator **count** for that TF (`snap.indicators.len()` — the field is named `indicators`, not `indicators_count`). |
+| `mtf` | Multi-timeframe wrapper | Small synthetic object joining the per-TF records: `{ slot, timeframe_secs, indicators, alignment, analysis, advisory, decision_context }`. `slot` is a string taken from the snapshot's `TimeframeSlot` (e.g. `"micro1"`); `timeframe_secs` is the snapshot's slot duration (fixed ladder 1–3600 s); `indicators` is the indicator **count** for that TF (`snap.indicators.len()` — the field is named `indicators`, not `indicators_count`). |
 | `alignment` | `AlignmentMatrix` | The 10-dimension × score/state/confidence matrix + per-TF rows + consensus score. See [`../matrices/02-01-alignment-matrix.md`](../matrices/02-01-alignment-matrix.md). |
 | `opportunity` | `OpportunityMatrix` | The setup-quality + ranked opportunities + confluent levels. See [`../matrices/02-08-opportunity-matrix.md`](../matrices/02-08-opportunity-matrix.md). |
 | `risk` | `RiskMatrix` | The 8-dimension risk matrix + per-dimension confidences. See [`../matrices/02-11-risk-matrix.md`](../matrices/02-11-risk-matrix.md). |
@@ -88,8 +88,8 @@ the `tabs` array of `SnapshotExportConfig`.
 
 ## 4. Worked example
 
-A tick at `2026-08-13T14:30:05.123Z` on a 3-instance workspace (BTC, ETH, SOL × 4 TF slots × all 9
-tabs) writes 108 files. Two of them are:
+A tick at `2026-08-13T14:30:05.123Z` on a 3-instance workspace (BTC, ETH, SOL × 10 fixed TF slots × all 9
+tabs) writes 270 files. Two of them are:
 
 ### 4.1 `2026-08-13/14h30m05s/BTC_USDT.slow.alignment.json`
 
@@ -100,12 +100,12 @@ tabs) writes 108 files. Two of them are:
     "timestamp_ms": 1755090605123,
     "tab": "alignment",
     "pair_key": "BTC-USDT",
-    "timeframe_slot": "slow",
+    "timeframe_slot": "longterm1",
     "timeframe_secs": 900
   },
   "payload": {
     "symbol": "BTC-USDT",
-    "timeframes_present": 4,
+    "timeframes_present": 10,
     "dimensions": [
       { "score": 65.0, "state": "Bullish", "confidence": 0.65 },
       { "score": 50.0, "state": "Neutral", "confidence": 0.50 },
@@ -133,7 +133,7 @@ tabs) writes 108 files. Two of them are:
     "timestamp_ms": 1755090605123,
     "tab": "recommendation",
     "pair_key": "ETH-USDT",
-    "timeframe_slot": "fast",
+    "timeframe_slot": "macro2",
     "timeframe_secs": 300
   },
   "payload": {

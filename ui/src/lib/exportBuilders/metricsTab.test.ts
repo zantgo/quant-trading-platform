@@ -1,6 +1,7 @@
 // Regression tests for the v7.0-audit Metrics tab export.
 
 import { describe, it, expect } from 'vitest';
+import { makeTerms } from '../../tests/makeTerms';
 import { buildMetricsTabExport } from './metricsTab';
 import type { LayerHeaderSpec } from '../layerHeader';
 import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, VolumeProfileSnapshot, LiquidityFlow } from '../../types';
@@ -86,12 +87,12 @@ describe('buildMetricsTabExport', () => {
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
-      terms: {
-        microTerm: {
+      terms: makeTerms({
+        micro1: {
           priceText: '63390.00',
           latestSnapshot: { timestamp: Math.floor(Date.now() / 1000) - 5, mid_price: 63390, prev_day_px: 63532.45 },
         },
-      },
+      }),
     }));
     expect(p.meta.pair).toBe('BTC-USDT');
     expect(p.meta.current_price).toBeCloseTo(63390, 0);

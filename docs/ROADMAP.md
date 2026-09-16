@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Six engines implemented and production-ready (v10.1 — quant-metrics hardening + UX unification shipped).
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 
@@ -13,7 +13,7 @@
 | Engine | Backend code | Frontend | Production-ready? | Status |
 |---|---|---|---|---|
 | **DIE — Data Infrastructure** | `crates/network-adapters`, `crates/database-storage`, L2–L4 in `crates/market-analyzer` | `DataInfraDashboard` (live fetches) | **Yes — implemented** | Implemented |
-| **MME — Market Monitoring** | `crates/market-analyzer` (52 indicators, 4-TF pipeline, signals, multi-TF synthesis, MarketContext, Decision Matrix) | `LiveTerminal`, `TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`, `StructuralAnchorsStrip` (all WS-fed) | **Yes — implemented** | Implemented |
+| **MME — Market Monitoring** | `crates/market-analyzer` (52 indicators, fixed 10-slot TF pipeline, signals, multi-TF synthesis, MarketContext, Decision Matrix) | `LiveTerminal`, `TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`, `StructuralAnchorsStrip` (all WS-fed) | **Yes — implemented** | Implemented |
 | **TAE — Trade Automation** | `crates/portfolio-supervisor` (v7 setup executor + unified execution engine, v8.2 allocation sizing, v9 strategy dials, v10 lifecycle hardening) | `TradeAutomationDashboard` (live fetches: automation state, orders, position, activity log, trade history) | **Yes — implemented** (paper default; live dispatch for Hyperliquid + Bitget) | Implemented |
 | **PME — Portfolio Management** | `crates/portfolio-supervisor` (safety-state ladder, position/exposure/capital/overview layers, mark-to-market) | `PortfolioDashboard` (live fetches: overview, positions, exposure, capital, safety) | **Yes — informational** (read-only; the TAE executor applies the safety soft gate + the v9 portfolio intake gates) | Implemented (informational) |
 | **PAE — Performance Analytics** | `crates/performance-analytics` (stats compiler, NHST strategy analytics, risk analytics, performance layer, strategy optimizer) | `PerformanceDashboard` (live data incl. Study/History tabs, session analytics, Comparison) | **Yes — implemented** | Implemented |
@@ -58,15 +58,15 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 
 ### 2.3 TAE — Trade Automation Engine
 
-**v7 redesign (2026-08-18).** The policy engine was **erased**. The TAE is now a **setup executor** that consumes the MME's top setup directly (best Actionable/READY profile across the 4 TF snapshots) and manages the trade lifecycle (entry limit → TP/SL bracket → LEVEL/SIGNAL invalidation) through a **single unified execution engine** whose only mode-dependent part is the `ExecutionBackend` (`PaperSimulation` today; `LiveBroker` for Hyperliquid + Bitget — same fees/slippage/funding/PnL accounting in both modes). See [03-03-01-tae-overview-spec.md](engines/trade-automation-engine/03-03-01-tae-overview-spec.md).
+**v7 redesign (2026-08-18).** The policy engine was **erased**. The TAE is now a **setup executor** that consumes the MME's top setup directly (best Actionable/READY profile across the fixed-ladder TF snapshots) and manages the trade lifecycle (entry limit → TP/SL bracket → LEVEL/SIGNAL invalidation) through a **single unified execution engine** whose only mode-dependent part is the `ExecutionBackend` (`PaperSimulation` today; `LiveBroker` for Hyperliquid + Bitget — same fees/slippage/funding/PnL accounting in both modes). See [03-03-01-tae-overview-spec.md](engines/trade-automation-engine/03-03-01-tae-overview-spec.md).
 
 **v8.2 (Unreleased):** allocation sizing (`allocation_pct` 1–100 %, per-instance override, Σ ≤ 100 %) replaces stop-distance risk sizing. **v9 (Unreleased):** strategy JSON dials — `tae.sizing` (per-setup multipliers, after-loss step-down, vol-scale), intake gates (min score/confidence, direction policy), params-at-entry freeze. **v10 (Unreleased):** lifecycle hardening — tri-state `setup_gone_policy` posture, pending-entry re-pricing + replacement adoption, asymmetric SL/TP ratchet, entry dial (`entry_mode` incl. `chase`, `instant_fill_policy`, spread gate, max setup age) and exit dial (`sl_mode`, `tp_placement`, `min_sl_atr`, `confidence_drop_pct`); TP always closes 100 %. See [03-03-07-tae-strategy-settings.md](engines/trade-automation-engine/03-03-07-tae-strategy-settings.md).
 
 **Backend (real, v7):**
 
-- `crates/portfolio-supervisor/src/setup_executor.rs` — `extract_top_setup` (4-TF aggregation, Actionable/READY/min-RR filter, zone-midpoint geometry), per-symbol state machine (Idle → PendingEntry → PositionOpen), LEVEL/SIGNAL/REPLACED invalidation, direction-flip market close, safety + lifecycle gates, global position cap, setup-fingerprint dedup, `compute_risk` sizing + projected risk/return.
+- `crates/portfolio-supervisor/src/setup_executor.rs` — `extract_top_setup` (per-slot aggregation across the fixed ladder's latest completed snapshots, ≤10 TFs; Actionable/READY/min-RR filter, zone-midpoint geometry), per-symbol state machine (Idle → PendingEntry → PositionOpen), LEVEL/SIGNAL/REPLACED invalidation, direction-flip market close, safety + lifecycle gates, global position cap, setup-fingerprint dedup, `compute_risk` sizing + projected risk/return.
 - `crates/portfolio-supervisor/src/execution/{engine,backend,state_machine}.rs` — unified `ExecutionEngine` (orders, positions, equity ledger, fees/slippage/funding), `ExecutionBackend` trait + `PaperSimulation` (limit/stop/market fills, instant marketable-limit fills, SL-before-TP on gaps, bracket cleanup), canonical persistence to `paper_trades` / `trade_telemetry_history` / `portfolio_equity_history` / `automation_activity` + `tae_open_state` restart-recovery tables.
-- `crates/execution-daemon/src/main.rs` — 1s setup-executor loop per instance (reads all 4 TF buffers, fills → executor tick → equity sync), 8h funding, STOPPING flatten, boot recovery.
+- `crates/execution-daemon/src/main.rs` — 1s setup-executor loop per instance (reads all ACTIVE fixed-ladder TF buffers — the fastest `[workspace].active_timeframes` slots, v11.2; fills → executor tick → equity sync), 8h funding, STOPPING flatten, boot recovery.
 - **Erased:** `policy/`, `trigger_engine.rs`, `veto_loop.rs`, `execution/gates.rs`, `execution/order.rs` (sizing folded into the executor), decision-profiles API, pre-dispatch/manual open-close routes, `execution_policies`/`Stance`/`TriggerMode` config.
 
 **Frontend (live):**
@@ -162,7 +162,7 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 | C2. `PortfolioDashboard` activation panel renders live state | UI | Phase A2 + AUDIT-V6-214 closed |
 | C3. `safety_state` deterministic reconstruction algorithm unit-tested | `portfolio-supervisor`, `database-storage` | AUDIT-V4-046 closed |
 | C4. Pre-dispatch crash-recoverable persistence | `database-storage`, `api-gateway`, `portfolio-supervisor` | AUDIT-V4-079 closed; new `pre_dispatch_orders` table added |
-| C5. PME / TAE communication contracts under load | `portfolio-supervisor` | Stress test demonstrates veto-loop responsiveness under 10 symbols × 4 TFs |
+| C5. PME / TAE communication contracts under load | `portfolio-supervisor` | Stress test demonstrates veto-loop responsiveness under 10 symbols × 10 TFs |
 
 > **v7 supersession (2026-08-18).** Phase C was delivered through a **different design**: the veto/stance/pre-dispatch/activation-panel items (C2–C5) were **erased or superseded** by the informational PME ([03-04-01-pme-overview-spec.md](engines/portfolio-management-engine/03-04-01-pme-overview-spec.md)). The PME surface that remains — rich `/portfolio`, `/exposure`, `/capital`, extended `/safety`, live dashboard — is delivered; the v6 audit IDs were superseded rather than closed against them.
 

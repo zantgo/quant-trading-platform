@@ -174,17 +174,16 @@ pub async fn tick_once(
 
     for inst in &instances {
         let pair_key = inst.pair_key();
-        // Pull the latest 4-TF snapshots for this instance — same
+        // Pull the latest 10-slot snapshots for this instance — same
         // pattern used by the L7 Overview aggregator at
         // `crates/execution-daemon/src/main.rs`.
         let snaps = inst.active_pair.latest_snapshots_all_tf().await;
         // Slot names come from the snapshot itself (matches the WS wire
         // and `/api/history` keys) and `timeframe_secs` comes from the
         // snapshot's actual configured duration — never hardcoded
-        // defaults (a non-default micro=1s or macro=1800s config used to
-        // produce wrong metadata).
-        let mut snap_slots: Vec<(String, u64, &Option<MarketSnapshot>)> = Vec::with_capacity(4);
-        for slot_ref in [&snaps.0, &snaps.1, &snaps.2, &snaps.3] {
+        // defaults.
+        let mut snap_slots: Vec<(String, u64, &Option<MarketSnapshot>)> = Vec::with_capacity(10);
+        for slot_ref in snaps.iter() {
             if let Some(s) = slot_ref.as_ref() {
                 let name = s
                     .timeframe_slot

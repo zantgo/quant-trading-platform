@@ -15,7 +15,7 @@
 // the Opportunity page, and the decision_rank hero block on the
 // Recommendation page. The MTF export additionally surfaces per-TF
 // indicator detail (raw, signals, sub_values, lifecycle) for each of the
-// 4 timeframes, so the operator does not have to switch tabs to harvest
+// 10 timeframes, so the operator does not have to switch tabs to harvest
 // the per-TF metrics.
 //
 // ════════════════════════════════════════════════════════════════════════
@@ -55,9 +55,11 @@ import type {
     OpportunityMatrix,
     RiskDimension,
     RiskMatrix,
+    TimeframeSlotKind,
     TimeframeTelemetry,
     VolumeProfileSnapshot,
 } from '../types';
+import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../types';
 import { computeDecisionRank } from './decisionRank';
 
 interface ExportPayload {
@@ -454,7 +456,7 @@ function confidence(indicators: Record<string, IndicatorDto>, key: string): numb
  *     `indicators[]` list under the top-level `indicators` field).
  *   • `buildMtfExportJson` — per-TF indicator detail block, so the MTF
  *     export carries the full raw/signals/sub_values surface for each of
- *     the 4 timeframes without forcing the consumer to switch tabs.
+ *     the 10 timeframes without forcing the consumer to switch tabs.
  *
  * The Fibonacci sub-values are *not* appended here — callers that want
  * them should call `extractFibSummary` and decide whether to merge the
@@ -1098,23 +1100,23 @@ export function buildPanelExportJson(args: PanelExportArgs): string | null {
 
 // ── Cross-timeframe (MTF) export ───────────────────────────────────────
 //
-// Mirrors the structure rendered on the MTF page (`MtfView.svelte`): a 4 × N
+// Mirrors the structure rendered on the MTF page (`MtfView.svelte`): a 10 × N
 // grid of indicators × timeframes with per-row agreement labels. The single-
 // timeframe `buildMetricsExportJson` can't be reused because it only carries
 // one TF's indicator snapshot — wrong shape for the MTF grid.
 
-export type MtfSlotLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
+export type MtfSlotLabel =
+    | 'Micro1' | 'Micro2' | 'Fast1' | 'Fast2' | 'Slow1' | 'Slow2'
+    | 'Macro1' | 'Macro2' | 'Longterm1' | 'Longterm2';
 
 export interface MtfExportArgs {
     symbol: string;
-    pair: {
-        microTerm: TimeframeTelemetry;
-        fastTerm: TimeframeTelemetry;
-        slowTerm: TimeframeTelemetry;
-        macroTerm: TimeframeTelemetry;
-    };
+    terms: Record<TimeframeSlotKind, TimeframeTelemetry>;
     registry: IndicatorMeta[];
     filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean; hideOverlays: boolean };
+    /** v11.2 — the ACTIVE slot ladder; the per-TF detail block walks only
+     *  these slots. Absent/empty → the full 10-slot pool. */
+    activeSlots?: TimeframeSlotKind[];
 }
 
 interface MtfTimeframeEntry {
@@ -1173,7 +1175,7 @@ interface MtfExportPayload {
     timeframes: MtfTimeframeEntry[];
     groups: MtfGroupEntry[];
     indicators: MtfIndicatorEntry[];
-    /** Sum of unique signal labels across all 4 TFs (matches the SIGNALS
+    /** Sum of unique signal labels across all 10 TFs (matches the SIGNALS
      *  badge in FacetTabs but lifted to the cross-TF scope). */
     signals_total: number;
 }
@@ -1198,14 +1200,16 @@ function parseSnapshotTimestamp(snap: unknown): number | null {
 }
 
 export function buildMtfExportJson(args: MtfExportArgs): string {
-    const { symbol, pair, registry, filters } = args;
+    const { symbol, terms, registry, filters } = args;
 
-    const slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[] = [
-        { label: 'Micro', tf: pair.microTerm },
-        { label: 'Fast',  tf: pair.fastTerm  },
-        { label: 'Slow',  tf: pair.slowTerm  },
-        { label: 'Macro', tf: pair.macroTerm },
-    ];
+    const activeSlots = args.activeSlots && args.activeSlots.length > 0
+        ? args.activeSlots
+        : [...TIMEFRAME_SLOT_KINDS];
+    const slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[] =
+        activeSlots.map((slot) => ({
+            label: TIMEFRAME_SLOT_LABELS[slot] as MtfSlotLabel,
+            tf: terms[slot],
+        }));
 
     const timeframes: MtfTimeframeEntry[] = slotDefs.map(({ label, tf }) => {
         const inds = (tf.indicators ?? {}) as Record<string, IndicatorDto>;
@@ -1297,7 +1301,7 @@ export function buildMtfExportJson(args: MtfExportArgs): string {
             indicator_count: groupCounts.get(k) ?? 0,
         }));
 
-    // Sum of unique signal labels across all 4 TFs × all indicators.
+    // Sum of unique signal labels across all 10 TFs × all indicators.
     const uniqueLabels = new Set<string>();
     for (const { tf } of slotDefs) {
         const inds = (tf.indicators ?? {}) as Record<string, IndicatorDto>;

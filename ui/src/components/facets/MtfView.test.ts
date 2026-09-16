@@ -12,6 +12,7 @@
 //    instead of hiding.
 
 import { describe, it, expect } from 'vitest';
+import { makeTerms } from '../../tests/makeTerms';
 import { cleanup, render } from '@testing-library/svelte';
 import MtfView from './MtfView.svelte';
 import type {
@@ -110,32 +111,32 @@ function makeSignal(kind: IndicatorSignal['kind'], label: string, status: Indica
 function makePair(overrides: Partial<Record<TimeframeSlotKind, Partial<TimeframeTelemetry>>> = {}) {
     const mk = (slot: TimeframeSlotKind, secs: number): TimeframeTelemetry =>
         makeTf({ slot, barDurationSec: secs, ...(overrides[slot] ?? {}) });
-    return {
-        microTerm: mk('micro', 60),
-        fastTerm: mk('fast', 180),
-        slowTerm: mk('slow', 300),
-        macroTerm: mk('macro', 900),
-    };
+    return makeTerms({
+        micro1: mk('micro1', 60),
+        fast1: mk('fast1', 180),
+        slow1: mk('slow1', 300),
+        macro1: mk('macro1', 900),
+    });
 }
 
 afterEach(() => cleanup());
 
 describe('MtfView — grid is always unfiltered (v6.11)', () => {
     it('lists every registered indicator, including ones with no signals', () => {
-        const pair = makePair();
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const terms = makePair();
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('RSI');
         expect(text).toContain('MACD');
         expect(text).toContain('Volume');
     });
 
-    it('renders the normalized value grid across the 4 timeframes', () => {
-        const pair = makePair({
-            micro: { indicators: { rsi: { raw_value: 60, normalized: 0.4, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.5 } } },
-            macro: { indicators: { rsi: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.5 } } },
+    it('renders the normalized value grid across the 10 timeframes', () => {
+        const terms = makePair({
+            micro1: { indicators: { rsi: { raw_value: 60, normalized: 0.4, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.5 } } },
+            macro1: { indicators: { rsi: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.5 } } },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('+0.40');
         expect(text).toContain('-0.60');
@@ -143,20 +144,20 @@ describe('MtfView — grid is always unfiltered (v6.11)', () => {
 });
 
 describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
-    it('renders the three stacked tables — Signals / Divergences / Levels — each with the 4-TF header', () => {
-        const pair = makePair({
-            micro: {
+    it('renders the three stacked tables — Signals / Divergences / Levels — each with the 10-TF header', () => {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Confirmed', 0.9)], confidence: 0.9 },
                 },
             },
-            slow: {
+            slow1: {
                 indicators: {
                     macd: { raw_value: 5, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [makeSignal('ZeroLineCross', 'MACD zero-line cross', 'Active', 0.6)], confidence: 0.7 },
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         // Section titles for all three stacked tables.
         expect(text).toContain('Signals');
@@ -176,19 +177,19 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
     it('Signals table counts the same indicator firing on multiple timeframes per timeframe', () => {
         const mkSignal = (label: string) =>
             makeSignal('Threshold', label, 'Active', 0.8);
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: { raw_value: 75, normalized: 0.8, state_label: 'POSITIVE', values: null, signals: [mkSignal('Micro RSI overbought')], confidence: 0.9 },
                 },
             },
-            fast: {
+            fast1: {
                 indicators: {
                     rsi: { raw_value: 72, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [mkSignal('Fast RSI overbought')], confidence: 0.9 },
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('2 signals');
         expect(text).toContain('Threshold');
@@ -196,8 +197,8 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
     });
 
     it('Divergences table shows the strongest divergence sub-type per oscillator per timeframe', () => {
-        const pair = makePair({
-            macro: {
+        const terms = makePair({
+            macro1: {
                 indicators: {
                     rsi: {
                         raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null,
@@ -207,7 +208,7 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('1 divergence');
         // classifyDivergence('BULLISH_DIVERGENCE') → RegularBull → short 'BULL'.
@@ -215,8 +216,8 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
     });
 
     it('Levels table counts LevelTest signals per level kind per timeframe', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 50, normalized: 0, state_label: 'NEUTRAL', values: null,
@@ -226,7 +227,7 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('1 level test');
         // classifyLevelKey('rsi') → Other — the "Other" kind row carries the count.
@@ -234,8 +235,8 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
     });
 
     it('shows the awaiting-completed-candle note when no signals exist', () => {
-        const pair = makePair();
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const terms = makePair();
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('Signals');
         expect(text).toContain('0 signals');
@@ -302,8 +303,8 @@ function pivotMeta(): IndicatorMeta {
 
 describe('MtfView — v6.14 standalone section headings', () => {
     it('renders the four headings (Indicators / Signals / Divergences / Levels) outside the tables', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
@@ -313,19 +314,19 @@ describe('MtfView — v6.14 standalone section headings', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const headings = Array.from(container.querySelectorAll('h3')).map((h) => h.textContent);
         expect(headings).toEqual(['Indicators', 'Signals', 'Divergences', 'Levels']);
     });
 
-    it('renders the Micro/Fast/Slow/Macro TF summary bar ABOVE the Indicators heading (v6.15)', () => {
-        const pair = makePair();
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+    it('renders the MICRO1..LONGTERM2 TF summary bar ABOVE the Indicators heading (v6.15)', () => {
+        const terms = makePair();
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
-        expect(text).toContain('Micro');
-        expect(text).toContain('Fast');
-        expect(text).toContain('Slow');
-        expect(text).toContain('Macro');
+        expect(text).toContain('MICRO1');
+        expect(text).toContain('FAST1');
+        expect(text).toContain('SLOW1');
+        expect(text).toContain('MACRO1');
         const summary = container.querySelector('[class*="summary"]');
         const heading = Array.from(container.querySelectorAll('h3'))
             .find((h) => h.textContent === 'Indicators');
@@ -340,19 +341,19 @@ describe('MtfView — v6.14 standalone section headings', () => {
 
 describe('MtfView — unified heading chrome (count badge + colored badges, top lit)', () => {
     it('Indicators heading shows "N indicators" plus BULL / BEAR / MIXED agreement badges', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
                 },
             },
-            fast: {
+            fast1: {
                 indicators: {
                     macd: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('3 indicators');
         expect(text).toContain('BULL 1');
@@ -363,54 +364,54 @@ describe('MtfView — unified heading chrome (count badge + colored badges, top 
     });
 
     it('lights the dominant indicator agreement category', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
                 },
             },
-            fast: {
+            fast1: {
                 indicators: {
                     macd: { raw_value: 60, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeTruthy();
         expect(container.querySelector('[data-dir="bear"][data-lit="true"]')).toBeFalsy();
     });
 
     it('lights the MIXED badge when mixed agreement is the top category', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
                 },
             },
-            fast: {
+            fast1: {
                 indicators: {
                     rsi: { raw_value: 30, normalized: -0.7, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
                 },
             },
-            slow: {
+            slow1: {
                 indicators: {
                     macd: { raw_value: 20, normalized: -0.5, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
                 },
             },
-            macro: {
+            macro1: {
                 indicators: {
                     macd: { raw_value: 80, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         expect(container.querySelector('[data-dir="mixed"][data-lit="true"]')).toBeTruthy();
         expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeFalsy();
     });
 
     it('Divergences heading shows the ▲ / ▼ split with the dominant side lit (signals-style)', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
@@ -422,7 +423,7 @@ describe('MtfView — unified heading chrome (count badge + colored badges, top 
                     },
                 },
             },
-            fast: {
+            fast1: {
                 indicators: {
                     macd: {
                         raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null,
@@ -432,7 +433,7 @@ describe('MtfView — unified heading chrome (count badge + colored badges, top 
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('2 divergences');
         expect(text).toContain('▲ 2');
@@ -455,14 +456,14 @@ function headingRow(container: HTMLElement, title: string): Element {
 
 describe('MtfView — v6.14 warming and gated cells never mislead', () => {
     it('renders WARMING entries as -- (never +0.00) and drops them from agreement', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: { raw_value: 0, normalized: 0, state_label: 'WARMING', values: null, signals: [], confidence: 0 },
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         expect(text).toContain('--');
         // Agreement is unavailable (no real readings) — no fabricated +0.00.
@@ -473,14 +474,14 @@ describe('MtfView — v6.14 warming and gated cells never mislead', () => {
         const registry = makeRegistry().map((m) =>
             m.key === 'volume' ? { ...m, normalization_mode: 'ContextOnly' as const } : m,
         );
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     volume: { raw_value: 5, normalized: 0, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.5 },
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry } });
+        const { container } = render(MtfView, { props: { terms, registry } });
         const text = container.textContent ?? '';
         expect(text).toContain('N/A');
         expect(text).not.toContain('+0.00');
@@ -489,8 +490,8 @@ describe('MtfView — v6.14 warming and gated cells never mislead', () => {
 
 describe('MtfView — v6.14 signals direction split with lit totals', () => {
     it('splits each kind per timeframe into ▲ bull / ▼ bear badges and lights the dominant total', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
@@ -502,7 +503,7 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
                     },
                 },
             },
-            fast: {
+            fast1: {
                 indicators: {
                     rsi: {
                         raw_value: 30, normalized: -0.7, state_label: 'NEGATIVE', values: null,
@@ -512,7 +513,7 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
         // Per-cell split: micro carries ▲ 1 and ▼ 1; total row ▼ 2 (bear dominates).
         expect(text).toContain('▲ 1');
@@ -524,8 +525,8 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
     });
 
     it('renders a lit bullish total when bulls outnumber bears', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
@@ -538,7 +539,7 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeTruthy();
         expect(container.querySelector('[data-dir="bear"][data-lit="true"]')).toBeFalsy();
     });
@@ -546,8 +547,8 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
 
 describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
     it('shows a balanced ▲ / ▼ split with neither side lit when bullish and bearish divergences balance', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
@@ -556,7 +557,7 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
                     },
                 },
             },
-            fast: {
+            fast1: {
                 indicators: {
                     rsi: {
                         raw_value: 30, normalized: -0.7, state_label: 'NEGATIVE', values: null,
@@ -566,7 +567,7 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         // A balanced 1:1 split must not light up either side — the same
         // rule as the Signals totals (no MIXED badge of its own).
         const divHeading = headingRow(container, 'Divergences');
@@ -578,8 +579,8 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
     });
 
     it('shows BULL (▲ lit) when bullish divergences dominate', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
@@ -592,7 +593,7 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         expect(container.querySelector('[data-dir="bull"][data-lit="true"]')).toBeTruthy();
     });
 });
@@ -600,8 +601,8 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
 describe('MtfView — v6.14 levels show actual level chips with S/R split totals', () => {
     it('renders level-name chips per cell and direction + S/R totals per row', () => {
         const registry = [...makeRegistry(), pivotMeta()];
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     pivot_points: {
                         raw_value: 50000, normalized: 0, state_label: 'POSITIVE',
@@ -616,7 +617,7 @@ describe('MtfView — v6.14 levels show actual level chips with S/R split totals
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry } });
+        const { container } = render(MtfView, { props: { terms, registry } });
         const text = container.textContent ?? '';
         // Actual level names surfaced as chips (deduped with a repeat count).
         expect(text).toContain('R2 ×2');
@@ -641,8 +642,8 @@ describe('MtfView — v6.14 levels show actual level chips with S/R split totals
 
 describe('MtfView — per-title section collapse', () => {
     it('renders a caret button (expanded) on each of the four headings by default', () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
@@ -652,7 +653,7 @@ describe('MtfView — per-title section collapse', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const carets = Array.from(container.querySelectorAll('button[aria-label^="Toggle"]'));
         expect(carets).toHaveLength(4);
         expect(carets.map((b) => b.getAttribute('aria-label'))).toEqual([
@@ -667,8 +668,8 @@ describe('MtfView — per-title section collapse', () => {
     });
 
     it('collapsing Signals hides the table body but keeps the heading', async () => {
-        const pair = makePair({
-            micro: {
+        const terms = makePair({
+            micro1: {
                 indicators: {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
@@ -678,7 +679,7 @@ describe('MtfView — per-title section collapse', () => {
                 },
             },
         });
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const caret = Array.from(container.querySelectorAll('button[aria-label="Toggle Signals section"]'))[0] as HTMLButtonElement;
         caret.click();
         await Promise.resolve();
@@ -698,8 +699,8 @@ describe('MtfView — per-title section collapse', () => {
     });
 
     it('collapsing Indicators hides the TF summary bar and group containers', async () => {
-        const pair = makePair();
-        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const terms = makePair();
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const caret = Array.from(container.querySelectorAll('button[aria-label="Toggle Indicators section"]'))[0] as HTMLButtonElement;
         caret.click();
         await Promise.resolve();

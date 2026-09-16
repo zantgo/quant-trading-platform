@@ -24,21 +24,23 @@ pub async fn serve_platform_config(State(state): State<Arc<AppState>>) -> impl I
 /// already maintains: state, buffer depth, last completed close, and the
 /// reconstructed-candle count for the buffer window.
 pub async fn serve_system_pipelines(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    use core_domain::models::TimeframeSlot;
-
     let instances = state.get_all_instances().await;
     let mut rows: Vec<serde_json::Value> = Vec::new();
 
     for inst in &instances {
         let pair = inst.pair_key();
+        // Fixed 10-slot ladder (fastest → slowest), positionally aligned
+        // with `core_domain::FIXED_TF_SLOTS` / `ActivePair::all()`.
         let pipelines: Vec<(String, &market_analyzer::analyzer::TimeframePipeline)> = {
             let ap = &inst.active_pair;
-            vec![
-                ("micro".to_string(), &ap.micro),
-                ("fast".to_string(), &ap.fast),
-                ("slow".to_string(), &ap.slow),
-                ("macro".to_string(), &ap.r#macro),
-            ]
+            // v11.2: report only the ACTIVE ladder slots (fastest N) —
+            // slots beyond the count are inert (never spawned).
+            let active = inst.active_secs.len().min(10).max(1);
+            core_domain::models::FIXED_TF_SLOTS[..active]
+                .iter()
+                .zip(ap.all()[..active].iter().copied())
+                .map(|(slot, pipe)| (slot.as_str(), pipe))
+                .collect()
         };
         for (slot_label, pipeline) in pipelines {
             let state_str = {
@@ -65,13 +67,10 @@ pub async fn serve_system_pipelines(State(state): State<Arc<AppState>>) -> impl 
                     recon,
                 )
             };
-            let slot_key = match pipeline.slot {
-                TimeframeSlot::Micro => "micro",
-                TimeframeSlot::Fast => "fast",
-                TimeframeSlot::Slow => "slow",
-                TimeframeSlot::Macro => "macro",
-                _ => slot_label.as_str(),
-            };
+            // Canonical wire identifier ("micro1".."longterm2") — the
+            // label came from `FIXED_TF_SLOTS`, the pipeline's own slot
+            // matches it for all ten fixed pipelines.
+            let slot_key = slot_label.as_str();
             rows.push(serde_json::json!({
                 "pair": pair,
                 "slot": slot_key,

@@ -140,7 +140,7 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
         &fib_config(),
         "BTC-USDC",
         60,
-        core_domain::models::TimeframeSlot::Micro,
+        core_domain::models::TimeframeSlot::Micro1,
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
         Some(core_domain::normalized::Exchange::Hyperliquid),
@@ -245,7 +245,7 @@ fn warmup_sub_minute_timeframes_also_populate() {
         &fib_config(),
         "BTC-USDC",
         5,
-        core_domain::models::TimeframeSlot::Micro,
+        core_domain::models::TimeframeSlot::Micro1,
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
         Some(core_domain::normalized::Exchange::Hyperliquid),
@@ -258,7 +258,7 @@ fn warmup_sub_minute_timeframes_also_populate() {
         .expect("5s-TF warm-up must carry volume_profile on last snapshot");
     assert!(!last_vp.bins.is_empty());
     assert_eq!(last_vp.timeframe_secs, 5);
-    assert_eq!(last_vp.timeframe_slot, "micro");
+    assert_eq!(last_vp.timeframe_slot, "micro1");
 }
 
 /// Seeded path soft floor (`min_bars = 25`): volume-profile must render as
@@ -277,7 +277,7 @@ fn seeded_volume_profile_clears_at_25_bars() {
         &fib_config(),
         "BTC-USDC",
         15,
-        core_domain::models::TimeframeSlot::Micro,
+        core_domain::models::TimeframeSlot::Micro1,
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
         Some(core_domain::normalized::Exchange::Hyperliquid),

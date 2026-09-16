@@ -57,7 +57,7 @@ const INSTANCE_ID: &str = "inst_recharge_rebind";
 
 fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
     MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro),
+        timeframe_slot: Some(TimeframeSlot::Micro1),
         exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
         timeframe_secs,
         timestamp: 1_700_000_000,
@@ -103,8 +103,10 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
 }
 
 /// Build an `ActivePair` wired to a fresh set of broadcast channels.
-/// Returns the pair and the four `broadcast::Sender`s so the test can
-/// publish snapshots on any slot.
+/// Returns the pair plus the `broadcast::Sender`s of the four
+/// representative ladder slots (micro1/fast1/slow1/macro1) so the test
+/// can publish snapshots on any of them; the remaining six slots carry
+/// throwaway channels.
 type PairWithSenders = (
     Arc<ActivePair>,
     broadcast::Sender<MarketSnapshot>,
@@ -117,6 +119,7 @@ fn build_active_pair_with_channels(pair_key: &str) -> PairWithSenders {
     let (fast_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (slow_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (macro_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
+    let throwaway = || broadcast::channel::<MarketSnapshot>(10).0;
     let (snapshot_tx, _snapshot_rx) =
         mpsc::channel::<core_domain::normalized::NormalizedEvent>(100);
     let cancel = CancellationToken::new();
@@ -163,46 +166,35 @@ fn build_active_pair_with_channels(pair_key: &str) -> PairWithSenders {
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         custom_pipelines: std::collections::HashMap::new(),
-        micro: new_pipe(60, "Micro", TimeframeSlot::Micro, micro_bcast.clone()),
-        fast: new_pipe(180, "Fast", TimeframeSlot::Fast, fast_bcast.clone()),
-        slow: new_pipe(300, "Slow", TimeframeSlot::Slow, slow_bcast.clone()),
-        r#macro: new_pipe(900, "Macro", TimeframeSlot::Macro, macro_bcast.clone()),
+        micro1: new_pipe(1, "Micro1", TimeframeSlot::Micro1, micro_bcast.clone()),
+        micro2: new_pipe(3, "Micro2", TimeframeSlot::Micro2, throwaway()),
+        fast1: new_pipe(5, "Fast1", TimeframeSlot::Fast1, fast_bcast.clone()),
+        fast2: new_pipe(15, "Fast2", TimeframeSlot::Fast2, throwaway()),
+        slow1: new_pipe(30, "Slow1", TimeframeSlot::Slow1, slow_bcast.clone()),
+        slow2: new_pipe(60, "Slow2", TimeframeSlot::Slow2, throwaway()),
+        macro1: new_pipe(180, "Macro1", TimeframeSlot::Macro1, macro_bcast.clone()),
+        macro2: new_pipe(300, "Macro2", TimeframeSlot::Macro2, throwaway()),
+        longterm1: new_pipe(900, "Longterm1", TimeframeSlot::Longterm1, throwaway()),
+        longterm2: new_pipe(3600, "Longterm2", TimeframeSlot::Longterm2, throwaway()),
         snapshot_tx,
         cancel,
-    });
+        active_count: 10,
+});
     (pair, micro_bcast, fast_bcast, slow_bcast, macro_bcast)
 }
 
-fn make_buffers_for(
-    pair: &ActivePair,
-) -> (
-    TimeframeBuffers,
-    TimeframeBuffers,
-    TimeframeBuffers,
-    TimeframeBuffers,
-) {
+fn make_buffers_for(pair: &ActivePair) -> [TimeframeBuffers; 10] {
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
-    let micro = TimeframeBuffers {
-        history: pair.micro.history.clone(),
-        latest: pair.micro.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let fast = TimeframeBuffers {
-        history: pair.fast.history.clone(),
-        latest: pair.fast.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let slow = TimeframeBuffers {
-        history: pair.slow.history.clone(),
-        latest: pair.slow.latest_snapshot.clone(),
-        snapshot_history: snap_hist.clone(),
-    };
-    let r#macro = TimeframeBuffers {
-        history: pair.r#macro.history.clone(),
-        latest: pair.r#macro.latest_snapshot.clone(),
-        snapshot_history: snap_hist,
-    };
-    (micro, fast, slow, r#macro)
+    pair.all()
+        .iter()
+        .map(|pipe| TimeframeBuffers {
+            history: pipe.history.clone(),
+            latest: pipe.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"))
 }
 
 async fn setup_app_with_pair() -> (
@@ -227,7 +219,7 @@ async fn setup_app_with_pair() -> (
     let workspace = WorkspaceState::empty();
     let (pair, micro_bcast, fast_bcast, slow_bcast, macro_bcast) =
         build_active_pair_with_channels(PAIR_KEY);
-    let (micro_buf, fast_buf, slow_buf, macro_buf) = make_buffers_for(&pair);
+    let buffers = make_buffers_for(&pair);
 
     let instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
@@ -238,10 +230,8 @@ async fn setup_app_with_pair() -> (
         workspace.clone(),
         Default::default(),
         Default::default(),
-        micro_buf,
-        fast_buf,
-        slow_buf,
-        macro_buf,
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ));
     workspace.insert(PAIR_KEY.to_string(), instance).await;
@@ -305,7 +295,7 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
     // 1. Take a Receiver on the OLD ActivePair's micro channel, mimicking
     //    what the WS handler does on connect.
     let old_pair = state.get_active_pair(PAIR_KEY).await.unwrap();
-    let mut old_rx = old_pair.subscribe_broadcast_by_slot(TimeframeSlot::Micro);
+    let mut old_rx = old_pair.subscribe_broadcast_by_slot(TimeframeSlot::Micro1);
 
     // 2. Sanity: the OLD channel delivers a snapshot before any swap.
     micro_old
@@ -325,7 +315,7 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
     //    handler's situation).
     let (new_pair, micro_new, _fast_new, _slow_new, _macro_new) =
         build_active_pair_with_channels(PAIR_KEY);
-    let (micro_buf, fast_buf, slow_buf, macro_buf) = make_buffers_for(&new_pair);
+    let buffers = make_buffers_for(&new_pair);
     let new_instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
@@ -335,10 +325,8 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
         state.workspace.clone(),
         Default::default(),
         Default::default(),
-        micro_buf,
-        fast_buf,
-        slow_buf,
-        macro_buf,
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ));
     state
@@ -430,7 +418,7 @@ async fn ws_handler_rebinds_after_recharge_notice() {
 
     // Open a WS client. The handler will cache the OLD ActivePair and
     // subscribe to its micro broadcast channel.
-    let req = format!("ws://{addr}/ws?symbol={PAIR_KEY}&timeframe_secs=60&slot=micro")
+    let req = format!("ws://{addr}/ws?symbol={PAIR_KEY}&timeframe_secs=60&slot=micro1")
         .into_client_request()
         .unwrap();
     let (mut ws, _resp) = tokio_tungstenite::connect_async(req).await.unwrap();
@@ -456,7 +444,7 @@ async fn ws_handler_rebinds_after_recharge_notice() {
     // 2. Simulate recharge: NEW ActivePair + NEW channels into workspace.
     let (new_pair, micro_new, _fast_new, _slow_new, _macro_new) =
         build_active_pair_with_channels(PAIR_KEY);
-    let (micro_buf, fast_buf, slow_buf, macro_buf) = make_buffers_for(&new_pair);
+    let buffers = make_buffers_for(&new_pair);
     let new_instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
@@ -466,10 +454,8 @@ async fn ws_handler_rebinds_after_recharge_notice() {
         state.workspace.clone(),
         Default::default(),
         Default::default(),
-        micro_buf,
-        fast_buf,
-        slow_buf,
-        macro_buf,
+        buffers,
+        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
         Default::default(),
     ));
     state

@@ -5,8 +5,8 @@
 //   1. Mode        — Observe / Simulate / Execute
 //   2. Environment — exchange + settlement currency (+ capital for paper,
 //                    credentials for live)
-//   3. Instances   — staged drafts with per-TF duration dropdowns (same
-//                    TIMEFRAME_OPTIONS tier list as the workspace Settings)
+//   3. Instances   — staged drafts (the fixed 10-slot ladder is applied
+//                    server-side; no per-slot TF choice exists)
 //   4. Review      — summary → Launch
 //
 // Currency contract per exchange (unchanged from WelcomeGate):
@@ -154,35 +154,22 @@ describe('Launch Setup — currency contract', () => {
 });
 
 describe('Launch Setup — instances step', () => {
-    it('renders per-slot timeframe dropdowns preseeded from the workspace ladder', async () => {
+    it('offers NO per-slot timeframe picker and displays the ACTIVE ladder', async () => {
         const { container } = await render(LaunchSetup);
         await goToInstances(container);
 
-        // The four TF slots are the only selects on this step.
+        // v8 fixed ladder: there is no TF choice — no per-slot <select>
+        // pickers exist on this step (the exchange select lives on the
+        // Environment step only).
         const selects = container.querySelectorAll<HTMLSelectElement>('select');
-        expect(selects.length).toBe(4);
+        expect(selects.length).toBe(0);
 
-        // Same tier list as the Workspace Settings timeframe selector, with
-        // the preset ladder (60/180/workspace-slow/workspace-macro) selected.
-        const expected = [
-            { seconds: 60, label: '1 min' },
-            { seconds: 180, label: '3 min' },
-            { seconds: 300, label: '5 min' },
-            { seconds: 900, label: '15 min' },
-        ];
-        expected.forEach((exp, i) => {
-            const opts = Array.from(selects[i].options);
-            const tier = opts.find((o) => o.value === String(exp.seconds));
-            expect(tier?.textContent).toBe(exp.label);
-            expect(selects[i].value).toBe(String(exp.seconds));
-        });
-
-        // Full option parity with the workspace selector: 14 tiers + the
-        // disabled "Custom:" fallback.
-        expect(selects[0].options.length).toBe(15);
+        // v11.2: the ACTIVE ladder is displayed instead — the fastest N
+        // slots of the fixed pool (default N = 5).
+        expect(container.textContent).toContain('Active ladder (5): 1s · 3s · 5s · 15s · 30s');
     });
 
-    it('adds and removes staged instances with per-TF durations', async () => {
+    it('adds and removes staged instances (active ladder shown per instance)', async () => {
         const { container } = await render(LaunchSetup);
         await goToInstances(container);
 
@@ -190,10 +177,10 @@ describe('Launch Setup — instances step', () => {
         await fireEvent.input(baseInput!, { target: { value: 'btc' } });
         await fireEvent.click(screen.getByText('+ Add'));
 
-        // Normalized to uppercase and shown with the quote + TF ladder
-        // (v7.2: the registry ladder — 60/180/workspace-slow/workspace-macro).
+        // Normalized to uppercase and shown with the quote + the ACTIVE
+        // ladder label.
         expect(container.textContent).toContain('BTC');
-        expect(container.textContent).toContain('1m / 3m / 5m / 15m');
+        expect(container.textContent).toContain('Active ladder (5): 1s · 3s · 5s · 15s · 30s');
 
         // Duplicate rejection.
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
@@ -280,41 +267,20 @@ describe('Launch Setup — launch orchestration', () => {
         const instCall = calls.find((c) => String(c.url).endsWith('/api/instances'));
         expect(instCall?.body).toMatchObject({ base: 'BTC', quote: 'USDC' });
 
+        // v8 fixed ladder: the launch flow POSTs no per-slot TF config —
+        // the backend applies the canonical ladder itself.
         const configCall = calls.find((c) => String(c.url).includes('/config'));
-        expect(configCall?.body).toMatchObject({
-            micro_term: { candles: { duration_seconds: 60 } },
-            fast_term: { candles: { duration_seconds: 180 } },
-            slow_term: { candles: { duration_seconds: 300 } },
-            macro_term: { candles: { duration_seconds: 900 } },
-        });
+        expect(configCall).toBeUndefined();
+
+        // Review shows the ACTIVE ladder.
+        expect(container.textContent).toContain('Active ladder (5): 1s · 3s · 5s · 15s · 30s');
     });
 
-    it('launches with dropdown-selected durations in the config payload', async () => {
-        const { calls } = mockBackend();
+    it('review marks the ladder as ACTIVE (count + durations, no picker)', async () => {
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
-
-        const selects = container.querySelectorAll<HTMLSelectElement>('select');
-        // Micro → 15 min, slow → 1 hrs; fast/macro keep the ladder presets.
-        await fireEvent.change(selects[0], { target: { value: '900' } });
-        await fireEvent.change(selects[2], { target: { value: '3600' } });
-
-        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
-        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
-        await fireEvent.click(screen.getByText('+ Add'));
-        expect(container.textContent).toContain('15m / 3m / 1h / 15m');
-
-        await goToReviewFromInstances();
-        await fireEvent.click(screen.getByText('Launch'));
-
-        await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
-        const configCall = calls.find((c) => String(c.url).includes('/config'));
-        expect(configCall?.body).toMatchObject({
-            micro_term: { candles: { duration_seconds: 900 } },
-            fast_term: { candles: { duration_seconds: 180 } },
-            slow_term: { candles: { duration_seconds: 3600 } },
-            macro_term: { candles: { duration_seconds: 900 } },
-        });
+        await goToReview(container);
+        expect(container.textContent).toContain('Timeframes');
+        expect(container.textContent).toContain('Active ladder (5)');
     });
 
     it('launches a simulate session with capital', async () => {

@@ -44,7 +44,7 @@ describe('TEST-UI: Global State Runes', () => {
         expect(app.instancesMap['BTC-USDT']).toBeDefined();
         expect(app.instancesMap['BTC-USDT'].symbol).toBe('BTC');
         expect(app.instancesMap['BTC-USDT'].exchange).toBe('Hyperliquid');
-        expect(app.instancesMap['BTC-USDT'].microTerm.priceText).toBe('--');
+        expect(app.instancesMap['BTC-USDT'].terms.micro1.priceText).toBe('--');
     });
 
     it('should preserve full unified symbol config entries when session currency differs', () => {
@@ -76,11 +76,11 @@ describe('TEST-UI: Global State Runes', () => {
         app.initInstance('BTC');
         app.initInstance('ETH');
 
-        app.instancesMap['BTC-USDT'].microTerm.priceText = '50000.00';
-        app.instancesMap['BTC-USDT'].microTerm.latestSnapshot = { mid_price: '50000.00', exchange: 'Hyperliquid', symbol: 'BTC' };
+        app.instancesMap['BTC-USDT'].terms.micro1.priceText = '50000.00';
+        app.instancesMap['BTC-USDT'].terms.micro1.latestSnapshot = { mid_price: '50000.00', exchange: 'Hyperliquid', symbol: 'BTC' };
 
-        expect(app.instancesMap['BTC-USDT'].microTerm.priceText).toBe('50000.00');
-        expect(app.instancesMap['ETH-USDT'].microTerm.priceText).toBe('--');
+        expect(app.instancesMap['BTC-USDT'].terms.micro1.priceText).toBe('50000.00');
+        expect(app.instancesMap['ETH-USDT'].terms.micro1.priceText).toBe('--');
     });
 
     it('should toggle apiKeyConfigured flag', () => {

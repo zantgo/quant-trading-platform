@@ -3,8 +3,11 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { buildCandleDebugPayload } from './candleDebug';
 import { clearHistoryCache, ingestLiveSnapshot } from './indicatorHistory';
 import type { AppStore } from '../state.svelte';
+import type { TimeframeSlotKind } from '../types';
+import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_DURATION_SECS } from '../types';
+import { makeTerms } from '../tests/makeTerms';
 
-function makeApp(instances: Record<string, { exchange: string; isConnected: boolean; microSec: number; fastSec: number; slowSec: number; macroSec: number }>): AppStore {
+function makeApp(instances: Record<string, { exchange: string; isConnected: boolean }>): AppStore {
     const map: Record<string, any> = {};
     for (const [pairKey, cfg] of Object.entries(instances)) {
         map[pairKey] = {
@@ -12,10 +15,10 @@ function makeApp(instances: Record<string, { exchange: string; isConnected: bool
             exchange: cfg.exchange,
             isConnected: cfg.isConnected,
             instanceId: `inst_${pairKey.replace('-', '_')}`,
-            microTerm: { slot: 'micro', barDurationSec: cfg.microSec, pipelineState: 'LIVE', latestSnapshot: null, indicators: {}, historyPrices: [] },
-            fastTerm: { slot: 'fast', barDurationSec: cfg.fastSec, pipelineState: 'LIVE', latestSnapshot: null, indicators: {}, historyPrices: [] },
-            slowTerm: { slot: 'slow', barDurationSec: cfg.slowSec, pipelineState: 'LIVE', latestSnapshot: null, indicators: {}, historyPrices: [] },
-            macroTerm: { slot: 'macro', barDurationSec: cfg.macroSec, pipelineState: 'LIVE', latestSnapshot: null, indicators: {}, historyPrices: [] },
+            terms: makeTerms(
+                Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, { pipelineState: 'LIVE' }])),
+                pairKey,
+            ),
         };
     }
     return { instancesMap: map } as unknown as AppStore;
@@ -46,42 +49,40 @@ describe('candleDebug', () => {
         try { localStorage.removeItem('candleDebug'); } catch {}
     });
 
-    it('payload contains all instances × 4 slots (background TFs included)', () => {
+    it('payload contains all instances × 10 slots (background TFs included)', () => {
         const app = makeApp({
-            'BTC-USDT': { exchange: 'Hyperliquid', isConnected: true, microSec: 60, fastSec: 180, slowSec: 300, macroSec: 900 },
-            'ETH-USDT': { exchange: 'Bitget', isConnected: true, microSec: 60, fastSec: 180, slowSec: 300, macroSec: 900 },
+            'BTC-USDT': { exchange: 'Hyperliquid', isConnected: true },
+            'ETH-USDT': { exchange: 'Bitget', isConnected: true },
         });
-        // Seed 5 completed candles per TF via ingestLiveSnapshot (mutates historyData)
+        // Seed 5 completed candles per slot via ingestLiveSnapshot (mutates historyData)
         for (let i = 0; i < 5; i++) {
-            const ts = 1_700_000_000 + i * 60;
-            const snap = makeSnapshot(ts, 50000 + i * 10);
-            ingestLiveSnapshot('BTC-USDT', 60, 'micro', snap);
-            ingestLiveSnapshot('BTC-USDT', 180, 'fast', snap);
-            ingestLiveSnapshot('BTC-USDT', 300, 'slow', snap);
-            ingestLiveSnapshot('BTC-USDT', 900, 'macro', snap);
-            ingestLiveSnapshot('ETH-USDT', 60, 'micro', snap);
-            ingestLiveSnapshot('ETH-USDT', 180, 'fast', snap);
+            const snap = makeSnapshot(1_700_000_000 + i, 50000 + i * 10);
+            for (const slot of TIMEFRAME_SLOT_KINDS) {
+                ingestLiveSnapshot('BTC-USDT', TIMEFRAME_SLOT_DURATION_SECS[slot], slot, snap);
+            }
+            ingestLiveSnapshot('ETH-USDT', 1, 'micro1', snap);
+            ingestLiveSnapshot('ETH-USDT', 3, 'micro2', snap);
         }
 
         const triggerSnap = makeSnapshot(1_700_000_300, 50100);
-        const payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'micro', timeframe_secs: 60, snapshot: triggerSnap });
+        const payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'micro1', timeframe_secs: 1, snapshot: triggerSnap });
 
         expect(payload.trigger.pairKey).toBe('BTC-USDT');
-        expect(payload.trigger.slot).toBe('micro');
+        expect(payload.trigger.slot).toBe('micro1');
         expect(payload.instances.length).toBe(2);
         expect(payload.summary.totalInstances).toBe(2);
-        expect(payload.summary.totalTimeframes).toBe(8); // 2 instances × 4
-        // Each instance should have 4 timeframes entries
+        expect(payload.summary.totalTimeframes).toBe(20); // 2 instances × 10
+        // Each instance should have 10 timeframes entries (the fixed ladder)
         for (const inst of payload.instances) {
-            expect(inst.timeframes.length).toBe(4);
-            expect(inst.timeframes.map(t => t.slot)).toEqual(['micro', 'fast', 'slow', 'macro']);
+            expect(inst.timeframes.length).toBe(10);
+            expect(inst.timeframes.map(t => t.slot)).toEqual([...TIMEFRAME_SLOT_KINDS]);
         }
-        // BTC micro should have 5 candles seeded
-        const btcMicro = payload.instances.find(i => i.pairKey === 'BTC-USDT')!.timeframes.find(t => t.slot === 'micro')!;
+        // BTC micro1 should have 5 candles seeded
+        const btcMicro = payload.instances.find(i => i.pairKey === 'BTC-USDT')!.timeframes.find(t => t.slot === 'micro1')!;
         expect(btcMicro.candleCount).toBe(5);
         expect(btcMicro.candles.length).toBe(5);
         expect(btcMicro.candles[0].close).toBe(50000);
-        // Indicator overlays should be present for BTC micro
+        // Indicator overlays should be present for BTC micro1
         expect(Object.keys(btcMicro.indicatorOverlays).length).toBeGreaterThan(0);
         expect(btcMicro.indicatorOverlays['rsi']).toBeDefined();
         expect(btcMicro.indicatorOverlays['rsi'].length).toBe(5);
@@ -92,62 +93,61 @@ describe('candleDebug', () => {
 
     it('caps at 1000 — oldest evicted (FIFO)', () => {
         const app = makeApp({
-            'BTC-USDT': { exchange: 'Hyperliquid', isConnected: true, microSec: 60, fastSec: 60, slowSec: 60, macroSec: 60 },
+            'BTC-USDT': { exchange: 'Hyperliquid', isConnected: true },
         });
         // Push 1100 candles — historyData should trim to 1000
         for (let i = 0; i < 1100; i++) {
-            const ts = 1_700_000_000 + i * 60;
-            ingestLiveSnapshot('BTC-USDT', 60, 'micro', makeSnapshot(ts, 50000 + i));
+            ingestLiveSnapshot('BTC-USDT', 1, 'micro1', makeSnapshot(1_700_000_000 + i, 50000 + i));
         }
-        const payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'micro', timeframe_secs: 60, snapshot: makeSnapshot(1_700_066_000, 51000) });
-        const micro = payload.instances[0].timeframes.find(t => t.slot === 'micro')!;
+        const payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'micro1', timeframe_secs: 1, snapshot: makeSnapshot(1_700_001_500, 51000) });
+        const micro = payload.instances[0].timeframes.find(t => t.slot === 'micro1')!;
         expect(micro.candleCount).toBe(1000);
         expect(micro.candles.length).toBe(1000);
         expect(micro.timesCount).toBe(1000);
         expect(micro.bufferLen).toBe(1000);
         // Oldest 100 should have been evicted — first timestamp should be the 101st pushed (i=100)
-        expect(micro.candles[0].time).toBe(1_700_000_000 + 100 * 60);
-        expect(micro.historyTimes[0]).toBe(1_700_000_000 + 100 * 60);
+        expect(micro.candles[0].time).toBe(1_700_000_000 + 100);
+        expect(micro.historyTimes[0]).toBe(1_700_000_000 + 100);
         expect(payload.summary.cappedAt_1000).toBe(true);
         expect(payload.summary.maxCandlesPerTf).toBe(1000);
     });
 
     it('includes exchange-aware payload for both Hyperliquid and Bitget', () => {
         const app = makeApp({
-            'BTC-USDT': { exchange: 'Hyperliquid', isConnected: true, microSec: 60, fastSec: 180, slowSec: 300, macroSec: 900 },
-            'BTC-USDT:bitget': { exchange: 'Bitget', isConnected: true, microSec: 60, fastSec: 180, slowSec: 300, macroSec: 900 },
+            'BTC-USDT': { exchange: 'Hyperliquid', isConnected: true },
+            'BTC-USDT:bitget': { exchange: 'Bitget', isConnected: true },
         });
-        ingestLiveSnapshot('BTC-USDT', 60, 'micro', makeSnapshot(1_700_000_000, 50000));
-        ingestLiveSnapshot('BTC-USDT:bitget', 60, 'micro', makeSnapshot(1_700_000_000, 50000));
+        ingestLiveSnapshot('BTC-USDT', 1, 'micro1', makeSnapshot(1_700_000_000, 50000));
+        ingestLiveSnapshot('BTC-USDT:bitget', 1, 'micro1', makeSnapshot(1_700_000_000, 50000));
 
-        const payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'micro', timeframe_secs: 60, snapshot: makeSnapshot(1_700_000_060, 50010) });
+        const payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'micro1', timeframe_secs: 1, snapshot: makeSnapshot(1_700_000_060, 50010) });
         const exchanges = payload.instances.map(i => i.exchange).sort();
         expect(exchanges).toEqual(['Bitget', 'Hyperliquid']);
     });
 
     it('summary warmupOk_300 and bootstrapOk_500 for ≥60s TFs', () => {
         const app = makeApp({
-            'BTC-USDT': { exchange: 'Hyperliquid', isConnected: true, microSec: 60, fastSec: 180, slowSec: 300, macroSec: 900 },
+            'BTC-USDT': { exchange: 'Hyperliquid', isConnected: true },
         });
         // Only 10 candles seeded — below 300 and 500
         for (let i = 0; i < 10; i++) {
-            ingestLiveSnapshot('BTC-USDT', 60, 'micro', makeSnapshot(1_700_000_000 + i * 60, 50000 + i));
-            ingestLiveSnapshot('BTC-USDT', 180, 'fast', makeSnapshot(1_700_000_000 + i * 180, 50000 + i));
+            ingestLiveSnapshot('BTC-USDT', 60, 'slow2', makeSnapshot(1_700_000_000 + i * 60, 50000 + i));
+            ingestLiveSnapshot('BTC-USDT', 180, 'macro1', makeSnapshot(1_700_000_000 + i * 180, 50000 + i));
         }
-        let payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'micro', timeframe_secs: 60, snapshot: makeSnapshot(1_700_000_600, 50010) });
+        let payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'slow2', timeframe_secs: 60, snapshot: makeSnapshot(1_700_000_600, 50010) });
         expect(payload.summary.warmupOk_300).toBe(false);
         expect(payload.summary.bootstrapOk_500).toBe(false);
 
-        // Now seed to 500 for all ≥60s TFs
+        // Now seed to 500 for all ≥60s slots
         clearHistoryCache();
+        const gte60: TimeframeSlotKind[] = ['slow2', 'macro1', 'macro2', 'longterm1', 'longterm2'];
         for (let i = 0; i < 500; i++) {
-            const ts = 1_700_000_000 + i * 60;
-            ingestLiveSnapshot('BTC-USDT', 60, 'micro', makeSnapshot(ts, 50000 + i));
-            ingestLiveSnapshot('BTC-USDT', 180, 'fast', makeSnapshot(ts, 50000 + i));
-            ingestLiveSnapshot('BTC-USDT', 300, 'slow', makeSnapshot(ts, 50000 + i));
-            ingestLiveSnapshot('BTC-USDT', 900, 'macro', makeSnapshot(ts, 50000 + i));
+            for (const slot of gte60) {
+                const secs = TIMEFRAME_SLOT_DURATION_SECS[slot];
+                ingestLiveSnapshot('BTC-USDT', secs, slot, makeSnapshot(1_700_000_000 + i * secs, 50000 + i));
+            }
         }
-        payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'micro', timeframe_secs: 60, snapshot: makeSnapshot(1_700_030_000, 50500) });
+        payload = buildCandleDebugPayload(app, { pairKey: 'BTC-USDT', slot: 'slow2', timeframe_secs: 60, snapshot: makeSnapshot(1_700_030_000, 50500) });
         expect(payload.summary.warmupOk_300).toBe(true);
         expect(payload.summary.bootstrapOk_500).toBe(true);
         expect(payload.summary.cappedAt_1000).toBe(true);

@@ -1,6 +1,6 @@
 # PAE Layer 2 — Strategy Analytics Layer
 
-**Version:** 10.1 (2026-08-24) — v7: implemented; grouping keyed by setup type.
+**Version:** 11.3 (2026-09-16) — v7: implemented; grouping keyed by setup type.
 **Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 2 of 4

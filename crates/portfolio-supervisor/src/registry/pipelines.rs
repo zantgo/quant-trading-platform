@@ -30,10 +30,15 @@ pub struct PipelineContext {
     pub quote: Currency,
     pub pair_key: String,
     pub exchange_choice: ExchangeChoice,
-    pub micro_cfg: TimeframeConfig,
-    pub fast_cfg: TimeframeConfig,
-    pub slow_cfg: TimeframeConfig,
-    pub macro_cfg: TimeframeConfig,
+    /// Fixed 10-slot ladder configs, positional fastest → slowest
+    /// (aligned with `config_models::FIXED_TF_LADDER` /
+    /// `core_domain::models::FIXED_TF_SLOTS`).
+    pub ladder_cfgs: [TimeframeConfig; 10],
+    /// v11.2: how many of the ladder slots actually run — the FASTEST N
+    /// (`config_models::WorkspaceConfig::active_timeframes`, 1..=10).
+    /// Slots `active_count..10` exist as inert pipelines (never spawned,
+    /// never emit) so every array stays total.
+    pub active_count: usize,
     pub fib_config: FibonacciConfig,
     pub safety_config: SafetyConfig,
     pub intervals_config: IntervalsConfig,
@@ -71,75 +76,56 @@ pub struct PipelineContext {
 
 pub struct PipelineArtifacts {
     pub instance: Arc<Instance>,
-    pub micro: TimeframeBuffers,
-    pub fast: TimeframeBuffers,
-    pub slow: TimeframeBuffers,
-    pub r#macro: TimeframeBuffers,
+    /// Fixed 10-slot ladder buffers, fastest → slowest (keeps `Instance`
+    /// construction symmetric).
+    pub micro1: TimeframeBuffers,
+    pub micro2: TimeframeBuffers,
+    pub fast1: TimeframeBuffers,
+    pub fast2: TimeframeBuffers,
+    pub slow1: TimeframeBuffers,
+    pub slow2: TimeframeBuffers,
+    pub macro1: TimeframeBuffers,
+    pub macro2: TimeframeBuffers,
+    pub longterm1: TimeframeBuffers,
+    pub longterm2: TimeframeBuffers,
 }
 
 pub async fn build_pipelines(
     ctx: &PipelineContext,
     state: &RegistryContext,
-    warmed_states: Option<(
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-    )>,
+    warmed_states: Option<[analyzer::WarmedPipelineState; 10]>,
 ) -> PipelineArtifacts {
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(500);
     let cancel = ctx.cancel.clone();
 
-    let (micro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (fast_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (slow_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (macro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    // Per-slot state (arrays of 10, positional with FIXED_TF_SLOTS /
+    // FIXED_TF_LADDER, fastest → slowest).
+    let broadcast_txs: [tokio::sync::broadcast::Sender<MarketSnapshot>; 10] =
+        std::array::from_fn(|_| tokio::sync::broadcast::channel::<MarketSnapshot>(200).0);
 
-    let micro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.buffer_size,
-    )));
-    let fast_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.buffer_size,
-    )));
-    let slow_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.buffer_size,
-    )));
-    let macro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.buffer_size,
-    )));
+    let histories: [Arc<RwLock<VecDeque<NormalizedCandle>>>; 10] =
+        std::array::from_fn(|_| {
+            Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+                ctx.buffer_size,
+            )))
+        });
 
-    let micro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let fast_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let slow_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let macro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let latests: [Arc<RwLock<Option<MarketSnapshot>>>; 10] =
+        std::array::from_fn(|_| Arc::new(RwLock::new(None::<MarketSnapshot>)));
 
-    let micro_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-        ctx.buffer_size,
-    )));
-    let fast_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-        ctx.buffer_size,
-    )));
-    let slow_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-        ctx.buffer_size,
-    )));
-    let macro_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-        ctx.buffer_size,
-    )));
+    let snapshot_histories: [Arc<RwLock<VecDeque<MarketSnapshot>>>; 10] =
+        std::array::from_fn(|_| {
+            Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
+                ctx.buffer_size,
+            )))
+        });
 
     // Per-TF cluster-matrix handles (Phase 2). Each TF pipeline gets its
-    // own handle so the 4 charts in the dashboard can show clusters at
-    // their own horizons. Populated by the cluster refresh tasks spawned
-    // below; read by `run_single` on every candle close.
-    let micro_cluster_matrix: Arc<
-        RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>,
-    > = Arc::new(RwLock::new(None));
-    let fast_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
-        Arc::new(RwLock::new(None));
-    let slow_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
-        Arc::new(RwLock::new(None));
-    let macro_cluster_matrix: Arc<
-        RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>,
-    > = Arc::new(RwLock::new(None));
+    // own handle so the dashboard charts can show clusters at their own
+    // horizons. Populated by the cluster refresh tasks spawned below;
+    // read by `run_single` on every candle close.
+    let cluster_matrices: [Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>;
+        10] = std::array::from_fn(|_| Arc::new(RwLock::new(None)));
 
     // Per-TF cluster-refresh status handles (sibling to the matrix handles).
     // The refresh task writes to both on every tick; the
@@ -147,22 +133,15 @@ pub async fn build_pipelines(
     // distinguish "no data yet" (Pending) from "refresh task failed"
     // (Skipped with reason) — without this distinction the LIQ HEATMAP can
     // appear empty for minutes at boot with zero operator feedback.
-    let micro_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> =
-        Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending(ctx.pair_key.as_str(), "micro"),
-        ));
-    let fast_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> =
-        Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending(ctx.pair_key.as_str(), "fast"),
-        ));
-    let slow_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> =
-        Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending(ctx.pair_key.as_str(), "slow"),
-        ));
-    let macro_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> =
-        Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending(ctx.pair_key.as_str(), "macro"),
-        ));
+    let cluster_statuses: [Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>; 10] =
+        std::array::from_fn(|i| {
+            Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending(
+                    ctx.pair_key.as_str(),
+                    config_models::FIXED_TF_NAMES[i],
+                ),
+            ))
+        });
 
     // v6.10 (Phase 5 / E1): build the real ActiveSet from config instead
     // of the default all-enabled set. Global `[activation]` + per-instance
@@ -192,109 +171,52 @@ pub async fn build_pipelines(
     active_set.cluster_estimation = eff_liq.cfg.cluster_estimation;
     active_set.liquidity_signals_enabled = eff_liq.cfg.signals;
 
+    // Per-slot pipelines, built by index over the fixed ladder then moved
+    // into the named `ActivePair` fields (positionally aligned with
+    // `core_domain::models::FIXED_TF_SLOTS` / `FIXED_TF_LADDER`).
+    let pipes: [analyzer::TimeframePipeline; 10] = std::array::from_fn(|i| {
+        analyzer::TimeframePipeline {
+            slot: core_domain::models::FIXED_TF_SLOTS[i],
+            history: histories[i].clone(),
+            broadcast_tx: broadcast_txs[i].clone(),
+            latest_snapshot: latests[i].clone(),
+            snapshot_history: snapshot_histories[i].clone(),
+            timeframe_secs: ctx.ladder_cfgs[i].candles.duration_seconds,
+            timeframe_label: config_models::FIXED_TF_NAMES[i],
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: ctx.fib_config.clone(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: active_set.clone(),
+            cluster_matrix: cluster_matrices[i].clone(),
+            cluster_status: cluster_statuses[i].clone(),
+            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            advisory: Arc::new(RwLock::new(None)),
+            tf_leverage_config: Arc::new(ctx.ladder_cfgs[i].leverage.clone()),
+            buffer_size: ctx.buffer_size,
+            stale_threshold_secs: ctx.stale_threshold_secs,
+        }
+    });
+    let [micro1, micro2, fast1, fast2, slow1, slow2, macro1, macro2, longterm1, longterm2] =
+        pipes;
+
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
         custom_pipelines: std::collections::HashMap::new(),
-        micro: analyzer::TimeframePipeline {
-            slot: core_domain::models::TimeframeSlot::Micro,
-            history: micro_history.clone(),
-            broadcast_tx: micro_broadcast_tx.clone(),
-            latest_snapshot: micro_latest.clone(),
-            snapshot_history: micro_snapshot_history.clone(),
-            timeframe_secs: ctx.micro_cfg.candles.duration_seconds,
-            timeframe_label: "Micro",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: ctx.fib_config.clone(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: active_set.clone(),
-            cluster_matrix: micro_cluster_matrix.clone(),
-            cluster_status: micro_cluster_status.clone(),
-            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(ctx.micro_cfg.leverage.clone()),
-            buffer_size: ctx.buffer_size,
-            stale_threshold_secs: ctx.stale_threshold_secs,
-        },
-        fast: analyzer::TimeframePipeline {
-            slot: core_domain::models::TimeframeSlot::Fast,
-            history: fast_history.clone(),
-            broadcast_tx: fast_broadcast_tx.clone(),
-            latest_snapshot: fast_latest.clone(),
-            snapshot_history: fast_snapshot_history.clone(),
-            timeframe_secs: ctx.fast_cfg.candles.duration_seconds,
-            timeframe_label: "Fast",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: ctx.fib_config.clone(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: active_set.clone(),
-            cluster_matrix: fast_cluster_matrix.clone(),
-            cluster_status: fast_cluster_status.clone(),
-            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(ctx.fast_cfg.leverage.clone()),
-            buffer_size: ctx.buffer_size,
-            stale_threshold_secs: ctx.stale_threshold_secs,
-        },
-        slow: analyzer::TimeframePipeline {
-            slot: core_domain::models::TimeframeSlot::Slow,
-            history: slow_history.clone(),
-            broadcast_tx: slow_broadcast_tx.clone(),
-            latest_snapshot: slow_latest.clone(),
-            snapshot_history: slow_snapshot_history.clone(),
-            timeframe_secs: ctx.slow_cfg.candles.duration_seconds,
-            timeframe_label: "Slow",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: ctx.fib_config.clone(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: active_set.clone(),
-            cluster_matrix: slow_cluster_matrix.clone(),
-            cluster_status: slow_cluster_status.clone(),
-            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(ctx.slow_cfg.leverage.clone()),
-            buffer_size: ctx.buffer_size,
-            stale_threshold_secs: ctx.stale_threshold_secs,
-        },
-        r#macro: analyzer::TimeframePipeline {
-            slot: core_domain::models::TimeframeSlot::Macro,
-            history: macro_history.clone(),
-            broadcast_tx: macro_broadcast_tx.clone(),
-            latest_snapshot: macro_latest.clone(),
-            snapshot_history: macro_snapshot_history.clone(),
-            timeframe_secs: ctx.macro_cfg.candles.duration_seconds,
-            timeframe_label: "Macro",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: ctx.fib_config.clone(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: active_set.clone(),
-            cluster_matrix: macro_cluster_matrix.clone(),
-            cluster_status: macro_cluster_status.clone(),
-            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(ctx.macro_cfg.leverage.clone()),
-            buffer_size: ctx.buffer_size,
-            stale_threshold_secs: ctx.stale_threshold_secs,
-        },
+        micro1,
+        micro2,
+        fast1,
+        fast2,
+        slow1,
+        slow2,
+        macro1,
+        macro2,
+        longterm1,
+        longterm2,
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -304,6 +226,7 @@ pub async fn build_pipelines(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))), // AUDIT-AIU-051: (timestamp_secs, value)
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: state.latency_tracker.clone(),
+        active_count: ctx.active_count.min(10),
     });
 
     spawn_tasks(
@@ -311,28 +234,14 @@ pub async fn build_pipelines(
         &ctx.base,
         &ctx.internal_symbol,
         &ctx.pair_key,
-        &ctx.micro_cfg,
-        &ctx.fast_cfg,
-        &ctx.slow_cfg,
-        &ctx.macro_cfg,
+        ctx.active_count,
+        &ctx.ladder_cfgs,
         &ctx.fib_config,
         &cancel,
-        &micro_broadcast_tx,
-        &fast_broadcast_tx,
-        &slow_broadcast_tx,
-        &macro_broadcast_tx,
-        &micro_history,
-        &fast_history,
-        &slow_history,
-        &macro_history,
-        &micro_latest,
-        &fast_latest,
-        &slow_latest,
-        &macro_latest,
-        &micro_snapshot_history,
-        &fast_snapshot_history,
-        &slow_snapshot_history,
-        &macro_snapshot_history,
+        &broadcast_txs,
+        &histories,
+        &latests,
+        &snapshot_histories,
         &active_pair,
         state,
         warmed_states,
@@ -344,14 +253,8 @@ pub async fn build_pipelines(
         // v9: wired order-book config + the effective strategy.
         ctx.ob_config.clone(),
         ctx.strategy.clone(),
-        &micro_cluster_matrix,
-        &fast_cluster_matrix,
-        &slow_cluster_matrix,
-        &macro_cluster_matrix,
-        &micro_cluster_status,
-        &fast_cluster_status,
-        &slow_cluster_status,
-        &macro_cluster_status,
+        &cluster_matrices,
+        &cluster_statuses,
         ctx.buffer_size,
         // AUDIT-H7: configured stale threshold (CB-04/ILS-07).
         ctx.stale_threshold_secs,
@@ -360,26 +263,13 @@ pub async fn build_pipelines(
     )
     .await;
 
-    let micro_buf = TimeframeBuffers {
-        history: micro_history.clone(),
-        latest: micro_latest.clone(),
-        snapshot_history: micro_snapshot_history.clone(),
-    };
-    let fast_buf = TimeframeBuffers {
-        history: fast_history.clone(),
-        latest: fast_latest.clone(),
-        snapshot_history: fast_snapshot_history.clone(),
-    };
-    let slow_buf = TimeframeBuffers {
-        history: slow_history.clone(),
-        latest: slow_latest.clone(),
-        snapshot_history: slow_snapshot_history.clone(),
-    };
-    let macro_buf = TimeframeBuffers {
-        history: macro_history.clone(),
-        latest: macro_latest.clone(),
-        snapshot_history: macro_snapshot_history.clone(),
-    };
+    // Per-slot chart/telemetry buffers handed to the `Instance`, positional
+    // with the ladder (fastest → slowest).
+    let buffers: [TimeframeBuffers; 10] = std::array::from_fn(|i| TimeframeBuffers {
+        history: histories[i].clone(),
+        latest: latests[i].clone(),
+        snapshot_history: snapshot_histories[i].clone(),
+    });
 
     let instance = Arc::new(Instance::new(
         format!("inst_{}", uuid_v4_simple()),
@@ -390,19 +280,26 @@ pub async fn build_pipelines(
         state.workspace.clone(),
         ctx.intervals_config.clone(),
         ctx.safety_config.clone(),
-        micro_buf.clone(),
-        fast_buf.clone(),
-        slow_buf.clone(),
-        macro_buf.clone(),
+        buffers.clone(),
+        config_models::FIXED_TF_LADDER[..ctx.active_count.min(10)].to_vec(),
         ctx.operational_mode.clone(),
     ));
 
+    let [micro1, micro2, fast1, fast2, slow1, slow2, macro1, macro2, longterm1, longterm2] =
+        buffers;
+
     PipelineArtifacts {
         instance,
-        micro: micro_buf,
-        fast: fast_buf,
-        slow: slow_buf,
-        r#macro: macro_buf,
+        micro1,
+        micro2,
+        fast1,
+        fast2,
+        slow1,
+        slow2,
+        macro1,
+        macro2,
+        longterm1,
+        longterm2,
     }
 }
 
@@ -412,36 +309,17 @@ async fn spawn_tasks(
     base: &str,
     internal_symbol: &str,
     pair_key: &str,
-    micro_cfg: &TimeframeConfig,
-    fast_cfg: &TimeframeConfig,
-    slow_cfg: &TimeframeConfig,
-    macro_cfg: &TimeframeConfig,
+    active_count: usize,
+    ladder_cfgs: &[TimeframeConfig; 10],
     fib_config: &FibonacciConfig,
     cancel: &CancellationToken,
-    micro_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
-    fast_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
-    slow_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
-    macro_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
-    micro_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    fast_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    slow_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    macro_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    micro_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    fast_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    slow_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    macro_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    micro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    fast_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    slow_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    macro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    broadcast_txs: &[tokio::sync::broadcast::Sender<MarketSnapshot>; 10],
+    histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>; 10],
+    latests: &[Arc<RwLock<Option<MarketSnapshot>>>; 10],
+    snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>; 10],
     active_pair: &Arc<analyzer::ActivePair>,
     state: &RegistryContext,
-    warmed_states: Option<(
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-        analyzer::WarmedPipelineState,
-    )>,
+    warmed_states: Option<[analyzer::WarmedPipelineState; 10]>,
     exchange_choice: ExchangeChoice,
     quote: Currency,
     liquidity_config: LiquidityConfig,
@@ -450,14 +328,8 @@ async fn spawn_tasks(
     // v9: wired order-book config + the effective strategy.
     ob_config: OrderBookConfig,
     strategy: StrategyConfig,
-    micro_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-    fast_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-    slow_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-    macro_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-    micro_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
-    fast_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
-    slow_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
-    macro_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
+    cluster_matrices: &[Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>; 10],
+    cluster_statuses: &[Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>; 10],
     buffer_size: usize,
     // AUDIT-H7: `[candle_buffer] stale_threshold_secs` (CB-04/ILS-07) —
     // threaded into run_single (was hardcoded 300 inside the analyzer).
@@ -477,24 +349,19 @@ async fn spawn_tasks(
     let liquidity_config = eff_liq.cfg.clone();
     let _ = eff_liq;
 
-    let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (slow_chan_tx, slow_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (macro_chan_tx, macro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    // One event channel per fixed-ladder slot (10 total, fastest → slowest).
+    let mut pipeline_txs: Vec<mpsc::Sender<NormalizedEvent>> = Vec::with_capacity(10);
+    let mut pipeline_rxs: Vec<mpsc::Receiver<NormalizedEvent>> = Vec::with_capacity(10);
+    for _ in 0..10 {
+        let (tx, rx) = mpsc::channel::<NormalizedEvent>(200);
+        pipeline_txs.push(tx);
+        pipeline_rxs.push(rx);
+    }
 
     let router_symbol = internal_symbol.to_string();
     let router_cancel = cancel.clone();
     tokio::spawn(async move {
-        analyzer::run_event_router(
-            snapshot_rx,
-            micro_chan_tx,
-            fast_chan_tx,
-            slow_chan_tx,
-            macro_chan_tx,
-            router_symbol,
-            router_cancel,
-        )
-        .await;
+        analyzer::run_event_router(snapshot_rx, pipeline_txs, router_symbol, router_cancel).await;
     });
 
     let (candle_fwd_tx, mut candle_fwd_rx) = tokio::sync::mpsc::channel::<NormalizedCandle>(1000);
@@ -511,17 +378,14 @@ async fn spawn_tasks(
         tokio::sync::mpsc::channel::<market_analyzer::candle_aggregator::AggregatedCandle>(200);
     let agg_symbol = internal_symbol.to_string();
 
-    // Spawn the candle aggregator after the duration variables are captured
-    let agg_spawn_micro_secs = micro_cfg.candles.duration_seconds;
+    // Spawn the candle aggregator — the fixed ladder IS the target set
+    // (v11.1: no more micro×N derivation; every ladder duration is
+    // aggregated from the fastest slot's forwarded candles).
     tokio::spawn(market_analyzer::candle_aggregator::spawn_candle_aggregator(
         agg_symbol.clone(),
         candle_bcast_rx,
         agg_tx,
-        vec![
-            agg_spawn_micro_secs * 4,
-            agg_spawn_micro_secs * 16,
-            agg_spawn_micro_secs * 96,
-        ],
+        config_models::FIXED_TF_LADDER.to_vec(),
     ));
 
     let logger_agg_telemetry = state.telemetry_tx.clone();
@@ -540,28 +404,19 @@ async fn spawn_tasks(
     });
 
     if let Some(ref ws) = warmed_states {
-        for c in &ws.0.history {
+        for c in &ws[0].history {
             let _ = candle_fwd_tx.send(c.clone()).await;
         }
     }
 
-    // Spawn 4 pipeline tasks
-    let macro_secs = macro_cfg.candles.duration_seconds;
-    let slow_secs = slow_cfg.candles.duration_seconds;
-    let fast_secs = fast_cfg.candles.duration_seconds;
-    let micro_secs = micro_cfg.candles.duration_seconds;
-    let (w_micro, w_fast, w_slow, w_macro) = match &warmed_states {
-        Some((m, s, med, l)) => (
-            Some(m.clone()),
-            Some(s.clone()),
-            Some(med.clone()),
-            Some(l.clone()),
-        ),
-        None => (None, None, None, None),
+    // Spawn the 10 fixed-ladder pipeline tasks
+    let warmed_opts: [Option<analyzer::WarmedPipelineState>; 10] = match &warmed_states {
+        Some(ws) => std::array::from_fn(|i| Some(ws[i].clone())),
+        None => std::array::from_fn(|_| None),
     };
 
     #[allow(clippy::type_complexity)]
-    let pipeline_specs: Vec<(
+    let mut pipeline_specs: Vec<(
         mpsc::Receiver<NormalizedEvent>,
         TimeframeConfig,
         Arc<RwLock<VecDeque<NormalizedCandle>>>,
@@ -575,68 +430,34 @@ async fn spawn_tasks(
         Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
         Option<analyzer::WarmedPipelineState>,
         market_analyzer::active_set::ActiveSet,
-    )> = vec![
-        (
-            micro_chan_rx,
-            micro_cfg.clone(),
-            micro_history.clone(),
-            micro_latest.clone(),
-            micro_snapshot_history.clone(),
-            core_domain::models::TimeframeSlot::Micro,
-            "Micro",
-            micro_secs,
-            micro_broadcast_tx.clone(),
-            active_pair.micro.divergence_detector.clone(),
-            Some(candle_fwd_tx.clone()),
-            w_micro,
-            active_pair.micro.active_set.clone(),
-        ),
-        (
-            fast_chan_rx,
-            fast_cfg.clone(),
-            fast_history.clone(),
-            fast_latest.clone(),
-            fast_snapshot_history.clone(),
-            core_domain::models::TimeframeSlot::Fast,
-            "Fast",
-            fast_secs,
-            fast_broadcast_tx.clone(),
-            active_pair.fast.divergence_detector.clone(),
-            None,
-            w_fast,
-            active_pair.fast.active_set.clone(),
-        ),
-        (
-            slow_chan_rx,
-            slow_cfg.clone(),
-            slow_history.clone(),
-            slow_latest.clone(),
-            slow_snapshot_history.clone(),
-            core_domain::models::TimeframeSlot::Slow,
-            "Slow",
-            slow_secs,
-            slow_broadcast_tx.clone(),
-            active_pair.slow.divergence_detector.clone(),
-            None,
-            w_slow,
-            active_pair.slow.active_set.clone(),
-        ),
-        (
-            macro_chan_rx,
-            macro_cfg.clone(),
-            macro_history.clone(),
-            macro_latest.clone(),
-            macro_snapshot_history.clone(),
-            core_domain::models::TimeframeSlot::Macro,
-            "Macro",
-            macro_secs,
-            macro_broadcast_tx.clone(),
-            active_pair.r#macro.divergence_detector.clone(),
-            None,
-            w_macro,
-            active_pair.r#macro.active_set.clone(),
-        ),
-    ];
+    )> = Vec::with_capacity(10);
+    let pair_pipes = active_pair.all();
+    let mut rx_iter = pipeline_rxs.into_iter();
+    // v11.2: only the FASTEST `active_count` slots are spawned; the rest
+    // stay inert (constructed but never fed events, never emit).
+    for i in 0..active_count.min(10) {
+        pipeline_specs.push((
+            rx_iter.next().expect("one rx per fixed-ladder slot"),
+            ladder_cfgs[i].clone(),
+            histories[i].clone(),
+            latests[i].clone(),
+            snapshot_histories[i].clone(),
+            core_domain::models::FIXED_TF_SLOTS[i],
+            config_models::FIXED_TF_NAMES[i],
+            ladder_cfgs[i].candles.duration_seconds,
+            broadcast_txs[i].clone(),
+            pair_pipes[i].divergence_detector.clone(),
+            // The fastest slot forwards its candles to the aggregator (the
+            // ladder targets are all derived from that single stream).
+            if i == 0 {
+                Some(candle_fwd_tx.clone())
+            } else {
+                None
+            },
+            warmed_opts[i].clone(),
+            pair_pipes[i].active_set.clone(),
+        ));
+    }
 
     // DIE L3 quarantine-refetch + runtime gap-fill coordinates (03-01-04 §2.1.2/§4.2).
     let refetch_spec = {
@@ -657,7 +478,7 @@ async fn spawn_tasks(
         }
     };
 
-    for (
+    for (i, (
         rx,
         tf_cfg,
         hist,
@@ -671,7 +492,7 @@ async fn spawn_tasks(
         candle_fwd,
         warmed,
         active_set,
-    ) in pipeline_specs
+    )) in pipeline_specs.into_iter().enumerate()
     {
         let a_symbol = internal_symbol.to_string();
         let a_pair_key = pair_key.to_string();
@@ -699,21 +520,10 @@ async fn spawn_tasks(
         let a_ob_config = ob_config.clone();
         let a_strategy = strategy.clone();
         // Per-TF cluster-matrix handle (Phase 2, per-TF refactor). Each TF
-        // pipeline owns its own `Arc<RwLock<...>>` so the 4 charts in the
-        // dashboard each see the cluster at their own horizon. See
+        // pipeline owns its own `Arc<RwLock<...>>` so every chart in the
+        // dashboard sees the cluster at its own horizon. See
         // `compute_cluster_for_tf` for the per-TF history lookback.
-        let a_cluster_matrix = match slot {
-            core_domain::models::TimeframeSlot::Micro => micro_cluster_matrix.clone(),
-            core_domain::models::TimeframeSlot::Fast => fast_cluster_matrix.clone(),
-            core_domain::models::TimeframeSlot::Slow => slow_cluster_matrix.clone(),
-            core_domain::models::TimeframeSlot::Macro => macro_cluster_matrix.clone(),
-            core_domain::models::TimeframeSlot::Custom { .. } => {
-                // Custom slots don't have a per-TF cluster handle yet — fall
-                // back to the micro handle so the per-TF refresh loop still
-                // runs. Phase A wires a real per-custom-slot handle.
-                micro_cluster_matrix.clone()
-            }
-        };
+        let a_cluster_matrix = cluster_matrices[i].clone();
         let a_latency = active_pair.latency_tracker.clone();
         let a_quality = state.platform.read().await.quality.clone();
         let a_reliability = state.reliability.clone();
@@ -730,77 +540,28 @@ async fn spawn_tasks(
         let a_cq_scope = state.connection_quality.scope(pair_key, tf_secs).await;
         let a_buffer_size = buffer_size;
         // v6.10 (Phase 2 / B3): per-TF advisory handle for write-through.
-        let a_advisory: Arc<RwLock<Option<core_domain::advisory::AdvisoryMatrix>>> = match slot {
-            core_domain::models::TimeframeSlot::Micro => active_pair.micro.advisory.clone(),
-            core_domain::models::TimeframeSlot::Fast => active_pair.fast.advisory.clone(),
-            core_domain::models::TimeframeSlot::Slow => active_pair.slow.advisory.clone(),
-            core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.advisory.clone(),
-            core_domain::models::TimeframeSlot::Custom { id } => active_pair
-                .custom_pipelines
-                .get(&id)
-                .map(|p| p.advisory.clone())
-                .unwrap_or_else(|| Arc::new(RwLock::new(None))),
-        };
+        let a_advisory: Arc<RwLock<Option<core_domain::advisory::AdvisoryMatrix>>> =
+            pair_pipes[i].advisory.clone();
         // v6.10 (Phase 3 / C1 + C3): per-TF indicator_lifecycle handle
         // used as prev-state input AND as write-through target on every
         // completed candle emit.
         let a_indicator_lifecycle: Arc<RwLock<core_domain::indicator_dtos::IndicatorLifecycleMap>> =
-            match slot {
-                core_domain::models::TimeframeSlot::Micro => {
-                    active_pair.micro.indicator_lifecycle.clone()
-                }
-                core_domain::models::TimeframeSlot::Fast => {
-                    active_pair.fast.indicator_lifecycle.clone()
-                }
-                core_domain::models::TimeframeSlot::Slow => {
-                    active_pair.slow.indicator_lifecycle.clone()
-                }
-                core_domain::models::TimeframeSlot::Macro => {
-                    active_pair.r#macro.indicator_lifecycle.clone()
-                }
-                core_domain::models::TimeframeSlot::Custom { id } => active_pair
-                    .custom_pipelines
-                    .get(&id)
-                    .map(|p| p.indicator_lifecycle.clone())
-                    .unwrap_or_else(|| {
-                        Arc::new(RwLock::new(
-                            core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
-                        ))
-                    }),
-            };
+            pair_pipes[i].indicator_lifecycle.clone();
         // v6.10 (Phase 3 / C3): per-TF pipeline_state handle for write-through.
-        let a_pipeline_state: Arc<RwLock<core_domain::models::CandlePipelineState>> = match slot {
-            core_domain::models::TimeframeSlot::Micro => active_pair.micro.pipeline_state.clone(),
-            core_domain::models::TimeframeSlot::Fast => active_pair.fast.pipeline_state.clone(),
-            core_domain::models::TimeframeSlot::Slow => active_pair.slow.pipeline_state.clone(),
-            core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.pipeline_state.clone(),
-            core_domain::models::TimeframeSlot::Custom { id } => active_pair
-                .custom_pipelines
-                .get(&id)
-                .map(|p| p.pipeline_state.clone())
-                .unwrap_or_else(|| {
-                    Arc::new(RwLock::new(
-                        core_domain::models::CandlePipelineState::Initializing,
-                    ))
-                }),
-        };
+        let a_pipeline_state: Arc<RwLock<core_domain::models::CandlePipelineState>> =
+            pair_pipes[i].pipeline_state.clone();
 
-        let x_micro = micro_latest.clone();
-        let x_fast = fast_latest.clone();
-        let x_slow = slow_latest.clone();
-        let x_macro = macro_latest.clone();
+        // Sibling handles: every OTHER fixed-ladder slot's latest-snapshot
+        // lock, in ladder order, excluding this pipeline's own.
+        let cross_tf_snapshots: Vec<Arc<RwLock<Option<MarketSnapshot>>>> = latests
+            .iter()
+            .enumerate()
+            .filter_map(|(j, h)| (j != i).then_some(h.clone()))
+            .collect();
         // AUDIT-H7: capture before the `move` closure.
         let stale_threshold_secs = stale_threshold_secs as u32;
 
         tokio::spawn(async move {
-            let (ct_a, ct_b, ct_c) = match slot {
-                core_domain::models::TimeframeSlot::Micro => (x_fast, x_slow, x_macro),
-                core_domain::models::TimeframeSlot::Fast => (x_micro, x_slow, x_macro),
-                core_domain::models::TimeframeSlot::Slow => (x_micro, x_fast, x_macro),
-                core_domain::models::TimeframeSlot::Macro => (x_micro, x_fast, x_slow),
-                core_domain::models::TimeframeSlot::Custom { .. } => (x_micro, x_fast, x_slow),
-            };
-
             // v9 fix: `run_single`'s future is enormous in debug builds
             // (~2 MB state machine). Box it so the outer task future stays
             // tiny — constructing it on the worker stack used to overflow
@@ -836,9 +597,7 @@ async fn spawn_tasks(
                 a_heatmap_config,
                 a_ob_config,
                 a_strategy,
-                ct_a,
-                ct_b,
-                ct_c,
+                cross_tf_snapshots,
                 a_latency,
                 active_set,
                 a_quality,
@@ -895,7 +654,8 @@ async fn spawn_tasks(
     let es_disconnect_label = exchange_label.clone();
     let cq_registry = state.connection_quality.clone();
     let cq_pair_key = pair_key.to_string();
-    let cq_timeframes = [micro_secs, fast_secs, slow_secs, macro_secs];
+    let cq_timeframes: [u64; 10] =
+        std::array::from_fn(|i| ladder_cfgs[i].candles.duration_seconds);
     // AUDIT-V9 B7: capture the workspace-wide latency tracker so the
     // heartbeat task can record inter-tick drift into
     // `system_heartbeat_latency_ms`. Previously this field was always
@@ -1217,32 +977,17 @@ async fn spawn_tasks(
             &'a Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
             u64,
         );
-        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = vec![
-            (
-                TimeframeSlot::Micro,
-                micro_cluster_matrix,
-                micro_cluster_status,
-                micro_cfg.candles.duration_seconds,
-            ),
-            (
-                TimeframeSlot::Fast,
-                fast_cluster_matrix,
-                fast_cluster_status,
-                fast_cfg.candles.duration_seconds,
-            ),
-            (
-                TimeframeSlot::Slow,
-                slow_cluster_matrix,
-                slow_cluster_status,
-                slow_cfg.candles.duration_seconds,
-            ),
-            (
-                TimeframeSlot::Macro,
-                macro_cluster_matrix,
-                macro_cluster_status,
-                macro_cfg.candles.duration_seconds,
-            ),
-        ];
+        // One refresh handle-set per ACTIVE ladder slot (fastest → slowest).
+        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = (0..active_count.min(10))
+            .map(|i| {
+                (
+                    core_domain::models::FIXED_TF_SLOTS[i],
+                    &cluster_matrices[i],
+                    &cluster_statuses[i],
+                    ladder_cfgs[i].candles.duration_seconds,
+                )
+            })
+            .collect();
         // PRI-07 (v6.10.7): custom slots also get a cluster refresh task
         // (previously only the four default slots did, so custom-slot charts
         // had no LIQ HEATMAP data). Each custom pipeline is a full

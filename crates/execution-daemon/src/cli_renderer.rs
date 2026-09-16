@@ -237,8 +237,8 @@ async fn render_instances(out: &mut String, instances: &[Arc<Instance>]) {
         return;
     }
     out.push_str(&format!(
-        "  {:<14} {:<12} {:<8} {:>14}  {:<9} {:<8}\n",
-        "SYMBOL", "EXCHANGE", "MODE", "PRICE", "STATUS", "MICRO"
+        "  {:<14} {:<12} {:<8} {:>14}  {:<9} {:<8} {:<30}\n",
+        "SYMBOL", "EXCHANGE", "MODE", "PRICE", "STATUS", "MICRO", "TF LADDER"
     ));
     for inst in instances {
         let price = inst.latest_price().await.unwrap_or(f64::NAN);
@@ -251,20 +251,30 @@ async fn render_instances(out: &mut String, instances: &[Arc<Instance>]) {
         } else {
             format!("{:.6}", price)
         };
-        let micro_secs = format!("{}s", inst.active_pair.micro.timeframe_secs);
+        // Fastest slot of the active ladder + the ACTIVE ladder
+        // (fastest N of the fixed pool) for one-glance parity with the
+        // GUI instance rows.
+        let micro_secs = format!("{}s", inst.active_pair.micro1.timeframe_secs);
+        let ladder = inst
+            .active_secs
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join("/");
         let mode = match inst.execution_mode().await {
             config_models::ExecutionMode::Observe => "observe",
             config_models::ExecutionMode::Paper => "paper",
             config_models::ExecutionMode::Live => "live",
         };
         out.push_str(&format!(
-            "  {:<14} {:<12} {:<8} {:>14}  {:<9} {:<8}\n",
+            "  {:<14} {:<12} {:<8} {:>14}  {:<9} {:<8} {:<30}\n",
             inst.pair_display(),
             inst.exchange.as_str(),
             mode,
             price_str,
             inst.status().await.as_str(),
             micro_secs,
+            ladder,
         ));
     }
     out.push('\n');

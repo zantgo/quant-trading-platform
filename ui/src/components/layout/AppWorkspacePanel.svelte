@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onDestroy, untrack } from 'svelte';
     import { useAppStore } from '../../state.svelte';
+    import { TIMEFRAME_SLOT_KINDS } from '../../types';
     import {
         connectWsForInstance, disconnectWsForInstance,
         type WsState,
@@ -47,7 +48,7 @@
     function changeStr(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
         if (!inst) return '';
-        const tfs = [inst.microTerm, inst.fastTerm, inst.slowTerm, inst.macroTerm];
+        const tfs = TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms?.[slot]);
         for (const tf of tfs) {
             const snap = tf?.latestSnapshot;
             if (!snap) continue;
@@ -76,12 +77,12 @@
     function priceFor(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
         if (!inst) return '--';
-        const tfs = [inst.microTerm, inst.fastTerm, inst.slowTerm, inst.macroTerm];
+        const tfs = TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms?.[slot]);
         for (const tf of tfs) {
             const p = tf?.priceText;
             if (p && p !== '0' && p !== 'NaN' && parseFloat(p) > 0) return p;
         }
-        return inst.microTerm?.priceText || '--';
+        return inst.terms?.micro1?.priceText || '--';
     }
 
     function statusClass(status: string): string {

@@ -1,6 +1,6 @@
 # Backtesting Engine — Overview
 
-**Version:** 10.1 (2026-08-24)
+**Version:** 11.3 (2026-09-16)
 **Status:** Implemented (production-ready) — installer-style launcher, standalone multi-symbol runs, progress + cancel, CLI mode
 **Engine:** Backtesting Engine (BTE) — the sixth logical engine
 **Crate:** `crates/backtesting-engine`
@@ -33,7 +33,7 @@ choices as the live Launch Setup, with one extra choice (archive depth):
 | Step | Name | Choices |
 |------|------|---------|
 | 1 | Environment | Exchange (Hyperliquid / Bitget), settlement currency (USDC/USDT per exchange), starting capital |
-| 2 | Instances | One or more instances: ticker + the 4 timeframe dropdowns (the standard tier list, preseeded 1m/3m/5m/15m) + **allocation %** (1–100, Σ ≤ 100 %, ≤ 100 instances) |
+| 2 | Instances | One or more instances: ticker + ladder timeframes (chosen from the fixed 10-slot pool, archive-eligible values ≥ 60 s — the sub-minute slots are live-only) + **allocation %** (1–100, Σ ≤ 100 %, ≤ 100 instances) |
 | 3 | Historical Data | Archive depth 1–365 days (no date range pickers), per-TF readiness chips, burn-in note, per-exchange max-depth display |
 | 4 | Run | Progress bar (Fetching → Warming → Replaying → Analyzing) with % and **Cancel** |
 
@@ -42,6 +42,16 @@ Rules:
 - **Standalone**: a backtest does **not** require a running instance. When
   an instance is selected, the launcher is preseeded from it (backward
   compatibility: `instance_id` on the run payload is still accepted).
+- **Bound ladder = the instance's ACTIVE ladder ∩ ≥ 60 s (v11.2).** A bound
+  run replays `active_secs` (the fastest `[workspace].active_timeframes`
+  slots, see [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md))
+  filtered to the 60-second archive floor. At the default count of 5 (all
+  sub-minute) that set is **empty** and the run is rejected
+  `400 no_active_ladder` ("raise `[workspace].active_timeframes` past the
+  60 s slots to backtest"); raising the count past `slow2` (N ≥ 6) makes the
+  instance backtestable. A `timeframe_secs` outside the resolved set is
+  rejected `400` naming the set. Standalone runs are unaffected (explicit
+  ladder; archive-eligible values only).
 - **One backtest at a time** (global run lock → 409 on concurrent runs).
 - **One backfill per symbol/exchange at a time** (409 while running).
 - Runs are **asynchronous**: `POST /api/backtest/run` returns immediately
@@ -108,8 +118,13 @@ non-interactive flags for automation:
 
 ```text
 execution-daemon --backtest --exchange hl|bitget --symbols BTC,ETH \
-    --tf 60,180,300,900 --depth 180 --capital 1000 --allocation 10
+    --tf 60,180,300,900,3600 --depth 180 --capital 1000 --allocation 10
 ```
+
+`--tf` accepts 1..=10 strictly-ascending values from the standard tiers, all
+≥ 60 s (the archive floor; the sub-minute fixed slots `micro1`–`slow1` are
+live-only and can never be backfilled). The default standalone ladder is
+`60,180,300,900,3600` (`slow2`…`longterm2`).
 
 Terminal progress bar with Ctrl+C cancel; the final JSON line carries the
 run id; results persist to the same tables the GUI History/Study read. See

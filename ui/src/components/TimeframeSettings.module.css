@@ -10,10 +10,9 @@
 }
 .cards-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 12px;
 }
-@media (max-width: 1400px) { .cards-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 800px) { .cards-grid { grid-template-columns: 1fr; } }
 .term-card {
     background: rgba(255, 255, 255, 0.02);
@@ -124,4 +123,48 @@
     font-size: 10px;
     color: #ff453a;
     font-weight: 600;
+}
+.active-count-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 420px;
+}
+.active-count-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.active-count-row label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.75);
+    white-space: nowrap;
+}
+.active-count-row input {
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 5px;
+    width: 70px;
+    text-align: right;
+    outline: none;
+}
+.active-count-row input:focus { border-color: rgba(255, 255, 255, 0.35); }
+.active-count-hint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    margin: 0;
+    line-height: 1.45;
 }

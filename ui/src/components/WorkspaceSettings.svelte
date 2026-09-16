@@ -2,8 +2,9 @@
     import { untrack } from 'svelte';
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
-    import type { InstanceState, TimeframeTelemetry } from '../types';
-    import { TIMEFRAME_OPTIONS } from '../types';
+    import type { InstanceState, TimeframeSlotKind, TimeframeTelemetry } from '../types';
+    import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS, TIMEFRAME_SLOT_DURATION_SECS } from '../types';
+    import { activeSlotKinds } from '../lib/terms';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
@@ -166,33 +167,37 @@
         return `tf-${term}-${slug}`;
     }
 
-    let tfDraft = $state({
-        micro: defaultTermDraft(),
-        fast: defaultTermDraft(),
-        slow: defaultTermDraft(),
-        macro: defaultTermDraft(),
-    });
+    let tfDraft = $state<Record<TimeframeSlotKind, TermDraft>>(
+        Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, defaultTermDraft()])) as Record<TimeframeSlotKind, TermDraft>
+    );
 
     // v7.0-prod (D5 default = 10×): left-rail selector + per-TF config pane.
-    type TfSlot = 'micro' | 'fast' | 'slow' | 'macro';
-    let selectedSlot = $state<TfSlot>('micro');
+    // v8: the rail lists the fixed 10-slot ladder — durations are not editable.
+    // v11.2: the rail (and every draft read/apply/save walk) lists only the
+    // instance's ACTIVE slots — the fastest N of the fixed pool; inactive
+    // slots are inert and cannot be configured.
+    type TfSlot = TimeframeSlotKind;
+    let selectedSlot = $state<TfSlot>('micro1');
 
-    const slotOrder: TfSlot[] = ['micro', 'fast', 'slow', 'macro'];
-    const slotTitles: Record<TfSlot, string> = {
-        micro: 'Micro Term',
-        fast: 'Fast Term',
-        slow: 'Slow Term',
-        macro: 'Macro Term',
-    };
+    const slotOrder = $derived<TfSlot[]>(activeSlotKinds(pair));
 
-    function selectedOption(seconds: number): number {
-        const found = TIMEFRAME_OPTIONS.find(o => o.seconds === seconds);
-        return found ? found.seconds : -1;
+    /// Keep the configured pane on an ACTIVE slot when the ladder narrows
+    /// (e.g. after a settings save reduced the active count).
+    const paneSlot = $derived<TfSlot>(
+        slotOrder.includes(selectedSlot) ? selectedSlot : (slotOrder[0] ?? 'micro1'),
+    );
+    const slotTitles: Record<TfSlot, string> = Object.fromEntries(
+        TIMEFRAME_SLOT_KINDS.map((slot) => [slot, TIMEFRAME_SLOT_LABELS[slot]]),
+    ) as Record<TfSlot, string>;
+
+    function durationSuffixOf(sec: number): string {
+        if (sec % 3600 === 0 && sec > 0) return `${sec / 3600}h`;
+        if (sec % 60 === 0 && sec > 0) return `${sec / 60}m`;
+        return `${sec}s`;
     }
 
-    function durationLabel(seconds: number): string {
-        const found = TIMEFRAME_OPTIONS.find(o => o.seconds === seconds);
-        return found ? found.label : `${seconds}s`;
+    function slotSecsLabel(slot: TfSlot): string {
+        return durationSuffixOf(TIMEFRAME_SLOT_DURATION_SECS[slot]);
     }
 
     // ─── Visual overlay toggles (grouped for the trader) ────────────────
@@ -281,15 +286,15 @@
         if (!pair) return;
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
         for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
-            (draft.visuals as any)[f] = (pair.microTerm as any)[f];
+            (draft.visuals as any)[f] = (pair.terms.micro1 as any)[f];
         }
         draft.automation.enabled = pair.automationEnabled;
         draft.automation.intervalValue = pair.automationIntervalValue;
         draft.automation.intervalUnit = pair.automationIntervalUnit as 'seconds' | 'minutes' | 'hours';
-        tfDraft.micro = readTermFromTelemetry(pair.microTerm);
-        tfDraft.fast = readTermFromTelemetry(pair.fastTerm);
-        tfDraft.slow = readTermFromTelemetry(pair.slowTerm);
-        tfDraft.macro = readTermFromTelemetry(pair.macroTerm);
+        for (const slot of activeSlotKinds(pair)) {
+            const tf = pair.terms[slot];
+            if (tf) tfDraft[slot] = readTermFromTelemetry(tf);
+        }
         void loadInstanceConfig();
     });
 
@@ -300,12 +305,7 @@
             exchange: draft.exchange,
             visuals: draft.visuals,
             automation: draft.automation,
-            tf: {
-                micro: tfDraft.micro,
-                fast: tfDraft.fast,
-                slow: tfDraft.slow,
-                macro: tfDraft.macro,
-            },
+            tf: Object.fromEntries(activeSlotKinds(pair).map((slot) => [slot, tfDraft[slot]])),
             activation,
         });
     }
@@ -361,10 +361,7 @@
 
     function updateSlotLeverageTiers(slot: TfSlot, next: number[]) {
         const cleaned = Array.from(new Set(next.filter((t) => Number.isInteger(t) && t >= 1 && t <= 100))).sort((a, b) => a - b);
-        if (slot === 'micro') tfDraft.micro.heatmapLeverageTiers = cleaned;
-        else if (slot === 'fast') tfDraft.fast.heatmapLeverageTiers = cleaned;
-        else if (slot === 'slow') tfDraft.slow.heatmapLeverageTiers = cleaned;
-        else tfDraft.macro.heatmapLeverageTiers = cleaned;
+        tfDraft[slot].heatmapLeverageTiers = cleaned;
     }
 
     function buildExport(): string {
@@ -373,12 +370,7 @@
             identity: { symbol: draft.symbol, exchange: draft.exchange },
             visuals: draft.visuals,
             automation: { ...draft.automation, interval_seconds: calculatedAutomationInterval },
-            timeframes: {
-                micro: tfDraft.micro,
-                fast: tfDraft.fast,
-                slow: tfDraft.slow,
-                macro: tfDraft.macro,
-            },
+            timeframes: Object.fromEntries(activeSlotKinds(pair).map((slot) => [slot, tfDraft[slot]])),
             activation,
         });
     }
@@ -413,8 +405,8 @@
             targetTabKey = newPairKey;
         }
 
-        for (const tf of [target.microTerm, target.fastTerm, target.slowTerm, target.macroTerm]) {
-            applyVisualsToTerm(tf, vis);
+        for (const slot of activeSlotKinds(target)) {
+            applyVisualsToTerm(target.terms[slot] as unknown as Record<string, any>, vis);
         }
 
         target.automationEnabled = auto.enabled;
@@ -423,20 +415,18 @@
 
         saveState = 'saving';
         try {
-            const body = {
-                micro_term: { candles: { duration_seconds: tfDraft.micro.durationSeconds }, indicators: buildIndicators(tfDraft.micro) },
-                fast_term: { candles: { duration_seconds: tfDraft.fast.durationSeconds }, indicators: buildIndicators(tfDraft.fast) },
-                slow_term: { candles: { duration_seconds: tfDraft.slow.durationSeconds }, indicators: buildIndicators(tfDraft.slow) },
-                macro_term: { candles: { duration_seconds: tfDraft.macro.durationSeconds }, indicators: buildIndicators(tfDraft.macro) },
-                automation: { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval },
-                    activation: {
-                    disabled_indicators: activation.disabledIndicators.split(',').map((s) => s.trim()).filter(Boolean),
-                    disabled_signals: [],
-                    disabled_signal_kinds: [],
-                    liquidation_feed: activation.liquidationFeed,
-                    cluster_estimation: activation.clusterEstimation,
-                    liquidity_signals_enabled: activation.liquiditySignalsEnabled,
-                },
+            const body: Record<string, unknown> = {};
+            for (const slot of activeSlotKinds(target)) {
+                body[slot] = { indicators: buildIndicators(tfDraft[slot]) };
+            }
+            body.automation = { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval };
+            body.activation = {
+                disabled_indicators: activation.disabledIndicators.split(',').map((s) => s.trim()).filter(Boolean),
+                disabled_signals: [],
+                disabled_signal_kinds: [],
+                liquidation_feed: activation.liquidationFeed,
+                cluster_estimation: activation.clusterEstimation,
+                liquidity_signals_enabled: activation.liquiditySignalsEnabled,
             };
             // Prefer the backend-assigned UUID; fall back to the pair key only
             // for the first paint of a freshly added instance whose UUID has
@@ -452,10 +442,10 @@
                     const headerId = res.headers.get('x-instance-id');
                     if (headerId) target.instanceId = headerId;
                 }
-                applyTermToTelemetry(tfDraft.micro, target.microTerm);
-                applyTermToTelemetry(tfDraft.fast, target.fastTerm);
-                applyTermToTelemetry(tfDraft.slow, target.slowTerm);
-                applyTermToTelemetry(tfDraft.macro, target.macroTerm);
+                for (const slot of activeSlotKinds(target)) {
+                    const tf = target.terms[slot];
+                    if (tf) applyTermToTelemetry(tfDraft[slot], tf);
+                }
                 // Force WS reconnect so each connection's URL carries the
                 // new `timeframe_secs` value matching the recharged pipeline.
                 app.bumpWsVersion();
@@ -574,40 +564,27 @@
                             onclick={() => selectedSlot = slot}
                         >
                             <span class={styles.tfShellRailLabel}>{slotTitles[slot]}</span>
-                            <span class={styles.tfShellRailSecs}>
-                                {durationLabel(tfDraft[slot].durationSeconds)}
-                            </span>
+                            <span class={styles.tfShellRailSecs}>{slotSecsLabel(slot)}</span>
                         </button>
                     {/each}
                 </aside>
 
                 <div class={styles.tfShellPane}>
-                    <div class={styles.tfRow}>
-                        <label class="{engine.fieldLabel} {styles.tfLabel}" for="tf-duration-select">Duration</label>
-                        <select class={engine.select} id="tf-duration-select"
-                            value={selectedOption(tfDraft[selectedSlot].durationSeconds)}
-                            onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) (tfDraft[selectedSlot] as TermDraft).durationSeconds = v; }}>
-                            <option value={-1} disabled>Custom: {durationLabel(tfDraft[selectedSlot].durationSeconds)}</option>
-                            {#each TIMEFRAME_OPTIONS as opt}
-                                <option value={opt.seconds}>{opt.label}</option>
-                            {/each}
-                        </select>
-                    </div>
-                    <h4 class={styles.tfCardSubTitle}>{slotTitles[selectedSlot]} — indicator parameters</h4>
+                    <h4 class={styles.tfCardSubTitle}>{slotTitles[paneSlot]} · {slotSecsLabel(paneSlot)} — indicator parameters</h4>
                     <div class={styles.tfInputScroll}>
-                        {@render indicatorInputs(selectedSlot, tfDraft[selectedSlot])}
+                        {@render indicatorInputs(paneSlot, tfDraft[paneSlot])}
                     </div>
                 </div>
 
                 <div class={styles.tfShellPane}>
-                    <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[selectedSlot]}</h4>
+                    <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[paneSlot]}</h4>
                     <p class={engine.infoLine}>
                         Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
                         of any selected integer × tier. Matching bands intensify, the rest dim.
                     </p>
                     <LiquidationHeatmapTierPicker
-                        tiers={tfDraft[selectedSlot].heatmapLeverageTiers}
-                        onChange={(next) => updateSlotLeverageTiers(selectedSlot, next)}
+                        tiers={tfDraft[paneSlot].heatmapLeverageTiers}
+                        onChange={(next) => updateSlotLeverageTiers(paneSlot, next)}
                     />
                 </div>
             </div>
@@ -639,7 +616,7 @@
                 <h3 class={engine.cardTitle}>Visual Overlays</h3>
                 <ConfigSourceChip source="per-instance" apply="LIVE" />
             </div>
-            <p class={engine.infoLine}>Which indicator panes and price overlays the Workspace charts render. Applied to all four timeframes.</p>
+            <p class={engine.infoLine}>Which indicator panes and price overlays the Workspace charts render. Applied to all ten timeframes.</p>
             <div class={styles.visGroups}>
                 {#each VISUAL_GROUPS as group (group.title)}
                     <div class={styles.visGroup}>

@@ -102,23 +102,36 @@ describe('AppStore.fetchOverview', () => {
 });
 
 describe('AppStore.startOverviewPolling', () => {
-    it('fires one fetch immediately and then on every interval tick', async () => {
+    // Phase 4: the FIRST tick fires after a one-off ±250 ms module-level
+    // jitter (TAB_JITTER_MS) so multiple browser tabs poll out of phase;
+    // every later cycle stays exactly `intervalMs` apart. These fixtures
+    // therefore wait out the worst-case jitter (250 ms) before asserting.
+    const JITTER_BUDGET_MS = 400;
+
+    it('fires the first fetch after the startup jitter and then on every interval tick', async () => {
         const app = useAppStore();
         const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
             ok: true,
             json: async () => sampleOverview,
         } as Response);
 
-        app.startOverviewPolling(60);
-        // Initial fetch is fire-and-forget; allow it to settle.
-        await new Promise((r) => setTimeout(r, 20));
+        // Phase A — first fetch: exactly one call once the ≤ 250 ms
+        // jitter window has elapsed. Interval is 60 s so the 400 ms
+        // wait cannot catch a second tick.
+        app.startOverviewPolling(60_000);
+        await new Promise((r) => setTimeout(r, JITTER_BUDGET_MS));
         expect(spy).toHaveBeenCalledTimes(1);
 
-        await new Promise((r) => setTimeout(r, 80));
-        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+        // Phase B — restart with a fast interval: the loop keeps
+        // ticking every `intervalMs` after the first jittered tick.
+        app.stopOverviewPolling();
+        const callsAfterFirst = spy.mock.calls.length;
+        app.startOverviewPolling(60);
+        await new Promise((r) => setTimeout(r, JITTER_BUDGET_MS + 120));
+        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(callsAfterFirst + 2);
     });
 
-    it('does not double-start when called twice', () => {
+    it('does not double-start when called twice', async () => {
         const app = useAppStore();
         const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
             ok: true,
@@ -129,8 +142,9 @@ describe('AppStore.startOverviewPolling', () => {
         app.startOverviewPolling(60_000);
         app.startOverviewPolling(60_000);
 
-        // Single initial fetch — the duplicate calls did not stack
-        // timers.
+        // Single first fetch (after the jitter) — the duplicate calls
+        // did not stack timers.
+        await new Promise((r) => setTimeout(r, JITTER_BUDGET_MS));
         expect(spy).toHaveBeenCalledTimes(1);
     });
 

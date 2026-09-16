@@ -5,14 +5,14 @@ export class SettingsStore {
     /** Authoritative indicator manifest fetched from /api/config (source of truth). */
     indicatorRegistry = $state<import('../types').IndicatorMeta[]>([]);
 
+    /// v11.2 — `[workspace].active_timeframes` (1..=10, backend default 5):
+    /// how many of the FASTEST slots of the fixed 10-slot ladder actually
+    /// run. Edited from the MME TimeframeSettings tab; saving POSTs it to
+    /// `/api/config`, which live-recharges running instances. Seeded from
+    /// the GET payload in `applyConfigToStore`.
+    activeTimeframes = $state(5);
+
     globalCandlesConfig = $state({ duration_seconds: 60 });
-    /// v7.2 parity: the workspace's slow/macro default timeframe durations
-    /// (from `/api/config`). The Launch Setup wizard derives its per-instance
-    /// TF defaults from these — the same ladder `registry::add_instance`
-    /// falls back to, so GUI/CLI/registry always agree. Defaults match the
-    /// shipped config.toml (300 / 900).
-    workspaceSlowTimeframeSecs = $state(300);
-    workspaceMacroTimeframeSecs = $state(900);
     globalIndicatorsConfig = $state({
         ema_fast: 10, ema_medium: 50, ema_slow: 100, ema_long: 200,
         rsi_period: 14, macd_fast: 12, macd_slow: 26, macd_signal: 9,

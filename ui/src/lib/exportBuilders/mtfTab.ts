@@ -15,6 +15,7 @@
 
 import type {
   TimeframeTelemetry,
+  TimeframeSlotKind,
   IndicatorMeta,
   IndicatorDto,
   IndicatorGroup,
@@ -26,12 +27,12 @@ import type {
   LiquidityFlow,
   MarketContext,
 } from '../../types';
+import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../../types';
 import {
   buildPriceBlock,
   buildHeaderBlock,
   type MetaEnvelope,
   type HeaderBlock,
-  type InstanceTermsLike,
   type LiquidityPanelBlock,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
@@ -58,7 +59,9 @@ import {
   type LevelRow,
 } from './metricsTab';
 
-export type MtfSlotLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
+export type MtfSlotLabel =
+  | 'Micro1' | 'Micro2' | 'Fast1' | 'Fast2' | 'Slow1' | 'Slow2'
+  | 'Macro1' | 'Macro2' | 'Longterm1' | 'Longterm2';
 
 export interface MtfTimeframeEntry {
   label: MtfSlotLabel;
@@ -159,7 +162,7 @@ export interface MtfPayload {
   header: HeaderBlock;
   groups: MtfGroupEntry[];
   indicators: MtfIndicatorEntry[];
-  /** Aggregated across all 4 TFs (same shape as the Metrics single-TF export). */
+  /** Aggregated across all 10 TFs (same shape as the Metrics single-TF export). */
   group_confluence: GroupConfluenceRow[];
   signals_by_kind: Record<string, IndicatorSignalExport[]>;
   divergences: DivergenceRow[];
@@ -667,7 +670,7 @@ interface MtfAggregate {
 }
 
 /**
- * Aggregate indicator data across all 4 TFs into a single flattened view
+ * Aggregate indicator data across all 10 TFs into a single flattened view
  * (same shape the single-TF Metrics export carries in its top-level
  * `signals_by_kind` / `divergences` / `levels` blocks). Deduplicates by
  * `(key, label, kind, time-bucket)` so the same signal that fired on
@@ -748,12 +751,8 @@ function aggregateAcrossTFs(perTf: MtfTimeframeEntry[], registry: IndicatorMeta[
 // ── Public builder ───────────────────────────────────────────────────────
 
 export interface MtfTabInputs {
-  pair: {
-    microTerm: TimeframeTelemetry;
-    fastTerm: TimeframeTelemetry;
-    slowTerm: TimeframeTelemetry;
-    macroTerm: TimeframeTelemetry;
-  };
+  /** Per-slot telemetry keyed by the fixed 10-slot ladder. */
+  terms: Record<TimeframeSlotKind, TimeframeTelemetry>;
   registry: IndicatorMeta[];
   /** v6.11: filtering was removed entirely — every registry row is always
    *  exported and every `visible` flag is always `true` (superset = shown
@@ -771,7 +770,10 @@ export interface MtfTabInputs {
   timestamp?: number | null;
   markPrice?: number | null;
   isCompleted?: boolean;
-  terms?: InstanceTermsLike;
+  /** v11.2 — the ACTIVE slot ladder: `meta.timeframes`, the per-TF
+   *  `timeframes[]` block and every per-indicator column walk only these
+   *  slots (fastest N of the fixed pool). Absent → all 10. */
+  activeSlots?: TimeframeSlotKind[];
   headerSpec: LayerHeaderSpec;
 }
 
@@ -779,21 +781,24 @@ export interface MtfTabInputs {
  * Build the MTF tab export payload. Mirrors `MtfView.svelte` 1:1.
  */
 export function buildMtfExportJson(args: MtfTabInputs): string {
+  const activeSlots = args.activeSlots && args.activeSlots.length > 0
+    ? args.activeSlots
+    : [...TIMEFRAME_SLOT_KINDS];
   const { meta } = buildPriceBlock({
     symbol: args.symbol,
     exchange: args.exchange,
     terms: args.terms,
+    activeSlots,
     fallbackMarkPrice: args.markPrice,
     tfSecs: args.tfSecs ?? 0,
     timestamp: args.timestamp,
     isCompleted: args.isCompleted,
   });
-  const slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[] = [
-    { label: 'Micro', tf: args.pair.microTerm },
-    { label: 'Fast',  tf: args.pair.fastTerm },
-    { label: 'Slow',  tf: args.pair.slowTerm },
-    { label: 'Macro', tf: args.pair.macroTerm },
-  ];
+  const slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[] =
+    activeSlots.map((slot) => ({
+      label: TIMEFRAME_SLOT_LABELS[slot] as MtfSlotLabel,
+      tf: args.terms[slot],
+    }));
   const markPrice = meta.current_price;
   const timeframes: MtfTimeframeEntry[] = slotDefs.map(({ label, tf }) =>
     buildTimeframeEntry(label, tf, args.registry, markPrice),
@@ -802,7 +807,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
   // v6.11: filtering was removed — the shown row set IS the full registry.
   const visibleKeys = new Set(args.registry.map((m) => m.key));
 
-  // Per-TF per-indicator row (one per registry entry × 4 TFs).
+  // Per-TF per-indicator row (one per registry entry × 10 TFs).
   const indicators: MtfIndicatorEntry[] = args.registry.map((m) => {
     const split = splitIndicatorKey(m.key);
     const values: MtfIndicatorValue[] = slotDefs.map(({ label, tf }) => {
@@ -870,7 +875,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
       total_indicator_count: groupTotalCounts.get(k) ?? 0,
     }));
 
-  // Group confluence + signals_by_kind + divergences + levels across all 4 TFs.
+  // Group confluence + signals_by_kind + divergences + levels across all 10 TFs.
   // We aggregate per-TF indicator maps into a single map and reuse the
   // shared Metrics builders so the cross-TF aggregates have the same shape
   // as the single-TF aggregates.
@@ -953,7 +958,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
 
   const payload: MtfPayload = {
     source_tab: 'mtf',
-    meta: { ...meta, timeframes: ['Micro', 'Fast', 'Slow', 'Macro'] },
+    meta: { ...meta, timeframes: slotDefs.map(({ label }) => label) },
     header: buildHeaderBlock(args.headerSpec),
     groups,
     indicators,

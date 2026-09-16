@@ -1,19 +1,11 @@
 import type { AppStore } from '../state.svelte';
 import type { IndicatorDto, IndicatorMap, TimeframeTelemetry, TimeframeSlotKind } from '../types';
+import { TIMEFRAME_SLOT_KINDS } from '../types';
 import { getDecimalCount } from './telemetry';
+import { activeSlotKinds } from './terms';
 import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
 import { emitCandleDebug } from './candleDebug';
 import type { Time } from 'lightweight-charts';
-
-export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
-
-/// Maps a slot key (`TimeframeSlotKind`) to the corresponding WS state key.
-export const SLOT_TO_WS_KEY: Record<TimeframeSlotKind, WsKey> = {
-    micro: 'wsMicro',
-    fast: 'wsFast',
-    slow: 'wsSlow',
-    macro: 'wsMacro',
-};
 
 const WS_INITIAL_DELAY_MS = 1000;
 const WS_MAX_DELAY_MS = 30000;
@@ -33,96 +25,6 @@ function logWsActivity(symbol: string, slot: string, msgCount: number): void {
     }
 }
 
-// ─── Multi-tab coordination ────────────────────────────────────────
-//
-// Multiple browser tabs of the dashboard used to each open their own
-// set of WebSocket connections per pair, wasting sockets and risking
-// rate-limit hits against the upstream exchange. We coordinate via a
-// `BroadcastChannel` so exactly one tab "owns" each pair at a time:
-// the owner holds the live sockets; other tabs receive the broadcast
-// frames from the owner and apply them locally without re-subscribing.
-//
-// When the owner closes (or the channel disconnects for any reason),
-// the next tab to hear the silence promotes itself to owner. The
-// `storage` event is a defensive fallback for browsers / contexts
-// where `BroadcastChannel` is unavailable (e.g. some test runners).
-
-type CrossTabMsg =
-    | { kind: 'claim'; pair: string; ownerId: string }
-    | { kind: 'release'; pair: string; ownerId: string }
-    | { kind: 'heartbeat'; pair: string; ownerId: string; ts: number };
-
-interface PairOwnership {
-    pair: string;
-    ownerId: string;
-    lastHeartbeat: number;
-}
-
-const TAB_ID = Math.random().toString(36).slice(2);
-const PAIR_OWNER_TTL_MS = 15000; // 3 missed heartbeats (5 s each) before takeover
-const HEARTBEAT_INTERVAL_MS = 5000;
-
-const crossTabChannel: BroadcastChannel | null = (() => {
-    if (typeof BroadcastChannel === 'undefined') return null;
-    try { return new BroadcastChannel('quant-trading-platform-ws'); }
-    catch (_) { return null; }
-})();
-
-const ownedPairs = new Set<string>();
-const otherTabOwnership = new Map<string, PairOwnership>();
-
-if (crossTabChannel) {
-    crossTabChannel.addEventListener('message', (ev) => {
-        const msg = ev.data as CrossTabMsg;
-        if (!msg || msg.ownerId === TAB_ID) return;
-        if (msg.kind === 'heartbeat') {
-            otherTabOwnership.set(msg.pair, { pair: msg.pair, ownerId: msg.ownerId, lastHeartbeat: msg.ts });
-        } else if (msg.kind === 'claim') {
-            // A claim message carries no timestamp; stamp the receipt
-            // time so the takeover TTL still applies even if the owner
-            // never sends a heartbeat.
-            otherTabOwnership.set(msg.pair, { pair: msg.pair, ownerId: msg.ownerId, lastHeartbeat: Date.now() });
-        } else if (msg.kind === 'release') {
-            otherTabOwnership.delete(msg.pair);
-        }
-    });
-}
-
-function broadcastClaim(pair: string) {
-    crossTabChannel?.postMessage({ kind: 'claim', pair, ownerId: TAB_ID } as CrossTabMsg);
-}
-
-function broadcastRelease(pair: string) {
-    crossTabChannel?.postMessage({ kind: 'release', pair, ownerId: TAB_ID } as CrossTabMsg);
-}
-
-function broadcastHeartbeat(pair: string) {
-    crossTabChannel?.postMessage({ kind: 'heartbeat', pair, ownerId: TAB_ID, ts: Date.now() } as CrossTabMsg);
-}
-
-/** True if another tab has live ownership of this pair's WebSocket and
- *  we should NOT open our own sockets. Pair ownership is held by the
- *  tab that most recently broadcast a claim/heartbeat within
- *  `PAIR_OWNER_TTL_MS`. */
-export function isPairOwnedByOtherTab(pair: string): boolean {
-    const o = otherTabOwnership.get(pair);
-    if (!o) return false;
-    return Date.now() - o.lastHeartbeat < PAIR_OWNER_TTL_MS;
-}
-
-// Periodic heartbeat for all owned pairs so other tabs see us as alive
-// and don't take over our sockets.
-if (typeof window !== 'undefined') {
-    setInterval(() => {
-        const now = Date.now();
-        // Drop ownership records from tabs that haven't heartbeated.
-        for (const [pair, o] of otherTabOwnership.entries()) {
-            if (now - o.lastHeartbeat > PAIR_OWNER_TTL_MS) otherTabOwnership.delete(pair);
-        }
-        for (const pair of ownedPairs) broadcastHeartbeat(pair);
-    }, HEARTBEAT_INTERVAL_MS);
-}
-
 // Per-pair debounce so rapid back/forward navigation in the UI doesn't
 // open redundant sockets. The latest call wins, so when a route
 // stabilises the most recent connect attempt is the one that survives.
@@ -135,12 +37,10 @@ interface WsBackoff {
 }
 
 export interface WsState {
-    wsMicro: WebSocket | null;
-    wsFast: WebSocket | null;
-    wsSlow: WebSocket | null;
-    wsMacro: WebSocket | null;
+    /// One live socket per fixed-ladder slot, keyed by slot identity.
+    sockets: Record<TimeframeSlotKind, WebSocket | null>;
     currentWsSymbol: string;
-    backoff: Record<WsKey, WsBackoff>;
+    backoff: Record<TimeframeSlotKind, WsBackoff>;
 }
 
 function freshBackoff(): WsBackoff {
@@ -156,17 +56,9 @@ function nextBackoff(b: WsBackoff): WsBackoff {
 
 export function createWsState(): WsState {
     return {
-        wsMicro: null,
-        wsFast: null,
-        wsSlow: null,
-        wsMacro: null,
+        sockets: Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, null])) as Record<TimeframeSlotKind, WebSocket | null>,
         currentWsSymbol: '',
-        backoff: {
-            wsMicro: freshBackoff(),
-            wsFast: freshBackoff(),
-            wsSlow: freshBackoff(),
-            wsMacro: freshBackoff(),
-        },
+        backoff: Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, freshBackoff()])) as Record<TimeframeSlotKind, WsBackoff>,
     };
 }
 
@@ -190,10 +82,10 @@ export function closeWs(ws: WebSocket | null): void {
 }
 
 export function disconnectAllWs(state: WsState): void {
-    closeWs(state.wsMicro); state.wsMicro = null;
-    closeWs(state.wsFast); state.wsFast = null;
-    closeWs(state.wsSlow); state.wsSlow = null;
-    closeWs(state.wsMacro); state.wsMacro = null;
+    for (const slot of TIMEFRAME_SLOT_KINDS) {
+        closeWs(state.sockets[slot]);
+        state.sockets[slot] = null;
+    }
 }
 
 function num(v: unknown): number | null {
@@ -448,7 +340,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             ingestLiveSnapshot(symbol, tfSecs, tf.slot, snapshot as Record<string, unknown>);
 
             // ── Browser console debug dump (fires on EVERY completed candle) ──
-            // Aggregates all instances × 4 slots (including background TFs) and
+            // Aggregates all instances × 10 slots (including background TFs) and
             // logs a single JSON payload with full candle OHLCV + indicator overlays.
             // Toggle off via `window.__CANDLE_DEBUG_ENABLED__ = false` or
             // `localStorage.setItem('candleDebug','0')`. Must not break WS stream.
@@ -469,7 +361,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     const pair = app.instancesMap[symbol];
     if (pair) {
         // ── Pair-level matrix guard ──
-        // All four slot WebSocket streams (micro/fast/slow/macro) deliver
+        // All ten slot WebSocket streams (micro1..longterm2) deliver
         // independently timed completed-candle frames. Each stream
         // carries forward its own last-completed matrices onto every
         // shadow tick, so without this guard every slot races to
@@ -552,7 +444,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             // shadow ticks hard-code it to `None` for performance. Mirroring
             // here means `OpportunitiesPanel`, `TradePlanStrip` and
             // `RecommendationPanel` can read from `pair.opportunity` directly
-            // instead of trawling `microTerm.latestSnapshot.opportunity`
+            // instead of trawling `terms.micro1.latestSnapshot.opportunity`
             // (which the unconditional assignment above used to wipe).
             if (snapshot.opportunity && typeof snapshot.opportunity === 'object') {
                 pair.opportunity = snapshot.opportunity;
@@ -585,14 +477,14 @@ export function connectWebsocketForTimeframe(
     tfSecs: number,
     symbol: string,
 ): void {
-    const wsKey: WsKey = SLOT_TO_WS_KEY[tf.slot];
-    closeWs(state[wsKey]);
+    const wsKey: TimeframeSlotKind = tf.slot;
+    closeWs(state.sockets[wsKey]);
 
     const url = buildWsUrl(symbol, tfSecs, tf.slot);
     if (!url) return;
 
     const newWs = new WebSocket(url);
-    state[wsKey] = newWs;
+    state.sockets[wsKey] = newWs;
 
     newWs.onopen = () => {
         const pair = app.instancesMap[symbol];
@@ -627,8 +519,8 @@ export function connectWebsocketForTimeframe(
     newWs.onclose = () => {
         const pairAfter = app.instancesMap[symbol];
         if (pairAfter) pairAfter.isConnected = false;
-        if (state[wsKey] === newWs) {
-            state[wsKey] = null;
+        if (state.sockets[wsKey] === newWs) {
+            state.sockets[wsKey] = null;
         }
         // Reconnect indefinitely: no attempt cap. A backend restart longer
         // than the old ~30-attempt budget (~12.5 min) previously left the
@@ -654,11 +546,14 @@ export function connectWebsocket(app: AppStore, state: WsState, symbol: string):
     if (!pair) return;
 
     // Each `TimeframeTelemetry` carries its own slot identity, so the WS
-    // dispatcher can no longer mis-route by shared duration.
-    connectWebsocketForTimeframe(app, state, pair.microTerm, pair.microTerm.barDurationSec, symbol);
-    connectWebsocketForTimeframe(app, state, pair.fastTerm,  pair.fastTerm.barDurationSec,  symbol);
-    connectWebsocketForTimeframe(app, state, pair.slowTerm,  pair.slowTerm.barDurationSec,  symbol);
-    connectWebsocketForTimeframe(app, state, pair.macroTerm, pair.macroTerm.barDurationSec, symbol);
+    // dispatcher can no longer mis-route by shared duration. v11.2: only
+    // the instance's ACTIVE slots get sockets — the fastest N of the fixed
+    // ladder (`activeSlotKinds`); slots beyond N are INERT (the backend
+    // never serves their `/ws` routes) and must not even attempt one.
+    for (const slot of activeSlotKinds(pair)) {
+        const tf = pair.terms[slot];
+        connectWebsocketForTimeframe(app, state, tf, tf.barDurationSec, symbol);
+    }
 }
 
 export function connectWsForInstance(
@@ -689,19 +584,13 @@ export function connectWsForInstance(
     }
     pendingConnectAt.set(symbol, now);
 
-    // Multi-tab coordination: if another tab already owns this pair's
-    // sockets, skip opening ours. The other tab is broadcasting
-    // `heartbeat` messages every `HEARTBEAT_INTERVAL_MS`; if it
-    // crashes the entry will expire after `PAIR_OWNER_TTL_MS` and a
-    // later call here will pick up the slack.
-    if (isPairOwnedByOtherTab(symbol)) return;
-
+    // v11.3: every tab opens its own sockets — the backend fans out
+    // independently to every WS subscriber (Tokio broadcast per slot),
+    // so concurrent tabs are first-class viewers with no ownership lock.
     const existing = wssMap[symbol];
     if (existing) disconnectAllWs(existing);
     const state = createWsState();
     wssMap[symbol] = state;
-    ownedPairs.add(symbol);
-    broadcastClaim(symbol);
     connectWebsocket(app, state, symbol);
 }
 
@@ -710,10 +599,6 @@ export function disconnectWsForInstance(wssMap: Record<string, WsState>, symbol:
     if (!state) return;
     disconnectAllWs(state);
     delete wssMap[symbol];
-    if (ownedPairs.has(symbol)) {
-        ownedPairs.delete(symbol);
-        broadcastRelease(symbol);
-    }
     // AUDIT-FE-H2: cancel any pending trailing connect timer so a rapid
     // navigation burst followed by teardown can't open sockets AFTER the
     // component unmounted (they had no owner and were never closed).
@@ -737,12 +622,15 @@ export function shouldReconnect(app: AppStore, state: WsState, symbol: string): 
     const pair = app.instancesMap[symbol];
     if (!pair) return false;
 
-    const connectionsNeeded = 4;
+    // v11.2: the expected socket count is the ACTIVE ladder length, not
+    // the full 10-slot pool — inactive slots have no sockets by design.
+    const active = activeSlotKinds(pair);
+    const connectionsNeeded = active.length;
     let activeConnections = 0;
-    if (state.wsMicro && (state.wsMicro.readyState === WebSocket.OPEN || state.wsMicro.readyState === WebSocket.CONNECTING)) activeConnections++;
-    if (state.wsFast  && (state.wsFast.readyState  === WebSocket.OPEN || state.wsFast.readyState  === WebSocket.CONNECTING)) activeConnections++;
-    if (state.wsSlow  && (state.wsSlow.readyState  === WebSocket.OPEN || state.wsSlow.readyState  === WebSocket.CONNECTING)) activeConnections++;
-    if (state.wsMacro && (state.wsMacro.readyState === WebSocket.OPEN || state.wsMacro.readyState === WebSocket.CONNECTING)) activeConnections++;
+    for (const slot of active) {
+        const ws = state.sockets[slot];
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) activeConnections++;
+    }
 
     return activeConnections < connectionsNeeded;
 }

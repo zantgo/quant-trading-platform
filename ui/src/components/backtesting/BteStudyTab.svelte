@@ -9,7 +9,7 @@ import { fmtNum, fmtSigned } from '../../lib/format';
 import {
         linePath, areaPath, rollingWinRate, pnlHistogram, drawdownSeries,
     } from '../../lib/studyCharts';
-import type { BteResult } from './BacktestingDashboard.svelte';
+import type { BteResult } from '../../types';
 
     interface Props {
         result: BteResult | null;

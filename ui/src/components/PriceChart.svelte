@@ -30,8 +30,10 @@
     import { smcAgeLabel } from '../lib/priceChartHelpers';
     import { buildTradeMarkers } from '../lib/tradeMarkerHelper';
     import styles from './PriceChart.module.css';
+    import { getTerm } from '../lib/terms';
+    import type { TimeframeSlotKind } from '../types';
     const app = useAppStore();
-    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
+    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: TimeframeSlotKind; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
 
     /// Number of recent candles + overlay data points seeded at bootstrap.
     /// Scales with timeframe so micro charts load a manageable window and
@@ -43,12 +45,7 @@
     function seedCountFor(tfSecs: number) { return tfSecs <= 5 ? 300 : tfSecs <= 30 ? 600 : PRICE_CHART_SEED_COUNT; }
     const pair = $derived(app.instancesMap[pairKey]);
     // Slot identity is positional; never re-derive from duration.
-    const tf = $derived(
-        slot === 'micro' ? pair?.microTerm :
-        slot === 'fast'  ? pair?.fastTerm :
-        slot === 'slow'  ? pair?.slowTerm :
-                          pair?.macroTerm
-    );
+    const tf = $derived(getTerm(pair, slot));
     const timeframe = $derived(tf?.barDurationSec ?? 60);
 
     let container: HTMLDivElement;
@@ -656,7 +653,7 @@
                 // v6.5: capture per-TF cluster + volume profile from
                 // history (used as a fallback if the WS stream hasn't
                 // yet populated tf.cluster / tf.volumeProfile).
-                const slotKey = slot; // 'micro' | 'fast' | 'slow' | 'macro'
+                const slotKey = slot; // TimeframeSlotKind (`micro1`..`longterm2`)
                 historyCluster = hist.clusters?.[slotKey] as LiquidationClusterMatrix | null;
                 historyVolumeProfile = hist.volumeProfiles?.[slotKey] as VolumeProfileSnapshot | null;
                 _bootstrapComplete = true;
@@ -673,7 +670,7 @@
     // Sub-minute TFs need wider barSpacing (14 px for ≤5 s, 10 px for
     // ≤30 s) than above-minute TFs (6 px). The onMount snapshot captures
     // `tf` at component-creation time, but `tf` is `$derived` from
-    // `app.instancesMap[pairKey]?.microTerm` etc. — if the instance
+    // `app.instancesMap[pairKey]?.terms[slot]` — if the instance
     // telemetry hasn't resolved yet (slow daemon start, fresh pair
     // activation), `tf` is undefined, the snapshot falls back to 60 s,
     // and the chart is locked at 6 px. That makes sub-minute candles
@@ -1128,8 +1125,8 @@
         // not rAF gaps) and let the coalescer collapse redraws to one per frame.
         const pairVal = app.instancesMap[pairKey];
         if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
+        const tfVal = getTerm(pairVal, slot);
+        const snap = tfVal?.latestSnapshot;
         if (!snap) return;
         const now = Date.now();
         const gap = _lastUpdateTs > 0 ? now - _lastUpdateTs : 0;

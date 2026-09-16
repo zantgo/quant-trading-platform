@@ -19,6 +19,27 @@ use tower::ServiceExt;
 /// the two tests must not interleave their sandbox setup/teardown.
 static CONFIG_ENV_LOCK: Mutex<()> = Mutex::const_new(());
 
+/// Run `f` on a dedicated 8 MiB thread. The POST /api/config path polls the
+/// full tower middleware chain and then re-parses `config.toml` inside
+/// `save_workspace` — in debug builds the combined winnow/tower stack
+/// frames exceed libtest's default 2 MiB test-thread stack (the winnow
+/// recursion alone reaches megabytes of frames), so these tests must run
+/// with a larger stack. Release builds are unaffected; this is purely a
+/// test-harness accommodation.
+fn run_on_big_stack<F, T>(name: &str, f: F) -> T
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(f)
+        .expect("failed to spawn big-stack test thread")
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
 async fn setup_state_with_config(
     workspace: config_models::WorkspaceConfig,
 ) -> (Router, Arc<AppState>) {
@@ -93,8 +114,18 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
     ws
 }
 
-#[tokio::test]
-async fn config_post_round_trip_persists_merged_workspace() {
+#[test]
+fn config_post_round_trip_persists_merged_workspace() {
+    run_on_big_stack("config_round_trip_main", || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+            .block_on(config_post_round_trip_persists_merged_workspace_inner())
+    })
+}
+
+async fn config_post_round_trip_persists_merged_workspace_inner() {
     let _guard = CONFIG_ENV_LOCK.lock().await;
     // Sandbox the on-disk config path so the test cannot clobber the
     // developer's real config.toml.
@@ -212,8 +243,18 @@ ema_fast = 8
     let _ = std::fs::remove_dir_all(&sandbox);
 }
 
-#[tokio::test]
-async fn config_post_without_platform_fields_keeps_runtime_config() {
+#[test]
+fn config_post_without_platform_fields_keeps_runtime_config() {
+    run_on_big_stack("config_round_trip_min", || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+            .block_on(config_post_without_platform_fields_keeps_runtime_config_inner())
+    })
+}
+
+async fn config_post_without_platform_fields_keeps_runtime_config_inner() {
     let _guard = CONFIG_ENV_LOCK.lock().await;
     let sandbox = std::env::temp_dir().join(format!("config_post_min_{}", std::process::id()));
     std::fs::create_dir_all(&sandbox).unwrap();

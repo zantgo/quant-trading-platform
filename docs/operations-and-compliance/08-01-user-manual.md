@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -53,6 +53,10 @@ The project ships a convenience wrapper (`./manage.sh`):
 | `./manage.sh test-ui` | Svelte 5 runes / components | Run only TEST-UI (<10 s). |
 
 Headless cloud operation is supported by running the same binary without `--web` and applying a pre-validated `config.toml` (see [Global Architecture §4](../conceptual-foundations/01-02-global-architecture.md)).
+
+**Running two sessions side by side (v11.3).** The supported workflow is **one folder per session**: each folder carries its own `config.toml`, `telemetry.db`, `./ds/`, and UI build, and runs its own daemon. With the v11.3 **smart port** you no longer need to hand-assign ports — when the resolved port (`--port` → `PLATFORM_PORT` → `[server].port` → 3000) is already in use, the daemon probes the next ports (`[server] auto_fallback = true`, up to `port_fallback_range = 20`), serves the first free one, and prints both (`🌐 Dashboard live at http://127.0.0.1:3001 (requested 3000 was in use)`). The resolved endpoint is published to `.server.port` in the folder (read by `./manage.sh status`; removed on graceful shutdown). Copy the folder, run both binaries, and open each dashboard on its printed port. **Do not run two daemons in the same folder** — they would share one SQLite file and the per-process backtest/backfill locks are not cross-process.
+
+**Multiple browser tabs/windows (v11.3).** The dashboard is a multi-tab web application: every tab or window is an independent live viewer of the same daemon. Right-click → open in new tab, bookmark, or reload freely — views are deep-linked by URL (engine, instance, sub-view, chart timeframe, loaded run), reload restores the exact view, Back/Forward walk your navigation, and the daemon never stops computing. Each tab opens its own WebSocket connections (server cap 256) and polls independently (60 req/s shared budget, per-tab jitter applied).
 
 ---
 
@@ -112,7 +116,7 @@ The single source of configuration truth is `config.toml` at the workspace root.
 - `symbols` — list of `Exchange:Symbol` instruments to ingest
 - `[workspace.minimal_tae]` — automation risk tuning (see [TAE Overview §9](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md))
 
-For the 4-tier timeframe model and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
+For the fixed 10-slot timeframe ladder and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
 
 The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.toml` **explicitly**; the API is the only path that mutates `config.toml` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.toml` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3](../integration-and-api/06-02-database-schema-spec.md).
 
@@ -133,11 +137,9 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
    (USD)** field (prefilled from the previous session). Execute mode collects the exchange
    credentials inline (Hyperliquid: wallet address + private key; Bitget: API key + secret +
    passphrase) and stores them encrypted via `POST /api/keys`.
-3. **Instances** — add one or more symbols with per-instance timeframe durations chosen
-   from the **same timeframe dropdowns the Workspace Settings offer** (14 tiers, 1 s → 1 day,
-   plus a disabled "Custom: …" fallback). Each slot is preseeded with the workspace ladder —
-   micro 60 s, fast 180 s, slow/macro from the workspace config (`slow_timeframe` /
-   `macro_timeframe`, shipped defaults 300/900 s) — or skip and add them later from the
+3. **Instances** — add one or more symbols. There are no timeframe pickers (v11.1): every
+   instance runs the **fixed 10-slot ladder** (`micro1` 1 s … `longterm2` 3600 s) displayed
+   as read-only chips, or skip and add them later from the
    workspace panel.
 4. **Review** — a summary table (mode, exchange, currency, capital/credential status,
    instance list) → **Launch** lands you directly in the first instance's workspace.

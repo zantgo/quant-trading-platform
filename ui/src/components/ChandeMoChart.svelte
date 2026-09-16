@@ -13,11 +13,13 @@
         pairsFromHistory,
         type IndicatorFlatHistory,
     } from '../lib/indicatorHistory';
+    import { getTerm } from '../lib/terms';
+    import type { TimeframeSlotKind } from '../types';
 
     const app = useAppStore();
-    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
+    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: TimeframeSlotKind; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(slot === 'micro' ? pair?.microTerm : slot === 'fast' ? pair?.fastTerm : slot === 'slow' ? pair?.slowTerm : pair?.macroTerm);
+    const tf = $derived(getTerm(pair, slot));
     const timeframe = $derived(tf?.barDurationSec ?? 60);
 
     let container: HTMLDivElement;
@@ -100,8 +102,8 @@
     $effect(() => {
         const pairVal = app.instancesMap[pairKey];
         if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        if (!tfVal.latestSnapshot) return;
+        const tfVal = getTerm(pairVal, slot);
+        if (!tfVal?.latestSnapshot) return;
         cmoCoalescer.effect();
     });
 

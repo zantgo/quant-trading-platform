@@ -563,11 +563,11 @@ fn assess_volatility_risk(
         }
         let micro = tf_volatility
             .iter()
-            .find(|(label, _, _)| label.eq_ignore_ascii_case("micro"))
+            .find(|(label, _, _)| label.eq_ignore_ascii_case("micro1"))
             .map(|(_, _, s)| *s);
         let fast = tf_volatility
             .iter()
-            .find(|(label, _, _)| label.eq_ignore_ascii_case("fast"))
+            .find(|(label, _, _)| label.eq_ignore_ascii_case("fast1"))
             .map(|(_, _, s)| *s);
         let (micro, fast) = match (micro, fast) {
             // Defensive fallback: no labeled entries (e.g. a degenerate
@@ -1157,13 +1157,13 @@ mod tests {
         analysis.state_confidence = 0.5;
         let indicators = HashMap::new();
 
-        // Fast pipeline order: [FAST, MICRO, SLOW, MACRO] — micro is NOT
-        // first. Legacy positional read would blend 0.7×fast + 0.3×micro.
+        // Fast1 pipeline order: [FAST1, MICRO1, SLOW1, LONGTERM2] — micro1
+        // is NOT first. A positional read would blend 0.7×fast1 + 0.3×micro1.
         let tf_volatility = vec![
-            ("FAST".to_string(), "EXPANSION_CLIMAX".to_string(), 97.2),
-            ("MICRO".to_string(), "EXPANDING".to_string(), 83.25),
-            ("SLOW".to_string(), "NORMAL".to_string(), 58.0),
-            ("MACRO".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
+            ("FAST1".to_string(), "EXPANSION_CLIMAX".to_string(), 97.2),
+            ("MICRO1".to_string(), "EXPANDING".to_string(), 83.25),
+            ("SLOW1".to_string(), "NORMAL".to_string(), 58.0),
+            ("LONGTERM2".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
         ];
         let risk = compute_risk(
             "BTC-USD",

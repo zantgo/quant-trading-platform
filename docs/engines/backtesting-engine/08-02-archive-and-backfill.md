@@ -1,6 +1,6 @@
 # BTE Layer 1 — Candle Archive & Backfill
 
-**Version:** 10.1 (2026-08-24)
+**Version:** 11.3 (2026-09-16)
 **Engine:** Backtesting Engine
 **Tables:** `candle_archive`, `backfill_jobs`
 **Code:** `crates/database-storage/src/queries/archive.rs`,
@@ -65,6 +65,9 @@ planned for a future release (Unscheduled).
 - Bound form `{ instance_id, depth_days? }` (v8 backward compatibility):
   validates the bound instance (exists + running) and the depth
   (1..=365); rejects a second active job for the instance (409).
+  The bound ladder is the instance's **ACTIVE ladder** (v11.2 — `active_secs`,
+  the fastest `[workspace].active_timeframes` slots, see
+  [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md)).
 - **Standalone form (v8.2)** `{ exchange, symbol, timeframes[], depth_days }`:
   no running instance required; job key = `exchange:symbol`; the same
   exclusivity rule applies.
@@ -74,7 +77,13 @@ Both forms:
 - Page the exchange backward from `now` to `now − depth_days` for every
   **≥ 1-minute** TF in the requested ladder (sub-minute TFs bypass
   exchange history — HFP-03; their archive coverage comes from the live
-  path only).
+  path only). On the fixed 10-slot ladder (v11.1) the five sub-minute
+  slots `micro1`/`micro2`/`fast1`/`fast2`/`slow1` (1–30 s) are always
+  skipped — they are live-only, warm state-only, and never REST-backfilled.
+  The 60-second archive floor is unchanged by the active count (v11.2);
+  at the default `active_timeframes = 5` the bound ladder is all
+  sub-minute, so a bound backfill pages nothing — raise the count past
+  `slow2` to backfill.
 - Validate the Hyperliquid per-TF ceiling (see §2).
 - **Resumable** — the cursor starts just below the earliest archived
   candle, so covered spans cost zero requests.
@@ -91,7 +100,9 @@ Both forms:
 
 - `archive_depth_days` — the configured depth ceiling;
 - `burn_in_secs` + `ladder` — the instance ladder the UI derives
-  required-coverage math from;
+  required-coverage math from (v11.2: the ACTIVE ladder — `active_secs`;
+  the empty sub-minute-only case is what makes bound runs reject with
+  `400 no_active_ladder`, see [08-01 §2](08-01-bte-overview.md));
 - `snapshots[]` — recorded-snapshot coverage (the recorded mode source);
 - `archive[]` — per (symbol, TF): `candle_count`, `earliest_secs`,
   `latest_secs`, `covered_span_secs`, `max_lookback_secs`, `coverage_pct`,

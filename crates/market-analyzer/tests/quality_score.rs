@@ -125,7 +125,7 @@ async fn pristine_candle_scores_100() {
             "BTC-USDT".to_string(),
             60,
             "Micro",
-            core_domain::models::TimeframeSlot::Micro,
+            core_domain::models::TimeframeSlot::Micro1,
             cancel,
             None,
             None,
@@ -140,9 +140,8 @@ async fn pristine_candle_scores_100() {
             None, // heatmap_config (None)
             OrderBookConfig::default(),
             strategy,
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
+            // Sibling latest-snapshot handles — none in this single-pipeline test.
+            Vec::new(),
             Arc::new(core_domain::LatencyTracker::default()),
             market_analyzer::active_set::ActiveSet::default(),
             None,

@@ -1,17 +1,31 @@
 <script lang="ts">
-    import { useAppStore } from '../state.svelte';
-    import styles from './ChartToggles.module.css';
-    const app = useAppStore();
-    let { pairKey }: { pairKey: string } = $props();
-    const pair = $derived(app.instancesMap[pairKey]);
+import { untrack } from 'svelte';
+import { useAppStore } from '../state.svelte';
+import { activeSlotKinds } from '../lib/terms';
+import {
+    OVERLAY_PAIR_FLAGS, OVERLAY_TF_FLAGS, saveChartOverlays,
+} from '../lib/chartOverlays';
+import styles from './ChartToggles.module.css';
+const app = useAppStore();
+let { pairKey }: { pairKey: string } = $props();
+const pair = $derived(app.instancesMap[pairKey]);
 
-    function syncAll(fn: (tf: any) => void) {
-        if (!pair) return;
-        fn(pair.microTerm);
-        fn(pair.fastTerm);
-        fn(pair.slowTerm);
-        fn(pair.macroTerm);
-    }
+// Phase 3: every toggle change persists this pair's overlay flags to
+// localStorage (`qtp.chartOverlays.<pairKey>`) and is re-applied when
+// the instance is (re)created — chart layout survives reloads without
+// polluting the URL.
+$effect(() => {
+    if (!pair) return;
+    for (const f of OVERLAY_PAIR_FLAGS) void (pair as unknown as Record<string, unknown>)[f];
+    for (const f of OVERLAY_TF_FLAGS) void (pair.terms.micro1 as unknown as Record<string, unknown>)[f];
+    untrack(() => saveChartOverlays(pairKey, pair));
+});
+
+function syncAll(fn: (tf: any) => void) {
+    if (!pair?.terms) return;
+    // v11.2: sync only the ACTIVE slots — inactive slots are inert.
+    for (const slot of activeSlotKinds(pair)) fn(pair.terms[slot]);
+}
 
     function toggleLineMode() {
         if (!pair) return;
@@ -20,13 +34,13 @@
 
     function toggleVwap() {
         if (!pair) return;
-        const v = !pair.microTerm.showVwap;
+        const v = !pair.terms.micro1.showVwap;
         syncAll(tf => { tf.showVwap = v; });
     }
 
     function toggleBb() {
         if (!pair) return;
-        const v = !pair.microTerm.showBb;
+        const v = !pair.terms.micro1.showBb;
         syncAll(tf => { tf.showBb = v; });
     }
 
@@ -38,63 +52,63 @@
 
     function toggleLiqHeatmap() {
         if (!pair) return;
-        const v = !pair.microTerm.showLiqHeatmap;
+        const v = !pair.terms.micro1.showLiqHeatmap;
         syncAll(tf => { tf.showLiqHeatmap = v; });
     }
 
     function toggleVolumeProfile() {
         if (!pair) return;
-        const v = !pair.microTerm.showVolumeProfile;
+        const v = !pair.terms.micro1.showVolumeProfile;
         syncAll(tf => { tf.showVolumeProfile = v; });
     }
 
-    /// New v6.6 overlay toggles. All sync across the 4 timeframes the same
+    /// New v6.6 overlay toggles. All sync across the 10 timeframes the same
     /// way LIQ HEATMAP and VOL PROFILE do.
     function toggleAnchoredVwap() {
         if (!pair) return;
-        const v = !pair.microTerm.showAnchoredVwap;
+        const v = !pair.terms.micro1.showAnchoredVwap;
         syncAll(tf => { tf.showAnchoredVwap = v; });
     }
 
     function toggleSupertrend() {
         if (!pair) return;
-        const v = !pair.microTerm.showSupertrend;
+        const v = !pair.terms.micro1.showSupertrend;
         syncAll(tf => { tf.showSupertrend = v; });
     }
 
     function toggleDonchian() {
         if (!pair) return;
-        const v = !pair.microTerm.showDonchian;
+        const v = !pair.terms.micro1.showDonchian;
         syncAll(tf => { tf.showDonchian = v; });
     }
 
     function toggleIchimoku() {
         if (!pair) return;
-        const v = !pair.microTerm.showIchimoku;
+        const v = !pair.terms.micro1.showIchimoku;
         syncAll(tf => { tf.showIchimoku = v; });
     }
 
     function toggleSupportResistance() {
         if (!pair) return;
-        const v = !pair.microTerm.showSupportResistance;
+        const v = !pair.terms.micro1.showSupportResistance;
         syncAll(tf => { tf.showSupportResistance = v; });
     }
 
     function togglePivotPoints() {
         if (!pair) return;
-        const v = !pair.microTerm.showPivotPoints;
+        const v = !pair.terms.micro1.showPivotPoints;
         syncAll(tf => { tf.showPivotPoints = v; });
     }
 
     function toggleFibonacci() {
         if (!pair) return;
-        const v = !pair.microTerm.showFib;
+        const v = !pair.terms.micro1.showFib;
         syncAll(tf => { tf.showFib = v; });
     }
 
     function toggleSmc() {
         if (!pair) return;
-        const v = !pair.microTerm.showSmcStructure;
+        const v = !pair.terms.micro1.showSmcStructure;
         syncAll(tf => {
             tf.showSmcStructure = v;
             tf.showSmcLiquidity = v;
@@ -103,19 +117,19 @@
 
     function toggleFvg() {
         if (!pair) return;
-        const v = !pair.microTerm.showFvgZones;
+        const v = !pair.terms.micro1.showFvgZones;
         syncAll(tf => { tf.showFvgZones = v; });
     }
 
     function toggleOrderBlocks() {
         if (!pair) return;
-        const v = !pair.microTerm.showOrderBlocks;
+        const v = !pair.terms.micro1.showOrderBlocks;
         syncAll(tf => { tf.showOrderBlocks = v; });
     }
 
     function toggleRibbon() {
         if (!pair) return;
-        const v = !pair.microTerm.showDerivativeRibbon;
+        const v = !pair.terms.micro1.showDerivativeRibbon;
         syncAll(tf => { tf.showDerivativeRibbon = v; });
     }
 
@@ -124,19 +138,19 @@
     /// `show*` flag.
     function toggleKeltner() {
         if (!pair) return;
-        const v = !pair.microTerm.showKeltner;
+        const v = !pair.terms.micro1.showKeltner;
         syncAll(tf => { tf.showKeltner = v; });
     }
 
     function toggleStddevChan() {
         if (!pair) return;
-        const v = !pair.microTerm.showStddevChan;
+        const v = !pair.terms.micro1.showStddevChan;
         syncAll(tf => { tf.showStddevChan = v; });
     }
 
     function togglePsar() {
         if (!pair) return;
-        const v = !pair.microTerm.showPsar;
+        const v = !pair.terms.micro1.showPsar;
         syncAll(tf => { tf.showPsar = v; });
     }
 </script>
@@ -168,55 +182,55 @@
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>
-        <button class="{styles.togglePill} {styles.vwapPill} {pair.microTerm.showVwap ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.vwapPill} {pair.terms.micro1.showVwap ? styles.active : ''}"
             onclick={toggleVwap}>VWAP</button>
-        <button class="{styles.togglePill} {styles.bbPill} {pair.microTerm.showBb ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.bbPill} {pair.terms.micro1.showBb ? styles.active : ''}"
             onclick={toggleBb}>BOLLINGER</button>
-        <button class="{styles.togglePill} {styles.avwapPill} {pair.microTerm.showAnchoredVwap ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.avwapPill} {pair.terms.micro1.showAnchoredVwap ? styles.active : ''}"
             onclick={toggleAnchoredVwap}>ANC VWAP</button>
-        <button class="{styles.togglePill} {styles.supertrendPill} {pair.microTerm.showSupertrend ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.supertrendPill} {pair.terms.micro1.showSupertrend ? styles.active : ''}"
             onclick={toggleSupertrend}>SUPERTREND</button>
-        <button class="{styles.togglePill} {styles.donchianPill} {pair.microTerm.showDonchian ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.donchianPill} {pair.terms.micro1.showDonchian ? styles.active : ''}"
             onclick={toggleDonchian}>DONCHIAN</button>
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>
         <span class={styles.togglesLabel}>LEVELS</span>
-        <button class="{styles.togglePill} {styles.srPill} {pair.microTerm.showSupportResistance ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.srPill} {pair.terms.micro1.showSupportResistance ? styles.active : ''}"
             onclick={toggleSupportResistance}>S/R</button>
-        <button class="{styles.togglePill} {styles.pivotPill} {pair.microTerm.showPivotPoints ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.pivotPill} {pair.terms.micro1.showPivotPoints ? styles.active : ''}"
             onclick={togglePivotPoints}>PIVOT</button>
-        <button class="{styles.togglePill} {styles.fibPill} {pair.microTerm.showFib ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.fibPill} {pair.terms.micro1.showFib ? styles.active : ''}"
             onclick={toggleFibonacci}>FIB</button>
-        <button class="{styles.togglePill} {styles.ichimokuPill} {pair.microTerm.showIchimoku ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.ichimokuPill} {pair.terms.micro1.showIchimoku ? styles.active : ''}"
             onclick={toggleIchimoku}>ICHIMOKU</button>
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>
         <span class={styles.togglesLabel}>SMC</span>
-        <button class="{styles.togglePill} {styles.smcStructurePill} {pair.microTerm.showSmcStructure ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.smcStructurePill} {pair.terms.micro1.showSmcStructure ? styles.active : ''}"
             onclick={toggleSmc}>BOS/CHoCH</button>
-        <button class="{styles.togglePill} {styles.fvgPill} {pair.microTerm.showFvgZones ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.fvgPill} {pair.terms.micro1.showFvgZones ? styles.active : ''}"
             onclick={toggleFvg}>FVG</button>
-        <button class="{styles.togglePill} {styles.obPill} {pair.microTerm.showOrderBlocks ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.obPill} {pair.terms.micro1.showOrderBlocks ? styles.active : ''}"
             onclick={toggleOrderBlocks}>ORDER BLOCKS</button>
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>
-        <button class="{styles.togglePill} {styles.keltnerPill} {pair.microTerm.showKeltner ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.keltnerPill} {pair.terms.micro1.showKeltner ? styles.active : ''}"
             onclick={toggleKeltner}>KELTNER</button>
-        <button class="{styles.togglePill} {styles.stddevChanPill} {pair.microTerm.showStddevChan ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.stddevChanPill} {pair.terms.micro1.showStddevChan ? styles.active : ''}"
             onclick={toggleStddevChan}>STDDEV CH.</button>
-        <button class="{styles.togglePill} {styles.psarPill} {pair.microTerm.showPsar ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.psarPill} {pair.terms.micro1.showPsar ? styles.active : ''}"
             onclick={togglePsar}>PSAR</button>
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>
-        <button class="{styles.togglePill} {styles.liqHeatmapPill} {pair.microTerm.showLiqHeatmap ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.liqHeatmapPill} {pair.terms.micro1.showLiqHeatmap ? styles.active : ''}"
             onclick={toggleLiqHeatmap}>LIQ LEVELS</button>
-        <button class="{styles.togglePill} {styles.volumeProfilePill} {pair.microTerm.showVolumeProfile ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.volumeProfilePill} {pair.terms.micro1.showVolumeProfile ? styles.active : ''}"
             onclick={toggleVolumeProfile}>VOL PROFILE</button>
-        <button class="{styles.togglePill} {styles.derivativeRibbonPill} {pair.microTerm.showDerivativeRibbon ? styles.active : ''}"
+        <button class="{styles.togglePill} {styles.derivativeRibbonPill} {pair.terms.micro1.showDerivativeRibbon ? styles.active : ''}"
             onclick={toggleRibbon}>DERIVATIVES</button>
     </div>
 </div>

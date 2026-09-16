@@ -3,7 +3,7 @@
     // trade-log vocabulary the PAE Backtest tab used, fed by the study.
     import styles from '../../styles/engine-dashboard.module.css';
     import { fmtNum, fmtSigned } from '../../lib/format';
-    import type { BteResult } from './BacktestingDashboard.svelte';
+    import type { BteResult } from '../../types';
 
     interface Props {
         trades: BteResult['trades'];

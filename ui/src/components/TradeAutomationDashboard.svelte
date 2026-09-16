@@ -347,7 +347,7 @@
     // Live mid for the would-be position card (observe radar).
     function liveMid(): number | null {
         const pair = app.instancesMap[automation?.symbol ?? ''];
-        const snap = pair?.microTerm?.latestSnapshot as (Record<string, unknown> & { mid_price?: string | number }) | undefined;
+        const snap = pair?.terms?.micro1?.latestSnapshot as (Record<string, unknown> & { mid_price?: string | number }) | undefined;
         if (!snap) return null;
         const v = Number(snap.mid_price);
         return isFinite(v) && v > 0 ? v : null;
@@ -358,7 +358,7 @@
         { label: 'Would-be Equity', value: ghost ? '—' : `$${fmtUsd(automation?.equity)}`, sub: 'no capital engaged', color: undefined },
         { label: 'Would-be Positions', value: String(automation?.open_positions_count ?? 0), sub: automation?.symbol ?? '—' },
         { label: 'Executor Phase', value: phaseLabel(automation?.phase ?? null), sub: 'ghost evaluation' },
-        { label: 'Top Candidate', value: automation?.tracked_setup ? `${automation.tracked_setup.direction} ${automation.tracked_setup.setup_type}` : '—', sub: 'from 4-TF top setup' },
+        { label: 'Top Candidate', value: automation?.tracked_setup ? `${automation.tracked_setup.direction} ${automation.tracked_setup.setup_type}` : '—', sub: 'from 10-TF top setup' },
         { label: 'Setup Score', value: automation?.tracked_setup ? fmtNum(automation.tracked_setup.score, 0) : '—', sub: 'candidate quality' },
         { label: 'Net R:R', value: automation?.tracked_setup ? fmtNum(automation.tracked_setup.net_rr) : '—', sub: 'entry geometry' },
     ]);
@@ -623,7 +623,7 @@
                             {/if}
                             <span class={local.ghostWatermark}>GHOST / NO ACTION</span>
                         {:else}
-                            <div class={styles.empty}>No eligible setup right now — the executor scans the 4 timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
+                            <div class={styles.empty}>No eligible setup right now — the executor scans the 10 timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
                         {/if}
                     </div>
 
@@ -733,7 +733,7 @@
                     {:else}
                         <div class={styles.card}>
                             <h3 class={styles.cardTitle}>Active Setup</h3>
-                            <div class={styles.empty}>No eligible setup right now — the executor scans the 4 timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
+                            <div class={styles.empty}>No eligible setup right now — the executor scans the 10 timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
                         </div>
                     {/if}
                 {/if}

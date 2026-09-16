@@ -47,19 +47,6 @@
         max_depth_secs?: number;
         coverage_pct: number;
     }
-    export interface BteResult {
-        backtest_id: number;
-        mode?: string;
-        params: { symbol: string; timeframe_secs: number; from_secs: number; to_secs: number; portfolio_capital_usd: number };
-        summary: {
-            total_trades: number; win_count: number; loss_count: number; win_rate: number;
-            gross_profit: number; gross_loss: number; profit_factor: number | null;
-            expectancy: number; max_drawdown_pct: number;
-        };
-        stats: any;
-        trades: { timestamp: number; direction: string; entry_price: number; exit_price: number; size: number; pnl: number; exit_reason: string }[];
-        equity_curve: [number, number][];
-    }
 
     let instances = $state<InstanceRow[]>([]);
     let loadingInstances = $state(true);
@@ -77,12 +64,13 @@
     let backfillError = $state('');
 
     // ── Result state (shared by every tab) ──
-    let btResult = $state<BteResult | null>(null);
-    let dsPortfolio = $state<{ run_id: number; portfolio: any[] } | null>(null);
-    let dsSignals = $state<{ run_id: number; count: number; signals: any[] } | null>(null);
-    // v10.1: per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR/ES +
-    // log Sharpe) as the key/value map from /api/backtest/:id/metrics.
-    let btMetrics = $state<Record<string, string> | null>(null);
+    // Phase 3: the run payloads live in the AppStore (`app.bte*`) so the
+    // URL router can deep-link a study (`…/run/<id>`) and every tab —
+    // and a full reload — renders from the same source of truth.
+    const btResult = $derived(app.bteResult);
+    const dsPortfolio = $derived(app.btePortfolio);
+    const dsSignals = $derived(app.bteSignals);
+    const btMetrics = $derived(app.bteMetrics);
 
     // Session mode (BTE lives in observe sessions).
     const mode = $derived<ExecutionMode | undefined>(
@@ -241,35 +229,11 @@
         void timer;
     }
 
-    async function loadDsFor(runId: number) {
-        try {
-            const [pRes, sRes, mRes] = await Promise.all([
-                fetch(`/api/backtest/${runId}/portfolio`),
-                fetch(`/api/backtest/${runId}/signals`),
-                fetch(`/api/backtest/${runId}/metrics`),
-            ]);
-            if (pRes.ok) dsPortfolio = await pRes.json();
-            if (sRes.ok) dsSignals = await sRes.json();
-            // v10.1: risk-adjusted metrics (key/value rows).
-            if (mRes.ok) {
-                const m = await mRes.json();
-                const map: Record<string, string> = {};
-                for (const row of Array.isArray(m) ? m : m?.metrics ?? []) {
-                    if (row?.key) map[row.key] = row.value;
-                }
-                btMetrics = map;
-            }
-        } catch (_) {}
-    }
-
+    // Phase 3: run + DS fetching lives in the store (`app.loadBteRun`) —
+    // the launcher hand-over and the History tab both go through it, and
+    // a deep-linked `…/run/<id>` restores the exact same payloads.
     async function loadRun(run: { id: number }) {
-        try {
-            const res = await fetch(`/api/backtest/${run.id}`);
-            if (res.ok) {
-                btResult = await res.json();
-                await loadDsFor(run.id);
-            }
-        } catch (_) {}
+        await app.loadBteRun(run.id);
     }
 
     // v8.2: the launcher hands over the persisted run id.

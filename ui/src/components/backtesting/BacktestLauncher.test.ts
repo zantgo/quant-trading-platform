@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // BacktestLauncher (v8.2) — the installer-style wizard:
-// step navigation, allocation-sum guard, preseeded timeframe dropdowns,
+// step navigation, allocation-sum guard, fixed-ladder display,
 // and the Run step's progress/cancel state machine.
 import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -126,21 +126,20 @@ describe('BacktestLauncher wizard (v8.2)', () => {
         await waitFor(() => expect(screen.getAllByText('Historical Data').length).toBeGreaterThanOrEqual(1));
     });
 
-    it('G33 — timeframe dropdowns are the 14 tiers, preseeded 1m/3m/5m/15m', async () => {
+    it('G33 — no per-slot timeframe pickers; the fixed 10-slot ladder is displayed', async () => {
         renderLauncher();
         await goToInstancesStep();
-        // The four slots preseed 60/180/300/900 (1m/3m/5m/15m).
+        // v8 fixed ladder: there is no TF choice — the per-slot <select>
+        // pickers are gone (no select on this step carries TF options).
         const selects = document.querySelectorAll('select') as NodeListOf<HTMLSelectElement>;
         const tfSelects = Array.from(selects).filter((s) =>
             Array.from(s.options).some((o) => o.value === '86400'),
         );
-        expect(tfSelects.length).toBe(4);
-        const values = tfSelects.map((s) => s.value);
-        expect(values).toEqual(['60', '180', '300', '900']);
-        // The full tier list is available (14 tiers, 1s → 1d).
-        expect(tfSelects[0].options.length).toBe(14);
-        expect(tfSelects[0].options[0].value).toBe('1');
-        expect(tfSelects[0].options[13].value).toBe('86400');
+        expect(tfSelects.length).toBe(0);
+
+        // The canonical fixed ladder is displayed instead (1s..1h).
+        const { container } = { container: document.body };
+        expect(container.textContent).toContain('1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m · 15m · 1h');
     });
 
     it('G30 — Σ allocations > 100 % blocks the run', async () => {
@@ -193,7 +192,7 @@ describe('BacktestLauncher wizard (v8.2)', () => {
         expect(body.exchange).toBe('Hyperliquid');
         expect(body.symbols[0]).toEqual({
             symbol: 'BTC-USDC',
-            timeframes: [60, 180, 300, 900],
+            timeframes: [1, 3, 5, 15, 30, 60, 180, 300, 900, 3600],
             allocation_pct: 10,
         });
         expect(body.mode).toBe('historical');

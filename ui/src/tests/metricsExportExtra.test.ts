@@ -2,10 +2,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildMetricsExportJson, buildPanelExportJson, buildMtfExportJson } from '../lib/metricsExport';
-import type { IndicatorMeta } from '../types';
+import type { IndicatorMeta, TimeframeSlotKind } from '../types';
+import { makeTerms } from './makeTerms';
 
 // ── Module-scope MTF fixtures (reused by Phase 2 + Phase 3 describe blocks) ──
-function mtfTf(slot: 'micro' | 'fast' | 'slow' | 'macro', secs: number, opts: {
+function mtfTf(slot: TimeframeSlotKind, secs: number, opts: {
     priceText?: string;
     ts?: number;
     rsiNorm?: number | null;
@@ -64,7 +65,7 @@ function makeMeta(key: string, display: string, group: string, overrides: Partia
 // Module-level fixtures reused by both describe blocks.
 function makeTf() {
     return {
-        slot: 'micro' as const,
+        slot: 'micro1' as const,
         symbol: 'BTC-USDT',
             exchange: 'Hyperliquid',
             barDurationSec: 60,
@@ -573,12 +574,12 @@ describe('buildMtfExportJson — cross-timeframe grid payload', () => {
     it('returns valid JSON with the canonical top-level keys', () => {
         const out = buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60,    { priceText: '65000', ts: 100 }),
-                fastTerm:  mtfTf('fast',  180,   { priceText: '65100', ts: 200 }),
-                slowTerm:  mtfTf('slow',  300,   { priceText: '64900', ts: 300 }),
-                macroTerm: mtfTf('macro', 900,   { priceText: '64800', ts: 400 }),
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60,    { priceText: '65000', ts: 100 }),
+                fast1: mtfTf('fast1',  180,   { priceText: '65100', ts: 200 }),
+                slow1: mtfTf('slow1',  300,   { priceText: '64900', ts: 300 }),
+                macro1: mtfTf('macro1', 900,   { priceText: '64800', ts: 400 }),
+                }),
             registry: [makeMeta('rsi', 'RSI', 'Momentum')],
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
         });
@@ -586,8 +587,8 @@ describe('buildMtfExportJson — cross-timeframe grid payload', () => {
         expect(parsed.source_tab).toBe('mtf');
         expect(parsed.symbol).toBe('BTC-USDT');
         expect(parsed.exported_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-        expect(parsed.timeframes).toHaveLength(4);
-        expect(parsed.timeframes.map((t: any) => t.label)).toEqual(['Micro', 'Fast', 'Slow', 'Macro']);
+        expect(parsed.timeframes).toHaveLength(10);
+        expect(parsed.timeframes.map((t: any) => t.label)).toEqual(['Micro1', 'Micro2', 'Fast1', 'Fast2', 'Slow1', 'Slow2', 'Macro1', 'Macro2', 'Longterm1', 'Longterm2']);
         expect(parsed.timeframes[0].duration_seconds).toBe(60);
         expect(parsed.timeframes[0].mark_price).toBe(65000);
         expect(parsed.timeframes[0].timestamp).toBe(100);
@@ -601,21 +602,21 @@ describe('buildMtfExportJson — cross-timeframe grid payload', () => {
         // Micro & Fast bullish, Slow & Macro bearish → agreement = avg ≈ 0 (MIXED).
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60,  { rsiNorm:  0.8 }),
-                fastTerm:  mtfTf('fast',  180, { rsiNorm:  0.6 }),
-                slowTerm:  mtfTf('slow',  300, { rsiNorm: -0.4 }),
-                macroTerm: mtfTf('macro', 900, { rsiNorm: -0.7 }),
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60,  { rsiNorm:  0.8 }),
+                fast1: mtfTf('fast1',  180, { rsiNorm:  0.6 }),
+                slow1: mtfTf('slow1',  300, { rsiNorm: -0.4 }),
+                macro1: mtfTf('macro1', 900, { rsiNorm: -0.7 }),
+                }),
             registry: [makeMeta('rsi', 'RSI', 'Momentum')],
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
         }));
         expect(out.indicators).toHaveLength(1);
         const rsi = out.indicators[0];
         expect(rsi.key).toBe('rsi');
-        expect(rsi.values).toHaveLength(4);
-        expect(rsi.values.map((v: any) => v.timeframe)).toEqual(['Micro', 'Fast', 'Slow', 'Macro']);
-        expect(rsi.values[0]).toEqual({ timeframe: 'Micro', normalized: 0.8, active: true });
+        expect(rsi.values).toHaveLength(10);
+        expect(rsi.values.map((v: any) => v.timeframe)).toEqual(['Micro1', 'Micro2', 'Fast1', 'Fast2', 'Slow1', 'Slow2', 'Macro1', 'Macro2', 'Longterm1', 'Longterm2']);
+        expect(rsi.values[0]).toEqual({ timeframe: 'Micro1', normalized: 0.8, active: true });
         // Avg ≈ (0.8+0.6-0.4-0.7)/4 = 0.075 → MIXED
         expect(rsi.agreement_label).toBe('MIXED');
         expect(Math.abs(rsi.agreement - 0.075)).toBeLessThan(1e-9);
@@ -626,30 +627,31 @@ describe('buildMtfExportJson — cross-timeframe grid payload', () => {
         // mean of the 3 active TFs only.
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60,  { rsiNorm:  0.6 }),
-                fastTerm:  mtfTf('fast',  180, { rsiNorm:  0.6 }),
-                slowTerm:  mtfTf('slow',  300, { rsiNorm:  0.6 }),
-                macroTerm: mtfTf('macro', 900, { rsiNorm:  null as any }), // no rsi
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60,  { rsiNorm:  0.6 }),
+                fast1: mtfTf('fast1',  180, { rsiNorm:  0.6 }),
+                slow1: mtfTf('slow1',  300, { rsiNorm:  0.6 }),
+                macro1: mtfTf('macro1', 900, { rsiNorm:  null as any }), // no rsi
+            }),
             registry: [makeMeta('rsi', 'RSI', 'Momentum')],
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
         }));
         const rsi = out.indicators[0];
-        expect(rsi.values[3]).toEqual({ timeframe: 'Macro', normalized: 0, active: false });
+        expect(rsi.values[3]).toEqual({ timeframe: 'Fast2', normalized: 0, active: false });
+        expect(rsi.values[6]).toEqual({ timeframe: 'Macro1', normalized: 0, active: false });
         expect(rsi.agreement).toBeCloseTo(0.6, 9);
         expect(rsi.agreement_label).toBe('BULL');
     });
 
-    it('sums unique signal labels across all 4 TFs into signals_total', () => {
+    it('sums unique signal labels across all 10 TFs into signals_total', () => {
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60,  { rsiNorm: 0.5, rsiSigLabel: 'RSI oversold' }),
-                fastTerm:  mtfTf('fast',  180, { rsiNorm: 0.5, rsiSigLabel: 'RSI oversold' }), // duplicate
-                slowTerm:  mtfTf('slow',  300, { rsiNorm: 0.5, rsiSigLabel: 'RSI cross up' }),
-                macroTerm: mtfTf('macro', 900, { rsiNorm: 0.5 }),
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60,  { rsiNorm: 0.5, rsiSigLabel: 'RSI oversold' }),
+                fast1: mtfTf('fast1',  180, { rsiNorm: 0.5, rsiSigLabel: 'RSI oversold' }), // duplicate
+                slow1: mtfTf('slow1',  300, { rsiNorm: 0.5, rsiSigLabel: 'RSI cross up' }),
+                macro1: mtfTf('macro1', 900, { rsiNorm: 0.5 }),
+            }),
             registry: [makeMeta('rsi', 'RSI', 'Momentum')],
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
         }));
@@ -660,12 +662,12 @@ describe('buildMtfExportJson — cross-timeframe grid payload', () => {
     it('rolls up groups from GROUP_ORDER and includes accent + count', () => {
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60),
-                fastTerm:  mtfTf('fast',  180),
-                slowTerm:  mtfTf('slow',  300),
-                macroTerm: mtfTf('macro', 900),
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60),
+                fast1: mtfTf('fast1',  180),
+                slow1: mtfTf('slow1',  300),
+                macro1: mtfTf('macro1', 900),
+                }),
             registry: [
                 makeMeta('rsi',  'RSI',  'Momentum'),
                 makeMeta('macd', 'MACD', 'Momentum'),
@@ -684,12 +686,12 @@ describe('buildMtfExportJson — cross-timeframe grid payload', () => {
     it('filters out groups with zero indicators', () => {
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60,  { rsiNorm: 0.5 }),
-                fastTerm:  mtfTf('fast',  180),
-                slowTerm:  mtfTf('slow',  300),
-                macroTerm: mtfTf('macro', 900),
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60,  { rsiNorm: 0.5 }),
+                fast1: mtfTf('fast1',  180),
+                slow1: mtfTf('slow1',  300),
+                macro1: mtfTf('macro1', 900),
+                }),
             registry: [makeMeta('rsi', 'RSI', 'Momentum')],
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
         }));
@@ -701,19 +703,19 @@ describe('buildMtfExportJson — cross-timeframe grid payload', () => {
     it('serializes mark_price as null when priceText is invalid', () => {
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60, { priceText: '--' }),
-                fastTerm:  mtfTf('fast',  180, { priceText: '' }),
-                slowTerm:  mtfTf('slow',  300, { priceText: 'abc' }),
-                macroTerm: mtfTf('macro', 900, { priceText: '0' }),
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60, { priceText: '--' }),
+                fast1: mtfTf('fast1',  180, { priceText: '' }),
+                slow1: mtfTf('slow1',  300, { priceText: 'abc' }),
+                macro1: mtfTf('macro1', 900, { priceText: '0' }),
+                }),
             registry: [],
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
         }));
         expect(out.timeframes[0].mark_price).toBeNull();
-        expect(out.timeframes[1].mark_price).toBeNull();
         expect(out.timeframes[2].mark_price).toBeNull();
-        expect(out.timeframes[3].mark_price).toBeNull();
+        expect(out.timeframes[4].mark_price).toBeNull();
+        expect(out.timeframes[6].mark_price).toBeNull();
     });
 });
 
@@ -1010,19 +1012,19 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
     it('MTF export carries per-TF indicator detail with raw/signals/sub_values/lifecycle', () => {
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60,    { priceText: '65000', rsiNorm: 0.8,  rsiSigLabel: 'RSI cross up' }),
-                fastTerm:  mtfTf('fast',  180,   { priceText: '65100', rsiNorm: 0.6 }),
-                slowTerm:  mtfTf('slow',  300,   { priceText: '64900', rsiNorm: -0.4 }),
-                macroTerm: mtfTf('macro', 900,   { priceText: '64800', rsiNorm: -0.7 }),
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60,    { priceText: '65000', rsiNorm: 0.8,  rsiSigLabel: 'RSI cross up' }),
+                fast1: mtfTf('fast1',  180,   { priceText: '65100', rsiNorm: 0.6 }),
+                slow1: mtfTf('slow1',  300,   { priceText: '64900', rsiNorm: -0.4 }),
+                macro1: mtfTf('macro1', 900,   { priceText: '64800', rsiNorm: -0.7 }),
+                }),
             registry: [makeMeta('rsi', 'RSI', 'Momentum')],
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
         }));
         // Each TF carries an `indicators` array (the same shape as the
         // single-TF Metrics export) so the consumer can read every metric
         // visible in every timeframe tab without switching tabs.
-        for (let i = 0; i < 4; i++) {
+        for (const i of [0, 2, 4, 6]) {
             expect(Array.isArray(out.timeframes[i].indicators)).toBe(true);
             const rsi = out.timeframes[i].indicators.find((ind: any) => ind.key === 'rsi');
             expect(rsi).toBeDefined();
@@ -1037,17 +1039,17 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
         expect(microRsi.signals).toHaveLength(1);
         expect(microRsi.signals[0].label).toBe('RSI cross up');
         // The other TFs have no signals.
-        expect(out.timeframes[1].indicators.find((ind: any) => ind.key === 'rsi').signals).toHaveLength(0);
         expect(out.timeframes[2].indicators.find((ind: any) => ind.key === 'rsi').signals).toHaveLength(0);
-        expect(out.timeframes[3].indicators.find((ind: any) => ind.key === 'rsi').signals).toHaveLength(0);
+        expect(out.timeframes[4].indicators.find((ind: any) => ind.key === 'rsi').signals).toHaveLength(0);
+        expect(out.timeframes[6].indicators.find((ind: any) => ind.key === 'rsi').signals).toHaveLength(0);
         // Back-compat: the MTF summary grid (`indicators[].values`) still
-        // classifies agreement across all 4 TFs.
+        // classifies agreement across all 10 TFs.
         expect(out.indicators).toHaveLength(1);
         expect(out.indicators[0].agreement_label).toBe('MIXED');
     });
 
     it('MTF export per-TF block carries fibonacci_summary + context', () => {
-        const microTf = mtfTf('micro', 60, { priceText: '65000', rsiNorm: 0.5 });
+        const microTf = mtfTf('micro1', 60, { priceText: '65000', rsiNorm: 0.5 });
         // Inject a Fibonacci indicator with sub-values into Micro TF.
         (microTf.indicators as any)['fibonacci'] = {
             raw_value: 65000,
@@ -1070,12 +1072,12 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
         microTf.context = { trend: { score: 0.5, confidence: 0.7, label: 'BULL' } };
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: microTf,
-                fastTerm:  mtfTf('fast',  180, { priceText: '65100' }),
-                slowTerm:  mtfTf('slow',  300, { priceText: '64900' }),
-                macroTerm: mtfTf('macro', 900, { priceText: '64800' }),
-            },
+            terms: makeTerms({
+                micro1: microTf,
+                fast1: mtfTf('fast1',  180, { priceText: '65100' }),
+                slow1: mtfTf('slow1',  300, { priceText: '64900' }),
+                macro1: mtfTf('macro1', 900, { priceText: '64800' }),
+                }),
             registry: [
                 makeMeta('rsi', 'RSI', 'Momentum'),
                 makeMeta('fibonacci', 'Fibonacci', 'Structure', { value_source: 'sub:gp_top' }),
@@ -1090,8 +1092,8 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
         // Micro TF: context carried over.
         expect(out.timeframes[0].context.trend.label).toBe('BULL');
         // Other TFs: fibonacci_summary absent, context null.
-        expect(out.timeframes[1].fibonacci_summary.fibonacci_present).toBe(false);
-        expect(out.timeframes[1].context).toBeNull();
+        expect(out.timeframes[2].fibonacci_summary.fibonacci_present).toBe(false);
+        expect(out.timeframes[2].context).toBeNull();
         // The __fibonacci_summary__ row appears in the per-TF indicators list.
         const microFibRow = out.timeframes[0].indicators.find((ind: any) => ind.key === '__fibonacci_summary__');
         expect(microFibRow).toBeDefined();
@@ -1102,12 +1104,12 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
     it('MTF export per-TF detail for an empty registry is an empty indicators array', () => {
         const out = JSON.parse(buildMtfExportJson({
             symbol: 'BTC-USDT',
-            pair: {
-                microTerm: mtfTf('micro', 60, { priceText: '65000' }),
-                fastTerm:  mtfTf('fast',  180, { priceText: '65100' }),
-                slowTerm:  mtfTf('slow',  300, { priceText: '64900' }),
-                macroTerm: mtfTf('macro', 900, { priceText: '64800' }),
-            },
+            terms: makeTerms({
+                micro1: mtfTf('micro1', 60, { priceText: '65000' }),
+                fast1: mtfTf('fast1',  180, { priceText: '65100' }),
+                slow1: mtfTf('slow1',  300, { priceText: '64900' }),
+                macro1: mtfTf('macro1', 900, { priceText: '64800' }),
+                }),
             registry: [],
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
         }));
