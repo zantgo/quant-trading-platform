@@ -9,6 +9,7 @@
     import LayerHeader from './LayerHeader.svelte';
     import SummaryCard from './SummaryCard.svelte';
     import { buildL3AnalysisHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { getBadgeTrail, badgeHistoryVersion, layerKey } from '../lib/badgeHistory.svelte';
     import { mLabel } from '../lib/layerHeader';
     import { computeAnalysisLean } from '../lib/analysisLean';
     import { biasColor } from '../lib/dashboardColors';
@@ -293,7 +294,9 @@
         const t = text || '';
 
         let timeframe = 'GLOBAL';
-        const tfMatch = t.match(/\[?(MICRO|FAST|SLOW|MACRO|1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D)\]?/i);
+        // v11.4: numbered slot names first (longest match wins) so the
+        // card title shows MICRO1/FAST2/… not the bare family name.
+        const tfMatch = t.match(/\[?(MICRO1|MICRO2|FAST1|FAST2|SLOW1|SLOW2|MACRO1|MACRO2|LONGTERM1|LONGTERM2|MICRO|FAST|SLOW|MACRO|1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D)\]?/i);
         if (tfMatch) {
             timeframe = tfMatch[1].toUpperCase();
         }
@@ -323,13 +326,19 @@
     // suppressed from chips when it's redundant with the bias (e.g.
     // bias='BULLISH' ∧ regime='TRENDING_BULL' is one fact, not two).
     const headerSpec = $derived<LayerHeaderSpec>(buildL3AnalysisHeader(analysis));
+    // v11.5: badge history trail (re-renders on every ring push).
+    const badgeTrail = $derived.by(() => {
+        void badgeHistoryVersion.v;
+        void headerSpec;
+        return getBadgeTrail(layerKey('l3', pairKey));
+    });
 </script>
 
 <div class={styles.panel}>
     <!-- v7.0-prod: the panel-level banner above the LayerHeader was removed
          (D9 — no text above any badge). Per-section empty states still
          surface from within the body when a matrix hasn't loaded yet. -->
-    <LayerHeader spec={headerSpec}>
+    <LayerHeader spec={headerSpec} trail={badgeTrail}>
         {#snippet trailing()}
             <h2 class={styles.title}>Market Analysis</h2>
             <ExportDataButton onExport={buildExport} title="Copy all Analysis data as JSON" />

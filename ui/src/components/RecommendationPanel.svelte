@@ -8,6 +8,7 @@
     import SummaryCard from './SummaryCard.svelte';
     import ProjectRiskDrawer from './ProjectRiskDrawer.svelte';
     import { buildL6DecisionHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { getBadgeTrail, badgeHistoryVersion, layerKey } from '../lib/badgeHistory.svelte';
     import { emptyProjection, type ProjectionSetup, type ProjectionState } from '../lib/projection';
     import styles from './RecommendationPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
@@ -123,6 +124,13 @@
         advisory,
         opportunity,
     }));
+
+    // v11.5: badge history trail (re-renders on every ring push).
+    const badgeTrail = $derived.by(() => {
+        void badgeHistoryVersion.v;
+        void headerSpec;
+        return getBadgeTrail(layerKey('l6', pairKey));
+    });
 
     // ── Verdict & Rationale card accent — the card's left-edge line
     //    mirrors the verdict: green LONG, red SHORT, amber HOLD. The
@@ -296,7 +304,7 @@
     <!-- v7.0-prod: the panel-level banner above the LayerHeader was removed
          (D9 — no text above any badge). Per-section empty states still
          surface from within the body when a matrix hasn't loaded yet. -->
-    <LayerHeader spec={headerSpec}>
+    <LayerHeader spec={headerSpec} trail={badgeTrail}>
         {#snippet trailing()}
             <h2 class={styles.title}>Recommendation</h2>
             <div class={styles.headerActions}>

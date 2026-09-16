@@ -369,12 +369,12 @@ pub async fn serve_history(
         // charts bootstrap their heatmap/volume-profile overlays from
         // history on first mount instead of waiting for the next WS frame.
         let mut slot_pipes: Vec<(String, &TimeframePipeline)> = Vec::with_capacity(10);
-        // v11.2: only ACTIVE ladder slots (fastest N) + custom pipelines.
-        for (slot, pipe) in core_domain::models::FIXED_TF_SLOTS[..pair.active_count.min(10).max(1)]
-            .iter()
-            .zip(pair.all()[..pair.active_count.min(10).max(1)].iter().copied())
-        {
-            slot_pipes.push((slot.as_str(), pipe));
+        // v11.4: only ACTIVE ladder slots (arbitrary set) + custom pipelines.
+        for &i in &pair.active_indices {
+            slot_pipes.push((
+                core_domain::models::FIXED_TF_SLOTS[i].as_str(),
+                pair.all()[i],
+            ));
         }
         for (id, pipe) in &pair.custom_pipelines {
             slot_pipes.push((format!("custom-{id}"), pipe));

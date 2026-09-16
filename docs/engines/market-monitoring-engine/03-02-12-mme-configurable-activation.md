@@ -1,6 +1,6 @@
 # Configurable Data Activation — Architecture Spec
 
-**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.5 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** MME (Layer 1 pipeline)
 **Owner:** market-analyzer crate (docs/engines/market-monitoring-engine/)

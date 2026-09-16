@@ -1,6 +1,6 @@
 # 📐 Fibonacci Retracements, Extensions & Swing Leg Protocol
 
-**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.5 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction

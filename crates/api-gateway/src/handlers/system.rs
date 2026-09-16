@@ -33,13 +33,17 @@ pub async fn serve_system_pipelines(State(state): State<Arc<AppState>>) -> impl 
         // with `core_domain::FIXED_TF_SLOTS` / `ActivePair::all()`.
         let pipelines: Vec<(String, &market_analyzer::analyzer::TimeframePipeline)> = {
             let ap = &inst.active_pair;
-            // v11.2: report only the ACTIVE ladder slots (fastest N) —
-            // slots beyond the count are inert (never spawned).
-            let active = inst.active_secs.len().min(10).max(1);
-            core_domain::models::FIXED_TF_SLOTS[..active]
+            // v11.4: report only the ACTIVE ladder slots (arbitrary set) —
+            // slots outside the set are inert (never spawned).
+            inst.active_pair
+                .active_indices
                 .iter()
-                .zip(ap.all()[..active].iter().copied())
-                .map(|(slot, pipe)| (slot.as_str(), pipe))
+                .filter_map(|&i| {
+                    core_domain::models::FIXED_TF_SLOTS
+                        .get(i)
+                        .zip(ap.all().get(i))
+                        .map(|(slot, pipe)| (slot.as_str(), *pipe))
+                })
                 .collect()
         };
         for (slot_label, pipeline) in pipelines {

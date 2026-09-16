@@ -5,6 +5,14 @@ import { getDecimalCount } from './telemetry';
 import { activeSlotKinds } from './terms';
 import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
 import { emitCandleDebug } from './candleDebug';
+import {
+    pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY,
+} from './badgeHistory.svelte';
+import {
+    buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader,
+    buildL5RiskHeader, buildL6DecisionHeader, metricsBadgeFor,
+} from './layerHeader';
+import { computeDecisionRank } from './decisionRank';
 import type { Time } from 'lightweight-charts';
 
 const WS_INITIAL_DELAY_MS = 1000;
@@ -239,6 +247,15 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     // metrics-tab export (`market_context`), and the MTF grid.
     if (snapshot.context && typeof snapshot.context === 'object') {
         tf.context = snapshot.context;
+        // v11.5: L1 badge history — one literal sample per completed candle
+        // for this (instance, slot). Same derivation the Metrics header uses.
+        if (isCompletedFrame) {
+            const badge = metricsBadgeFor(tf, null).badge;
+            if (badge.state !== 'empty') {
+                pushBadge(l1Key(symbol, tf.slot), { label: badge.label, color: badge.color, ts: Date.now() });
+                notifyBadgeChanged();
+            }
+        }
     }
 
     const mid = num(snapshot.mid_price) ?? num(snapshot.close) ?? num(snapshot.mark_price);
@@ -457,6 +474,47 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             const completedClose = num(snapshot.close);
             if (completedClose != null) {
                 pair.lastCompletedClose = completedClose.toString();
+            }
+            // v11.5: L2–L6 badge history — sampled ONCE per pair candle
+            // cycle (when the fastest ACTIVE slot completes a matrix frame)
+            // so the literal last-5 rings aren't filled with per-slot
+            // duplicates of the same shared state. Same builders as the
+            // live headers.
+            const pairInst = app.instancesMap[symbol];
+            const fastestActive = activeSlotKinds(pairInst)[0];
+            if (fastestActive === tf.slot) {
+                const now = Date.now();
+                pushBadge(layerKey('l2', symbol), (() => {
+                    const b = buildL2AlignmentHeader(pair.alignment).badge;
+                    return { label: b.label, color: b.color, ts: now };
+                })());
+                pushBadge(layerKey('l3', symbol), (() => {
+                    const b = buildL3AnalysisHeader(pair.analysis).badge;
+                    return { label: b.label, color: b.color, ts: now };
+                })());
+                pushBadge(layerKey('l4', symbol), (() => {
+                    const b = buildL4OpportunityHeader(pair.opportunity).badge;
+                    return { label: b.label, color: b.color, ts: now };
+                })());
+                pushBadge(layerKey('l5', symbol), (() => {
+                    const b = buildL5RiskHeader(pair.risk).badge;
+                    return { label: b.label, color: b.color, ts: now };
+                })());
+                const rank = computeDecisionRank({
+                    advisory: pair.advisory,
+                    decisionContext: pair.decisionContext,
+                    opportunity: pair.opportunity,
+                    analysis: pair.analysis,
+                });
+                pushBadge(layerKey('l6', symbol), (() => {
+                    const b = buildL6DecisionHeader({
+                        rank,
+                        decisionContext: pair.decisionContext,
+                        advisory: pair.advisory,
+                    }).badge;
+                    return { label: b.label, color: b.color, ts: now };
+                })());
+                notifyBadgeChanged();
             }
         }
     }

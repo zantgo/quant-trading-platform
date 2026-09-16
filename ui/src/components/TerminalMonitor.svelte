@@ -33,6 +33,7 @@
     import MtfView from './facets/MtfView.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL1MetricsHeader, buildL1MtfHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { getBadgeTrail, badgeHistoryVersion, l1Key } from '../lib/badgeHistory.svelte';
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
@@ -74,6 +75,14 @@
             ? { key: 'Mtf' as TfLabel, label: 'MTF', tfKey: '', secs: null }
             : TIMEFRAMES.find((t) => t.key === activeTf && t.key !== 'Mtf')!
     );
+    // v11.5: L1 badge history trail for the selected single TF.
+    const l1Trail = $derived.by(() => {
+        void badgeHistoryVersion.v;
+        void activeTf;
+        if (activeTf === 'Mtf' || !pairKey) return undefined;
+        return getBadgeTrail(l1Key(pairKey, activeTf));
+    });
+
     const activeTfObj = $derived<TimeframeTelemetry | undefined>(
         activeTf === 'Mtf'
             ? undefined
@@ -244,7 +253,7 @@
     <div class={styles.contentArea}>
         {#if pair && registry.length > 0 && (activeTf === 'Mtf' || activeTfObj)}
             <!-- L1 HEADER (v7.0-prod — shared chrome across all MME tabs) -->
-            <LayerHeader spec={headerSpec}>
+            <LayerHeader spec={headerSpec} trail={l1Trail}>
                 {#snippet trailing()}
                     <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
                     <span class={styles.tfBadge}>

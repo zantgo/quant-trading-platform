@@ -159,8 +159,27 @@ pub async fn add_instance(
         TimeframeConfig::new(config_models::FIXED_TF_LADDER[i], ws_indicators.clone())
     });
     let ladder_secs: [u64; 10] = config_models::FIXED_TF_LADDER;
-    // v11.2: only the FASTEST `active_timeframes` slots run (1..=10, default 5).
-    let config_guard_active_timeframes = config_guard.active_timeframes.clamp(1, 10);
+    // v11.4: the ACTIVE SET — arbitrary subset of the pool (explicit
+    // `[workspace].active_slots` wins; legacy default = fastest N).
+    let config_guard_active_slots: Vec<usize> = config_guard
+        .active_slot_names()
+        .iter()
+        .filter_map(|name| {
+            config_models::FIXED_TF_NAMES
+                .iter()
+                .position(|n| n == name)
+        })
+        .collect();
+    let config_guard_active_ladder_secs: Vec<u64> = config_guard
+        .active_slot_names()
+        .iter()
+        .filter_map(|name| {
+            config_models::FIXED_TF_NAMES
+                .iter()
+                .position(|n| n == name)
+                .map(|idx| config_models::FIXED_TF_LADDER[idx])
+        })
+        .collect();
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
         _ => state.platform.read().await.hyperliquid.rest_url(),
@@ -242,7 +261,7 @@ pub async fn add_instance(
         ladder_cfgs: ladder_cfgs.clone(),
         fib_config: drop_fib.clone(),
         ladder_secs,
-        active_count: config_guard_active_timeframes,
+        active_slots: config_guard_active_slots.clone(),
         buffer_size,
         stale_threshold_secs,
         fetch_timeout_ms,
@@ -260,7 +279,7 @@ pub async fn add_instance(
         quote,
         pair_key: pair_key.clone(),
         exchange_choice,
-        active_count: config_guard_active_timeframes,
+        active_slots: config_guard_active_slots.clone(),
         ladder_cfgs,
         fib_config: drop_fib,
         safety_config,
@@ -663,8 +682,27 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         TimeframeConfig::new(config_models::FIXED_TF_LADDER[i], ws_indicators.clone())
     });
     let ladder_secs: [u64; 10] = config_models::FIXED_TF_LADDER;
-    // v11.2: only the FASTEST `active_timeframes` slots run (1..=10, default 5).
-    let config_guard_active_timeframes = config_guard.active_timeframes.clamp(1, 10);
+    // v11.4: the ACTIVE SET — arbitrary subset of the pool (explicit
+    // `[workspace].active_slots` wins; legacy default = fastest N).
+    let config_guard_active_slots: Vec<usize> = config_guard
+        .active_slot_names()
+        .iter()
+        .filter_map(|name| {
+            config_models::FIXED_TF_NAMES
+                .iter()
+                .position(|n| n == name)
+        })
+        .collect();
+    let config_guard_active_ladder_secs: Vec<u64> = config_guard
+        .active_slot_names()
+        .iter()
+        .filter_map(|name| {
+            config_models::FIXED_TF_NAMES
+                .iter()
+                .position(|n| n == name)
+                .map(|idx| config_models::FIXED_TF_LADDER[idx])
+        })
+        .collect();
     drop(config_guard);
 
     // Canonical candle buffer size from `[candle_buffer] size` (CB-01).
@@ -686,7 +724,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         ladder_cfgs: ladder_cfgs.clone(),
         fib_config: fib_config.clone(),
         ladder_secs,
-        active_count: config_guard_active_timeframes,
+        active_slots: config_guard_active_slots.clone(),
         buffer_size,
         stale_threshold_secs,
         fetch_timeout_ms,
@@ -705,7 +743,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         quote,
         pair_key: pair_key.to_string(),
         exchange_choice,
-        active_count: config_guard_active_timeframes,
+        active_slots: config_guard_active_slots.clone(),
         ladder_cfgs,
         fib_config,
         safety_config: safety_config.clone(),
@@ -771,7 +809,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     } = artifacts;
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
-        active_secs: config_models::FIXED_TF_LADDER[..config_guard_active_timeframes].to_vec(),
+        active_secs: config_guard_active_ladder_secs.clone(),
         pair: old_instance.pair.clone(),
         exchange: old_instance.exchange,
         cancel: cancel.clone(),

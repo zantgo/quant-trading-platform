@@ -176,9 +176,10 @@ pub struct ActivePair {
     /// Always empty for the fixed ladder; retained for non-ladder duration
     /// dispatch (`Custom` slots from ad-hoc resolution).
     pub custom_pipelines: std::collections::HashMap<u16, TimeframePipeline>,
-    /// v11.2: how many of the fastest slots actually run (1..=10). Slots
-    /// beyond this exist as inert pipelines (never spawned, never emit).
-    pub active_count: usize,
+    /// v11.4: which ladder slots actually run — canonical indices into
+    /// `FIXED_TF_SLOTS` (an arbitrary subset; was a fastest-N prefix count).
+    /// Slots outside the set exist as inert pipelines (never spawned).
+    pub active_indices: Vec<usize>,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
     /// Latest Open Interest (shared across all timeframes, updated by WS events).

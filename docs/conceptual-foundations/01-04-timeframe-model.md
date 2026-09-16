@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.5 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the **fixed 10-slot timeframe model** used by the Market Monitoring Engine. The ladder `micro1`, `micro2`, `fast1`, `fast2`, `slow1`, `slow2`, `macro1`, `macro2`, `longterm1`, `longterm2` is the canonical slot pool — names and durations are constants of the platform (v11.1) and the legacy per-instance ladder keys are parsed but ignored with a boot warning. Since **v11.2**, a workspace dial — `[workspace].active_timeframes` (1..=10, default 5) — selects how many of the slots actually run: the **FASTEST N**. Each instance runs exactly N independent timeframe pipelines producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer; the inactive slots are inert (§2.1).
 

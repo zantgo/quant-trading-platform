@@ -18,6 +18,8 @@
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import { activeSlotKinds } from '../lib/terms';
+    import { getBadgeTrail, badgeHistoryVersion, l1Key } from '../lib/badgeHistory.svelte';
+    import BadgeTrail from './BadgeTrail.svelte';
     import { metricsBadgeFor } from '../lib/layerHeader';
     import styles from './TfStatusTable.module.css';
     import headerStyles from './LayerHeader.module.css';
@@ -31,6 +33,10 @@
 
     const app = useAppStore();
     const instance = $derived(app.instancesMap[pairKey]);
+
+    // v11.4: the table collapses behind a click-anywhere header bar.
+    // Default EXPANDED — it is the tab's headline feature.
+    let collapsed = $state(false);
 
     const badgeCls: Record<string, string> = {
         valid: headerStyles.badgeValid,
@@ -56,21 +62,35 @@
         return `${secs}s`;
     }
 
-    const rows = $derived.by(() =>
-        activeSlotKinds(instance).map((slot) => {
+    const trailVersion = $derived(badgeHistoryVersion.v);
+    const rows = $derived.by(() => {
+        void trailVersion;
+        return activeSlotKinds(instance).map((slot) => {
             const term: TimeframeTelemetry | undefined = instance?.terms?.[slot];
             const info = metricsBadgeFor(term ?? null, wssState);
-            return { slot, badge: info.badge, status: info.status };
-        }),
-    );
+            return { slot, badge: info.badge, status: info.status, trail: getBadgeTrail(l1Key(pairKey, slot)) };
+        });
+    });
 </script>
 
-<table class={styles.tfStatusTable} aria-label="Per-timeframe status">
+<div class={styles.collapseBar}
+    role="button"
+    tabindex="0"
+    aria-expanded={!collapsed}
+    aria-label="Per-timeframe status"
+    onclick={() => (collapsed = !collapsed)}
+    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); collapsed = !collapsed; } }}
+>
+    <span class="{styles.collapseChevron} {collapsed ? '' : styles.collapseChevronOpen}" aria-hidden="true">▶</span>
+    <span class={styles.collapseTitle}>Timeframe Status</span>
+    <span class={styles.collapseHint}>{collapsed ? 'Show' : 'Hide'}</span>
+</div>
+{#if !collapsed}
+<table class={styles.tfStatusTable}>
     <thead>
         <tr>
             <th scope="col" class={styles.colTimeframe}>Timeframe</th>
             <th scope="col" class={styles.colStatus}>Status</th>
-            <th scope="col" class={styles.colPipeline}>Pipeline</th>
         </tr>
     </thead>
     <tbody>
@@ -95,14 +115,10 @@
                             <span>{row.badge.sublabel}</span>
                         {/if}
                     </div>
-                </td>
-                <td class={styles.pipelineCell}>
-                    <div class={headerStyles.statusIndicator} aria-live="polite">
-                        <span class="{headerStyles.statusDot} {statusDotCls[row.status]}"></span>
-                        <span>{row.status}</span>
-                    </div>
+                    <BadgeTrail entries={row.trail} />
                 </td>
             </tr>
         {/each}
     </tbody>
 </table>
+{/if}

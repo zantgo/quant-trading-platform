@@ -4,6 +4,35 @@
 
 ------
 
+## v11.5 (2026-09-16) — Badge History Trails (Last-5 State Rings)
+
+**Every layer badge — L1 Metrics (per instance×timeframe), L2 Alignment, L3 Analysis, L4 Opportunity, L5 Risk, L6 Recommendation, L7 Overview — now carries a literal last-5 state ring. The current badge stays untouched at the left; the 4 previous states render after it as progressively smaller/fainter "ghost text" (10px/62% → 9.5px/48% → 9px/36% → 8.5px/28% alpha floor) separated by dim chevrons, each with a hover tooltip (label + UTC time + age). Surfaces: all 7 layer headers, the Alignment per-timeframe status table rows, and the Overview per-instance table (decision rows + per-TF sub-rows).**
+
+- **Sampling**: literal (repeats kept) — one sample per completed candle per (instance, slot) for L1; L2–L6 sample once per pair candle cycle (fastest-ACTIVE-slot matrix frame) to avoid cross-slot duplicates; L7 samples on the 3 s overview poll. Same builder functions as the live badges (`buildL1MetricsHeader`…`buildL6DecisionHeader`, `computeDecisionRank`) — trail and badge can never disagree.
+- **Persistence**: namespaced localStorage (`qtp.badgeHistory.v1`, debounced 2 s writes, corrupted-payload safe) — history survives F5 and new tabs.
+- **Rendering**: `BadgeTrail.svelte` — positions 1..4 as ghost text (no pill chrome), recency triple-encoded (position, opacity, size), alpha floor 28 %, hover restores full alpha + tooltip, `aria-hidden` (the live badge is the accessible element), `overflow: hidden` drops oldest first under width pressure.
+- **Docs sweep**: 07-01/07-02 trail spec; corpus re-stamped to 11.5.
+
+------
+
+## v11.4 (2026-09-16) — Multi-Tab UX Hardening, Per-Slot Toggles, Arbitrary Active Sets
+
+**Ten operator-reported fixes from the first live multi-tab session, plus the generalization of the active-timeframe model from a fastest-N COUNT to an ARBITRARY ACTIVE SET.**
+
+- **Right-click → open instance in new tab**: Market Monitor Workspace instance rows (InstancePicker) are semantic `<a>` deep links (`#/engine/market_monitor/workspace/instance/<pair>/view/terminal`); a plain click enters the instance as before.
+- **TF rails**: Charts + Metrics TIMEFRAMES sidebars render only ACTIVE slots and scroll (`overflow-y`); the rail highlight follows the pair's live `activeTf`.
+- **MTF tables**: the Metrics MTF grids (summary + indicator/level rows) use a dynamic column count (`--tf-count`) with `minmax(90px, 1fr)` slots and H/V-scrollable containers — exactly ONE column per ACTIVE timeframe, canonical order (no more stacked headers from the hardcoded `repeat(4, 1fr)`).
+- **Alignment TfStatusTable**: collapsible via a click-anywhere header bar (default EXPANDED); the Pipeline column is removed; active slots only.
+- **Overview InstanceStatusTable**: probabilities render in S · H · L order with direction colors (red/amber/green) at a larger font; the Mode column is removed; instances order NEWEST-first (config creation order reversed); the whole row toggles expansion (chevron stops propagation).
+- **Analysis signal cards**: slot labels carry their numbers (MICRO1/FAST2/…) — the decompose regex matches the longest numbered slot name first.
+- **Arbitrary active sets (backend)**: new `[workspace].active_slots: Vec<String>` (canonical names, 1..=10, unique; wins over `active_timeframes`); `active_ladder()`/`active_slot_names()` resolve to the canonical-order subset. Portfolio-supervisor/spawn/bootstrap/cluster wiring, `ActivePair.active_indices`, and the api-gateway slot surfaces (system/monitor/history) switched from prefix-count slicing to membership filtering.
+- **Settings**: the count selector is replaced by ten per-timeframe toggles (min 1 active) posting `active_slots` to `/api/config` (live-recharge, dirty-tracked, same Apply flow).
+- **Exports stay 1:1 with the screen (G17-documented)**: the Alignment export gains `timeframe_status` and the Overview export gains `instance_status` (decision label + S/H/L percentages + per-ACTIVE-TF badge/pipeline rows) — both computed by the panels with the same derivations the tables render.
+- **activeSlots healing**: `reconcileInstances` re-applies `active_secs → activeSlots` on every poll, so a config refetch can no longer leave TF surfaces stuck on the all-10 default.
+- **Docs sweep**: 07-05 (new export sections, G17 both directions), corpus re-stamped to 11.4.
+
+------
+
 ## v11.3 (2026-09-16) — Multi-Tab Viewers, Deep-Link Routing, Smart Port
 
 **The dashboard becomes a first-class multi-tab web application: every browser tab/window is an independent live viewer, every view is deep-linkable by URL, reload restores the exact view, and the browser Back/Forward buttons walk through view history. Plus smart port handling so two folder-per-session deployments coexist without hand-assigning ports.**

@@ -7,7 +7,7 @@
      PascalCase — they document the screen-facing *display* fields, not
      wire enums. Exempted from the G6 enum-casing lint via the marker. -->
 
-**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.5 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors **1:1 the data the panel renders** — the same numbers, the same prices, the same dynamic strings, the same words; only the presentation changes (the screen formats `63390` as `$63390`, the JSON carries the raw value). Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 
@@ -443,11 +443,18 @@ Notes:
 
 ### 3.3 Alignment Tab — `source_tab: "alignment"`
 
+Carries `timeframe_status` (v11.4): the TfStatusTable rows — one entry per
+ACTIVE slot, each with `slot`, `secs`, `badge_label`, `badge_sublabel`
+(optional), and `pipeline_status` (`live` / `stale` / `loading` / `error`).
+
 ```json
 {
   "source_tab": "alignment",
   "meta": { },
   "header": { },
+  "timeframe_status": [
+    { "slot": "micro1", "secs": 1, "badge_label": "NEUTRAL", "badge_sublabel": "COMPRESSION", "pipeline_status": "live" }
+  ],
   "hero": {
     "mtf_overall_score": 62.0, "mtf_overall_label": "STRONG_BULL_MTF",
     "mtf_overall_label_display": "STRONG BULL",

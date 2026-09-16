@@ -261,10 +261,17 @@ pub struct WorkspaceConfig {
     // ─── Market-monitor defaults (per-instance inheritance) ────────
     #[serde(default)]
     pub candles: CandlesConfig,
+    /// v11.4: explicit ACTIVE slot set — an arbitrary subset of the fixed
+    /// pool by slot name (e.g. `["micro1", "longterm2"]`). When present it
+    /// WINS over the legacy `active_timeframes` count; resolution re-orders
+    /// to canonical fastest → slowest, deduplicates, and drops unknown
+    /// names. Empty/None → the legacy fastest-N derivation.
+    #[serde(default)]
+    pub active_slots: Option<Vec<String>>,
     /// v11.2: how many of the 10 canonical ladder slots actually run —
     /// the FASTEST N (micro1 first). 1..=10, default 5. All instances
     /// share it; editable live via `POST /api/config` (recharges running
-    /// instances).
+    /// instances). Superseded by `active_slots` when that key is present.
     #[serde(default = "default_active_timeframes")]
     pub active_timeframes: usize,
     #[serde(default)]
@@ -364,6 +371,7 @@ impl Default for WorkspaceConfig {
             default_exchange: "Hyperliquid".to_string(),
             portfolio_capital_usd: default_portfolio_capital(),
             candles: CandlesConfig::default(),
+            active_slots: None,
             active_timeframes: DEFAULT_ACTIVE_TIMEFRAMES,
             indicators: IndicatorsConfig::default(),
             fast_timeframe: FastTimeframeConfig::default(),
@@ -414,15 +422,40 @@ impl WorkspaceConfig {
         FIXED_TF_LADDER
     }
 
-    /// v11.2: the ACTIVE ladder — the FASTEST `active_timeframes` durations
-    /// of the fixed pool. This is what every instance actually runs.
+    /// v11.2 (v11.4 set generalization): the ACTIVE ladder — the explicit
+    /// `active_slots` subset when present (re-ordered canonically), else the
+    /// FASTEST `active_timeframes` durations of the fixed pool. This is what
+    /// every instance actually runs.
     pub fn active_ladder(&self) -> Vec<u64> {
-        let n = self.active_timeframes.min(FIXED_TF_LADDER.len()).max(1);
-        FIXED_TF_LADDER[..n].to_vec()
+        self.active_slot_names()
+            .iter()
+            .filter_map(|name| {
+                FIXED_TF_NAMES
+                    .iter()
+                    .position(|n| n == name)
+                    .map(|idx| FIXED_TF_LADDER[idx])
+            })
+            .collect()
     }
 
-    /// v11.2: canonical slot names for `active_ladder()`, positionally aligned.
+    /// v11.2 (v11.4 set generalization): canonical slot names for
+    /// `active_ladder()`, positionally aligned. An explicit `active_slots`
+    /// set wins over the legacy fastest-N count; unknown names are dropped,
+    /// duplicates collapse, and the result is re-ordered canonical
+    /// fastest → slowest. Empty/None → fastest-N (clamped 1..=10).
     pub fn active_slot_names(&self) -> Vec<&'static str> {
+        if let Some(set) = &self.active_slots {
+            let wanted: std::collections::HashSet<&str> =
+                set.iter().map(|s| s.as_str()).collect();
+            let resolved: Vec<&'static str> = FIXED_TF_NAMES
+                .iter()
+                .copied()
+                .filter(|n| wanted.contains(n))
+                .collect();
+            if !resolved.is_empty() {
+                return resolved;
+            }
+        }
         let n = self.active_timeframes.min(FIXED_TF_NAMES.len()).max(1);
         FIXED_TF_NAMES[..n].to_vec()
     }
@@ -893,6 +926,38 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
                 ws.active_timeframes
             ),
         });
+    }
+    // v11.4: explicit active slot set — valid canonical names, no
+    // duplicates, 1..=10 entries. Resolution (active_slot_names) drops
+    // unknowns and re-orders canonically; validation rejects typo'd or
+    // duplicated input loudly instead of silently healing.
+    if let Some(set) = &ws.active_slots {
+        let mut seen = std::collections::HashSet::new();
+        for name in set {
+            if !FIXED_TF_NAMES.contains(&name.as_str()) {
+                return Err(ConfigError::InvalidNumeric {
+                    detail: format!(
+                        "[workspace].active_slots: unknown slot name '{name}' (valid: {})",
+                        FIXED_TF_NAMES.join(", ")
+                    ),
+                });
+            }
+            if !seen.insert(name.as_str()) {
+                return Err(ConfigError::InvalidNumeric {
+                    detail: format!(
+                        "[workspace].active_slots: duplicate slot name '{name}'"
+                    ),
+                });
+            }
+        }
+        if set.is_empty() || set.len() > 10 {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "[workspace].active_slots: {} entries (must be 1..=10)",
+                    set.len()
+                ),
+            });
+        }
     }
     for inst in &ws.instances {
         if !inst.custom_pipelines.is_empty() {

@@ -104,19 +104,19 @@ pub async fn serve_monitor(
     let snaps = pair.latest_snapshots_all_tf().await;
     let svs: Vec<Option<SnapshotValues>> = snaps.iter().map(snap_values).collect();
 
-    // v11.2: report only the ACTIVE ladder slots (fastest N).
-    let active = pair.active_count.min(10).max(1);
-    let timeframes: Vec<MonitorTimeframe> = core_domain::models::FIXED_TF_SLOTS[..active]
+    // v11.4: report only the ACTIVE ladder slots (arbitrary set, canonical order).
+    let timeframes: Vec<MonitorTimeframe> = pair
+        .active_indices
         .iter()
-        .zip(snaps[..active].iter())
-        .zip(svs[..active].iter())
-        .enumerate()
-        .map(|(i, ((slot, snap), sv))| {
+        .filter_map(|&i| {
+            let slot = core_domain::models::FIXED_TF_SLOTS[i];
+            let snap = snaps.get(i)?;
+            let sv = svs.get(i)?;
             let secs = pair
-                .pipeline_for_slot(*slot)
+                .pipeline_for_slot(slot)
                 .map(|p| p.timeframe_secs)
                 .unwrap_or(config_models::FIXED_TF_LADDER[i]);
-            tf_summary(&slot.display_name(), secs, snap, sv)
+            Some(tf_summary(&slot.display_name(), secs, snap, sv))
         })
         .collect();
 

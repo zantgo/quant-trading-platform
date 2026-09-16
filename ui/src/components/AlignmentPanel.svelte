@@ -9,7 +9,9 @@
     import LayerHeader from './LayerHeader.svelte';
     import TfStatusTable from './TfStatusTable.svelte';
     import SummaryCard from './SummaryCard.svelte';
-    import { buildL2AlignmentHeader, mLabel, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { buildL2AlignmentHeader, mLabel, metricsBadgeFor, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { getBadgeTrail, badgeHistoryVersion, layerKey } from '../lib/badgeHistory.svelte';
+    import { TIMEFRAME_SLOT_DURATION_SECS } from '../types';
     import { regimeTone } from '../lib/dashboardColors';
     import styles from './AlignmentPanel.module.css';
 
@@ -27,8 +29,20 @@
     );
 
     function buildExport() {
+        // v11.4: mirror the TfStatusTable rows (per-ACTIVE-slot badges).
+        const timeframe_status = activeSlotKinds(instance).map((slot) => {
+            const info = metricsBadgeFor(instance?.terms?.[slot] ?? null, wssState);
+            return {
+                slot,
+                secs: TIMEFRAME_SLOT_DURATION_SECS[slot],
+                badge_label: info.badge.label,
+                badge_sublabel: info.badge.sublabel,
+                pipeline_status: info.status,
+            };
+        });
         return buildAlignmentTabExport({
             alignment,
+            timeframe_status,
             symbol: pairKey,
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
@@ -275,13 +289,19 @@
         hasAlignment && alignment!.trend_agreement_pct < 50
     );
     const headerSpec = $derived<LayerHeaderSpec>(buildL2AlignmentHeader(alignment));
+    // v11.5: badge history trail (re-renders on every ring push).
+    const badgeTrail = $derived.by(() => {
+        void badgeHistoryVersion.v;
+        void headerSpec;
+        return getBadgeTrail(layerKey('l2', pairKey));
+    });
 </script>
 
 <div class={styles.panel}>
     <!-- v7.0-prod: the panel-level banner above the LayerHeader was removed
          (D9 — no text above any badge). Per-section empty states still
          surface from within the body when a matrix hasn't loaded yet. -->
-    <LayerHeader spec={headerSpec}>
+    <LayerHeader spec={headerSpec} trail={badgeTrail}>
         {#snippet trailing()}
             <h2 class={styles.title}>Cross-Timeframe Alignment</h2>
             <ExportDataButton onExport={buildExport} title="Copy all Alignment data as JSON" />

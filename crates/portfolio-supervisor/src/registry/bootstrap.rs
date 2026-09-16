@@ -27,7 +27,9 @@ pub struct BootstrapInput {
     pub ladder_secs: [u64; 10],
     /// v11.2: how many of the fastest slots actually run (1..=10). Slots
     /// beyond this are NOT fetched/warmed — they return default state.
-    pub active_count: usize,
+    /// v11.4: WHICH ladder slots run — canonical indices (arbitrary
+    /// subset). Slots outside the set are NOT fetched/warmed.
+    pub active_slots: Vec<usize>,
     /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     /// Single source of truth for the rolling window. Replaces the previous
     /// per-tier `analysis_limit` field.
@@ -251,7 +253,7 @@ async fn collect_slot_candles(
 ) -> Result<(Vec<NormalizedCandle>, u64, u64), String> {
     // v11.2: inactive slots (beyond the fastest `active_count`) are never
     // fetched — the spawn loop below never runs them.
-    if i >= input.active_count.min(10) {
+    if !input.active_slots.contains(&i) {
         return Ok((Vec::new(), 0, 0));
     }
     collect_candles(
@@ -773,7 +775,7 @@ mod cold_start_sub_minute_tests {
     async fn fetch_and_warm_bootstrap_returns_empty_snapshot_history_for_sub_minute() {
         let pool = empty_pool().await;
         let input = BootstrapInput {
-            active_count: 10,
+            active_slots: (0..10).collect(),
             base: "BTC".to_string(),
             internal_symbol: "BTC-USDC".to_string(),
             quote: Currency::USDC,

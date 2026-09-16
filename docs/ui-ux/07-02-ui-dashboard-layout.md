@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 11.3 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.5 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -809,3 +809,18 @@ The `PerformanceDashboard` Backtesting panel provides the **recorded-decision re
 - [Decision Matrix](../matrices/02-04-decision-matrix.md) — Decision Matrix panel data.
 - [TAE Overview — Layer ⑦ Dashboard](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) — TradeAutomationDashboard surface.
 - [PME Layer 4 Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) — PortfolioDashboard Safety panel.
+
+
+## 16. Badge History Trails (v11.5)
+
+Every layer badge (L1 Metrics per instance×timeframe … L7 Overview) keeps a
+literal last-5 state ring. The current badge renders untouched; positions
+1..4 render inline after it as ghost text — stepped opacity (62/48/36/28 %)
+and font size (10/9.5/9/8.5 px), dim `▸` separators, hover restores full
+alpha with a label+timestamp tooltip. Sampling: one literal sample per
+completed candle (L1 per instance×slot; L2–L6 once per pair cycle on the
+fastest-ACTIVE-slot matrix frame; L7 on the overview poll) using the same
+builder functions as the live badge. Persistence: `qtp.badgeHistory.v1`
+localStorage (debounced) — reload keeps the trail. Surfaces: all 7 layer
+headers, the Alignment per-timeframe status table, and the Overview
+per-instance status table (decision rows + per-TF sub-rows).

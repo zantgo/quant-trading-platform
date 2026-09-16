@@ -198,7 +198,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         ),
         snapshot_tx,
         cancel,
-        active_count: 10,
+        active_indices: (0..10).collect(),
 });
 
     let buffers: [TimeframeBuffers; 10] = pair

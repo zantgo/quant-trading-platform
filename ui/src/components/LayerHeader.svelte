@@ -17,15 +17,20 @@
     import type { Snippet } from 'svelte';
     import styles from './LayerHeader.module.css';
     import type { LayerHeaderSpec, ValueState } from '../lib/layerHeader';
+    import type { BadgeHistoryEntry } from '../lib/badgeHistory.svelte';
+    import BadgeTrail from './BadgeTrail.svelte';
 
     interface Props {
         spec: LayerHeaderSpec;
+        /** v11.5: the layer's literal last-5 badge ring — positions 1..4
+         * render as the ghost trail after the current badge. */
+        trail?: BadgeHistoryEntry[];
         /** Optional slot for the panel title + ExportDataButton. Rendered
          * to the right of the status pill so it never overlaps the badge. */
         trailing?: Snippet;
     }
 
-    let { spec, trailing }: Props = $props();
+    let { spec, trailing, trail }: Props = $props();
 
     const badgeCls: Record<ValueState, string> = {
         valid: styles.badgeValid,
@@ -68,6 +73,9 @@
             <span>{spec.badge.sublabel}</span>
         {/if}
     </div>
+    {#if trail && trail.length > 1}
+        <BadgeTrail entries={trail} />
+    {/if}
 
     {#if spec.meta.length > 0}
         <div class={styles.metaList}>

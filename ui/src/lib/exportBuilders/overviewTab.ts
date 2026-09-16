@@ -283,6 +283,8 @@ export interface OverviewPayload {
     /** Raw L7 matrix for the row of records the export represents. */
     overview_matrix: OverviewMatrix | null;
     instance_count: number;
+    /** v11.4: mirrors the InstanceStatusTable (decision + per-TF badges). */
+    instance_status: InstanceStatusExportRow[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -558,6 +560,12 @@ export interface OverviewTabInputs {
     overviewMatrix: OverviewMatrix | null;
     instances: InstanceState[];
     /**
+     * v11.4: the per-instance status rows the InstanceStatusTable renders
+     * (decision badge + probabilities + per-ACTIVE-TF badges). The export
+     * mirrors the screen 1:1 — see `InstanceStatusTable.svelte`.
+     */
+    instance_status?: InstanceStatusExportRow[];
+    /**
      * Current sort state of the `AssetRankingsTable`. The screen sorts
      * client-side on the `sort_key` column in `sort_dir` order — the
      * export mirrors the operator's visible row order.
@@ -572,6 +580,25 @@ export interface OverviewTabInputs {
  * Build the Overview tab export payload. Mirrors
  * `GeneralDashboard.svelte` 1:1.
  */
+export interface InstanceStatusExportRow {
+    pair_key: string;
+    symbol: string;
+    decision: {
+        label: string;
+        probability_pct: number | null;
+        long_pct: number | null;
+        hold_pct: number | null;
+        short_pct: number | null;
+    } | null;
+    timeframes: Array<{
+        slot: string;
+        secs: number;
+        badge_label: string;
+        badge_sublabel: string | undefined;
+        pipeline_status: string;
+    }>;
+}
+
 export function buildOverviewTabExport(args: OverviewTabInputs): string {
     const now = args.nowMs ?? Date.now();
     const instances = args.instances;
@@ -586,9 +613,14 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
     const best = pickBestOpportunity(instances);
     const overview = args.overviewMatrix;
 
+    // v11.4: mirror the InstanceStatusTable — computed by the caller
+    // (GeneralDashboard) since the badge derivations need WS state.
+    const instance_status = args.instance_status ?? [];
+
     const payload: OverviewPayload = {
         source_tab: 'overview',
         exported_at: new Date(now).toISOString(),
+        instance_status,
         header: buildHeaderBlock(args.headerSpec),
         clock: {
             datetime_utc: new Date(now).toISOString(),

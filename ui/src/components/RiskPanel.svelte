@@ -7,6 +7,7 @@
     import LayerHeader from './LayerHeader.svelte';
     import SummaryCard from './SummaryCard.svelte';
     import { buildL5RiskHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { getBadgeTrail, badgeHistoryVersion, layerKey } from '../lib/badgeHistory.svelte';
     import styles from './RiskPanel.module.css';
 
     const app = useAppStore();
@@ -215,13 +216,19 @@
     // sublabel is the risk `state`. Score chip uses `riskDangerColor`
     // (zero = green, see `chip({ zeroIsGood: true })`).
     const headerSpec = $derived<LayerHeaderSpec>(buildL5RiskHeader(risk));
+    // v11.5: badge history trail (re-renders on every ring push).
+    const badgeTrail = $derived.by(() => {
+        void badgeHistoryVersion.v;
+        void headerSpec;
+        return getBadgeTrail(layerKey('l5', pairKey));
+    });
 </script>
 
 <div class={styles.panel}>
     <!-- v7.0-prod: the panel-level banner above the LayerHeader was removed
          (D9 — no text above any badge). Per-section empty states still
          surface from within the body when a matrix hasn't loaded yet. -->
-    <LayerHeader spec={headerSpec}>
+    <LayerHeader spec={headerSpec} trail={badgeTrail}>
         {#snippet trailing()}
             <h2 class={styles.title}>Risk Assessment</h2>
             <ExportDataButton onExport={buildExport} title="Copy all Risk data as JSON" />

@@ -213,7 +213,7 @@ fn build_stub_instance(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
-        active_count: 10,
+        active_indices: (0..10).collect(),
 });
     let buffers: [TimeframeBuffers; 10] = active
         .all()

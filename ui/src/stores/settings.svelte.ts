@@ -12,6 +12,11 @@ export class SettingsStore {
     /// the GET payload in `applyConfigToStore`.
     activeTimeframes = $state(5);
 
+    /// v11.4 — explicit ACTIVE slot set (arbitrary subset, canonical order).
+    /// `null` = derive from `activeTimeframes` (fastest-N). Seeded from
+    /// `/api/config` `active_slots` when the backend carries one.
+    activeSlotsList = $state<import('../types').TimeframeSlotKind[] | null>(null);
+
     globalCandlesConfig = $state({ duration_seconds: 60 });
     globalIndicatorsConfig = $state({
         ema_fast: 10, ema_medium: 50, ema_slow: 100, ema_long: 200,

@@ -2,6 +2,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow: auto both;
 }
 
 .placeholder {
@@ -267,7 +268,7 @@
 
 .summary {
     display: grid;
-    grid-template-columns: 240px repeat(4, 1fr) 100px 80px;
+    grid-template-columns: 240px repeat(var(--tf-count, 4), minmax(90px, 1fr)) 100px 80px;
     gap: 0;
     padding: 6px 12px;
     background: rgba(0, 0, 0, 0.2);
@@ -345,7 +346,7 @@
 
 .row {
     display: grid;
-    grid-template-columns: 240px repeat(4, 1fr) 100px 80px;
+    grid-template-columns: 240px repeat(var(--tf-count, 4), minmax(90px, 1fr)) 100px 80px;
     gap: 0;
     padding: 6px 12px;
     background: rgba(0, 0, 0, 0.15);
@@ -468,7 +469,7 @@
 
 .tblSummary {
     display: grid;
-    grid-template-columns: 240px repeat(4, 1fr) 130px;
+    grid-template-columns: 240px repeat(var(--tf-count, 4), minmax(90px, 1fr)) 130px;
     gap: 0;
     padding: 5px 12px;
     background: rgba(0, 0, 0, 0.2);
@@ -498,7 +499,7 @@
 
 .tblRow {
     display: grid;
-    grid-template-columns: 240px repeat(4, 1fr) 130px;
+    grid-template-columns: 240px repeat(var(--tf-count, 4), minmax(90px, 1fr)) 130px;
     gap: 0;
     padding: 5px 12px;
     background: rgba(0, 0, 0, 0.15);

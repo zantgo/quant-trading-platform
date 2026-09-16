@@ -168,3 +168,43 @@
     margin: 0;
     line-height: 1.45;
 }
+
+/* v11.4 — per-slot ACTIVE toggles (arbitrary subset of the ladder). */
+.toggleGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.tfToggle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-dim, #8b8b8b);
+    cursor: pointer;
+    font-family: var(--mono, monospace);
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.tfToggle:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.tfToggleOn {
+    border-color: #22c55e;
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.08);
+}
+
+.activeCountLabel {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.55);
+}

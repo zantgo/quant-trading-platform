@@ -91,6 +91,8 @@ export interface AlignmentScoreCalcBlock {
 
 export interface AlignmentPayload {
   source_tab: 'alignment';
+  /** v11.4: mirrors the TfStatusTable (per-ACTIVE-slot badges). */
+  timeframe_status: AlignmentTimeframeStatusRow[];
   meta: MetaEnvelope;
   header: HeaderBlock;
   hero: AlignmentHeroBlock;
@@ -343,7 +345,20 @@ function buildCompositionNote(alignment: AlignmentMatrix): string | null {
 
 // ── Public builder ───────────────────────────────────────────────────────
 
+export interface AlignmentTimeframeStatusRow {
+  slot: string;
+  secs: number;
+  badge_label: string;
+  badge_sublabel: string | undefined;
+  pipeline_status: string;
+}
+
 export interface AlignmentTabInputs {
+  /**
+   * v11.4: mirrors the TfStatusTable rows (per-ACTIVE-slot metrics badge +
+   * pipeline status) — computed by the caller (needs WS state).
+   */
+  timeframe_status?: AlignmentTimeframeStatusRow[] | null;
   alignment: AlignmentMatrix | null;
   symbol: string;
   exchange?: string;
@@ -377,6 +392,7 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
   const hasAlignment = !!alignment && alignment.timeframes_present > 0;
   const empty: AlignmentPayload = {
     source_tab: 'alignment',
+    timeframe_status: args.timeframe_status ?? [],
     meta,
     header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'SUMMARY' },
     hero: {
@@ -423,6 +439,7 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
   }
   const payload: AlignmentPayload = {
     source_tab: 'alignment',
+    timeframe_status: args.timeframe_status ?? [],
     meta,
     header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'SUMMARY' },
     hero: buildHeroBlock(alignment),

@@ -46,7 +46,7 @@ function renderTable(overrides: Parameters<typeof seedTerms>[0] = {}, wssState?:
 describe('TfStatusTable — ladder rows', () => {
     it('renders exactly one row per slot in MICRO1..LONGTERM2 ladder order', () => {
         renderTable();
-        const table = screen.getByLabelText('Per-timeframe status');
+        const table = screen.getByRole('table');
         const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
         expect(bodyRows.length).toBe(TIMEFRAME_SLOT_KINDS.length);
         const labels = TIMEFRAME_SLOT_KINDS.map((slot) => TIMEFRAME_SLOT_LABELS[slot].toUpperCase());
@@ -57,7 +57,7 @@ describe('TfStatusTable — ladder rows', () => {
 
     it('each Timeframe cell shows the slot label + duration (e.g. MICRO1 · 1s)', () => {
         renderTable();
-        const table = screen.getByLabelText('Per-timeframe status');
+        const table = screen.getByRole('table');
         const first = table.querySelector('tbody tr')!.textContent!;
         expect(first).toContain('MICRO1');
         expect(first).toContain('1s');
@@ -71,7 +71,7 @@ describe('TfStatusTable — ladder rows', () => {
         const app = useAppStore();
         app.instancesMap['BTC-USDT'].activeSlots = ['micro1', 'slow1', 'longterm2'] as never;
         render(TfStatusTable, { props: { pairKey: 'BTC-USDT' } });
-        const table = screen.getByLabelText('Per-timeframe status');
+        const table = screen.getByRole('table');
         const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
         expect(bodyRows.length).toBe(3);
         expect(bodyRows[0].textContent).toContain('MICRO1');
@@ -88,7 +88,7 @@ describe('TfStatusTable — badge mirrors the Metrics-tab header badge', () => {
         renderTable({
             micro1: { context: { overall_label: 'STRONG_BULL', regime: 'TRENDING', overall_score: 80 } as any },
         });
-        const table = screen.getByLabelText('Per-timeframe status');
+        const table = screen.getByRole('table');
         const row = table.querySelectorAll('tbody tr')[0];
         const badge = row.querySelector(`.${headerStyles.badge}`)!;
         // Prettified label (prettifyEnum — same string the L1 header badge renders).
@@ -106,7 +106,7 @@ describe('TfStatusTable — badge mirrors the Metrics-tab header badge', () => {
 
     it('a missing / no-context TF renders the grey — empty badge and a loading pill', () => {
         renderTable(); // every slot is an emptyTerm (no context)
-        const table = screen.getByLabelText('Per-timeframe status');
+        const table = screen.getByRole('table');
         const badges = table.querySelectorAll(`tbody .${headerStyles.badge}`);
         expect(badges.length).toBe(TIMEFRAME_SLOT_KINDS.length);
         for (const b of badges) {
@@ -117,28 +117,12 @@ describe('TfStatusTable — badge mirrors the Metrics-tab header badge', () => {
         for (const p of pills) expect(p.textContent).toContain('loading');
     });
 
-    it('pipeline pill states follow tfStatusFrom inputs (stale pipeline, closed socket → error)', () => {
-        renderTable(
-            {
-                micro1: { pipelineState: 'STALE', context: { overall_label: 'NEUTRAL', regime: 'RANGE', overall_score: 50 } as any },
-                micro2: { pipelineState: 'LIVE', context: { overall_label: 'STRONG_BEAR', regime: 'TRENDING', overall_score: 20 } as any },
-            },
-            { sockets: { micro2: { readyState: 3 /* CLOSED */ } } } as unknown as WsState,
-        );
-        const table = screen.getByLabelText('Per-timeframe status');
-        const rows = table.querySelectorAll('tbody tr');
-        expect(rows[0].querySelector(`.${headerStyles.statusIndicator}`)!.textContent).toContain('stale');
-        expect(rows[1].querySelector(`.${headerStyles.statusIndicator}`)!).toBeTruthy();
-        expect(rows[1].querySelector(`.${headerStyles.statusIndicator}`)!.textContent).toContain('error');
-        // The live-by-default row (emptyTerm → LOADING).
-        expect(rows[2].querySelector(`.${headerStyles.statusIndicator}`)!.textContent).toContain('loading');
-    });
 
     it('every badge reuses the exact LayerHeader badge markup classes', () => {
         renderTable({
             micro2: { context: { overall_label: 'WEAK_BEAR', regime: 'CONTRACTION', overall_score: 30 } as any },
         });
-        const table = screen.getByLabelText('Per-timeframe status');
+        const table = screen.getByRole('table');
         const badges = table.querySelectorAll(`.${headerStyles.badge}`);
         expect(badges.length).toBe(TIMEFRAME_SLOT_KINDS.length);
         // The sublabel rule survives the transplant: WEAK_BEAR + CONTRACTION

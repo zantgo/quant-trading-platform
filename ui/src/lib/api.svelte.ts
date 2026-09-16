@@ -1,5 +1,6 @@
 import type { AppStore } from '../state.svelte';
-import type { InstanceState } from '../types';
+import type { InstanceState, TimeframeSlotKind } from '../types';
+import { TIMEFRAME_SLOT_KINDS } from '../types';
 import { decide } from './watchlistScanner';
 import { slotsFromSecs } from './terms';
 
@@ -71,6 +72,14 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     if (typeof rawActive === 'number' && Number.isInteger(rawActive) && rawActive >= 1 && rawActive <= 10) {
         app.settings.activeTimeframes = rawActive;
     }
+    // v11.4: explicit ACTIVE slot set (arbitrary subset) wins over the count.
+    const rawSet = (config.active_slots
+        ?? (config.workspace as Record<string, unknown> | undefined)?.active_slots) as
+        | string[]
+        | undefined;
+    app.settings.activeSlotsList = Array.isArray(rawSet) && rawSet.length > 0
+        ? TIMEFRAME_SLOT_KINDS.filter((k) => rawSet.includes(k))
+        : null;
 
     if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number };
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;

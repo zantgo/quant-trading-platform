@@ -45,7 +45,7 @@ default_currency = "USDC"
 default_exchange = "Hyperliquid"
 portfolio_capital_usd = 1000.0
 active_timeframes = 5
-config_version = 0
+config_version = 1
 
 [workspace.candles]
 duration_seconds = 60
@@ -243,404 +243,6 @@ cross_leverage = 20
 [workspace.defaults]
 default_pair = "BTC/USDT"
 
-[[workspace.instances]]
-id = "inst_18d5da0cc781f7e5"
-symbol = "BTC-USDT"
-quote = "USDT"
-status = "running"
-operational_mode = "advisory"
-mode = "observe"
-
-[workspace.instances.micro_term.candles]
-duration_seconds = 1
-
-[workspace.instances.micro_term.indicators]
-ema_fast = 10
-ema_medium = 50
-ema_slow = 100
-ema_long = 200
-rsi_period = 14
-macd_fast = 12
-macd_slow = 26
-macd_signal = 9
-adx_period = 14
-atr_period = 14
-squeeze_period = 20
-stoch_k_period = 18
-stoch_d_period = 5
-stoch_s_period = 9
-chandemo_period = 12
-supertrend_period = 10
-supertrend_multiplier = 3.0
-keltner_ema_period = 20
-keltner_atr_period = 10
-keltner_multiplier = 2.0
-donchian_period = 20
-obv_smoothing = 20
-cmf_period = 20
-mfi_period = 14
-hv_period = 20
-aroon_period = 25
-chop_period = 14
-linreg_period = 20
-zscore_period = 20
-bbwp_lookback = 252
-bbwp_period = 20
-macd_extreme_high_threshold = 1000.0
-macd_extreme_low_threshold = -1000.0
-macd_histogram_contraction_threshold = 0.3
-adx_trend_threshold = 20
-adx_exhaustion_threshold = 40
-adx_slope_lookback = 3
-squeeze_min_duration = 5
-squeeze_bb_period = 20
-squeeze_bb_std_dev = 2.0
-squeeze_kc_period = 20
-squeeze_kc_atr_multiplier = 1.5
-atr_multiplier_coefficient = 2.0
-atr_target_rr_ratio = 2.5
-volume_average_period = 20
-rvol_threshold_institutional = 1.5
-rvol_threshold_climax = 3.0
-heatmap_leverage_tiers = [10]
-pivot_points_method = "classic"
-candlestick_min_confidence = 0.3
-ichimoku_tenkan = 9
-ichimoku_kijun = 26
-ichimoku_senkou_b = 52
-ichimoku_displacement = 26
-cci_period = 20
-psar_af_step = 0.02
-psar_af_max = 0.2
-williams_r_period = 14
-hull_ma_period = 21
-force_index_smoothing = 13
-stddev_channel_period = 20
-smc_lookback = 20
-volume_profile_bins = 100
-volume_profile_window = 500
-volume_profile_value_area = 0.7
-
-[workspace.instances.micro_term.leverage]
-enabled = true
-buckets = [
-    1,
-    3,
-    5,
-    10,
-    20,
-    50,
-    100,
-]
-weights = [
-    0.05,
-    0.1,
-    0.2,
-    0.3,
-    0.2,
-    0.1,
-    0.05,
-]
-min_cluster_notional_usd = 50000.0
-
-[workspace.instances.fast_term.candles]
-duration_seconds = 1
-
-[workspace.instances.fast_term.indicators]
-ema_fast = 10
-ema_medium = 50
-ema_slow = 100
-ema_long = 200
-rsi_period = 14
-macd_fast = 12
-macd_slow = 26
-macd_signal = 9
-adx_period = 14
-atr_period = 14
-squeeze_period = 20
-stoch_k_period = 18
-stoch_d_period = 5
-stoch_s_period = 9
-chandemo_period = 12
-supertrend_period = 10
-supertrend_multiplier = 3.0
-keltner_ema_period = 20
-keltner_atr_period = 10
-keltner_multiplier = 2.0
-donchian_period = 20
-obv_smoothing = 20
-cmf_period = 20
-mfi_period = 14
-hv_period = 20
-aroon_period = 25
-chop_period = 14
-linreg_period = 20
-zscore_period = 20
-bbwp_lookback = 252
-bbwp_period = 20
-macd_extreme_high_threshold = 1000.0
-macd_extreme_low_threshold = -1000.0
-macd_histogram_contraction_threshold = 0.3
-adx_trend_threshold = 20
-adx_exhaustion_threshold = 40
-adx_slope_lookback = 3
-squeeze_min_duration = 5
-squeeze_bb_period = 20
-squeeze_bb_std_dev = 2.0
-squeeze_kc_period = 20
-squeeze_kc_atr_multiplier = 1.5
-atr_multiplier_coefficient = 2.0
-atr_target_rr_ratio = 2.5
-volume_average_period = 20
-rvol_threshold_institutional = 1.5
-rvol_threshold_climax = 3.0
-heatmap_leverage_tiers = [10]
-pivot_points_method = "classic"
-candlestick_min_confidence = 0.3
-ichimoku_tenkan = 9
-ichimoku_kijun = 26
-ichimoku_senkou_b = 52
-ichimoku_displacement = 26
-cci_period = 20
-psar_af_step = 0.02
-psar_af_max = 0.2
-williams_r_period = 14
-hull_ma_period = 21
-force_index_smoothing = 13
-stddev_channel_period = 20
-smc_lookback = 20
-volume_profile_bins = 100
-volume_profile_window = 500
-volume_profile_value_area = 0.7
-
-[workspace.instances.fast_term.leverage]
-enabled = true
-buckets = [
-    1,
-    3,
-    5,
-    10,
-    20,
-    50,
-    100,
-]
-weights = [
-    0.05,
-    0.1,
-    0.2,
-    0.3,
-    0.2,
-    0.1,
-    0.05,
-]
-min_cluster_notional_usd = 50000.0
-
-[workspace.instances.automation]
-enabled = false
-interval_seconds = 900
-max_opposite_exit_signals = 5
-
-[workspace.instances.custom_pipelines]
-
-[[workspace.instances]]
-id = "inst_18d5daf5ac1bb82c"
-symbol = "ETH-USDT"
-quote = "USDT"
-status = "running"
-operational_mode = "advisory"
-mode = "observe"
-
-[workspace.instances.micro_term.candles]
-duration_seconds = 1
-
-[workspace.instances.micro_term.indicators]
-ema_fast = 10
-ema_medium = 50
-ema_slow = 100
-ema_long = 200
-rsi_period = 14
-macd_fast = 12
-macd_slow = 26
-macd_signal = 9
-adx_period = 14
-atr_period = 14
-squeeze_period = 20
-stoch_k_period = 18
-stoch_d_period = 5
-stoch_s_period = 9
-chandemo_period = 12
-supertrend_period = 10
-supertrend_multiplier = 3.0
-keltner_ema_period = 20
-keltner_atr_period = 10
-keltner_multiplier = 2.0
-donchian_period = 20
-obv_smoothing = 20
-cmf_period = 20
-mfi_period = 14
-hv_period = 20
-aroon_period = 25
-chop_period = 14
-linreg_period = 20
-zscore_period = 20
-bbwp_lookback = 252
-bbwp_period = 20
-macd_extreme_high_threshold = 1000.0
-macd_extreme_low_threshold = -1000.0
-macd_histogram_contraction_threshold = 0.3
-adx_trend_threshold = 20
-adx_exhaustion_threshold = 40
-adx_slope_lookback = 3
-squeeze_min_duration = 5
-squeeze_bb_period = 20
-squeeze_bb_std_dev = 2.0
-squeeze_kc_period = 20
-squeeze_kc_atr_multiplier = 1.5
-atr_multiplier_coefficient = 2.0
-atr_target_rr_ratio = 2.5
-volume_average_period = 20
-rvol_threshold_institutional = 1.5
-rvol_threshold_climax = 3.0
-heatmap_leverage_tiers = [10]
-pivot_points_method = "classic"
-candlestick_min_confidence = 0.3
-ichimoku_tenkan = 9
-ichimoku_kijun = 26
-ichimoku_senkou_b = 52
-ichimoku_displacement = 26
-cci_period = 20
-psar_af_step = 0.02
-psar_af_max = 0.2
-williams_r_period = 14
-hull_ma_period = 21
-force_index_smoothing = 13
-stddev_channel_period = 20
-smc_lookback = 20
-volume_profile_bins = 100
-volume_profile_window = 500
-volume_profile_value_area = 0.7
-
-[workspace.instances.micro_term.leverage]
-enabled = true
-buckets = [
-    1,
-    3,
-    5,
-    10,
-    20,
-    50,
-    100,
-]
-weights = [
-    0.05,
-    0.1,
-    0.2,
-    0.3,
-    0.2,
-    0.1,
-    0.05,
-]
-min_cluster_notional_usd = 50000.0
-
-[workspace.instances.fast_term.candles]
-duration_seconds = 1
-
-[workspace.instances.fast_term.indicators]
-ema_fast = 10
-ema_medium = 50
-ema_slow = 100
-ema_long = 200
-rsi_period = 14
-macd_fast = 12
-macd_slow = 26
-macd_signal = 9
-adx_period = 14
-atr_period = 14
-squeeze_period = 20
-stoch_k_period = 18
-stoch_d_period = 5
-stoch_s_period = 9
-chandemo_period = 12
-supertrend_period = 10
-supertrend_multiplier = 3.0
-keltner_ema_period = 20
-keltner_atr_period = 10
-keltner_multiplier = 2.0
-donchian_period = 20
-obv_smoothing = 20
-cmf_period = 20
-mfi_period = 14
-hv_period = 20
-aroon_period = 25
-chop_period = 14
-linreg_period = 20
-zscore_period = 20
-bbwp_lookback = 252
-bbwp_period = 20
-macd_extreme_high_threshold = 1000.0
-macd_extreme_low_threshold = -1000.0
-macd_histogram_contraction_threshold = 0.3
-adx_trend_threshold = 20
-adx_exhaustion_threshold = 40
-adx_slope_lookback = 3
-squeeze_min_duration = 5
-squeeze_bb_period = 20
-squeeze_bb_std_dev = 2.0
-squeeze_kc_period = 20
-squeeze_kc_atr_multiplier = 1.5
-atr_multiplier_coefficient = 2.0
-atr_target_rr_ratio = 2.5
-volume_average_period = 20
-rvol_threshold_institutional = 1.5
-rvol_threshold_climax = 3.0
-heatmap_leverage_tiers = [10]
-pivot_points_method = "classic"
-candlestick_min_confidence = 0.3
-ichimoku_tenkan = 9
-ichimoku_kijun = 26
-ichimoku_senkou_b = 52
-ichimoku_displacement = 26
-cci_period = 20
-psar_af_step = 0.02
-psar_af_max = 0.2
-williams_r_period = 14
-hull_ma_period = 21
-force_index_smoothing = 13
-stddev_channel_period = 20
-smc_lookback = 20
-volume_profile_bins = 100
-volume_profile_window = 500
-volume_profile_value_area = 0.7
-
-[workspace.instances.fast_term.leverage]
-enabled = true
-buckets = [
-    1,
-    3,
-    5,
-    10,
-    20,
-    50,
-    100,
-]
-weights = [
-    0.05,
-    0.1,
-    0.2,
-    0.3,
-    0.2,
-    0.1,
-    0.05,
-]
-min_cluster_notional_usd = 50000.0
-
-[workspace.instances.automation]
-enabled = false
-interval_seconds = 900
-max_opposite_exit_signals = 5
-
-[workspace.instances.custom_pipelines]
-
 [workspace.minimal_tae]
 enabled = true
 allocation_pct = 10.0
@@ -752,13 +354,13 @@ oi_funding_divergence_pct = 2.0
 min_cluster_notional_usd = 50000.0
 
 [workspace.strategies.l1_5.signal_confidences]
+LIQUIDITY_VACUUM = 0.6
 CASCADE_DETECTED = 0.8
+CASCADE_EXHAUSTED = 0.7
+OI_FUNDING_DIVERGENCE = 0.7
+CASCADE_SUSTAINED = 0.9
 OI_PRICE_DIVERGENCE = 0.7
 FUNDING_EXTREME = 0.95
-OI_FUNDING_DIVERGENCE = 0.7
-CASCADE_EXHAUSTED = 0.7
-CASCADE_SUSTAINED = 0.9
-LIQUIDITY_VACUUM = 0.6
 FUNDING_FLIP = 0.75
 
 [workspace.strategies.l1_5.signal_weights]
@@ -808,16 +410,16 @@ floor = 0.2
 ceil = 1.0
 
 [workspace.strategies.l2.tf_weighting.weights]
+slow1 = 0.166
+slow2 = 0.166
 fast2 = 0.1
 macro1 = 0.5
-micro2 = 0.1
-micro1 = 0.1
-longterm1 = 1.0
-longterm2 = 1.0
-slow1 = 0.166
-macro2 = 0.5
 fast1 = 0.1
-slow2 = 0.166
+micro1 = 0.1
+macro2 = 0.5
+longterm1 = 1.0
+micro2 = 0.1
+longterm2 = 1.0
 
 [workspace.strategies.l2.overall_blend]
 trend = 0.5
@@ -839,16 +441,16 @@ volume = 0.05
 min_tfs = 2
 
 [workspace.strategies.l2.dimension_mask]
-momentum = true
-tradability = true
-structure = true
 signal = true
-volume = true
-regime = true
-confidence = true
+momentum = true
 liquidity = true
-trend = true
 volatility = true
+structure = true
+tradability = true
+regime = true
+volume = true
+confidence = true
+trend = true
 
 [workspace.strategies.l2.states]
 signed = [
@@ -1096,12 +698,12 @@ scalp = 1.5
 swing = 3.0
 
 [workspace.strategies.l4.confluence_weights]
-pivot_points = 0.15
-atr_fallback = 0.05
 fibonacci = 0.25
+atr_fallback = 0.05
 liquidation_cluster = 0.1
-volume_profile = 0.3
 support_resistance = 0.2
+pivot_points = 0.15
+volume_profile = 0.3
 
 [workspace.strategies.l4.costs]
 taker_fee_bps = 6.0
@@ -1118,14 +720,14 @@ bands = [
 state_delta = 10.0
 
 [workspace.strategies.l5.overall_weights]
+execution = 0.1
 market = 0.14
-structure = 0.1
+execution_liquidity = 0.14
 volatility = 0.14
 signal = 0.1
-execution_liquidity = 0.14
-execution = 0.1
-cascade = 0.14
 momentum = 0.14
+structure = 0.1
+cascade = 0.14
 
 [workspace.strategies.l5.dimensions.market]
 baseline = 50.0
@@ -1279,10 +881,10 @@ blend = [
 
 [workspace.strategies.l6.entry_danger.quality_penalties]
 Poor = 80.0
-Weak = 70.0
 Excellent = 10.0
-Good = 25.0
+Weak = 70.0
 Average = 50.0
+Good = 25.0
 
 [workspace.strategies.l6.readiness]
 aside_max = 20.0
@@ -1344,23 +946,23 @@ cascade_index_fallback = 50.0
 entry_veto_threshold = 80.0
 
 [workspace.strategies.l7.systemic.sync_penalty]
+highly_synchronized = 100.0
+synchronized = 60.0
 mixed = 30.0
 fragmented = 10.0
-synchronized = 60.0
 highly_fragmented = 0.0
-highly_synchronized = 100.0
 
 [workspace.strategies.l7.systemic.tf_decay]
-longterm2 = 0.1
 micro1 = 0.05
-slow1 = 0.1
 slow2 = 0.15
-longterm1 = 0.1
-fast1 = 0.05
 fast2 = 0.1
-macro2 = 0.15
+slow1 = 0.1
+fast1 = 0.05
+longterm1 = 0.1
 macro1 = 0.15
 micro2 = 0.05
+longterm2 = 0.1
+macro2 = 0.15
 
 [workspace.strategies.l7.asset_rank]
 slope = 0.5

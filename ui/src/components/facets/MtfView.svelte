@@ -535,7 +535,7 @@
             <!-- ── TF summary bar (Micro1..Longterm2) — sits above
                  the Indicators heading so the column header is the first thing
                  a reader sees, then the grid below it. -->
-            <div class={styles.summary}>
+            <div class={styles.summary} style="--tf-count: {SLOTS.length}">
                 <div class={styles.summarySpacer}></div>
                 {#each SLOTS as slot (slot.label)}
                     <div class={styles.summarySlot}>
@@ -596,7 +596,7 @@
                     <div class={styles.body}>
                         {#each g.items as r (r.meta.key)}
                             {@const hasAny = r.active.some(Boolean)}
-                            <div class={styles.row}>
+                            <div class={styles.row} style="--tf-count: {SLOTS.length}">
                                 <span class={styles.indicatorName}>
                                     {#if !r.meta.directional}<span class={styles.gateMarker}>◐</span>{/if}
                                     {r.meta.display_name}
@@ -637,7 +637,7 @@
              entity, '·' in empty cells. Section titles live OUTSIDE the
              bordered containers as standalone headings. -->
         {#snippet tfHeaderRow(firstLabel: string)}
-            <div class={styles.tblSummary}>
+            <div class={styles.tblSummary} style="--tf-count: {SLOTS.length}">
                 <span class={styles.tblSummaryFirst}>{firstLabel}</span>
                 {#each SLOTS as slot (slot.label)}
                     <div class={styles.summarySlot}>
@@ -693,7 +693,7 @@
                             {@const cells = signalCells[kind]}
                             {@const totals = signalTotalsByKind[kind]}
                             {@const lit = litSide(totals.bull, totals.bear)}
-                            <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}">
+                            <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}" style="--tf-count: {SLOTS.length}">
                                 <span class={styles.tblKind}>
                                     <span class={styles.tblKindName}>{kind}</span>
                                     <span class={styles.tblKindAbbr}>{SIGNAL_ABBR[kind]}</span>
@@ -779,7 +779,7 @@
                 {:else}
                     <div class={styles.tblBody}>
                         {#each divergenceRows as r (r.meta.key)}
-                            <div class="{styles.tblRow} {styles[`tblRowTint_${r.directionLabel.toLowerCase()}`] ?? ''}">
+                            <div class="{styles.tblRow} {styles[`tblRowTint_${r.directionLabel.toLowerCase()}`] ?? ''}" style="--tf-count: {SLOTS.length}">
                                 <span class={styles.tblKindName}>{r.meta.display_name}</span>
                                 {#each r.cells as cell, i (i)}
                                     {@const sub = cell.sub}
@@ -860,7 +860,7 @@
                             {@const cells = levelCellsByKind[kind]}
                             {@const totals = levelTotalsByKind[kind]}
                             {@const lit = litSide(totals.bull, totals.bear)}
-                            <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}">
+                            <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}" style="--tf-count: {SLOTS.length}">
                                 <span class={styles.tblKind}>
                                     <span class={styles.tblKindName}>{LEVEL_KIND_META[kind].label}</span>
                                 </span>

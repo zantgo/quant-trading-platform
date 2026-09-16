@@ -34,11 +34,11 @@ pub struct PipelineContext {
     /// (aligned with `config_models::FIXED_TF_LADDER` /
     /// `core_domain::models::FIXED_TF_SLOTS`).
     pub ladder_cfgs: [TimeframeConfig; 10],
-    /// v11.2: how many of the ladder slots actually run — the FASTEST N
-    /// (`config_models::WorkspaceConfig::active_timeframes`, 1..=10).
-    /// Slots `active_count..10` exist as inert pipelines (never spawned,
-    /// never emit) so every array stays total.
-    pub active_count: usize,
+    /// v11.4: WHICH ladder slots run — canonical indices into
+    /// `FIXED_TF_SLOTS` (arbitrary subset of the pool). Slots outside the
+    /// set exist as inert pipelines (never spawned, never emit) so every
+    /// array stays total.
+    pub active_slots: Vec<usize>,
     pub fib_config: FibonacciConfig,
     pub safety_config: SafetyConfig,
     pub intervals_config: IntervalsConfig,
@@ -226,7 +226,7 @@ pub async fn build_pipelines(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))), // AUDIT-AIU-051: (timestamp_secs, value)
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: state.latency_tracker.clone(),
-        active_count: ctx.active_count.min(10),
+        active_indices: ctx.active_slots.clone(),
     });
 
     spawn_tasks(
@@ -234,7 +234,7 @@ pub async fn build_pipelines(
         &ctx.base,
         &ctx.internal_symbol,
         &ctx.pair_key,
-        ctx.active_count,
+        &ctx.active_slots,
         &ctx.ladder_cfgs,
         &ctx.fib_config,
         &cancel,
@@ -281,7 +281,7 @@ pub async fn build_pipelines(
         ctx.intervals_config.clone(),
         ctx.safety_config.clone(),
         buffers.clone(),
-        config_models::FIXED_TF_LADDER[..ctx.active_count.min(10)].to_vec(),
+        ctx.active_slots.iter().map(|&i| config_models::FIXED_TF_LADDER[i]).collect(),
         ctx.operational_mode.clone(),
     ));
 
@@ -309,7 +309,7 @@ async fn spawn_tasks(
     base: &str,
     internal_symbol: &str,
     pair_key: &str,
-    active_count: usize,
+    active_slots: &[usize],
     ladder_cfgs: &[TimeframeConfig; 10],
     fib_config: &FibonacciConfig,
     cancel: &CancellationToken,
@@ -433,9 +433,9 @@ async fn spawn_tasks(
     )> = Vec::with_capacity(10);
     let pair_pipes = active_pair.all();
     let mut rx_iter = pipeline_rxs.into_iter();
-    // v11.2: only the FASTEST `active_count` slots are spawned; the rest
-    // stay inert (constructed but never fed events, never emit).
-    for i in 0..active_count.min(10) {
+    // v11.4: only the ACTIVE slots are spawned; the rest stay inert
+    // (constructed but never fed events, never emit).
+    for &i in active_slots {
         pipeline_specs.push((
             rx_iter.next().expect("one rx per fixed-ladder slot"),
             ladder_cfgs[i].clone(),
@@ -978,7 +978,9 @@ async fn spawn_tasks(
             u64,
         );
         // One refresh handle-set per ACTIVE ladder slot (fastest → slowest).
-        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = (0..active_count.min(10))
+        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = active_slots
+            .iter()
+            .copied()
             .map(|i| {
                 (
                     core_domain::models::FIXED_TF_SLOTS[i],

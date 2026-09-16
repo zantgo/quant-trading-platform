@@ -29,6 +29,8 @@
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import { activeSlotKinds } from '../lib/terms';
+    import { getBadgeTrail, badgeHistoryVersion, l1Key, layerKey } from '../lib/badgeHistory.svelte';
+    import BadgeTrail from './BadgeTrail.svelte';
     import { computeDecisionRank, type DecisionRank } from '../lib/decisionRank';
     import { buildL6DecisionHeader, metricsBadgeFor, type BadgeSpec } from '../lib/layerHeader';
     import styles from './InstanceStatusTable.module.css';
@@ -61,29 +63,16 @@
         inst: InstanceState;
     }
 
-    /// Instances ordered by the L7 asset_ranking symbol order when
-    /// present (ranking symbols may be pair keys or bare bases); the
-    /// remaining instances follow in map insertion order.
+    /// v11.4: instances ordered NEWEST FIRST — `instancesMap` insertion
+    /// order mirrors `config.instances` (creation) order, so the reversed
+    /// sequence puts the most recently added instance on top and the
+    /// oldest at the bottom.
     const rows = $derived.by<InstanceRow[]>(() => {
         const all = Object.entries(app.instancesMap) as [string, InstanceState][];
-        const ranking = app.overviewMatrix?.asset_ranking ?? [];
-        if (ranking.length === 0) return all.map(([pairKey, inst]) => ({ pairKey, inst }));
-        const byKey = new Map(all);
-        const out: InstanceRow[] = [];
-        const seen = new Set<string>();
-        for (const rank of ranking) {
-            const key = byKey.has(rank.symbol) ? rank.symbol : app.pairKeyFor(rank.symbol);
-            const found = byKey.get(key);
-            if (found && !seen.has(key)) {
-                out.push({ pairKey: key, inst: found });
-                seen.add(key);
-            }
-        }
-        for (const [pairKey, inst] of all) {
-            if (!seen.has(pairKey)) out.push({ pairKey, inst });
-        }
-        return out;
+        return all.reverse().map(([pairKey, inst]) => ({ pairKey, inst }));
     });
+
+    const trailVersion = $derived(badgeHistoryVersion.v);
 
     const allExpanded = $derived(
         rows.length > 0 && rows.every(({ pairKey }) => expanded[pairKey]),
@@ -159,7 +148,6 @@
                     <th scope="col" class={styles.colInstance}>Instance</th>
                     <th scope="col" class={styles.colDecision}>Decision</th>
                     <th scope="col" class={styles.colProbs}>Probabilities</th>
-                    <th scope="col" class={styles.colMode}>Mode</th>
                 </tr>
             </thead>
             <tbody>
@@ -167,14 +155,22 @@
                     {@const badge = decisionBadge(inst)}
                     {@const rank = decisionRank(inst)}
                     {@const hasData = badge.state !== 'empty'}
-                    <tr class={styles.instRow}>
+                    {@const decisionTrail = (() => { void trailVersion; return getBadgeTrail(layerKey('l6', pairKey)); })()}
+                    <tr
+                        class={styles.instRow}
+        style="cursor: pointer;"
+                        onclick={() => toggleRow(pairKey)}
+                        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRow(pairKey); } }}
+                        tabindex="0"
+                        aria-expanded={!!expanded[pairKey]}
+                    >
                         <td class={styles.toggleCell}>
                             <button
                                 type="button"
                                 class={styles.chevronBtn}
                                 aria-expanded={!!expanded[pairKey]}
                                 aria-label={ariaExpandedLabel(pairKey, !!expanded[pairKey])}
-                                onclick={() => toggleRow(pairKey)}
+                                onclick={(e) => { e.stopPropagation(); toggleRow(pairKey); }}
                             >
                                 <span class="{styles.chevron} {expanded[pairKey] ? styles.chevronOpen : ''}" aria-hidden="true">▶</span>
                             </button>
@@ -198,21 +194,20 @@
                                     <span>{Math.round(rank.top_prob)}%</span>
                                 {/if}
                             </div>
+                            <BadgeTrail entries={decisionTrail} />
                         </td>
                         <td class={styles.probsCell}>
                             {#if hasData}
-                                <span class={styles.probChip}>L {rank.long.probability}%</span>
-                                <span class={styles.probChip}>H {rank.hold.probability}%</span>
-                                <span class={styles.probChip}>S {rank.short.probability}%</span>
+                                <span class="{styles.probChip} {styles.probShort}">S {rank.short.probability}%</span>
+                                <span class="{styles.probChip} {styles.probHold}">H {rank.hold.probability}%</span>
+                                <span class="{styles.probChip} {styles.probLong}">L {rank.long.probability}%</span>
                             {/if}
-                        </td>
-                        <td class={styles.modeCell}>
-                            <span class={styles.modeChip}>{(inst.mode ?? '—').toUpperCase()}</span>
                         </td>
                     </tr>
                     {#if expanded[pairKey]}
                         {#each activeSlotKinds(inst) as slot (slot)}
                             {@const info = metricsBadgeFor(inst.terms?.[slot] ?? null, wssMap[pairKey])}
+                            {@const tfTrail = (() => { void trailVersion; return getBadgeTrail(l1Key(pairKey, slot)); })()}
                             <tr class={styles.tfRow}>
                                 <td class={styles.toggleCell} aria-hidden="true"></td>
                                 <td class={styles.tfCell}>
@@ -234,6 +229,7 @@
                                             <span>{info.badge.sublabel}</span>
                                         {/if}
                                     </div>
+                                    <BadgeTrail entries={tfTrail} />
                                 </td>
                                 <td class={styles.probsCell}>
                                     <div class={headerStyles.statusIndicator} aria-live="polite">
@@ -241,7 +237,6 @@
                                         <span>{info.status}</span>
                                     </div>
                                 </td>
-                                <td class={styles.modeCell} aria-hidden="true"></td>
                             </tr>
                         {/each}
                     {/if}

@@ -133,13 +133,13 @@ describe('InstanceStatusTable — rows & ordering', () => {
         expect(container).toBeTruthy();
     });
 
-    it('falls back to map insertion order without a ranking', () => {
+    it('v11.4: orders NEWEST first (last-seeded instance on top)', () => {
         seed('BTC-USDT', makeInstance({ symbol: 'BTC' }));
         seed('ETH-USDT', makeInstance({ symbol: 'ETH' }));
         renderTable();
         const bodyRows = Array.from(screen.getByLabelText('Per-instance status').querySelectorAll('tbody tr'));
-        expect(bodyRows[0].textContent).toContain('BTC-USDT');
-        expect(bodyRows[1].textContent).toContain('ETH-USDT');
+        expect(bodyRows[0].textContent).toContain('ETH-USDT');
+        expect(bodyRows[1].textContent).toContain('BTC-USDT');
     });
 });
 

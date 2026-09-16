@@ -83,19 +83,26 @@
         Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, defaultTermDraft()])) as Record<TimeframeSlotKind, TermDraft>
     );
 
-    // v11.2 — `[workspace].active_timeframes` (1..=10): how many of the
-    // FASTEST slots run. Edited here and saved through the SAME apply flow
-    // as the per-slot indicator overrides (POSTed to /api/config, which
-    // live-recharges running instances). Re-seeded from the settings store
-    // on pair changes so the editor always starts from the source of truth.
-    let activeCount = $state(app.settings.activeTimeframes);
+    // v11.4 — per-slot ACTIVE toggles: an arbitrary subset of the fixed
+    // pool (canonical order). Edited here and saved through the SAME apply
+    // flow as the per-slot indicator overrides (POSTed to /api/config as
+    // `active_slots`, which live-recharges running instances). Re-seeded
+    // from the settings store on pair changes (source of truth).
+    let activeSet = $state<Set<TimeframeSlotKind>>(
+        new Set(app.settings.activeSlotsList ?? withActiveSlots(app.settings.activeTimeframes)),
+    );
 
     let saveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
     let validationError = $state<string | null>(null);
 
     $effect(() => {
+        app.settings.activeSlotsList;
         app.settings.activeTimeframes;
-        activeCount = app.settings.activeTimeframes;
+        activeSet = new Set(
+            (pair.activeSlots && pair.activeSlots.length > 0 ? pair.activeSlots : null)
+            ?? app.settings.activeSlotsList
+            ?? withActiveSlots(app.settings.activeTimeframes),
+        );
         for (const slot of activeSlotKinds(pair)) {
             const tf = pair.terms[slot];
             if (tf) draft[slot] = readTermFromTelemetry(tf);
@@ -107,9 +114,20 @@
         return `${TIMEFRAME_SLOT_LABELS[slot]} · ${durationSuffix(secs)}`;
     }
 
-    /// The ACTIVE slot cards, in ladder order (v11.2 — inactive slots are
-    /// inert and are not configurable here).
-    const activeCards = $derived(activeSlotKinds(pair));
+    /// The ACTIVE slot cards, in ladder order (v11.4 — follows the local
+    /// toggle set; inactive slots are inert and not configurable here).
+    const activeCards = $derived(TIMEFRAME_SLOT_KINDS.filter((slot) => activeSet.has(slot)));
+
+    function toggleSlot(slot: TimeframeSlotKind): void {
+        const next = new Set(activeSet);
+        if (next.has(slot)) {
+            if (next.size <= 1) return; // at least one timeframe must stay active
+            next.delete(slot);
+        } else {
+            next.add(slot);
+        }
+        activeSet = next;
+    }
 
     function durationSuffix(sec: number): string {
         if (sec % 3600 === 0 && sec > 0) return `${sec / 3600}h`;
@@ -163,13 +181,10 @@
     }
 
     function validateDraft(): string | null {
-        // The ladder is fixed — durations are not editable and there is no
-        // enable/disable concept anymore, so only the per-slot indicator
-        // overrides below are validated/saved. The active-timeframes count
-        // must stay inside the backend's 1..=10 range (M8-style).
-        const n = Number(activeCount);
-        if (!Number.isInteger(n) || n < 1 || n > 10) {
-            return 'Active timeframes must be between 1 and 10.';
+        // The ladder is fixed — durations are not editable. The active
+        // slot set must keep at least one timeframe running (M8-style).
+        if (activeSet.size < 1) {
+            return 'At least one timeframe must stay active.';
         }
         return null;
     }
@@ -177,11 +192,11 @@
     async function applySettings() {
         validationError = validateDraft();
         if (validationError) { saveStatus = 'error'; return; }
-        const nextActive = Math.trunc(Number(activeCount));
-        // Per-slot indicator overrides only — durations are fixed by the
-        // 10-slot ladder and are never sent.
+        const nextSet = TIMEFRAME_SLOT_KINDS.filter((slot) => activeSet.has(slot));
+        // Per-slot indicator overrides for ACTIVE slots only — durations
+        // are fixed by the 10-slot ladder and are never sent.
         const body: Record<string, unknown> = {};
-        for (const slot of activeSlotKinds(pair)) {
+        for (const slot of nextSet) {
             body[slot] = { indicators: buildIndicators(draft[slot]) };
         }
         body.automation = {
@@ -201,7 +216,7 @@
             const cfgRes = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ active_timeframes: nextActive }),
+                body: JSON.stringify({ active_slots: nextSet }),
             });
             if (!cfgRes.ok) {
                 const txt = await cfgRes.text().catch(() => '');
@@ -224,11 +239,10 @@
                     const tf = pair.terms[slot];
                     if (tf) applyTermToTelemetry(draft[slot], tf);
                 }
-                // Mirror the new ACTIVE ladder locally (fastest N slots) so
-                // the sidebar/cards/rails update without waiting for the
-                // next /api/instances poll.
-                app.settings.activeTimeframes = nextActive;
-                pair.activeSlots = withActiveSlots(nextActive);
+                // Mirror the new ACTIVE set locally so the sidebar/cards/
+                // rails update without waiting for the next poll.
+                app.settings.activeSlotsList = nextSet;
+                pair.activeSlots = nextSet;
                 // Force WS reconnect so connections match the new ladder
                 // (dropped/added slots).
                 app.bumpWsVersion();
@@ -307,19 +321,26 @@
 
     <div class={styles.activeCountCard}>
         <div class={styles.activeCountRow}>
-            <label for="tf-active-count">Active timeframes</label>
-            <input
-                id="tf-active-count"
-                type="number"
-                min="1"
-                max="10"
-                step="1"
-                bind:value={activeCount}
-            />
+            <span class={styles.activeCountLabel}>Active timeframes</span>
+            <span class={styles.activeCountValue}>{activeSet.size} / 10</span>
+        </div>
+        <div class={styles.toggleGrid}>
+            {#each TIMEFRAME_SLOT_KINDS as slot (slot)}
+                <button
+                    type="button"
+                    class="{styles.tfToggle} {activeSet.has(slot) ? styles.tfToggleOn : ''}"
+                    aria-pressed={activeSet.has(slot)}
+                    onclick={() => toggleSlot(slot)}
+                >
+                    <span class={styles.tfToggleLabel}>{TIMEFRAME_SLOT_LABELS[slot]}</span>
+                    <span class={styles.tfToggleSecs}>{TIMEFRAME_SLOT_DURATION_SECS[slot] >= 60
+                        ? `${TIMEFRAME_SLOT_DURATION_SECS[slot] / 60}m`
+                        : `${TIMEFRAME_SLOT_DURATION_SECS[slot]}s`}</span>
+                </button>
+            {/each}
         </div>
         <p class={styles.activeCountHint}>
-            The fastest {Number(activeCount) || 0} slot{Number(activeCount) === 1 ? '' : 's'} of the 10-slot ladder run;
-            saving recharges running instances.
+            Toggle which timeframes run (at least one); saving recharges running instances.
         </p>
     </div>
 

@@ -189,8 +189,11 @@ describe('InstancePicker — row interactions', () => {
         renderPicker();
         await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
 
-        const rowEl = screen.getByText('BTC/USDT').closest('button') as HTMLElement;
+        // v11.4: rows are semantic <a> links (right-click → open in a new
+        // tab); a plain click still prevents default and enters the instance.
+        const rowEl = screen.getByText('BTC/USDT').closest('a') as HTMLAnchorElement;
         expect(rowEl).toBeTruthy();
+        expect(rowEl.getAttribute('href')).toContain('instance/BTC-USDT');
         await fireEvent.click(rowEl);
 
         expect(app.selectedInstance).toBe('BTC-USDT');

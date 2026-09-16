@@ -112,7 +112,7 @@ fn make_full_pair(mut overrides: [Option<TimeframePipeline>; 10]) -> ActivePair 
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
-        active_count: 10,
+        active_indices: (0..10).collect(),
     }
 }
 

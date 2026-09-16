@@ -1,6 +1,6 @@
 # MME Layer 5 — Risk Layer
 
-**Version:** 11.3 (2026-09-16) — v11: execution-liquidity baseline 10, rvol_low 1.0, rvol_high 5.0 (micro-TF RVOL is structural, not danger). See docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.5 (2026-09-16) — v11: execution-liquidity baseline 10, rvol_low 1.0, rvol_high 5.0 (micro-TF RVOL is structural, not danger). See docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 5 of 7

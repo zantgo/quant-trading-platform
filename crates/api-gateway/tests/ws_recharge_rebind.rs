@@ -178,7 +178,7 @@ fn build_active_pair_with_channels(pair_key: &str) -> PairWithSenders {
         longterm2: new_pipe(3600, "Longterm2", TimeframeSlot::Longterm2, throwaway()),
         snapshot_tx,
         cancel,
-        active_count: 10,
+        active_indices: (0..10).collect(),
 });
     (pair, micro_bcast, fast_bcast, slow_bcast, macro_bcast)
 }

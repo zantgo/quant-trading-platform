@@ -1,6 +1,6 @@
 # Portfolio Management Engine — Overview Specification (v7)
 
-**Version:** 11.3 (2026-09-16) — the v7 redesign makes PME **purely informational**: the veto/stance authority was erased; PME reports the portfolio's current state and the TAE setup executor consumes `safety_state` as its single soft entry gate.
+**Version:** 11.5 (2026-09-16) — the v7 redesign makes PME **purely informational**: the veto/stance authority was erased; PME reports the portfolio's current state and the TAE setup executor consumes `safety_state` as its single soft entry gate.
 **Status:** Specified — v7 implementation in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Purpose:** This document specifies the boundaries, ledger model, layer structure, and safety reporting of the Portfolio Management Engine — the engine that answers **"what is my account doing right now?"** (equity, positions, exposure, capital, risk state) without executing anything.

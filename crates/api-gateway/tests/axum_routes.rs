@@ -220,7 +220,7 @@ async fn test_websocket_stream_with_active_pair() {
         longterm2: make_pipe(TimeframeSlot::Longterm2, 3600, throwaway()),
         snapshot_tx,
         cancel,
-        active_count: 10,
+        active_indices: (0..10).collect(),
 });
 
     let buffers: [TimeframeBuffers; 10] = pair

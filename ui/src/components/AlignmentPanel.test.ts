@@ -14,6 +14,8 @@
 //   AL-10: the Consensus Composition Strip (4 directional segments) and
 //         the whisper footnote render only with real data.
 
+import { tick } from 'svelte';
+import { TIMEFRAME_SLOT_KINDS } from '../types';
 import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import AlignmentPanel from './AlignmentPanel.svelte';
@@ -248,12 +250,20 @@ describe('AlignmentPanel — SUMMARY head card (v7.0)', () => {
 });
 
 describe('AlignmentPanel — Timeframe Status table (v10.2)', () => {
-  it('renders the per-timeframe status table between the layer header and the summary card', () => {
+  it('renders the per-timeframe status table between the layer header and the summary card', async () => {
     seed(makeAlignment());
+    // v11.4: the fixture pair runs the full ladder (all-10 default).
+    const app = useAppStore();
+    const pair = app.instancesMap['BTC-USDT'];
+    if (pair) pair.activeSlots = [...TIMEFRAME_SLOT_KINDS];
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
-    const table = screen.getByLabelText('Per-timeframe status');
-    expect(table).toBeTruthy();
-    // One row per fixed-ladder slot (10 rows), each carrying a LayerHeader badge.
+    await tick();
+    // The collapse bar carries the label; the table renders expanded (default).
+    const bar = screen.getByLabelText('Per-timeframe status');
+    expect(bar).toBeTruthy();
+    expect(bar.getAttribute('aria-expanded')).toBe('true');
+    const table = screen.getByRole('table');
+    // One row per ACTIVE slot (10 for the full ladder), each a LayerHeader badge.
     const rows = table.querySelectorAll('tbody tr');
     expect(rows.length).toBe(10);
     expect(table.querySelectorAll(`.${headerStyles.badge}`).length).toBe(10);

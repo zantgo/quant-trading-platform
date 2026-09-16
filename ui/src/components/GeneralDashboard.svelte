@@ -44,6 +44,12 @@
     import AssetRankingsTable from './dashboard/AssetRankingsTable.svelte';
     import InstanceStatusTable from './InstanceStatusTable.svelte';
     import ExportDataButton from './ExportDataButton.svelte';
+    import { computeDecisionRank } from '../lib/decisionRank';
+    import { getBadgeTrail, badgeHistoryVersion, L7_KEY } from '../lib/badgeHistory.svelte';
+    import BadgeTrail from './BadgeTrail.svelte';
+    import { buildL6DecisionHeader, metricsBadgeFor } from '../lib/layerHeader';
+    import { activeSlotKinds } from '../lib/terms';
+    import { TIMEFRAME_SLOT_DURATION_SECS } from '../types';
     import { buildOverviewTabExport } from '../lib/exportBuilders/overviewTab';
 
     interface Props {
@@ -92,11 +98,59 @@
     // EXPORT DATA — mirrors the panel 1:1 via the
     // `lib/exportBuilders/overviewTab.ts` builder (see that file for
     // the block ↔ sub-component mapping).
+    // v11.5: L7 badge history trail (re-renders on every ring push).
+    const l7Trail = $derived.by(() => {
+        void badgeHistoryVersion.v;
+        void headerSpec;
+        return getBadgeTrail(L7_KEY);
+    });
+
     const buildExport = $derived(() => {
         const instances = Object.values(app.instancesMap);
+        // v11.4: mirror the InstanceStatusTable rows 1:1 — decision badge
+        // + probabilities + per-ACTIVE-TF badges (same derivations the
+        // table renders).
+        const instance_status = instances.map((inst) => {
+            const rank = computeDecisionRank({
+                advisory: inst.advisory,
+                decisionContext: inst.decisionContext,
+                opportunity: inst.opportunity,
+                analysis: inst.analysis,
+            });
+            const badge = buildL6DecisionHeader({
+                rank,
+                decisionContext: inst.decisionContext,
+                advisory: inst.advisory,
+            }).badge;
+            const wss = wssMap[app.pairKeyFor(inst.symbol)];
+            return {
+                pair_key: app.pairKeyFor(inst.symbol),
+                symbol: inst.symbol,
+                decision: badge.state === 'empty'
+                    ? null
+                    : {
+                        label: badge.label,
+                        probability_pct: Math.round(rank.top_prob),
+                        long_pct: Math.round(rank.long.probability),
+                        hold_pct: Math.round(rank.hold.probability),
+                        short_pct: Math.round(rank.short.probability),
+                    },
+                timeframes: activeSlotKinds(inst).map((slot) => {
+                    const info = metricsBadgeFor(inst.terms?.[slot] ?? null, wss);
+                    return {
+                        slot,
+                        secs: TIMEFRAME_SLOT_DURATION_SECS[slot],
+                        badge_label: info.badge.label,
+                        badge_sublabel: info.badge.sublabel,
+                        pipeline_status: info.status,
+                    };
+                }),
+            };
+        });
         return buildOverviewTabExport({
             overviewMatrix: app.overviewMatrix,
             instances,
+            instance_status,
             headerSpec,
             nowMs: Date.now(),
         });
@@ -154,6 +208,7 @@
                             <span>{headerSpec.badge.sublabel}</span>
                         {/if}
                     </span>
+                    <BadgeTrail entries={l7Trail} />
                     {#if headerSpec.meta.length > 0}
                         <div class={styles.metaList}>
                             {#each headerSpec.meta as chip (chip.label)}

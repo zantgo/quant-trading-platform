@@ -18,6 +18,9 @@ import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 import { ENGINE_DEFAULT_TAB } from './lib/engineTabs';
 import { loadPref } from './lib/prefs';
+import { slotsFromSecs } from './lib/terms';
+import { pushBadge, notifyBadgeChanged, L7_KEY } from './lib/badgeHistory.svelte';
+import { buildL7OverviewHeader } from './lib/layerHeader';
 import { applyChartOverlays } from './lib/chartOverlays';
 import type { NavOrigin } from './lib/router.svelte';
 
@@ -386,6 +389,18 @@ export class AppStore {
                 this.overviewMatrix = (await res.json()) as OverviewMatrix;
                 this.lastOverviewFetchMs = Date.now();
                 this.lastOverviewErrorMs = null;
+                // v11.5: L7 badge history — one literal sample per poll
+                // (same builder the Overview header uses).
+                const badge = buildL7OverviewHeader(this.overviewMatrix, {
+                    lastSuccessMs: this.lastOverviewFetchMs,
+                    lastErrorMs: this.lastOverviewErrorMs,
+                    now: Date.now(),
+                    pollIntervalMs: 3000,
+                }).badge;
+                if (badge.state !== 'empty') {
+                    pushBadge(L7_KEY, { label: badge.label, color: badge.color, ts: Date.now() });
+                    notifyBadgeChanged();
+                }
             } else {
                 this.lastOverviewErrorMs = Date.now();
             }
@@ -478,12 +493,23 @@ export class AppStore {
             const res = await fetch('/api/instances');
             if (!res.ok) return;
             const data = await res.json();
-            const instances: Array<{ id?: string; pair?: string }> = data?.instances ?? [];
+            const instances: Array<{ id?: string; pair?: string; active_secs?: number[] }> =
+                data?.instances ?? [];
             const liveKeys = new Set(instances.filter(i => i?.pair).map(i => i.pair!));
             for (const key of Object.keys(this.instancesMap)) {
                 if (!liveKeys.has(key)) {
                     this.removeInstance(key);
                 }
+            }
+            // v11.4: re-apply the ACTIVE ladder on every reconcile — the
+            // server is the single source of truth. This heals any wipe
+            // race (e.g. a config refetch rebuilding instancesMap with the
+            // all-10 default between syncs), so TF rails/tables can never
+            // stay stuck on the full ladder.
+            for (const inst of instances) {
+                if (!inst?.pair || !Array.isArray(inst.active_secs) || inst.active_secs.length === 0) continue;
+                const entry = this.instancesMap[inst.pair];
+                if (entry) entry.activeSlots = slotsFromSecs(inst.active_secs);
             }
         } catch (_) {}
     }

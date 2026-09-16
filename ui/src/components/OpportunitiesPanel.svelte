@@ -7,6 +7,7 @@
     import LayerHeader from './LayerHeader.svelte';
     import SummaryCard from './SummaryCard.svelte';
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { getBadgeTrail, badgeHistoryVersion, layerKey } from '../lib/badgeHistory.svelte';
     import styles from './OpportunitiesPanel.module.css';
     import { computeDecisionRank, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
     import { normalizeViability } from '../lib/viability';
@@ -364,6 +365,13 @@
         buildL4OpportunityHeader(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null, analysis)
     );
 
+    // v11.5: badge history trail (re-renders on every ring push).
+    const badgeTrail = $derived.by(() => {
+        void badgeHistoryVersion.v;
+        void headerSpec;
+        return getBadgeTrail(layerKey('l4', pairKey));
+    });
+
     // ── Lean (bullish / bearish / neutral) derived from the rank. The
     // header itself has absorbed the previous `PULLBACK + bullish-dominate`
     // dual-badge block — the recommendation panel owns the directional
@@ -537,7 +545,7 @@
 
 <div class={styles.panel}>
     <!-- L4 HEADER (v7.0-prod — shared chrome across all MME tabs) -->
-    <LayerHeader spec={headerSpec}>
+    <LayerHeader spec={headerSpec} trail={badgeTrail}>
         {#snippet trailing()}
             <h2 class={styles.title}>Market Opportunity</h2>
             <ExportDataButton onExport={buildExport} title="Copy all Opportunity data as JSON" />

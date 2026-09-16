@@ -28,6 +28,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
 
         let test_workspace = config_models::WorkspaceConfig {
             active_timeframes: 10,
+            active_slots: None,
             id: "test".into(),
             name: "Test".into(),
             default_currency: "USDC".into(),

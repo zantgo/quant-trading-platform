@@ -137,7 +137,7 @@ async fn register_btc_usdc(state: &Arc<AppState>) {
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        active_count: 10,
+        active_indices: (0..10).collect(),
 });
 
     let buffers = TimeframeBuffers {

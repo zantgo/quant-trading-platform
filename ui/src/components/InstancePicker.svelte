@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onDestroy } from 'svelte';
     import { useAppStore } from '../state.svelte';
+    import { buildEngineHash } from '../lib/router.svelte';
     import { TIMEFRAME_SLOT_KINDS } from '../types';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import styles from './InstancePicker.module.css';
@@ -198,7 +199,17 @@
             {#each filtered as inst (inst.id)}
                 {@const pk = inst.pair}
                 {@const chg = changeStr(pk)}
-                <button class={styles.row} onclick={() => app.enterInstance(pk)}>
+                <!-- v11.4: semantic anchor — right-click → "Open link in new tab"
+                     gives an independent live viewer for this instance. -->
+                <a
+                    href={buildEngineHash('market_monitor', 'workspace', pk, 'terminal')}
+                    class={styles.row}
+                    onclick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+                        e.preventDefault();
+                        app.enterInstance(pk);
+                    }}
+                >
                     <span class="{styles.statusDot} {statusClass(inst.status)}"></span>
                     <div class={styles.rowInfo}>
                         <span class={styles.symbol}>{pairDisplay(pk)}</span>
@@ -221,7 +232,7 @@
                     >
                         <SvgIcon name="trash" size={13} />
                     </span>
-                </button>
+                </a>
             {/each}
         </div>
     {/if}

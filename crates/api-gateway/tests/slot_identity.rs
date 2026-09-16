@@ -117,7 +117,7 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        active_count: 10,
+        active_indices: (0..10).collect(),
 });
 
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
