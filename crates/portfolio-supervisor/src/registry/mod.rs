@@ -170,16 +170,6 @@ pub async fn add_instance(
                 .position(|n| n == name)
         })
         .collect();
-    let config_guard_active_ladder_secs: Vec<u64> = config_guard
-        .active_slot_names()
-        .iter()
-        .filter_map(|name| {
-            config_models::FIXED_TF_NAMES
-                .iter()
-                .position(|n| n == name)
-                .map(|idx| config_models::FIXED_TF_LADDER[idx])
-        })
-        .collect();
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
         _ => state.platform.read().await.hyperliquid.rest_url(),

@@ -83,6 +83,9 @@ Thumbs.db
 # Engine PID file (written by manage.sh)
 .engine.pid
 
+# Smart-port resolved endpoint (v11.3, written by the daemon on boot)
+.server.port
+
 
 # ==============================================================================
 # 🧪 E2E harness artifacts (written by ./manage.sh e2e-backtest)
