@@ -56,24 +56,19 @@ describe('parseSymbols', () => {
         expect(parseSymbols('BTC ETH SOL')).toEqual(['BTC', 'ETH', 'SOL']);
     });
 
-    it('accepts comma-separated tokens', () => {
-        expect(parseSymbols('BTC,ETH,SOL')).toEqual(['BTC', 'ETH', 'SOL']);
-    });
-
-    it('accepts #-prefixed tokens', () => {
-        expect(parseSymbols('#BTC #ETH #SOL')).toEqual(['BTC', 'ETH', 'SOL']);
-    });
-
-    it('accepts mixed separators', () => {
-        expect(parseSymbols('BTC, ETH #SOL AVAX')).toEqual(['BTC', 'ETH', 'SOL', 'AVAX']);
+    it('v11.8: no longer accepts commas or # prefixes (spaces only)', () => {
+        // 'BTC,ETH' is one literal token (invalid downstream, > 10 chars
+        // after upper-casing is not the reason — it is kept as-is).
+        expect(parseSymbols('BTC,ETH')).toEqual(['BTC,ETH']);
+        expect(parseSymbols('#BTC')).toEqual(['#BTC']);
     });
 
     it('uppercases tokens', () => {
         expect(parseSymbols('btc eth')).toEqual(['BTC', 'ETH']);
     });
 
-    it('drops empty tokens', () => {
-        expect(parseSymbols('BTC,,  ETH  , ')).toEqual(['BTC', 'ETH']);
+    it('collapses repeated whitespace', () => {
+        expect(parseSymbols('BTC   ETH')).toEqual(['BTC', 'ETH']);
     });
 
     it('drops tokens longer than 10 chars', () => {

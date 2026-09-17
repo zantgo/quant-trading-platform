@@ -243,13 +243,13 @@
                     <textarea
                         id="watchlist-input"
                         class={styles.inputField}
-                        placeholder="BTC ETH SOL #AVAX, OP ARB"
+                        placeholder="BTC ETH SOL ..."
                         maxlength="800"
                         bind:value={inputText}
                         disabled={!sessionReady}
                     ></textarea>
                     <div class={styles.inputHelp}>
-                        Paste a tag-style list. Spaces, commas, and # prefixes are all accepted; duplicates
+                        Paste a space-separated list of base symbols. Duplicates are ignored. Up to 10 characters per symbol.
                         are ignored. Up to 10 characters per symbol.
                     </div>
                     <div class={styles.inputWaitRow}>
