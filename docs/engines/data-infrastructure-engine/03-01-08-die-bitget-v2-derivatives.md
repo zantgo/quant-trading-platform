@@ -1,6 +1,6 @@
 # 03-01-08: Bitget V2 Derivatives Telemetry Wire Format
 
-**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE) → MME L1.5 Derivatives Telemetry
 **Scope:** Bitget V2 (mix contract: `USDT-FUTURES` / `USDC-FUTURES`) WebSocket push payload

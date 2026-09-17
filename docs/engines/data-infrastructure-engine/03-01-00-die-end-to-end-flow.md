@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — End-to-End Flow
 
-**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document is the **single integrated narrative** for the Data Infrastructure Engine. It traces one trade tick from the exchange WebSocket to the dashboard broadcast and SQLite persistence in one diagram + walkthrough. Each layer's detailed contract lives in its dedicated doc; this document only cross-references them.

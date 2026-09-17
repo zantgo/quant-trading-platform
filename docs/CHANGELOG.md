@@ -4,6 +4,17 @@
 
 ------
 
+## v11.7 (2026-09-16) — Observe-Only UI (Market Monitor Build)
+
+**The dashboard now presents the platform as a pure market monitor: the Launch Setup wizard offers ONLY the Observe mode, and the Backtesting engine is hidden from the observe-mode left panel. The backend keeps all three execution modes (API/CLI) so re-enabling trading later is a UI-only change.**
+
+- **Welcome screen**: the mode step renders a single, pre-selected **Observe** card ("Market monitor — trading modes are disabled for now"). The paper-capital and live-credential surfaces remain implemented but unreachable; the launch continues to post `mode: "observe"`.
+- **Left panel**: `VISIBLE_ENGINES.observe` drops `backtesting` (observe sidebar = Data Infrastructure + Market Monitor + Home; the observe-only WIP chip is removed). Unknown session modes now fall back to the observe sidebar. Paper/live visibility maps are unchanged — regression-guarded by tests.
+- **Kept intentionally**: direct `#/engine/backtesting/...` URLs still render the BTE dashboard, and headless CLI backtests are unaffected.
+- **Docs sweep**: 07-02 (wizard + sidebar visibility), 08-01 (observe-only note), 06-01 (API still accepts all modes); corpus re-stamped to 11.7.
+
+------
+
 ## v11.6 (2026-09-16) — Crash Recovery & Interrupted-Session Restore
 
 **The platform now survives ANY ungraceful shutdown (power loss, OOM, SIGKILL, closed terminal): `./manage.sh run` always boots to a working dashboard, and when the previous session was not finalized the Welcome screen offers RECOVER (instances + settings resume) or DISCARD & START FRESH (instances/settings reset; telemetry history kept).**

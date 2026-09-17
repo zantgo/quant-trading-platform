@@ -1,6 +1,6 @@
 # Liquidation Heatmap — Leverage Tier Configuration
 
-**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 
 **Scope:** Operator workflow for the per-timeframe Liquidation Heatmap tier controls introduced in v7.0-prod (D5 default = 10×, range = [1, 100] integers).
 

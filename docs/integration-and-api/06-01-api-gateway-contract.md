@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -81,7 +81,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
 | `GET` | `/api/session/status` | — | `{ active: bool, currency: string, exchange: string, instance_count: u32, mode?: "observe"\|"paper"\|"live", capital?: number }` — `mode` + `capital` are the session defaults (the frontend reads `data.active`; corrected 2026-08-17) |
-| `POST` | `/api/session/init` | `{ exchange: "Hyperliquid"\|"Bitget", currency: "USDT"\|"USDC", mode?: "observe"\|"paper"\|"live", initial_capital_usd?: number }` — `mode` + `initial_capital_usd` are the session defaults for instances created during the session. `observe` = monitoring only (no orders), `live` requires an active API key for the chosen exchange (otherwise `400` with a clear message). | `{ success: bool, message: string, mode?: string, capital?: number }` |
+| `POST` | `/api/session/init` | `{ exchange: "Hyperliquid"\|"Bitget", currency: "USDT"\|"USDC", mode?: "observe"\|"paper"\|"live", initial_capital_usd?: number }` — `mode` + `initial_capital_usd` are the session defaults for instances created during the session. `observe` = monitoring only (no orders), `live` requires an active API key for the chosen exchange (otherwise `400` with a clear message). | `{ success: bool, message: string, mode?: string, capital?: number }` | — v11.7: the UI exposes Observe only; the endpoint keeps accepting `observe|paper|live`.
 | `POST` | `/api/session/quit` | — | `200 OK` + JSON (cleanup result) → cleans all instances (corrected 2026-08-17 — the handler returns `200` with a body, not `204`) |
 | `GET` | `/api/sessions` | — | `{ sessions: [...] }` — persisted sessions, newest first (v10) |
 | `GET` | `/api/sessions/:id/analytics` | — | `{ session_id, counts, stats }` — session-scoped PAE payloads (v10) |

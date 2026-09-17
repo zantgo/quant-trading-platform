@@ -1,6 +1,6 @@
 # 03-02-13: MME Volume Profile Layer (L2.6 — Volume Profile Distribution)
 
-**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layer:** L2.6 (Volume Profile Distribution)

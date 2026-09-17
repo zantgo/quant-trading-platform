@@ -1,6 +1,6 @@
 # PME Strategy Settings — Spec (v9)
 
-**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Portfolio Management Engine (PME)
 

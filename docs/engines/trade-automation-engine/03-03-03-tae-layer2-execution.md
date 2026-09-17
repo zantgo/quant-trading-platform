@@ -1,6 +1,6 @@
 # TAE Layer ④ — Unified ExecutionEngine
 
-**Version:** 11.6 (2026-09-16) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
+**Version:** 11.7 (2026-09-16) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
 **Status:** Implemented (v11) — Hyperliquid + Bitget live backends, quantity-first execution model.
 **Previous:** 10.1 (2026-08-24) — v7 redesign + v7.1 Bitget.
 **Engine:** Trade Automation Engine (TAE)

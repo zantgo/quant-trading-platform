@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -280,6 +280,8 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 | Quit Session | `styles.sidebarQuitBtn` | Triggers `showQuitDialog = true` after closing the drawer. |
 
 ### 5.3 Engine Mapping
+
+> **Observe-only build (v11.7).** The Launch Setup wizard offers a single **Observe** mode card — the trading modes (Simulate/Execute) are disabled in the UI for now, and the observe-mode left panel hides the Backtesting engine: observe shows **Data Infrastructure + Market Monitor + Home**. The backend still accepts all three modes via the API/CLI, direct `#/engine/backtesting/...` URLs still render, and headless CLI backtests are unaffected.
 
 > **Implementation status (v10.1).** All six engine dashboards are **implemented** and read live data: DIE and MME are WS-fed, TAE/PME dashboards fetch `/api/instances/:id/automation`, `/api/instances/:id/portfolio`, and `/api/instances/:id/safety`, the PAE dashboard fetches `/api/dashboard/stats` + `/api/analytics/*` + `/api/analytics/comparison`, and the BTE dashboard is observe-only (`BacktestingDashboard`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
 

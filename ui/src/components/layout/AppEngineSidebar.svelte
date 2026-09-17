@@ -26,12 +26,17 @@
         { key: 'profile', label: 'Home', divider: true },
     ];
 
-    // v8 BTE: mode-aware engine visibility. Observe is the research
-    // session (DIE + MME + Backtesting); paper/live are the execution
-    // sessions (TAE + PME + PAE). The backend keeps computing in every
-    // mode — this only controls the left-panel surface.
+    // v8/v11.7: mode-aware engine visibility. Observe is the
+    // market-monitor session (DIE + MME; Backtesting hidden in the
+    // observe-only build — direct URLs + CLI backtests still work);
+    // paper/live are the execution sessions (TAE + PME + PAE). The
+    // backend keeps computing in every mode — this only controls the
+    // left-panel surface.
     const VISIBLE_ENGINES: Record<'observe' | 'paper' | 'live', EngineKey[]> = {
-        observe: ['data_infra', 'market_monitor', 'backtesting', 'profile'],
+        // v11.7: observe-only build = market monitor — Backtesting is
+        // hidden from the sidebar (direct #/engine/backtesting URLs and
+        // headless CLI backtests remain functional).
+        observe: ['data_infra', 'market_monitor', 'profile'],
         paper: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance', 'profile'],
         live: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance', 'profile'],
     };
@@ -39,7 +44,9 @@
     const app = useAppStore();
     const sessionMode = $derived.by(() => {
         const m = app.sessionMode;
-        return m === 'paper' || m === 'live' || m === 'observe' ? m : 'paper';
+        // v11.7: observe-only build — unknown modes fall back to the
+        // monitor sidebar (paper/live only when explicitly set).
+        return m === 'paper' || m === 'live' || m === 'observe' ? m : 'observe';
     });
     const visibleEngines = $derived(VISIBLE_ENGINES[sessionMode]);
 
@@ -89,9 +96,6 @@
                 {/if}
                 <a href={buildEngineHash(engine.key)} class={sidebarItemClass(engine.key)} onclick={(e) => { handleNavClick(e); onnavigate(engine.key); }}>
                     <span class={styles.navIcon}><SvgIcon name={sidebarIconName(engine.key)} size={15} /></span>{engine.label}
-                    {#if engine.key === 'backtesting' && sessionMode === 'observe'}
-                        <span class={styles.wipBadge} title="work in progress">WIP</span>
-                    {/if}
                 </a>
             {/each}
         </div>

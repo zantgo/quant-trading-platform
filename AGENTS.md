@@ -85,7 +85,7 @@ The execution-daemon binary reads `config.toml` from CWD at runtime. Run from th
 
 ## Session modes (Observe / Simulate / Execute)
 
-The Launch Setup wizard (and the CLI launch prompt) offer three execution modes:
+The Launch Setup wizard (and the CLI launch prompt) offer three execution modes — **v11.7: the UI wizard now offers Observe ONLY** (observe-only market-monitor build; the API/CLI keep all three modes):
 
 | UI | Backend `ExecutionMode` | Meaning |
 |----|-------------------------|---------|
@@ -122,7 +122,7 @@ The sidebar (`AppEngineSidebar.svelte`) filters the engine list by session mode:
 |--------|---------|-------|------|
 | Data Infrastructure (DIE) | ✅ | ✅ | ✅ |
 | Market Monitor (MME) | ✅ | ✅ | ✅ |
-| **Backtesting (BTE)** | ✅ | ❌ | ❌ |
+| **Backtesting (BTE)** | ❌ (v11.7: hidden in the observe-only build; direct URLs + CLI backtests still work) | ❌ | ❌ |
 | Trade Automation (TAE) | ❌ | ✅ | ✅ |
 | Portfolio Management (PME) | ❌ | ✅ | ✅ |
 | Performance Analytics (PAE) | ❌ | ✅ | ✅ |

@@ -82,24 +82,14 @@ async function goToReview(container: HTMLElement) {
 }
 
 describe('Launch Setup — mode selection', () => {
-    it('shows the three mode cards Observe / Simulate / Execute', async () => {
+    it('shows only the Observe mode card (v11.7 observe-only build)', async () => {
         const { container } = await render(LaunchSetup);
         expect(container.textContent).toContain('Observe');
-        expect(container.textContent).toContain('Simulate');
-        expect(container.textContent).toContain('Execute');
-        // Progression hint verbs.
-        expect(container.textContent).toContain('Monitor');
-        expect(container.textContent).toContain('Paper');
-        expect(container.textContent).toContain('Real orders');
-    });
-
-    it('simulate mode shows the capital field', async () => {
-        const { container } = await render(LaunchSetup);
-        await fireEvent.click(screen.getByText('Simulate'));
-        await goToEnvironment(container);
-        expect(container.querySelector('#launch-capital')).toBeTruthy();
-        expect(container.querySelector('#launch-wallet')).toBeFalsy();
-        expect(container.querySelector('#launch-api-key')).toBeFalsy();
+        // Trading modes are hidden from the UI.
+        expect(container.textContent).not.toContain('Simulate');
+        expect(container.textContent).not.toContain('Execute');
+        expect(container.textContent).not.toContain('Real orders');
+        expect(container.textContent).not.toContain('Paper');
     });
 
     it('observe mode shows neither capital nor credentials', async () => {
@@ -110,26 +100,6 @@ describe('Launch Setup — mode selection', () => {
         expect(container.querySelector('#launch-wallet')).toBeFalsy();
         expect(container.querySelector('#launch-api-key')).toBeFalsy();
         expect(container.textContent).toContain('no capital and no credentials');
-    });
-
-    it('execute mode on Hyperliquid shows wallet credentials', async () => {
-        const { container } = await render(LaunchSetup);
-        await fireEvent.click(screen.getByText('Execute'));
-        await goToEnvironment(container);
-        expect(container.querySelector('#launch-wallet')).toBeTruthy();
-        expect(container.querySelector('#launch-private-key')).toBeTruthy();
-        expect(container.querySelector('#launch-capital')).toBeFalsy();
-    });
-
-    it('execute mode on Bitget shows API key credentials', async () => {
-        const { container } = await render(LaunchSetup);
-        await fireEvent.click(screen.getByText('Execute'));
-        await goToEnvironment(container);
-        const exchange = container.querySelector<HTMLSelectElement>('#launch-exchange');
-        await fireEvent.change(exchange!, { target: { value: 'Bitget' } });
-        expect(container.querySelector('#launch-api-key')).toBeTruthy();
-        expect(container.querySelector('#launch-api-secret')).toBeTruthy();
-        expect(container.querySelector('#launch-passphrase')).toBeTruthy();
     });
 });
 
@@ -285,43 +255,6 @@ describe('Launch Setup — launch orchestration', () => {
         expect(container.textContent).toContain('Active ladder (5)');
     });
 
-    it('launches a simulate session with capital', async () => {
-        const { calls } = mockBackend();
-        const { container } = await render(LaunchSetup);
-        await fireEvent.click(screen.getByText('Simulate'));
-        await goToEnvironment(container);
-        const capitalInput = container.querySelector<HTMLInputElement>('#launch-capital');
-        await fireEvent.input(capitalInput!, { target: { value: '2500' } });
-        await goToReviewFromEnvironment();
-        await fireEvent.click(screen.getByText('Launch'));
-
-        await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
-        const initCall = calls.find((c) => String(c.url).includes('/api/session/init'));
-        expect(initCall?.body).toMatchObject({ mode: 'paper', portfolio_capital_usd: 2500 });
-    });
-
-    it('launches an execute session and saves credentials first', async () => {
-        const { calls } = mockBackend();
-        const { container } = await render(LaunchSetup);
-        await fireEvent.click(screen.getByText('Execute'));
-        await goToEnvironment(container);
-        await fireEvent.input(container.querySelector<HTMLInputElement>('#launch-wallet')!, { target: { value: '0xabc' } });
-        await fireEvent.input(container.querySelector<HTMLInputElement>('#launch-private-key')!, { target: { value: 'secret-key' } });
-        await goToReviewFromEnvironment();
-        await fireEvent.click(screen.getByText('Launch'));
-
-        await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
-        const keyCall = calls.find((c) => String(c.url).includes('/api/keys'));
-        expect(keyCall?.body).toMatchObject({
-            exchange: 'Hyperliquid',
-            api_key: '0xabc',
-            api_secret: 'secret-key',
-            is_active: true,
-        });
-        const initCall = calls.find((c) => String(c.url).includes('/api/session/init'));
-        expect(initCall?.body).toMatchObject({ mode: 'live' });
-    });
-
     it('surfaces a backend error from session init', async () => {
         const fetchMock = vi.fn((url: string) => {
             if (typeof url === 'string' && url.includes('/api/session/init')) {
@@ -339,6 +272,28 @@ describe('Launch Setup — launch orchestration', () => {
         await waitFor(() =>
             expect(container.textContent).toContain('Live session requires an active Hyperliquid API key'),
         );
+    });
+});
+
+// ── v11.7 observe-only build — single mode card ──────────────────────
+describe('Launch Setup — observe-only mode step (v11.7)', () => {
+    it('renders exactly one mode card: Observe (no Simulate / Execute)', async () => {
+        const { container } = await render(LaunchSetup);
+        expect(container.textContent).toContain('Observe');
+        expect(container.textContent).toContain('Market monitor');
+        expect(container.textContent).not.toContain('Simulate');
+        expect(container.textContent).not.toContain('Execute');
+        expect(container.textContent).not.toContain('Real orders');
+    });
+
+    it('the single card is pre-selected and the step advances', async () => {
+        const { container } = await render(LaunchSetup);
+        const cards = container.querySelectorAll('button');
+        const observeCard = Array.from(cards).find((b) => b.textContent?.includes('Observe'))!;
+        expect(observeCard).toBeTruthy();
+        // Continue moves past the mode step.
+        await fireEvent.click(screen.getByText('Continue'));
+        expect(container.textContent).toContain('Environment');
     });
 });
 

@@ -60,8 +60,9 @@
         observe: {
             title: 'Observe',
             verb: 'Monitor',
-            badge: 'No orders',
-            description: 'Monitor markets and signals without executing trades. The safest mode.',
+            badge: 'Market monitor',
+            description:
+                'This build runs observe-only: monitor markets, indicators and signals without executing trades. Trading modes are disabled for now.',
         },
         paper: {
             title: 'Simulate',
@@ -77,7 +78,11 @@
         },
     };
 
-    const MODE_ORDER: LaunchMode[] = ['observe', 'paper', 'live'];
+    // v11.7: OBSERVE-ONLY BUILD (market monitor). The wizard exposes a
+    // single mode; paper/live remain fully supported by the backend and
+    // the guarded branches below, so re-enabling trading later is a
+    // one-line change to this list.
+    const MODE_ORDER: LaunchMode[] = ['observe'];
 
     // ─── Wizard state ────────────────────────────────────────────────
     let step = $state(1);
