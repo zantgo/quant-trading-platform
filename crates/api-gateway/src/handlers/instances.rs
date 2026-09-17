@@ -1158,6 +1158,18 @@ pub async fn serve_reload_timeframe(
     Path(instance_id): Path<String>,
     Query(query): Query<InstanceDetailQuery>,
 ) -> impl IntoResponse {
+    // Resolve the instance UUID to its live pair key (the registry's
+    // handle is keyed by the unified symbol, not the UUID).
+    let pair_key = match state.get_instance_by_id(&instance_id).await {
+        Some(inst) => inst.pair_key(),
+        None => {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                format!("Instance {} not found", instance_id),
+            )
+                .into_response();
+        }
+    };
     let requested = query
         .tf
         .as_deref()
@@ -1209,7 +1221,7 @@ pub async fn serve_reload_timeframe(
     if slot == "all" {
         return match portfolio_supervisor::registry::recharge_instance(
             &state.registry_context(),
-            &instance_id,
+            &pair_key,
         )
         .await
         {
@@ -1222,7 +1234,7 @@ pub async fn serve_reload_timeframe(
         };
     }
 
-    match registry::reload_timeframe(&state.registry_context(), &instance_id, slot).await {
+    match registry::reload_timeframe(&state.registry_context(), &pair_key, slot).await {
         Ok(()) => (
             axum::http::StatusCode::OK,
             format!("Instance {} reloaded (slot={})", instance_id, slot),

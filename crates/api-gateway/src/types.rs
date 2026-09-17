@@ -136,15 +136,11 @@ pub struct ConfigResponse {
     pub instances: Vec<config_models::InstanceEntry>,
     pub indicator_registry: Vec<market_analyzer::indicators::IndicatorMeta>,
     pub api_failover: config_models::ApiFailoverConfig,
-    /// v7.2 parity: the workspace's slow/macro timeframe defaults — the
-    /// same values the registry falls back to when an instance is created
-    /// without a config entry. The Launch Setup wizard derives its
-    /// per-instance TF defaults from these, so GUI, CLI, and registry
-    /// always agree.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slow_timeframe: Option<config_models::SlowTimeframeConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub macro_timeframe: Option<config_models::SlowTimeframeConfig>,
+    /// v11.9: the ACTIVE duration set (`[workspace].timeframes`) in
+    /// canonical ascending order — the endpoint the UI settings surface
+    /// reads its duration toggles from.
+    #[serde(default)]
+    pub timeframes: Vec<u64>,
     /// v7.3: workspace liquidity config (retentions, feed toggles) —
     /// surfaced so DIE Settings can render the true retention values and
     /// the PME can derive data-retention facts from one source.
