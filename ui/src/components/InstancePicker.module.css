@@ -230,6 +230,9 @@
     gap: 10px;
     cursor: pointer;
     transition: background-color 0.15s ease;
+    /* v11.8: rows are semantic <a> deep links — strip the UA underline. */
+    text-decoration: none;
+    color: inherit;
     background: none;
     border-left: none;
     border-right: none;
