@@ -4,6 +4,21 @@
 
 ------
 
+## v11.8 (2026-09-16) — Market Monitor UX, Per-Duration Tuning, Recovery Semantics
+
+**The observe-only market-monitor cycle: navigation restructured (Home → Settings page, boot redirect to Market Monitor), per-duration indicator tuning profile, TF CRUD in Settings, recovery semantics completed (Ctrl+C = interrupted), watchlist parser tightened, trails polished (state-colored ghosts, depth 6 on alignment), workspace rows de-hyperlinked.**
+
+- **Navigation**: Home replaced by a dedicated **Settings page** (no engine navbar, no tab strip) hosting workspace + general settings; boot and Recover always land on **Market Monitor**; instances show the waving-dots loader until their first snapshot arrives.
+- **Settings**: TF CRUD (10 slots, presence = activation, min 1, default 8 fastest, persists `active_slots`); Identity and Automation Scheduler containers removed; Liquidation Heatmap relocated to its own container below Indicators.
+- **Per-duration indicator tuning profile**: `duration_profile.rs` — the definitive 10-column baseline matrix with explicit tier provenance per slot (rules R1–R6); `overlay()` layers profile values on the base config; registry boot + recharge consume it.
+- **Recovery semantics**: Ctrl+C / SIGINT / SIGTERM mark the session **interrupted** (not closed) — the next boot offers Recover / Discard. Only the in-app Quit finalizes.
+- **Watchlist**: space-separated symbols only (commas and `#` prefixes rejected); placeholder and helper text updated.
+- **Trails**: state-colored ghosts (bearish red / neutral amber / bullish green) at position-stepped alpha; hover behavior and tooltips removed; ring cap 7; Alignment shows 6 past; Overview detail rows compact.
+- **Workspace rows**: hyperlink underline removed (anchors remain for right-click deep links).
+- **Docs sweep**: 07-01/07-02/07-07, 08-01, 06-01, 01-04; corpus re-stamped to 11.8.
+
+------
+
 ## v11.7 (2026-09-16) — Observe-Only UI (Market Monitor Build)
 
 **The dashboard now presents the platform as a pure market monitor: the Launch Setup wizard offers ONLY the Observe mode, and the Backtesting engine is hidden from the observe-mode left panel. The backend keeps all three execution modes (API/CLI) so re-enabling trading later is a UI-only change.**

@@ -1,6 +1,6 @@
 # 🕯️ Candlestick Pattern Recognition
 
-**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction

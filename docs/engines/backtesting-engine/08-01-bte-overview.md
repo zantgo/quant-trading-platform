@@ -1,6 +1,6 @@
 # Backtesting Engine — Overview
 
-**Version:** 11.7 (2026-09-16)
+**Version:** 11.8 (2026-09-16)
 **Status:** Implemented (production-ready) — installer-style launcher, standalone multi-symbol runs, progress + cancel, CLI mode
 **Engine:** Backtesting Engine (BTE) — the sixth logical engine
 **Crate:** `crates/backtesting-engine`
