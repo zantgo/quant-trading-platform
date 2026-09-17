@@ -4,6 +4,20 @@
 
 ------
 
+## v11.6 (2026-09-16) — Crash Recovery & Interrupted-Session Restore
+
+**The platform now survives ANY ungraceful shutdown (power loss, OOM, SIGKILL, closed terminal): `./manage.sh run` always boots to a working dashboard, and when the previous session was not finalized the Welcome screen offers RECOVER (instances + settings resume) or DISCARD & START FRESH (instances/settings reset; telemetry history kept).**
+
+- **Crash-proof config**: `save_workspace` writes atomically (temp + rename) and refreshes a last-good `config.toml.bak`; `load_platform`/`load_workspace`/`load` recover from a corrupt/missing config.toml via `.bak` → `config.default.toml` (corrupt copy quarantined as `config.toml.corrupt-<ts>`). Boot can no longer die on config.
+- **Crash-proof DB**: `init_db` failure quarantines `telemetry.db(+wal/shm)` as `telemetry.db.corrupt-<ts>` and retries once from a fresh database (never exits on corruption).
+- **Non-fatal spawn**: a missing `EXCHANGE_SECRET_KEY` no longer panics — live instances spawn PAUSED on the simulation engine with a loud notice; instance auto-spawn runs as a BACKGROUND task after the clock monitor (dashboard always serves instantly, even offline); stale `.server.port` removed at boot.
+- **Interrupted-session detection**: boot marks leftover `sessions.status='active'` rows as `'interrupted'`; `GET /api/session/status` exposes `interrupted` + `interrupted_session {id, mode, exchange, currency, started_at_ms, instance_count}`.
+- **Recover / Discard endpoints**: `POST /api/session/recover` (activate with the persisted defaults; instances continue) and `POST /api/session/discard` (instances/settings wiped to defaults; DB kept; aborts the boot background-spawn via an epoch counter so a discarded instance can never resurrect).
+- **Welcome UI**: `LaunchSetup` renders an "Interrupted session detected" card (mode · exchange · currency · N instances) with Recover / Discard buttons wired to the endpoints.
+- **Docs sweep**: 06-01 (endpoints + status fields), 08-01 (crash-recovery workflow); corpus re-stamped to 11.6.
+
+------
+
 ## v11.5 (2026-09-16) — Badge History Trails (Last-5 State Rings)
 
 **Every layer badge — L1 Metrics (per instance×timeframe), L2 Alignment, L3 Analysis, L4 Opportunity, L5 Risk, L6 Recommendation, L7 Overview — now carries a literal last-5 state ring. The current badge stays untouched at the left; the 4 previous states render after it as progressively smaller/fainter "ghost text" (10px/62% → 9.5px/48% → 9px/36% → 8.5px/28% alpha floor) separated by dim chevrons, each with a hover tooltip (label + UTC time + age). Surfaces: all 7 layer headers, the Alignment per-timeframe status table rows, and the Overview per-instance table (decision rows + per-TF sub-rows).**

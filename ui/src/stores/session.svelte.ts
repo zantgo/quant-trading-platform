@@ -7,6 +7,16 @@ export class SessionStore {
     sessionInstanceCount = $state(0);
     /** v10: persisted session number (monotonic). */
     sessionId = $state<number | null>(null);
+    /// v11.6 crash recovery: the previous session was not finalized.
+    sessionInterrupted = $state(false);
+    interruptedSession = $state<{
+        id: number;
+        mode: string | null;
+        exchange: string | null;
+        currency: string | null;
+        started_at_ms: number;
+        instance_count: number;
+    } | null>(null);
     sessionLoading = $state(false);
     sessionChecked = $state(false);
     sessionError = $state<string | null>(null);
@@ -29,8 +39,32 @@ export class SessionStore {
                 }
                 this.sessionInstanceCount = data.instance_count || 0;
                 if (data.session_id != null) this.sessionId = data.session_id;
+                this.sessionInterrupted = data.interrupted === true;
+                this.interruptedSession = data.interrupted_session ?? null;
             }
         } catch (_) { /* backend may not be ready yet */ } finally { this.sessionChecked = true; }
+    }
+
+    /// v11.6 crash recovery — RECOVER the interrupted session.
+    async recoverInterrupted(): Promise<void> {
+        const res = await fetch('/api/session/recover', { method: 'POST' });
+        if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            throw new Error(txt || `recover failed (${res.status})`);
+        }
+        await this.fetchSessionStatus();
+        if (this.onSessionActivated) this.onSessionActivated();
+    }
+
+    /// v11.6 crash recovery — DISCARD the interrupted session.
+    async discardInterrupted(): Promise<void> {
+        const res = await fetch('/api/session/discard', { method: 'POST' });
+        if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            throw new Error(txt || `discard failed (${res.status})`);
+        }
+        this.sessionInterrupted = false;
+        this.interruptedSession = null;
     }
 
     async initSession(

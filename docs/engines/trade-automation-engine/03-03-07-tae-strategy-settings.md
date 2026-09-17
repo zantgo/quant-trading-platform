@@ -1,6 +1,6 @@
 # TAE Strategy Settings — Spec (v10)
 
-**Version:** 11.5 (2026-09-16) — v11: stop floor (l6_formula/atr_mult), max_tp_rr cap, ladder_roles. See docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.6 (2026-09-16) — v11: stop floor (l6_formula/atr_mult), max_tp_rr cap, ladder_roles. See docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Trade Automation Engine (TAE)
 

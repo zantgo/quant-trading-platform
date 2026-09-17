@@ -72,7 +72,47 @@ pub async fn verify_encryption_or_panic(pool: &SqlitePool) {
     }
 }
 
+/// v11.6 crash recovery: move a corrupt `telemetry.db` (+ `-wal`/`-shm`)
+/// aside as `telemetry.db.corrupt-<ts>.*` so the next init starts fresh.
+/// Data files are runtime telemetry — quarantined for forensics, never
+/// allowed to block boot.
+fn quarantine_corrupt_db() {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    for suffix in ["", "-wal", "-shm"] {
+        let src = format!("telemetry.db{suffix}");
+        if std::path::Path::new(&src).exists() {
+            let dst = format!("telemetry.db.corrupt-{ts}{suffix}");
+            match std::fs::rename(&src, &dst) {
+                Ok(_) => eprintln!(
+                    "[db] 🧨 corrupt database quarantined as {dst} — starting a fresh telemetry.db"
+                ),
+                Err(e) => eprintln!("[db] ⚠️  could not quarantine {src}: {e}"),
+            }
+        }
+    }
+}
+
 pub async fn init_db() -> Result<SqlitePool, String> {
+    // v11.6: first attempt; on failure, quarantine the corrupt files and
+    // retry ONCE from a fresh database before giving up.
+    match init_db_inner().await {
+        Ok(pool) => Ok(pool),
+        Err(first_err) => {
+            eprintln!(
+                "[db] ⚠️  database init failed ({first_err}) — quarantining and retrying fresh"
+            );
+            quarantine_corrupt_db();
+            init_db_inner().await.map_err(|second_err| {
+                format!("Database Setup: failed twice (fresh retry included): {second_err} (first error: {first_err})")
+            })
+        }
+    }
+}
+
+async fn init_db_inner() -> Result<SqlitePool, String> {
     let db_options = SqliteConnectOptions::new()
         .filename("telemetry.db")
         .create_if_missing(true)
@@ -80,7 +120,7 @@ pub async fn init_db() -> Result<SqlitePool, String> {
 
     let pool = SqlitePool::connect_with(db_options)
         .await
-        .map_err(|e| format!("Database Setup: Failed to initialize SQLite database pool: {e}"))?;
+        .map_err(|e| format!("Failed to initialize SQLite database pool: {e}"))?;
 
     if let Err(e) = sqlx::query("PRAGMA journal_mode = WAL;")
         .execute(&pool)
@@ -109,7 +149,7 @@ pub async fn init_db() -> Result<SqlitePool, String> {
 
     run_migrations(&pool)
         .await
-        .map_err(|e| format!("Database Setup: Failed to run schema migrations: {e}"))?;
+        .map_err(|e| format!("Failed to run schema migrations: {e}"))?;
 
     seed::seed_default_profiles(&pool).await;
 

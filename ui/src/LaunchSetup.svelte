@@ -7,6 +7,36 @@
 
     const app = useAppStore();
 
+    // v11.6 crash recovery — the daemon flagged a previous session that
+    // never finalized. The card offers Recover / Discard before the wizard.
+    let recovering = $state(false);
+    let discarding = $state(false);
+    let recoveryError = $state<string | null>(null);
+
+    async function recoverSession(): Promise<void> {
+        recovering = true;
+        recoveryError = null;
+        try {
+            await app.session.recoverInterrupted();
+        } catch (e) {
+            recoveryError = e instanceof Error ? e.message : String(e);
+        } finally {
+            recovering = false;
+        }
+    }
+
+    async function discardSession(): Promise<void> {
+        discarding = true;
+        recoveryError = null;
+        try {
+            await app.session.discardInterrupted();
+        } catch (e) {
+            recoveryError = e instanceof Error ? e.message : String(e);
+        } finally {
+            discarding = false;
+        }
+    }
+
     type LaunchMode = 'observe' | 'paper' | 'live';
 
     interface DraftInstance {
@@ -210,6 +240,35 @@
 
 <div class={styles.launchGate}>
     <div class={styles.launchCard}>
+        {#if app.session.sessionInterrupted && app.session.interruptedSession}
+            <div class={styles.recoveryCard} role="alertdialog" aria-label="Interrupted session detected">
+                <div class={styles.recoveryTitle}>⚠ Interrupted session detected</div>
+                <p class={styles.recoveryCopy}>
+                    The previous session was not shut down gracefully. You can recover it with its
+                    {app.session.interruptedSession.instance_count} instance{app.session.interruptedSession.instance_count === 1 ? '' : 's'}
+                    and settings, or discard it and start fresh.
+                </p>
+                <div class={styles.recoveryActions}>
+                    <button
+                        class={styles.recoveryRecover}
+                        disabled={recovering || discarding}
+                        onclick={recoverSession}
+                    >
+                        {recovering ? 'Recovering…' : 'Recover last session'}
+                    </button>
+                    <button
+                        class={styles.recoveryDiscard}
+                        disabled={recovering || discarding}
+                        onclick={discardSession}
+                    >
+                        {discarding ? 'Discarding…' : 'Discard & start fresh'}
+                    </button>
+                </div>
+                {#if recoveryError}
+                    <p class={styles.recoveryError}>{recoveryError}</p>
+                {/if}
+            </div>
+        {/if}
         <header class={styles.launchHeader}>
             <div class={styles.launchHeaderTop}>
                 <h1 class={styles.launchTitle}>Trading Platform</h1>

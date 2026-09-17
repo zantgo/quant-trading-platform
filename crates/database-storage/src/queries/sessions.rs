@@ -7,7 +7,7 @@
 
 use sqlx::SqlitePool;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SessionRow {
     pub id: i64,
     pub mode: String,
@@ -102,4 +102,58 @@ pub async fn list_sessions(pool: &SqlitePool) -> Result<Vec<SessionRow>, sqlx::E
             },
         )
         .collect())
+}
+
+/// v11.6 crash recovery: mark every leftover `'active'` session as
+/// `'interrupted'` (the daemon died without a graceful shutdown). Returns
+/// the newest interrupted row, if any — the Recovery card's payload.
+pub async fn interrupt_stale_sessions(
+    pool: &SqlitePool,
+    now_ms: i64,
+) -> Result<Option<SessionRow>, sqlx::Error> {
+    sqlx::query(
+        "UPDATE sessions SET status = 'interrupted', ended_at_ms = ?1 \
+         WHERE status = 'active'",
+    )
+    .bind(now_ms)
+    .execute(pool)
+    .await?;
+
+    let row: Option<SessionRow> = sqlx::query_as(
+        "SELECT id, mode, exchange, currency, portfolio_capital_usd, \
+                started_at_ms, ended_at_ms, status \
+         FROM sessions WHERE status = 'interrupted' ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+/// v11.6: mark an interrupted session as recovered by the operator.
+pub async fn mark_session_recovered(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE sessions SET status = 'recovered' WHERE id = ?1 AND status = 'interrupted'")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// v11.6: mark an interrupted session as discarded by the operator.
+pub async fn mark_session_discarded(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE sessions SET status = 'discarded' WHERE id = ?1 AND status = 'interrupted'")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// v11.6: newest interrupted row (Recovery card payload).
+pub async fn latest_interrupted_session(pool: &SqlitePool) -> Result<Option<SessionRow>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT id, mode, exchange, currency, portfolio_capital_usd, \
+                started_at_ms, ended_at_ms, status \
+         FROM sessions WHERE status = 'interrupted' ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
 }

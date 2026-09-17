@@ -825,6 +825,13 @@ async fn async_main() {
             std::process::exit(1);
         }
     }
+    // v11.6: a crash leaves a stale `.server.port` behind — remove it up
+    // front so `manage.sh status` never trusts a dead endpoint.
+    let _ = std::fs::remove_file(".server.port");
+    // v11.6: web-mode instances to spawn in the background (payload built
+    // by the auto-spawn block, task started after the clock monitor).
+    let mut boot_spawn_instances: Option<Vec<config_models::InstanceEntry>> = None;
+
     // v11.3 smart port: probe + fallback BEFORE AppState construction so
     // CORS origins match the port we actually bind. The winning listener
     // is held open and handed to the web server block below (no TOCTOU).
@@ -910,8 +917,11 @@ async fn async_main() {
             pool
         }
         Err(e) => {
+            // v11.6: init_db already quarantined + retried fresh once.
+            // Only a genuinely hostile environment (permissions/disk) can
+            // still land here — surface it and exit; manage.sh handles the rest.
             eprintln!("❌ Database Setup: {e}");
-            eprintln!("   Hint: check file permissions for ./telemetry.db and disk space, or remove a corrupted db and restart.");
+            eprintln!("   Hint: check file permissions for ./telemetry.db and disk space.");
             std::process::exit(1);
         }
     };
@@ -955,6 +965,27 @@ async fn async_main() {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
+    // v11.6 crash recovery: any leftover 'active' session row means the
+    // previous run died without a graceful shutdown — mark it 'interrupted'
+    // so the Welcome screen can offer Recover / Discard.
+    match database_storage::queries::sessions::interrupt_stale_sessions(
+        &db_pool,
+        session_started_ms,
+    )
+    .await
+    {
+        Ok(Some(row)) => {
+            println!(
+                "🧨 Previous session #{} was NOT shut down gracefully (started {} UTC) — recovery available on the Welcome screen",
+                row.id,
+                chrono::DateTime::from_timestamp(row.started_at_ms / 1000, 0)
+                    .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "?".into()),
+            );
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!("⚠️  Could not scan for interrupted sessions: {e}"),
+    }
     let config_snapshot = serde_json::to_string(&workspace).ok();
     let session_number = database_storage::queries::sessions::create_session(
         &db_pool,
@@ -968,6 +999,29 @@ async fn async_main() {
     .await
     .ok();
     let session_id_arc: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(session_number));
+    // v11.6: interrupted-session holder for the Recovery card. Instances
+    // from the persisted config are counted (they auto-spawn at boot).
+    let interrupted_session_info: Arc<RwLock<Option<api_gateway::InterruptedSessionInfo>>> =
+        Arc::new(RwLock::new(None));
+    // NOTE: the interrupt scan above ran BEFORE this point only when the DB
+    // pool existed — it does (init_db precedes), so re-query the newest
+    // interrupted row to populate the holder.
+    if let Ok(Some(row)) =
+        database_storage::queries::sessions::latest_interrupted_session(&db_pool).await
+    {
+        *interrupted_session_info.write().await = Some(api_gateway::InterruptedSessionInfo {
+            id: row.id,
+            mode: Some(row.mode.clone()),
+            exchange: row.exchange.clone(),
+            currency: row.currency.clone(),
+            started_at_ms: row.started_at_ms,
+            instance_count: workspace
+                .instances
+                .iter()
+                .filter(|i| i.status == config_models::InstanceStatus::Running)
+                .count(),
+        });
+    }
     println!(
         "🧪 Session identity: {}",
         session_number
@@ -1068,7 +1122,23 @@ async fn async_main() {
         .instances
         .iter()
         .any(|i| i.mode == config_models::ExecutionMode::Live);
-    if any_live_early {
+    // v11.6: crash recovery — a missing master key must never kill the boot.
+    // Live instances simply stay PAUSED on the simulation engine this run.
+    let mut live_boot_blocked = false;
+    if any_live_early && !database_storage::crypto::master_key_available() {
+        let keys: Option<(i64,)> = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM exchange_keys")
+            .fetch_one(&db_pool)
+            .await
+            .ok();
+        let keys_exist = keys.map(|(c,)| c > 0).unwrap_or(false);
+        if keys_exist {
+            live_boot_blocked = true;
+            eprintln!(
+                "⚠️  live instances detected but EXCHANGE_SECRET_KEY is not set — they will spawn PAUSED on the simulation engine (provide the key and re-enable live to dispatch real orders)."
+            );
+        }
+    }
+    if any_live_early && !live_boot_blocked {
         verify_encryption_or_panic(&db_pool).await;
     } else if !database_storage::crypto::master_key_available() {
         // Warn but do not block observe/paper boot — keys are inert.
@@ -1209,6 +1279,9 @@ async fn async_main() {
         snapshot_export: snapshot_export_runtime.clone(),
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
         session_id: session_id_arc.clone(),
+        boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        interrupted_session: interrupted_session_info.clone(),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
 
@@ -1377,67 +1450,10 @@ async fn async_main() {
                 }
             }
         } else {
-            for entry in &workspace.instances {
-                if entry.symbol.is_empty() {
-                    continue;
-                }
-                // M7 (production audit): honor the persisted lifecycle status —
-                // paused/stopped instances were force-started on every restart.
-                if entry.status != config_models::InstanceStatus::Running {
-                    eprintln!(
-                        "⏸️  Instance {} skipped at boot (status = {:?})",
-                        entry.symbol, entry.status
-                    );
-                    continue;
-                }
-                let (base, quote) = match entry.symbol.split_once('-') {
-                    Some((b, q)) => (b.to_string(), q.to_string()),
-                    None => {
-                        eprintln!("⚠️  Skipping malformed symbol: {}", entry.symbol);
-                        continue;
-                    }
-                };
-                // M7 (production audit): instance creation is gated on a live
-                // exchange symbol_exists REST call — an offline boot previously
-                // failed every instance with NO retry, leaving an empty
-                // deployment. Retry with backoff for up to ~10 minutes so a
-                // boot-time network blip self-heals.
-                let mut attempt = 0u32;
-                loop {
-                    match registry::add_instance(&ctx, (base.clone(), quote.clone())).await {
-                        Ok(_inst) => {
-                            println!("✅ Instance spawned: {}", entry.symbol);
-                            break;
-                        }
-                        Err(e) => {
-                            attempt += 1;
-                            if attempt >= 20 {
-                                eprintln!(
-                                    "⚠️  Failed to spawn instance {} after {} attempts: {} — retry on next restart",
-                                    entry.symbol, attempt, e
-                                );
-                                break;
-                            }
-                            eprintln!(
-                                "⚠️  Failed to spawn instance {} (attempt {}): {} — retrying in 30 s",
-                                entry.symbol, attempt, e
-                            );
-                            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                        }
-                    }
-                }
-            }
-        }
-
-        // v6.5 (AUDIT-V7-306): in web mode, mark session inactive AFTER
-        // auto-spawn so the Launch Setup wizard still appears on first page
-        // load but cold-start bootstrap is no longer skipped.
-        if matches!(cli.mode, LaunchMode::Web) {
-            app_state
-                .session
-                .active
-                .store(false, std::sync::atomic::Ordering::Relaxed);
-            println!("   (session marked inactive for Launch Setup wizard)");
+            // v11.6: the spawn runs as a BACKGROUND task AFTER the clock
+            // monitor is installed (see the boot-spawn block before the web
+            // server) so an unreachable exchange can never delay serving.
+            boot_spawn_instances = Some(workspace.instances.clone());
         }
     }
 
@@ -1481,10 +1497,14 @@ async fn async_main() {
     // swap the engine onto the venue broker (Hyperliquid or Bitget). Fills
     // then arrive from the venue (REST-polled in the executor loop) instead
     // of the simulation.
-    let any_live = workspace
-        .instances
-        .iter()
-        .any(|i| i.mode == config_models::ExecutionMode::Live);
+    let any_live = !live_boot_blocked
+        && workspace
+            .instances
+            .iter()
+            .any(|i| i.mode == config_models::ExecutionMode::Live);
+    // v11.6: failures inside this block degrade to the simulation engine
+    // (instances stay PAUSED) instead of killing the daemon.
+    'live_boot: {
     if any_live {
         let live_quote = workspace
             .instances
@@ -1507,7 +1527,7 @@ async fn async_main() {
                     Ok(row) => row,
                     Err(e) => {
                         eprintln!("❌ Live-mode key query failed: {e}");
-                        std::process::exit(1);
+                        break 'live_boot;
                     }
                 };
                 match key_row {
@@ -1517,7 +1537,7 @@ async fn async_main() {
                             "❌ mode = \"live\" requires an active Hyperliquid API key \
                              (POST /api/keys with EXCHANGE_SECRET_KEY set)"
                         );
-                        std::process::exit(1);
+                        break 'live_boot;
                     }
                 }
             }
@@ -1532,7 +1552,7 @@ async fn async_main() {
                     Ok(row) => row,
                     Err(e) => {
                         eprintln!("❌ Live-mode key query failed: {e}");
-                        std::process::exit(1);
+                        break 'live_boot;
                     }
                 };
                 match key_row {
@@ -1542,7 +1562,7 @@ async fn async_main() {
                                 "❌ mode = \"live\" (Bitget) requires a passphrase — \
                                      re-add the key with a passphrase"
                             );
-                            std::process::exit(1);
+                            break 'live_boot;
                         }
                         (key, secret, Some(pass))
                     }
@@ -1551,7 +1571,7 @@ async fn async_main() {
                             "❌ mode = \"live\" requires an active Bitget API key \
                              (POST /api/keys with EXCHANGE_SECRET_KEY set)"
                         );
-                        std::process::exit(1);
+                        break 'live_boot;
                     }
                 }
             }
@@ -1560,7 +1580,7 @@ async fn async_main() {
                     "❌ mode = \"live\" is not supported for exchange '{}' (Hyperliquid and Bitget only)",
                     other
                 );
-                std::process::exit(1);
+                break 'live_boot;
             }
         };
 
@@ -1568,7 +1588,7 @@ async fn async_main() {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("❌ Failed to decrypt the live API secret (is EXCHANGE_SECRET_KEY correct?): {e}");
-                std::process::exit(1);
+                break 'live_boot;
             }
         };
 
@@ -1601,6 +1621,7 @@ async fn async_main() {
             workspace.default_exchange
         );
     }
+    } // 'live_boot
 
     // ── Clock-drift monitor (NTP-based) — must run BEFORE build_router
     //    so the Arc is stored in AppState before the router clones it.
@@ -1634,6 +1655,108 @@ async fn async_main() {
         }
     } else {
         println!("🕒 Clock Monitor: no [clock_monitor] section — drift enforcement disabled");
+    }
+
+    // ── v11.6: background instance auto-spawn (web mode) ────────────
+    // Spawned AFTER the clock monitor (which consumes the last
+    // `Arc::get_mut` on AppState) and BEFORE the dashboard is served, so
+    // an unreachable exchange can never delay or block the UI. Retries
+    // are bounded; a Discard aborts the whole run via the epoch counter.
+    if let Some(bg_instances) = boot_spawn_instances.take() {
+        let bg_ctx = app_state.registry_context();
+        let bg_app = app_state.clone();
+        let bg_session = app_state.session.clone();
+        let bg_epoch = app_state.boot_spawn_epoch.clone();
+        let bg_session_recovered = app_state.boot_session_recovered.clone();
+        let my_epoch = bg_epoch.load(std::sync::atomic::Ordering::Relaxed);
+        tokio::spawn(async move {
+            for entry in &bg_instances {
+                if bg_epoch.load(std::sync::atomic::Ordering::Relaxed) != my_epoch {
+                    eprintln!("🛑 Boot spawn aborted (session discarded)");
+                    return;
+                }
+                if entry.status != config_models::InstanceStatus::Running {
+                    eprintln!(
+                        "⏸️  Instance {} skipped at boot (status = {:?})",
+                        entry.symbol, entry.status
+                    );
+                    continue;
+                }
+                let (base, quote) = match entry.symbol.split_once('-') {
+                    Some((b, q)) => (b.to_string(), q.to_string()),
+                    None => {
+                        eprintln!("⚠️  Skipping malformed symbol: {}", entry.symbol);
+                        continue;
+                    }
+                };
+                // M7 (production audit): instance creation is gated on a
+                // live exchange symbol_exists REST call — retry with
+                // backoff for up to ~10 minutes so a boot-time network
+                // blip self-heals (without blocking the dashboard).
+                let mut attempt = 0u32;
+                loop {
+                    if bg_epoch.load(std::sync::atomic::Ordering::Relaxed) != my_epoch {
+                        eprintln!("🛑 Boot spawn aborted (session discarded)");
+                        return;
+                    }
+                    match registry::add_instance(&bg_ctx, (base.clone(), quote.clone())).await {
+                        Ok(_inst) => {
+                            // The spawn can take seconds (bootstrap REST) —
+                            // if the operator discarded while it was in
+                            // flight, undo it instead of resurrecting the
+                            // discarded instance.
+                            if bg_epoch.load(std::sync::atomic::Ordering::Relaxed) != my_epoch {
+                                eprintln!(
+                                    "🛑 Instance {} spawned after discard — removing it",
+                                    entry.symbol
+                                );
+                                let pair_key = format!("{base}-{quote}");
+                                if let Some(inst) = bg_app.workspace.get(&pair_key).await {
+                                    inst.cancel.cancel();
+                                }
+                                bg_app.workspace.remove(&pair_key).await;
+                                let mut ws = bg_app.workspace.config().await;
+                                ws.instances.clear();
+                                bg_app.workspace.set_config(ws.clone()).await;
+                                let _ = config_models::save_workspace(&ws);
+                                return;
+                            }
+                            println!("✅ Instance spawned: {}", entry.symbol);
+                            break;
+                        }
+                        Err(e) => {
+                            attempt += 1;
+                            if attempt >= 20 {
+                                eprintln!(
+                                    "⚠️  Failed to spawn instance {} after {} attempts: {} — retry on next restart",
+                                    entry.symbol, attempt, e
+                                );
+                                break;
+                            }
+                            eprintln!(
+                                "⚠️  Failed to spawn instance {} (attempt {}): {} — retrying in 30 s",
+                                entry.symbol, attempt, e
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        }
+                    }
+                }
+            }
+
+            // v6.5 (AUDIT-V7-306): in web mode, mark session inactive AFTER
+            // auto-spawn so the Launch Setup wizard still appears on first
+            // page load but cold-start bootstrap is no longer skipped.
+            // v11.6: never stomp a Recover — recovery keeps the session
+            // active with the instances running.
+            if !bg_session_recovered.load(std::sync::atomic::Ordering::Relaxed) {
+                bg_session
+                    .active
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                println!("   (session marked inactive for Launch Setup wizard)");
+            } else {
+                println!("   (session RECOVERED — staying active with the restored instances)");
+            }
+        });
     }
 
     let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();

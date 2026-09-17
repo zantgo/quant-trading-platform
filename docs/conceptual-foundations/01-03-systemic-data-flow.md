@@ -1,6 +1,6 @@
 # Systemic Data Flow Specification
 
-**Version:** 11.5 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved  
 **Purpose:** This document details the chronological, systemic data flows across the five core engines of the Trading Platform. It specifies the step-by-step path of telemetry as it transforms from raw exchange events into structured market intelligence, automated order routing, active portfolio tracking, and post-trade performance analytics.
 

@@ -53,6 +53,18 @@ pub struct RechargeNotice {
     pub pair_key: String,
 }
 
+/// v11.6 crash recovery: what the Welcome card needs to describe (and
+/// recover) the previous non-finalized session.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InterruptedSessionInfo {
+    pub id: i64,
+    pub mode: Option<String>,
+    pub exchange: Option<String>,
+    pub currency: Option<String>,
+    pub started_at_ms: i64,
+    pub instance_count: usize,
+}
+
 pub struct AppState {
     /// The single workspace state (workspace config + live `Arc<Instance>`
     /// map). The binary supports one workspace per deployment; the field is
@@ -106,6 +118,17 @@ pub struct AppState {
     /// The current session id (monotonic, persisted). `None` before the
     /// session is created at boot.
     pub session_id: Arc<RwLock<Option<i64>>>,
+    /// v11.6: bumped when the operator DISCARDS an interrupted session —
+    /// the boot background-spawn task aborts when it observes a change,
+    /// so a discarded instance can never be re-added by a stale retry.
+    pub boot_spawn_epoch: Arc<std::sync::atomic::AtomicU64>,
+    /// v11.6: set when the operator RECOVERS an interrupted session — the
+    /// boot spawn task must then skip its final session-inactive flip
+    /// (recovery keeps the session active; spawning continues).
+    pub boot_session_recovered: Arc<std::sync::atomic::AtomicBool>,
+    /// v11.6 crash recovery: the interrupted session detected at boot
+    /// (leftover `'active'` row). `None` = previous run finalized cleanly.
+    pub interrupted_session: Arc<RwLock<Option<InterruptedSessionInfo>>>,
 
     // ── Backtesting Engine (BTE, v8) ───────────────────────────────
     /// Single-run lock + live backfill progress registry. The BTE runs one
@@ -262,6 +285,118 @@ impl AppState {
         println!("✅ Session terminated. All instances stopped.");
         Ok(())
     }
+
+    /// v11.6 crash recovery — RECOVER: activate the session with the
+    /// interrupted session's persisted defaults. The instances were
+    /// already re-spawned at boot (paper/live boot PAUSED per v10.1), so
+    /// recovery is purely session-state + marker bookkeeping.
+    pub async fn recover_interrupted_session(&self) -> Result<(), String> {
+        let info = self.interrupted_session.read().await.clone();
+        let Some(info) = info else {
+            return Err("no interrupted session to recover".into());
+        };
+        let exchange = info
+            .exchange
+            .as_deref()
+            .and_then(|e| {
+                if e.eq_ignore_ascii_case("bitget") {
+                    Some(portfolio_supervisor::session::ExchangeChoice::Bitget)
+                } else {
+                    Some(portfolio_supervisor::session::ExchangeChoice::Hyperliquid)
+                }
+            })
+            .ok_or("interrupted session has no exchange recorded")?;
+        let currency = info
+            .currency
+            .as_deref()
+            .and_then(|c| {
+                if c.eq_ignore_ascii_case("usdt") {
+                    Some(portfolio_supervisor::session::Currency::USDT)
+                } else {
+                    Some(portfolio_supervisor::session::Currency::USDC)
+                }
+            })
+            .ok_or("interrupted session has no currency recorded")?;
+        let mode = info.mode.clone().unwrap_or_else(|| "observe".into());
+        let capital = if mode == "paper" {
+            Some(self.workspace.config().await.portfolio_capital_usd)
+        } else {
+            None
+        };
+
+        // Activate with the persisted defaults (same state POST /session/init sets).
+        *self.session.exchange.write().await = Some(exchange);
+        *self.session.base_currency.write().await = Some(currency);
+        self.session.set_session_defaults(Some(mode.clone()), capital).await;
+        self.session
+            .active
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        // The boot spawn task must not flip the session inactive —
+        // recovery keeps it active with the instances running.
+        self.boot_session_recovered
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        database_storage::queries::sessions::mark_session_recovered(&self.pool, info.id)
+            .await
+            .map_err(|e| format!("could not mark session recovered: {e}"))?;
+        *self.interrupted_session.write().await = None;
+        println!(
+            "🔄 Session recovered: {} on {} ({} instance(s)) — mode {}",
+            currency.as_str(),
+            exchange.as_str(),
+            info.instance_count,
+            mode
+        );
+        Ok(())
+    }
+
+    /// v11.6 crash recovery — DISCARD: wipe instances/settings back to the
+    /// default config (same persistence path as the Quit flow) and mark the
+    /// interrupted session discarded. Telemetry history is kept.
+    pub async fn discard_interrupted_session(&self) -> Result<(), String> {
+        // v11.6: abort the boot background-spawn task BEFORE tearing down —
+        // otherwise its in-flight retries would re-add the discarded instances.
+        self.boot_spawn_epoch
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let info = self.interrupted_session.read().await.clone();
+        // Same teardown as quit_session — minus closing the session row
+        // (it stays inactive so the wizard runs).
+        let live_pair_keys: Vec<String> = {
+            self.workspace
+                .list()
+                .await
+                .iter()
+                .map(|i| i.pair_key())
+                .collect()
+        };
+        for pair_key in &live_pair_keys {
+            if let Some(instance) = self.workspace.get(pair_key).await {
+                instance.cancel.cancel();
+            }
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+        for pair_key in &live_pair_keys {
+            self.workspace.remove(pair_key).await;
+        }
+        let mut ws = self.workspace.config().await;
+        ws.instances.clear();
+        self.workspace.set_config(ws.clone()).await;
+        if let Err(e) = config_models::save_workspace(&ws) {
+            eprintln!("⚠️  Failed to persist discarded workspace: {}", e);
+        }
+
+        if let Some(info) = &info {
+            database_storage::queries::sessions::mark_session_discarded(&self.pool, info.id)
+                .await
+                .map_err(|e| format!("could not mark session discarded: {e}"))?;
+        }
+        *self.interrupted_session.write().await = None;
+        println!(
+            "🗑️  Interrupted session discarded — {} instance(s) removed; settings back to defaults",
+            live_pair_keys.len()
+        );
+        Ok(())
+    }
 }
 
 // ── Stratified state types for Axum FromRef ──────────────────────
@@ -298,6 +433,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/session/status",
             get(handlers::session::serve_session_status),
+        )
+        .route(
+            "/api/session/recover",
+            post(handlers::session::serve_session_recover),
+        )
+        .route(
+            "/api/session/discard",
+            post(handlers::session::serve_session_discard),
         )
         .route("/api/sessions", get(handlers::session::serve_sessions_list))
         .route(

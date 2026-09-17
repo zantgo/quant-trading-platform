@@ -15,6 +15,8 @@ pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl In
     let capital = state.session.session_capital().await;
     // v10: the persisted session number.
     let session_id = *state.session_id.read().await;
+    // v11.6 crash recovery: the interrupted session detected at boot.
+    let interrupted_info = state.interrupted_session.read().await.clone();
 
     Json(SessionStatusResponse {
         active,
@@ -24,7 +26,50 @@ pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl In
         mode,
         capital,
         session_id,
+        interrupted: interrupted_info.is_some(),
+        interrupted_session: interrupted_info.map(|i| crate::types::InterruptedSessionInfoWire {
+            id: i.id,
+            mode: i.mode,
+            exchange: i.exchange,
+            currency: i.currency,
+            started_at_ms: i.started_at_ms,
+            instance_count: i.instance_count,
+        }),
     })
+}
+
+/// v11.6 crash recovery — RECOVER the interrupted session (activate with
+/// the persisted defaults; instances already respawned at boot).
+pub async fn serve_session_recover(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.recover_interrupted_session().await {
+        Ok(()) => Json(serde_json::json!({
+            "success": true,
+            "message": "Session recovered — instances resumed (paper/live boot PAUSED).",
+        }))
+        .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "success": false, "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+/// v11.6 crash recovery — DISCARD the interrupted session (instances and
+/// settings wiped to defaults; telemetry history kept).
+pub async fn serve_session_discard(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.discard_interrupted_session().await {
+        Ok(()) => Json(serde_json::json!({
+            "success": true,
+            "message": "Interrupted session discarded — fresh start.",
+        }))
+        .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "success": false, "error": e })),
+        )
+            .into_response(),
+    }
 }
 
 /// v10: list persisted sessions (newest first).

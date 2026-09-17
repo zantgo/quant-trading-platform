@@ -1002,6 +1002,23 @@ pub struct SessionStatusResponse {
     /// v10: the persisted session number (monotonic, never reused).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<i64>,
+    /// v11.6 crash recovery: the previous session was not shut down
+    /// gracefully — the Welcome screen offers Recover / Discard.
+    #[serde(default)]
+    pub interrupted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted_session: Option<crate::types::InterruptedSessionInfoWire>,
+}
+
+/// v11.6: wire shape of the interrupted-session summary (Welcome card).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InterruptedSessionInfoWire {
+    pub id: i64,
+    pub mode: Option<String>,
+    pub exchange: Option<String>,
+    pub currency: Option<String>,
+    pub started_at_ms: i64,
+    pub instance_count: usize,
 }
 
 /// v10: one persisted session row (list + history).

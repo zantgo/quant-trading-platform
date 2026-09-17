@@ -1,6 +1,6 @@
 # PAE Layer 5 — Backtest (moved to the Backtesting Engine)
 
-**Version:** 11.5 (2026-09-16) — delivered with the v7 PAE release.
+**Version:** 11.6 (2026-09-16) — delivered with the v7 PAE release.
 **Status:** MOVED — as of v8 the backtest layer lives in the **Backtesting
 Engine** (`crates/backtesting-engine/src/recorded.rs` +
 `historical.rs`; see

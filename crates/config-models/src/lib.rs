@@ -714,34 +714,130 @@ fn assert_no_legacy_files() -> Result<()> {
     Ok(())
 }
 
-/// Load the platform config from `config.toml`.
-pub fn load_platform() -> Result<PlatformConfig> {
-    assert_no_legacy_files()?;
+/// Read + parse the config file, with v11.6 crash recovery: on a read or
+/// parse failure, try `config.toml.bak` (last-good), then
+/// `config.default.toml` (factory template — the previous corrupt copy is
+/// quarantined as `config.toml.corrupt-<ts>`). Returns the raw text plus
+/// a description of which source was used, so callers can log loudly.
+fn read_config_raw() -> Result<(String, &'static str)> {
+    let path = config_path();
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => match toml::from_str::<OnDiskConfig>(&raw) {
+            Ok(_) => Ok((raw, "config.toml")),
+            Err(parse_err) => {
+                eprintln!(
+                    "[config] ⚠️  config.toml failed to parse ({parse_err}) — attempting crash recovery"
+                );
+                recover_corrupt_config(&path, &raw)?;
+                let (raw2, src2) = read_recovered()?;
+                Ok((raw2, src2))
+            }
+        },
+        Err(e) => {
+            // Missing file → the template fallback path also applies (a
+            // crash can leave the file absent after a failed rename cycle).
+            eprintln!(
+                "[config] ⚠️  could not read {} ({e}) — attempting crash recovery",
+                path.display()
+            );
+            recover_corrupt_config(&path, "")?;
+            let (raw2, src2) = read_recovered()?;
+            Ok((raw2, src2))
+        }
+    }
+}
+
+/// Copy the corrupt file aside and restore from `.bak`, then the factory
+/// template. Fatal (ConfigError) only if BOTH recovery sources are absent.
+fn recover_corrupt_config(path: &Path, corrupt_raw: &str) -> Result<()> {
+    if !corrupt_raw.is_empty() {
+        let quarantine = path.with_extension(format!(
+            "toml.corrupt-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        ));
+        if std::fs::write(&quarantine, corrupt_raw).is_ok() {
+            eprintln!("[config] corrupt copy quarantined as {}", quarantine.display());
+        }
+    }
+    let bak = path.with_extension("toml.bak");
+    if bak.exists() {
+        eprintln!("[config] 🔧 restoring last-good backup {}", bak.display());
+        std::fs::copy(&bak, path).map_err(|e| ConfigError::Io {
+            path: bak.clone(),
+            source: e,
+        })?;
+        return Ok(());
+    }
+    // Template lookup: next to the config file first (per-folder
+    // deployments), then the process CWD (the common repo-root case).
+    let mut template = path
+        .parent()
+        .map(|d| d.join("config.default.toml"))
+        .filter(|t| t.exists());
+    if template.is_none() {
+        let cwd = PathBuf::from("config.default.toml");
+        if cwd.exists() {
+            template = Some(cwd);
+        }
+    }
+    if let Some(template) = template {
+        eprintln!(
+            "[config] 🔧 no backup found — restoring factory template {}",
+            template.display()
+        );
+        std::fs::copy(&template, path).map_err(|e| ConfigError::Io {
+            path: template.clone(),
+            source: e,
+        })?;
+        return Ok(());
+    }
+    Err(ConfigError::Io {
+        path: path.to_path_buf(),
+        source: std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "config.toml is corrupt and neither config.toml.bak nor config.default.toml exists",
+        ),
+    })
+}
+
+fn read_recovered() -> Result<(String, &'static str)> {
     let path = config_path();
     let raw = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io {
         path: path.clone(),
         source: e,
     })?;
-    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e| ConfigError::Parse {
-        path: path.clone(),
-        source: e,
+    // Final parse check — if even the recovered source fails to parse we
+    // surface the error (boot fails honestly rather than silently lying).
+    if let Err(e) = toml::from_str::<OnDiskConfig>(&raw) {
+        return Err(ConfigError::Parse {
+            path: path.clone(),
+            source: e,
+        });
+    }
+    Ok((raw, "recovered"))
+}
+
+/// Load the platform config from `config.toml` (crash-resilient, v11.6).
+pub fn load_platform() -> Result<PlatformConfig> {
+    assert_no_legacy_files()?;
+    let (raw, _src) = read_config_raw()?;
+    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e: toml::de::Error| {
+        ConfigError::Parse { path: config_path(), source: e }
     })?;
     let (platform, _workspace) = on_disk.split();
     validate_platform(&platform)?;
     Ok(platform)
 }
 
-/// Load the workspace config from `config.toml` (the `[workspace]` table).
+/// Load the workspace config from `config.toml` (crash-resilient, v11.6).
 pub fn load_workspace() -> Result<WorkspaceConfig> {
     assert_no_legacy_files()?;
-    let path = config_path();
-    let raw = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io {
-        path: path.clone(),
-        source: e,
-    })?;
-    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e| ConfigError::Parse {
-        path: path.clone(),
-        source: e,
+    let (raw, _src) = read_config_raw()?;
+    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e: toml::de::Error| {
+        ConfigError::Parse { path: config_path(), source: e }
     })?;
     validate_workspace(&on_disk.workspace)?;
     let mut ws = on_disk.workspace;
@@ -750,16 +846,12 @@ pub fn load_workspace() -> Result<WorkspaceConfig> {
 }
 
 /// Load both at once (the common case).
+/// Load both at once (crash-resilient, v11.6).
 pub fn load() -> Result<(PlatformConfig, WorkspaceConfig)> {
     assert_no_legacy_files()?;
-    let path = config_path();
-    let raw = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io {
-        path: path.clone(),
-        source: e,
-    })?;
-    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e| ConfigError::Parse {
-        path: path.clone(),
-        source: e,
+    let (raw, _src) = read_config_raw()?;
+    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e: toml::de::Error| {
+        ConfigError::Parse { path: config_path(), source: e }
     })?;
     validate_workspace(&on_disk.workspace)?;
     Ok(on_disk.split())
@@ -1223,10 +1315,28 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
         workspace: workspace.clone(),
     };
     let serialized = toml::to_string_pretty(&new_raw)?;
-    std::fs::write(&path, serialized).map_err(|e| ConfigError::Io {
-        path: path.clone(),
+
+    // v11.6 crash-safe write: (1) refresh the last-good backup of the
+    // CURRENT (known-parseable) file, (2) write to a sibling temp file,
+    // (3) atomically rename over the target. A kill/power-loss at any
+    // point can no longer truncate `config.toml` — the worst case is a
+    // leftover `.tmp` (harmless) and a `.bak` one revision behind.
+    let bak = path.with_extension("toml.bak");
+    if std::fs::copy(&path, &bak).is_err() {
+        eprintln!("[config] warning: could not refresh {} (continuing)", bak.display());
+    }
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, &serialized).map_err(|e| ConfigError::Io {
+        path: tmp.clone(),
         source: e,
     })?;
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(ConfigError::Io {
+            path: path.clone(),
+            source: e,
+        });
+    }
     Ok(())
 }
 
@@ -1367,6 +1477,42 @@ indicators = { rsi_period = 14 }
         assert_eq!(ws.tf_ladder_defaults(), FIXED_TF_LADDER);
         assert_eq!(FIXED_TF_LADDER, [1, 3, 5, 15, 30, 60, 180, 300, 900, 3600]);
         assert_eq!(FIXED_TF_NAMES.len(), FIXED_TF_LADDER.len());
+    }
+
+    #[test]
+    fn corrupt_config_recovers_from_bak_then_template() {
+        // v11.6: the loader's crash-recovery chain — corrupt config.toml →
+        // .bak restore → factory template restore, corrupt copy quarantined.
+        let dir = std::env::temp_dir().join(format!(
+            "qtp_cfg_recovery_{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = dir.join("config.toml");
+        let bak = dir.join("config.toml.bak");
+        let template = dir.join("config.default.toml");
+        std::env::set_var("MARKET_MONITOR_CONFIG", &cfg);
+
+        // (1) corrupt file + valid .bak → recovered from the .bak.
+        std::fs::write(&cfg, "not [valid toml").unwrap();
+        let template_src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config.default.toml")).unwrap();
+        std::fs::write(&bak, &template_src).unwrap();
+        let ws = load_workspace().unwrap();
+        assert_eq!(ws.active_timeframes, DEFAULT_ACTIVE_TIMEFRAMES);
+        assert!(cfg.exists());
+
+        // (2) corrupt file + no .bak + template present → factory restore.
+        std::fs::remove_file(&bak).unwrap();
+        std::fs::write(&cfg, "\u{0}garbage").unwrap();
+        std::fs::write(&template, &template_src).unwrap();
+        let ws = load_workspace().unwrap();
+        assert_eq!(ws.active_timeframes, DEFAULT_ACTIVE_TIMEFRAMES);
+
+        // cleanup
+        std::env::remove_var("MARKET_MONITOR_CONFIG");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file("config.toml");
+        let _ = std::fs::remove_file("config.toml.corrupt-0");
     }
 
     #[test]

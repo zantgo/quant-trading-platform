@@ -286,6 +286,9 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
         snapshot_export: snapshot_export_runtime.clone(),
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
         session_id: Arc::new(tokio::sync::RwLock::new(None)),
+interrupted_session: Arc::new(RwLock::new(None)),
+boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })

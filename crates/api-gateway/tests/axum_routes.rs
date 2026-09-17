@@ -57,6 +57,9 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
         session_id: Arc::new(tokio::sync::RwLock::new(None)),
+interrupted_session: Arc::new(RwLock::new(None)),
+boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
@@ -280,6 +283,9 @@ async fn test_websocket_stream_with_active_pair() {
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
         session_id: Arc::new(tokio::sync::RwLock::new(None)),
+interrupted_session: Arc::new(RwLock::new(None)),
+boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });

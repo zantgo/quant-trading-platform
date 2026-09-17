@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 11.5 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.6 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -53,6 +53,12 @@ The project ships a convenience wrapper (`./manage.sh`):
 | `./manage.sh test-ui` | Svelte 5 runes / components | Run only TEST-UI (<10 s). |
 
 Headless cloud operation is supported by running the same binary without `--web` and applying a pre-validated `config.toml` (see [Global Architecture §4](../conceptual-foundations/01-02-global-architecture.md)).
+
+**Crash recovery (v11.6).** The platform is resilient to ANY ungraceful shutdown — power loss, OOM, SIGKILL, a closed terminal. `./manage.sh run` after a crash always boots to a working dashboard:
+
+- A corrupt `config.toml` self-heals (last-good `config.toml.bak`, then the factory template; the corrupt copy is quarantined as `config.toml.corrupt-<ts>`). A corrupt `telemetry.db` is quarantined as `telemetry.db.corrupt-<ts>` and a fresh database is created. Neither can block boot.
+- When the previous session did not finalize (Quit/stop never ran), the **Welcome screen shows "Interrupted session detected"** with two choices: **Recover last session** (instances and settings resume; paper/live instances boot with the lifecycle PAUSED — re-arm deliberately) or **Discard & start fresh** (instances/settings wiped to defaults; telemetry history kept).
+- Instance respawn runs in the background: the dashboard serves instantly even if an exchange is unreachable; live instances without their master key spawn with the lifecycle PAUSED until re-armed instead of failing the boot.
 
 **Running two sessions side by side (v11.3).** The supported workflow is **one folder per session**: each folder carries its own `config.toml`, `telemetry.db`, `./ds/`, and UI build, and runs its own daemon. With the v11.3 **smart port** you no longer need to hand-assign ports — when the resolved port (`--port` → `PLATFORM_PORT` → `[server].port` → 3000) is already in use, the daemon probes the next ports (`[server] auto_fallback = true`, up to `port_fallback_range = 20`), serves the first free one, and prints both (`🌐 Dashboard live at http://127.0.0.1:3001 (requested 3000 was in use)`). The resolved endpoint is published to `.server.port` in the folder (read by `./manage.sh status`; removed on graceful shutdown). Copy the folder, run both binaries, and open each dashboard on its printed port. **Do not run two daemons in the same folder** — they would share one SQLite file and the per-process backtest/backfill locks are not cross-process.
 

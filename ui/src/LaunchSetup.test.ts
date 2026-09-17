@@ -27,6 +27,8 @@ beforeEach(() => {
     app.session.sessionExchange = 'Hyperliquid';
     app.session.sessionMode = 'observe';
     app.session.sessionActive = false;
+    app.session.sessionInterrupted = false;
+    app.session.interruptedSession = null;
     for (const key of Object.keys(app.instancesMap)) delete app.instancesMap[key];
 });
 
@@ -337,5 +339,86 @@ describe('Launch Setup — launch orchestration', () => {
         await waitFor(() =>
             expect(container.textContent).toContain('Live session requires an active Hyperliquid API key'),
         );
+    });
+});
+
+// ── v11.6 crash recovery — interrupted-session card ───────────────────
+describe('LaunchSetup — interrupted-session recovery card', () => {
+    function seedInterrupted() {
+        const app = useAppStore();
+        app.session.sessionInterrupted = true;
+        app.session.interruptedSession = {
+            id: 9,
+            mode: 'paper',
+            exchange: 'Hyperliquid',
+            currency: 'USDC',
+            started_at_ms: Date.now() - 120_000,
+            instance_count: 2,
+        };
+        return app;
+    }
+
+    it('renders the recovery card when the previous session was interrupted', async () => {
+        seedInterrupted();
+        const { container } = await render(LaunchSetup);
+        expect(container.textContent).toContain('Interrupted session detected');
+        expect(container.textContent).toContain('Recover last session');
+        expect(container.textContent).toContain('Discard & start fresh');
+        expect(container.textContent).toContain('2 instances');
+    });
+
+    it('does not render the card when the previous session finalized', async () => {
+        const app = useAppStore();
+        app.session.sessionInterrupted = false;
+        app.session.interruptedSession = null;
+        const { container } = await render(LaunchSetup);
+        expect(container.textContent).not.toContain('Interrupted session detected');
+    });
+
+    it('Recover calls the endpoint, refreshes status and leaves the wizard', async () => {
+        const app = seedInterrupted();
+        const fetchMock = vi.fn(async (url: string) => {
+            if (url === '/api/session/recover') {
+                return { ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response;
+            }
+            if (url === '/api/session/status') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        active: true, currency: 'USDC', exchange: 'Hyperliquid',
+                        instance_count: 2, mode: 'paper', interrupted: false,
+                    }),
+                } as unknown as Response;
+            }
+            return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        const btn = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('Recover last session'))!;
+        await fireEvent.click(btn);
+        await waitFor(() => expect(app.session.sessionActive).toBe(true));
+        const recoverCall = fetchMock.mock.calls.filter(([u]) => String(u) === '/api/session/recover');
+        expect(recoverCall.length).toBe(1);
+        vi.unstubAllGlobals();
+    });
+
+    it('Discard calls the endpoint and clears the interrupted state', async () => {
+        const app = seedInterrupted();
+        let discardCalls = 0;
+        const fetchMock = vi.fn(async (url: string) => {
+            if (url === '/api/session/discard') {
+                discardCalls += 1;
+                return { ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response;
+            }
+            return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        const btn = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('Discard & start fresh'))!;
+        await fireEvent.click(btn);
+        await waitFor(() => expect(discardCalls).toBe(1));
+        expect(app.session.sessionInterrupted).toBe(false);
+        vi.unstubAllGlobals();
     });
 });

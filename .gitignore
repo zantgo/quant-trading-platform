@@ -38,6 +38,11 @@ bun-debug.log*
 # The platform's single source of configuration truth is `config.toml`.
 # Only `config.default.toml` is the template (tracked); runtime `config.toml` is local-only.
 config.toml
+# v11.6 crash recovery: last-good backup + atomic-write temp + corrupt quarantine
+config.toml.bak
+config.toml.tmp
+config.toml.corrupt-*
+
 
 # ==============================================================================
 # 🗄️ Local Databases & Data Directories
