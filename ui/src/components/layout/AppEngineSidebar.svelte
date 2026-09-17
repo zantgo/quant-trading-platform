@@ -23,7 +23,7 @@
         { key: 'trade_automation',  label: 'Trade Automation' },
         { key: 'portfolio',         label: 'Portfolio Management' },
         { key: 'performance',       label: 'Performance Analytics' },
-        { key: 'profile', label: 'Home', divider: true },
+        { key: 'profile', label: 'Settings', divider: true },
     ];
 
     // v8/v11.7: mode-aware engine visibility. Observe is the

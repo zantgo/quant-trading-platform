@@ -38,7 +38,7 @@ describe('AppEngineSidebar — observe-only visibility (v11.7)', () => {
         await tick();
         expect(screen.getByText('Data Infrastructure')).toBeTruthy();
         expect(screen.getByText('Market Monitor')).toBeTruthy();
-        expect(screen.getByText('Home')).toBeTruthy();
+        expect(screen.getByText('Settings')).toBeTruthy();
         expect(screen.queryByText('Backtesting')).toBeNull();
         expect(screen.queryByText(/WIP/)).toBeNull();
     });

@@ -11,6 +11,10 @@
 
     const app = useAppStore();
 
+    // v11.8: optional section override — the dedicated Settings page hosts
+    // this component without an engine navbar, so it pins the section.
+    let { sectionOverride = null }: { sectionOverride?: 'fee' | 'share' | null } = $props();
+
     // Section pages are driven by the engine navbar (profile /
     // exchange_settings tab rows). v10.1: the Exchange (credentials)
     // section only exists in live mode; the old Settings section moved
@@ -21,10 +25,12 @@
             : 'paper',
     );
     let section = $derived(
-        ['fee', 'exchange', 'share'].includes(app.middleTab)
-            && (app.middleTab !== 'exchange' || sessionMode === 'live')
-            ? app.middleTab
-            : 'fee',
+        sectionOverride
+            ? sectionOverride
+            : ['fee', 'exchange', 'share'].includes(app.middleTab)
+                && (app.middleTab !== 'exchange' || sessionMode === 'live')
+                ? app.middleTab
+                : 'fee',
     );
 
     const sectionTitles: Record<string, string> = {

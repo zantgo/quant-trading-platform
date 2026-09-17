@@ -312,6 +312,22 @@
             for (const sym of Object.keys(app.instancesMap)) {
                 connectWsForInstance(app, wssMap, sym);
             }
+            // v11.8: the observe-only build always opens on Market Monitor.
+            // If instances exist, the first one is selected so the workspace
+            // shows it immediately (waving-dots loader until its first
+            // snapshot arrives).
+            if (firstPairKey) {
+                const onMonitor = parseEngineHash(window.location.hash)?.engine === 'market_monitor';
+                const homeLike = !window.location.hash
+                    || window.location.hash.startsWith('#/engine/profile')
+                    || !window.location.hash.includes('instance/');
+                if (!onMonitor || homeLike) {
+                    app.enterInstance(firstPairKey);
+                    const target = buildEngineHash('market_monitor', 'workspace', 'instance', firstPairKey, 'view', 'terminal');
+                    history.replaceState(null, '', target);
+                    applyRoute(parseEngineHash(target), 'sync');
+                }
+            }
         } catch (e) { console.error('Failed to fetch config:', e); configReady = true; }
     }
 

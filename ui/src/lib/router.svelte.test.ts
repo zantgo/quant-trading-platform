@@ -240,7 +240,7 @@ describe('currentHashFor — per-engine serialization', () => {
         app.selectEngine('data_infra');
         expect(currentHashFor(app)).toBe('#/engine/data_infra/connectivity');
         app.selectEngine('profile');
-        expect(currentHashFor(app)).toBe('#/engine/profile/account');
+        expect(currentHashFor(app)).toBe('#/engine/profile/settings');
     });
 });
 
