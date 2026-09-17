@@ -29,10 +29,15 @@
     const MAX_DEPTH = 365;
     const MAX_INSTANCES = 100;
 
-    // v8 fixed ladder: every backtest replays the canonical 10-slot ladder
-    // (micro1..longterm2) — there is no per-slot TF choice.
+    // v8 fixed ladder: every backtest replays the canonical pool — there
+    // is no per-slot TF choice. v11.8: BTE uses the ARCHIVE-ELIGIBLE
+    // subset only (≥ 60 s): sub-minute slots (1s…30s) are live-only (the
+    // 60 s archive floor — the backend rejects sub-minute standalone
+    // ladders) and their depth ceilings are 0 days, which previously
+    // zeroed the slider and blocked the wizard.
     const FIXED_LADDER_SECS: number[] = TIMEFRAME_SLOT_KINDS.map((slot) => TIMEFRAME_SLOT_DURATION_SECS[slot]);
-    const FIXED_LADDER_LABEL = FIXED_LADDER_SECS.map((s) => tfLabel(s)).join(' · ');
+    const BACKTEST_LADDER_SECS: number[] = FIXED_LADDER_SECS.filter((tf) => tf >= 60);
+    const FIXED_LADDER_LABEL = BACKTEST_LADDER_SECS.map((s) => tfLabel(s)).join(' · ');
 
     // Hard clamp: smallest TF determines max days per exchange.
     function bitgetRetentionDays(tf: number): number {
@@ -133,7 +138,7 @@
     const instancesFull = $derived(instances.length >= MAX_INSTANCES);
 
     // All TFs of the fixed ladder — smallest TF limits depth.
-    const allTfs = $derived.by(() => FIXED_LADDER_SECS);
+    const allTfs = $derived.by(() => BACKTEST_LADDER_SECS);
     const adaptiveMax = $derived.by(() => {
         if (allTfs.length === 0) return MAX_DEPTH;
         return Math.min(...allTfs.map((tf) => exchangeMaxDays(exchange, tf)));
@@ -158,7 +163,7 @@
 
     // Burn-in for the fixed ladder (warmup_bars × slowest TF) — the same
     // formula the server validates coverage with.
-    const macroTf = $derived(FIXED_LADDER_SECS[FIXED_LADDER_SECS.length - 1]);
+    const macroTf = $derived(BACKTEST_LADDER_SECS[BACKTEST_LADDER_SECS.length - 1]);
     const burnInSecs = $derived(warmupBars * macroTf);
     const burnInDays = $derived(Math.ceil(burnInSecs / 86400));
     const depthTooSmall = $derived(depthDays < burnInDays);
@@ -243,7 +248,7 @@
     async function ensureArchive(): Promise<boolean> {
         for (const inst of instances) {
             const symbol = symbolOf(inst.base);
-            const tfs = FIXED_LADDER_SECS;
+            const tfs = BACKTEST_LADDER_SECS;
             // Coverage is per-symbol×TF; we require depth+burnIn on *every* TF.
             // If any TF lacks coverage we backfill the whole fixed 10-slot
             // ladder in a single standalone request.
@@ -399,7 +404,7 @@
         const fromMs = toMs - (depthDays * 864e5 - burnInSecs * 1000);
         const symbols = instances.map((i) => ({
             symbol: symbolOf(i.base),
-            timeframes: FIXED_LADDER_SECS,
+            timeframes: BACKTEST_LADDER_SECS,
             allocation_pct: i.allocation,
         }));
 
@@ -550,7 +555,7 @@
         <section class={styles.section}>
             <h2 class={styles.sectionTitle}>Instances</h2>
             <p class={styles.hint}>
-                One or more instances, each running the fixed {FIXED_LADDER_SECS.length}-slot ladder
+                One or more instances, each running the fixed {BACKTEST_LADDER_SECS.length}-slot archive ladder
                 ({FIXED_LADDER_LABEL}) with an allocation % (1–100). The sum of all allocations
                 must be ≤ 100 % (up to {MAX_INSTANCES} instances).
             </p>
@@ -630,7 +635,7 @@
             </div>
             {#if instances.length > 0}
                 <p class={styles.hint}>
-                    Fetching data for <strong>{instances.length} instance(s)</strong> × {FIXED_LADDER_SECS.length} timeframes.
+                    Fetching data for <strong>{instances.length} instance(s)</strong> × {BACKTEST_LADDER_SECS.length} timeframes.
                     Missing history is fetched automatically when you press Run (with live
                     progress); re-runs skip already-covered spans.
                 </p>
