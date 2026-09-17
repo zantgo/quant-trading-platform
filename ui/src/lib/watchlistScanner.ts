@@ -76,11 +76,14 @@ export function clampWaitMinutes(value: number | null | undefined): number {
  *  tokens (e.g. "BTC ETH, #SOL, AVAX"). Empty tokens and tokens longer than
  *  `MAX_SYMBOL_LEN` are dropped silently. */
 export function parseSymbols(text: string): string[] {
+    // v11.8: spaces are the ONLY separator — commas and '#' prefixes are
+    // no longer accepted (they now produce literal characters that fail
+    // symbol validation downstream).
     if (!text) return [];
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const raw of text.split(/[\s,]+/g)) {
-        const tok = raw.replace(/^#/, '').trim().toUpperCase();
+    for (const raw of text.split(/\s+/g)) {
+        const tok = raw.trim().toUpperCase();
         if (!tok) continue;
         if (tok.length > MAX_SYMBOL_LEN) continue;
         if (seen.has(tok)) continue;
