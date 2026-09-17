@@ -1,3 +1,4 @@
+pub mod duration_profile;
 pub mod models;
 pub use models::*;
 pub mod strategy;
