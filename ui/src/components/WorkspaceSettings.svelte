@@ -23,8 +23,6 @@
     let identityError = $state<string | null>(null);
 
     let draft = $state({
-        symbol: '',
-        exchange: 'Hyperliquid' as string,
         visuals: {
             showEmas: true, showBb: true, showVwap: true, showVolume: true,
             showAdx: true, showAtr: true, showRsi: true, showMacd: true,
@@ -284,7 +282,6 @@
 
     $effect(() => {
         if (!pair) return;
-        draft.symbol = pair.symbol; draft.exchange = pair.exchange;
         for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
             (draft.visuals as any)[f] = (pair.terms.micro1 as any)[f];
         }
@@ -301,8 +298,8 @@
     // ─── Dirty tracking: drafts vs the baseline taken at load ───────────
     function snapshotKey(): string {
         return JSON.stringify({
-            symbol: draft.symbol,
-            exchange: draft.exchange,
+            symbol: pair.symbol,
+            exchange: pair.exchange,
             visuals: draft.visuals,
             automation: draft.automation,
             tf: Object.fromEntries(activeSlotKinds(pair).map((slot) => [slot, tfDraft[slot]])),
@@ -359,6 +356,37 @@
         });
     }
 
+    /// v11.8: timeframe CRUD — presence in `activeSlots` IS activation.
+    /// Persists via /api/config (workspace knob) and locally to the pair.
+    async function toggleTfSlot(slot: TimeframeSlotKind): Promise<void> {
+        const current: TimeframeSlotKind[] = pair.activeSlots ?? [...TIMEFRAME_SLOT_KINDS];
+        if (current.length === 0) return;
+        let next: TimeframeSlotKind[];
+        if (current.includes(slot)) {
+            if (current.length <= 1) return; // at least one must stay
+            next = current.filter((s) => s !== slot);
+        } else {
+            next = [...current, slot];
+        }
+        // Canonical ladder order.
+        next = TIMEFRAME_SLOT_KINDS.filter((s) => next.includes(s)); // canonical order
+        if (next.length === 0) return;
+        const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active_slots: next }),
+        });
+        if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            identityError = txt || `Active timeframes save failed (${res.status})`;
+            return;
+        }
+        pair.activeSlots = next;
+        app.bumpWsVersion();
+        clearHistoryCache();
+        clearCandleCache();
+    }
+
     function updateSlotLeverageTiers(slot: TfSlot, next: number[]) {
         const cleaned = Array.from(new Set(next.filter((t) => Number.isInteger(t) && t >= 1 && t <= 100))).sort((a, b) => a - b);
         tfDraft[slot].heatmapLeverageTiers = cleaned;
@@ -367,7 +395,7 @@
     function buildExport(): string {
         return buildEngineExport('market_monitor', 'settings', null, {
             pair: pair ? { symbol: pair.symbol, exchange: pair.exchange } : null,
-            identity: { symbol: draft.symbol, exchange: draft.exchange },
+            identity: { symbol: pair.symbol, exchange: pair.exchange },
             visuals: draft.visuals,
             automation: { ...draft.automation, interval_seconds: calculatedAutomationInterval },
             timeframes: Object.fromEntries(activeSlotKinds(pair).map((slot) => [slot, tfDraft[slot]])),
@@ -377,33 +405,13 @@
 
     async function save() {
         if (!pair || (saveState !== 'dirty' && saveState !== 'error')) return;
-        const cleanedSymbol = draft.symbol.trim().toUpperCase();
         identityError = null;
 
         const { automation: auto, visuals: vis } = draft;
-        const isIdentityChanged = cleanedSymbol !== pair.symbol || draft.exchange !== pair.exchange;
+        // v11.8: the Identity card is removed — the save targets the
+        // current instance only (rename/recreate is no longer offered).
         let targetTabKey = tabKey;
         let target = pair;
-
-        if (isIdentityChanged) {
-            if (!/^[A-Z0-9]{2,10}$/.test(cleanedSymbol)) {
-                identityError = 'Invalid ticker. Must be 2-10 alphanumeric characters.';
-                return;
-            }
-            const newPairKey = app.pairKeyFor(cleanedSymbol);
-            const result = await createInstance(cleanedSymbol, app.quote);
-            if (!result.ok) {
-                identityError = result.error || 'Failed to update workspace.';
-                return;
-            }
-            app.initInstance(cleanedSymbol, draft.exchange, result.instanceId);
-            const newInst = app.instancesMap[newPairKey];
-            if (newInst && result.instanceId) newInst.instanceId = result.instanceId;
-            target = newInst || pair;
-            app.removeInstance(tabKey);
-            app.activeTab = newPairKey;
-            targetTabKey = newPairKey;
-        }
 
         for (const slot of activeSlotKinds(target)) {
             applyVisualsToTerm(target.terms[slot] as unknown as Record<string, any>, vis);
@@ -552,6 +560,35 @@
     <section class={styles.tfShellBody}>
         <div class={engine.card}>
             <div class={engine.cardHead}>
+                <h3 class={engine.cardTitle}>Timeframes</h3>
+                <ConfigSourceChip source="[workspace].active_slots" apply="LIVE" />
+            </div>
+            <p class={engine.infoLine}>
+                A timeframe runs when it is present in the set — add or remove slots below
+                (1–10, at least one must stay). Saving recharges the instance.
+            </p>
+            <div class={styles.tfCrudGrid}>
+                {#each TIMEFRAME_SLOT_KINDS as slot (slot)}
+                    {@const on = (pair.activeSlots ?? []).includes(slot)}
+                    <button
+                        type="button"
+                        class="{styles.tfCrudChip} {on ? styles.tfCrudChipOn : ''}"
+                        aria-pressed={on}
+                        disabled={on && (pair.activeSlots?.length ?? 0) <= 1}
+                        title={on ? 'Deactivate' : 'Activate'}
+                        onclick={() => toggleTfSlot(slot)}
+                    >
+                        <span class={styles.tfCrudLabel}>{TIMEFRAME_SLOT_LABELS[slot]}</span>
+                        <span class={styles.tfCrudSecs}>{TIMEFRAME_SLOT_DURATION_SECS[slot] >= 60
+                            ? `${TIMEFRAME_SLOT_DURATION_SECS[slot] / 60}m`
+                            : `${TIMEFRAME_SLOT_DURATION_SECS[slot]}s`}</span>
+                    </button>
+                {/each}
+            </div>
+        </div>
+
+        <div class={engine.card}>
+            <div class={engine.cardHead}>
                 <h3 class={engine.cardTitle}>Timeframes &amp; Indicators</h3>
                 <ConfigSourceChip source="per-instance" apply="LIVE" />
             </div>
@@ -576,39 +613,27 @@
                     </div>
                 </div>
 
-                <div class={styles.tfShellPane}>
-                    <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[paneSlot]}</h4>
-                    <p class={engine.infoLine}>
-                        Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
-                        of any selected integer × tier. Matching bands intensify, the rest dim.
-                    </p>
-                    <LiquidationHeatmapTierPicker
-                        tiers={tfDraft[paneSlot].heatmapLeverageTiers}
-                        onChange={(next) => updateSlotLeverageTiers(paneSlot, next)}
-                    />
-                </div>
             </div>
         </div>
 
         <div class={engine.card}>
             <div class={engine.cardHead}>
-                <h3 class={engine.cardTitle}>Identity</h3>
-                <ConfigSourceChip source="[instances.…]" apply="LIVE" />
+                <h3 class={engine.cardTitle}>Liquidation Heatmap</h3>
+                <ConfigSourceChip source="per-instance" apply="LIVE" />
             </div>
-            <p class={engine.infoLine}>Rename the instance (recreates it under the new ticker) or switch the venue it subscribes to.</p>
-            <div class={engine.formRow}>
-                <div class={engine.field}>
-                    <label class={engine.fieldLabel} for="ws-symbol">Symbol</label>
-                    <input class={engine.fieldInput} id="ws-symbol" type="text" bind:value={draft.symbol} maxlength="10" spellcheck="false" />
+            <p class={engine.infoLine}>
+                Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
+                of any selected integer × tier. Matching bands intensify, the rest dim. Configured per timeframe.
+            </p>
+            {#each slotOrder as slot (slot)}
+                <div class={styles.heatmapBlock}>
+                    <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[slot]}</h4>
+                    <LiquidationHeatmapTierPicker
+                        tiers={tfDraft[slot].heatmapLeverageTiers}
+                        onChange={(next) => updateSlotLeverageTiers(slot, next)}
+                    />
                 </div>
-                <div class={engine.field}>
-                    <label class={engine.fieldLabel} for="ws-exchange">Exchange</label>
-                    <select class={engine.select} id="ws-exchange" bind:value={draft.exchange}>
-                        <option value="Hyperliquid">Hyperliquid</option>
-                        <option value="Bitget">Bitget</option>
-                    </select>
-                </div>
-            </div>
+            {/each}
         </div>
 
         <div class={engine.card}>
@@ -635,38 +660,6 @@
                         </div>
                     </div>
                 {/each}
-            </div>
-        </div>
-
-        <div class={engine.card}>
-            <div class={engine.cardHead}>
-                <h3 class={engine.cardTitle}>Automation Scheduler</h3>
-                <ConfigSourceChip source="[instances.…]" apply="LIVE" />
-            </div>
-            <p class={engine.infoLine}>How often the automation loop evaluates setups and dispatches orders (paper/live modes).</p>
-            <div class={engine.formRow}>
-                <div class={engine.field}>
-                    <label class={engine.fieldLabel} for="ws-auto-enabled">Enabled</label>
-                    <select class={engine.select} id="ws-auto-enabled" bind:value={draft.automation.enabled}>
-                        <option value={true}>On</option>
-                        <option value={false}>Off</option>
-                    </select>
-                </div>
-                <div class={engine.field}>
-                    <label class={engine.fieldLabel} for="ws-auto-value">Interval</label>
-                    <input class={engine.fieldInput} id="ws-auto-value" type="number" min="1" bind:value={draft.automation.intervalValue} />
-                </div>
-                <div class={engine.field}>
-                    <label class={engine.fieldLabel} for="ws-auto-unit">Unit</label>
-                    <select class={engine.select} id="ws-auto-unit" bind:value={draft.automation.intervalUnit}>
-                        <option value="seconds">seconds</option>
-                        <option value="minutes">minutes</option>
-                        <option value="hours">hours</option>
-                    </select>
-                </div>
-                <div class={engine.field}>
-                    <span class={styles.tfLabel}>{calculatedAutomationInterval.toLocaleString()}s computed</span>
-                </div>
             </div>
         </div>
 
