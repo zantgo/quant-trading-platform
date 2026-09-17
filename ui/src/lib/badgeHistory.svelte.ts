@@ -2,7 +2,7 @@
 //
 // Every layer badge (L1 Metrics per instance×slot, L2 Alignment … L6
 // Recommendation per instance, L7 Overview global) keeps a LITERAL ring of
-// its last 5 states — newest first, position 0 = the CURRENT sample. The
+// its last 7 states — newest first, position 0 = the CURRENT sample. The
 // rendering (BadgeTrail.svelte) shows positions 1..4 as progressively
 // smaller/fainter "ghost text" after the live badge.
 //
@@ -22,7 +22,7 @@ export interface BadgeHistoryEntry {
     ts: number;
 }
 
-export const BADGE_HISTORY_CAP = 5;
+export const BADGE_HISTORY_CAP = 7;
 const STORAGE_KEY = 'qtp.badgeHistory.v1';
 const PERSIST_DEBOUNCE_MS = 2000;
 

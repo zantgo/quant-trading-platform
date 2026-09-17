@@ -115,7 +115,7 @@
                             <span>{row.badge.sublabel}</span>
                         {/if}
                     </div>
-                    <BadgeTrail entries={row.trail} />
+                    <BadgeTrail entries={row.trail} max={6} />
                 </td>
             </tr>
         {/each}
