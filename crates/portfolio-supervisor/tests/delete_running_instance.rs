@@ -26,7 +26,7 @@ use std::sync::Mutex;
 use config_models::{
     CandleBufferConfig, HyperliquidConfig, InstanceEntry, ReconnectConfig, WorkspaceConfig,
 };
-use core_domain::models::{MarketSnapshot, TimeframeSlot};
+use core_domain::models::MarketSnapshot;
 use core_domain::normalized::SymbolMapper;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
@@ -93,10 +93,7 @@ fn write_initial_config(path: &std::path::Path) {
         symbol: PAIR.to_string(),
         quote: "USDC".to_string(),
         status: config_models::InstanceStatus::Running,
-        micro_term: config_models::TimeframeConfig::new(60, Default::default()),
-        fast_term: config_models::TimeframeConfig::new(180, Default::default()),
-        slow_term: None,
-        macro_term: None,
+        timeframes: Default::default(),
         automation: Default::default(),
         operational_mode: Default::default(),
         mode: config_models::ExecutionMode::Paper,
@@ -104,7 +101,6 @@ fn write_initial_config(path: &std::path::Path) {
         allocation_pct: None,
         weight_overrides: None,
         activation: None,
-        custom_pipelines: std::collections::HashMap::new(),
     });
     let on_disk = TestOnDiskConfig {
         hyperliquid: Default::default(),
@@ -138,14 +134,14 @@ fn build_stub_instance(
 
     let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(8);
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
-    let build_pipe = |slot: TimeframeSlot, secs: u64, tx| TimeframePipeline {
-        slot,
+    let active_secs: Vec<u64> = config_models::SUPPORTED_DURATIONS.to_vec();
+    let build_pipe = |secs: u64, tx| TimeframePipeline {
+        slot_label: core_domain::duration_label(secs),
         history: Arc::new(RwLock::new(VecDeque::new())),
         broadcast_tx: tx,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: snap_hist.clone(),
         timeframe_secs: secs,
-        timeframe_label: "Test",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: config_models::FibonacciConfig::default(),
@@ -157,7 +153,7 @@ fn build_stub_instance(
         cluster_matrix: Arc::new(RwLock::new(None)),
         cluster_status: Arc::new(RwLock::new(ClusterStatusSnapshot::pending(
             "TEST-USD",
-            &slot.as_str(),
+            &core_domain::duration_label(secs),
         ))),
         pipeline_state: Arc::new(RwLock::new(
             core_domain::models::CandlePipelineState::Initializing,
@@ -169,59 +165,13 @@ fn build_stub_instance(
         stale_threshold_secs: 300,
     };
 
+    let pipelines: Vec<TimeframePipeline> = (0..10)
+        .map(|i| build_pipe(active_secs[i], bcast_tx.clone()))
+        .collect();
     let active = Arc::new(ActivePair {
         symbol: format!("{}-{}", base, quote),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro1: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[0],
-            config_models::FIXED_TF_LADDER[0],
-            bcast_tx.clone(),
-        ),
-        micro2: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[1],
-            config_models::FIXED_TF_LADDER[1],
-            bcast_tx.clone(),
-        ),
-        fast1: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[2],
-            config_models::FIXED_TF_LADDER[2],
-            bcast_tx.clone(),
-        ),
-        fast2: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[3],
-            config_models::FIXED_TF_LADDER[3],
-            bcast_tx.clone(),
-        ),
-        slow1: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[4],
-            config_models::FIXED_TF_LADDER[4],
-            bcast_tx.clone(),
-        ),
-        slow2: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[5],
-            config_models::FIXED_TF_LADDER[5],
-            bcast_tx.clone(),
-        ),
-        macro1: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[6],
-            config_models::FIXED_TF_LADDER[6],
-            bcast_tx.clone(),
-        ),
-        macro2: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[7],
-            config_models::FIXED_TF_LADDER[7],
-            bcast_tx.clone(),
-        ),
-        longterm1: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[8],
-            config_models::FIXED_TF_LADDER[8],
-            bcast_tx.clone(),
-        ),
-        longterm2: build_pipe(
-            core_domain::models::FIXED_TF_SLOTS[9],
-            config_models::FIXED_TF_LADDER[9],
-            bcast_tx,
-        ),
+        pipelines,
+        active_secs: active_secs.clone(),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -231,17 +181,18 @@ fn build_stub_instance(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
-        active_indices: (0..10).collect(),
     });
 
-    let buffers: [TimeframeBuffers; 10] = std::array::from_fn(|i| {
-        let p = active.all()[i];
-        TimeframeBuffers {
-            history: p.history.clone(),
-            latest: p.latest_snapshot.clone(),
-            snapshot_history: snap_hist.clone(),
-        }
-    });
+    let buffers: Vec<TimeframeBuffers> = (0..10)
+        .map(|i| {
+            let p = &active.all()[i];
+            TimeframeBuffers {
+                history: p.history.clone(),
+                latest: p.latest_snapshot.clone(),
+                snapshot_history: snap_hist.clone(),
+            }
+        })
+        .collect();
 
     Arc::new(Instance::new(
         id.to_string(),
@@ -253,7 +204,7 @@ fn build_stub_instance(
         Default::default(),
         Default::default(),
         buffers,
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        active_secs, // v11.9 active ladder
         Default::default(),
     ))
 }

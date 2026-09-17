@@ -797,7 +797,7 @@ mod tests {
         let map = build_map(40.0, 0.6, 30.0, 55.0, 1.2);
         let c = compute_alignment(
             "BTC-USD",
-            &[("fast180", 180, 64000.0, &map, &empty_ctx())],
+            &[("3m", 180, 64000.0, &map, &empty_ctx())],
             &AlignmentParams::default(),
         );
         assert_eq!(c.timeframes_present, 1);
@@ -812,7 +812,7 @@ mod tests {
             "BTC-USD",
             &[
                 ("micro60", 60, 64000.0, &bull, &ctx),
-                ("fast180", 180, 64000.0, &bull, &ctx),
+                ("3m", 180, 64000.0, &bull, &ctx),
                 ("slow300", 300, 64000.0, &bull, &ctx),
                 ("macro900", 900, 64000.0, &bull, &ctx),
             ],
@@ -837,7 +837,7 @@ mod tests {
             "BTC-USD",
             &[
                 ("micro60", 60, 64000.0, &bull, &bull_ctx),
-                ("fast180", 180, 64000.0, &bull, &bull_ctx),
+                ("3m", 180, 64000.0, &bull, &bull_ctx),
                 ("slow300", 300, 64000.0, &bear, &bear_ctx),
                 ("macro900", 900, 64000.0, &bear, &bear_ctx),
             ],
@@ -855,7 +855,7 @@ mod tests {
             "BTC-USD",
             &[
                 ("micro60", 60, 64000.0, &bull, &ctx),
-                ("fast180", 180, 64000.0, &bull, &ctx),
+                ("3m", 180, 64000.0, &bull, &ctx),
                 ("slow300", 300, 64000.0, &bull, &ctx),
                 ("macro900", 900, 64000.0, &bull, &ctx),
             ],
@@ -897,7 +897,7 @@ mod tests {
             "BTC-USD",
             &[
                 ("micro60", 60, 64000.0, &bull, &ctx),
-                ("fast180", 180, 64000.0, &bull, &ctx),
+                ("3m", 180, 64000.0, &bull, &ctx),
                 ("slow300", 300, 64000.0, &bull, &ctx),
                 ("macro900", 900, 64000.0, &bull, &ctx),
             ],
@@ -960,7 +960,7 @@ mod tests {
             "BTC-USD",
             &[
                 ("micro60", 60, 64000.0, &shared, &empty_ctx()),
-                ("fast180", 180, 64000.0, &shared, &empty_ctx()),
+                ("3m", 180, 64000.0, &shared, &empty_ctx()),
                 ("slow300", 300, 64000.0, &solo, &empty_ctx()),
             ],
             &AlignmentParams::default(),
@@ -1006,7 +1006,7 @@ mod tests {
             "BTC-USD",
             &[
                 ("micro60", 60, 64000.0, &heavy, &empty_ctx()),
-                ("fast180", 180, 64000.0, &sparse, &empty_ctx()),
+                ("3m", 180, 64000.0, &sparse, &empty_ctx()),
             ],
             &AlignmentParams::default(),
         );

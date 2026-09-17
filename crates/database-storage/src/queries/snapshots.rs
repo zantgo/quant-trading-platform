@@ -483,9 +483,7 @@ pub async fn query_latest_snapshot(
             });
 
         MarketSnapshot {
-            timeframe_slot: Some(core_domain::models::TimeframeSlot::parse_from_secs(
-                timeframe_secs,
-            )),
+            timeframe_label: Some(core_domain::duration_label(timeframe_secs)),
             exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
             timeframe_secs,
             timestamp: r.get::<i64, _>(1) as u64,

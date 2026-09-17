@@ -254,7 +254,10 @@ async fn render_instances(out: &mut String, instances: &[Arc<Instance>]) {
         // Fastest slot of the active ladder + the ACTIVE ladder
         // (fastest N of the fixed pool) for one-glance parity with the
         // GUI instance rows.
-        let micro_secs = format!("{}s", inst.active_pair.micro1.timeframe_secs);
+        let micro_secs = format!(
+            "{}s",
+            inst.active_pair.active_secs.first().copied().unwrap_or(0)
+        );
         let ladder = inst
             .active_secs
             .iter()

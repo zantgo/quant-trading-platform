@@ -575,9 +575,8 @@ pub fn extract_top_setup(snapshots: &[&MarketSnapshot], min_net_rr: f64) -> Opti
             let score = profile.display_score.unwrap_or(profile.score);
             let setup_type = opportunity_type_str(&profile.opportunity_type);
             let source_tf = snap
-                .timeframe_slot
-                .as_ref()
-                .map(|s| s.as_str().to_string())
+                .timeframe_label
+                .clone()
                 .unwrap_or_else(|| snap.timeframe_secs.to_string());
             let fingerprint = format!(
                 "{}:{}:{}:{}",
@@ -4068,7 +4067,7 @@ mod tests {
 
         // far edge (aggressive): LONG TP = target zone high.
         strat.tae.execution.tp_placement = "zone_far_edge".into();
-        let micro2 = snapshot(
+        let snap_3s = snapshot(
             60,
             MarketBias::Bullish,
             vec![long_profile(80.0, 2.0, TradeViability::Actionable)],
@@ -4079,7 +4078,7 @@ mod tests {
         ex.tick(
             "i1",
             "BTC-USDC",
-            snap_refs(&[&micro2]),
+            snap_refs(&[&snap_3s]),
             dec!(105),
             ctx_with_strategy(1002, strat),
         )

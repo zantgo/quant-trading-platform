@@ -9,27 +9,23 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// The FIXED 10-slot timeframe ladder in seconds, fastest → slowest:
-/// micro1=1, micro2=3, fast1=5, fast2=15, slow1=30, slow2=60 (1m),
-/// macro1=180 (3m), macro2=300 (5m), longterm1=900 (15m), longterm2=3600 (1h).
-/// Every instance runs exactly these 10 pipelines — there is no operator
-/// choice. Slot identity lives in `core_domain::TimeframeSlot`
-/// (`FIXED_TF_SLOTS`); the two arrays are positionally aligned.
-pub const FIXED_TF_LADDER: [u64; 10] = [1, 3, 5, 15, 30, 60, 180, 300, 900, 3600];
+// v11.9: timeframe identity is the DURATION in seconds — there are no
+// named slots. The supported pool and the derived labels live in
+// `core-domain`; config-models re-exports them so every config consumer
+// reads one source of truth.
+pub use core_domain::{
+    duration_label, duration_label_upper, is_supported_duration, slot_label_for,
+    SUPPORTED_DURATIONS,
+};
 
-/// Canonical slot names for `FIXED_TF_LADDER`, positionally aligned with it.
-pub const FIXED_TF_NAMES: [&str; 10] = [
-    "micro1",
-    "micro2",
-    "fast1",
-    "fast2",
-    "slow1",
-    "slow2",
-    "macro1",
-    "macro2",
-    "longterm1",
-    "longterm2",
-];
+/// The DEFAULT ACTIVE ladder: the fastest 8 durations of the supported
+/// pool (1s/3s/5s/15s/30s/1m/3m/5m). Operators override via
+/// `[workspace].timeframes` (1..=14 pool members).
+pub const DEFAULT_TIMEFRAMES: [u64; 8] = [1, 3, 5, 15, 30, 60, 180, 300];
+
+fn default_timeframes() -> Vec<u64> {
+    DEFAULT_TIMEFRAMES.to_vec()
+}
 
 /// Error type for all config-loader failures. Replaces the previous
 /// pattern of `.expect("...")` calls, which mixed parser errors with IO
@@ -69,17 +65,15 @@ pub enum ConfigError {
     WorkspaceMissing,
 
     #[error(
-        "instance `{symbol}` declares {count} custom timeframes ({keys}),\n\
-         but custom pipeline slots are not yet instantiated by the runtime\n\
-         (see `docs/ROADMAP.md` §3 Phase A — custom `instances[*].custom_pipelines`).\n\
-         Remove the `custom_pipelines` table or restrict the instance to the\n\
-         default 4-slot ladder (micro/fast/slow/macro) to boot."
+        "legacy timeframe key `{key}` in `config.toml` is no longer supported.\n\
+         v11.9 replaced named slots with duration-keyed timeframes:\n\
+         - replace `active_slots`/`active_timeframes` with\n\
+           `[workspace].timeframes = [1, 3, 5, 15, 30, 60, 180, 300]` (seconds, fastest->slowest)\n\
+         - replace per-instance `micro_term`/`fast_term`/`slow_term`/`macro_term`\n\
+           with `[workspace.instances.timeframes.<secs>]` blocks\n\
+         There is no legacy fallback — migrate the file and restart."
     )]
-    CustomTimeframesUnsupported {
-        symbol: String,
-        count: usize,
-        keys: String,
-    },
+    LegacyTimeframeKey { key: String },
 
     #[error(
         "invalid numeric config (audit M8): {detail}.\n\
@@ -270,19 +264,13 @@ pub struct WorkspaceConfig {
     // ─── Market-monitor defaults (per-instance inheritance) ────────
     #[serde(default)]
     pub candles: CandlesConfig,
-    /// v11.4: explicit ACTIVE slot set — an arbitrary subset of the fixed
-    /// pool by slot name (e.g. `["micro1", "longterm2"]`). When present it
-    /// WINS over the legacy `active_timeframes` count; resolution re-orders
-    /// to canonical fastest → slowest, deduplicates, and drops unknown
-    /// names. Empty/None → the legacy fastest-N derivation.
-    #[serde(default)]
-    pub active_slots: Option<Vec<String>>,
-    /// v11.2: how many of the 10 canonical ladder slots actually run —
-    /// the FASTEST N (micro1 first). 1..=10, default 5. All instances
-    /// share it; editable live via `POST /api/config` (recharges running
-    /// instances). Superseded by `active_slots` when that key is present.
-    #[serde(default = "default_active_timeframes")]
-    pub active_timeframes: usize,
+    /// v11.9: the ACTIVE timeframe set — an explicit subset of the
+    /// supported duration pool (1..=14 members, unique, ascending order
+    /// enforced by validation; `active_timeframes_for()` re-orders
+    /// canonically). Every instance runs exactly these durations.
+    /// Editable live via `POST /api/config` (recharges running instances).
+    #[serde(default = "default_timeframes")]
+    pub timeframes: Vec<u64>,
     #[serde(default)]
     pub indicators: IndicatorsConfig,
     #[serde(default)]
@@ -380,8 +368,7 @@ impl Default for WorkspaceConfig {
             default_exchange: "Hyperliquid".to_string(),
             portfolio_capital_usd: default_portfolio_capital(),
             candles: CandlesConfig::default(),
-            active_slots: None,
-            active_timeframes: DEFAULT_ACTIVE_TIMEFRAMES,
+            timeframes: default_timeframes(),
             indicators: IndicatorsConfig::default(),
             fast_timeframe: FastTimeframeConfig::default(),
             slow_timeframe: SlowTimeframeConfig::default(),
@@ -420,52 +407,28 @@ impl WorkspaceConfig {
         self.instances.iter().map(|i| i.symbol.clone()).collect()
     }
 
-    /// v11.1: the FIXED 10-slot timeframe ladder — the SAME values every
-    /// instance runs (no operator choice). Order is fastest → slowest:
-    /// micro1=1s, micro2=3s, fast1=5s, fast2=15s, slow1=30s, slow2=60s,
-    /// macro1=180s, macro2=300s, longterm1=900s, longterm2=3600s. The
-    /// Launch Setup wizard, the CLI launch prompt, and the API ladder
-    /// builders all derive from this ladder, so every surface agrees.
-    /// (Slot-side source of truth: `core_domain::FIXED_TF_SLOTS`.)
-    pub fn tf_ladder_defaults(&self) -> [u64; 10] {
-        FIXED_TF_LADDER
+    /// v11.9: the FULL supported duration pool (14 members, fastest →
+    /// slowest: 1s … 1d). The Launch Setup wizard, the CLI launch prompt,
+    /// and the API ladder builders all derive from this pool, so every
+    /// surface agrees. (Canonical source: `core_domain::SUPPORTED_DURATIONS`.)
+    pub fn tf_ladder_defaults(&self) -> Vec<u64> {
+        SUPPORTED_DURATIONS.to_vec()
     }
 
-    /// v11.2 (v11.4 set generalization): the ACTIVE ladder — the explicit
-    /// `active_slots` subset when present (re-ordered canonically), else the
-    /// FASTEST `active_timeframes` durations of the fixed pool. This is what
-    /// every instance actually runs.
-    pub fn active_ladder(&self) -> Vec<u64> {
-        self.active_slot_names()
-            .iter()
-            .filter_map(|name| {
-                FIXED_TF_NAMES
-                    .iter()
-                    .position(|n| n == name)
-                    .map(|idx| FIXED_TF_LADDER[idx])
-            })
-            .collect()
-    }
-
-    /// v11.2 (v11.4 set generalization): canonical slot names for
-    /// `active_ladder()`, positionally aligned. An explicit `active_slots`
-    /// set wins over the legacy fastest-N count; unknown names are dropped,
-    /// duplicates collapse, and the result is re-ordered canonical
-    /// fastest → slowest. Empty/None → fastest-N (clamped 1..=10).
-    pub fn active_slot_names(&self) -> Vec<&'static str> {
-        if let Some(set) = &self.active_slots {
-            let wanted: std::collections::HashSet<&str> = set.iter().map(|s| s.as_str()).collect();
-            let resolved: Vec<&'static str> = FIXED_TF_NAMES
-                .iter()
-                .copied()
-                .filter(|n| wanted.contains(n))
-                .collect();
-            if !resolved.is_empty() {
-                return resolved;
+    /// v11.9: the ACTIVE ladder — the configured `[workspace].timeframes`
+    /// subset, defensively healed (pool members only, deduplicated,
+    /// re-ordered ascending fastest → slowest). Validation rejects typos
+    /// at load; this accessor never returns an out-of-pool duration.
+    /// This is what every instance actually runs.
+    pub fn active_timeframes_for(&self) -> Vec<u64> {
+        let mut out: Vec<u64> = Vec::with_capacity(self.timeframes.len());
+        for &secs in &self.timeframes {
+            if is_supported_duration(secs) && !out.contains(&secs) {
+                out.push(secs);
             }
         }
-        let n = self.active_timeframes.min(FIXED_TF_NAMES.len()).max(1);
-        FIXED_TF_NAMES[..n].to_vec()
+        out.sort_unstable();
+        out
     }
 
     /// v9: resolve a strategy by name, walking the `base` chain (patch
@@ -539,6 +502,40 @@ impl WorkspaceConfig {
     }
 }
 
+/// Serde helper: `BTreeMap<u64, V>` over TOML/JSON object keys. TOML table
+/// keys are always strings, so each key is parsed to `u64` on load and
+/// stringified on save. (v11.9 duration-keyed instance overrides.)
+mod u64_key_map {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::BTreeMap;
+
+    pub fn serialize<S, V>(map: &BTreeMap<u64, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        V: Serialize,
+    {
+        let string_map: BTreeMap<String, &V> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        string_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D, V>(deserializer: D) -> Result<BTreeMap<u64, V>, D::Error>
+    where
+        D: Deserializer<'de>,
+        V: Deserialize<'de>,
+    {
+        let string_map = BTreeMap::<String, V>::deserialize(deserializer)?;
+        let mut out = BTreeMap::new();
+        for (key, value) in string_map {
+            let secs = key
+                .parse::<u64>()
+                .map_err(|_| serde::de::Error::custom(format!("invalid duration key `{key}`")))?;
+            out.insert(secs, value);
+        }
+        Ok(out)
+    }
+}
+
 /// One trading-pair instance inside a workspace.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstanceEntry {
@@ -558,18 +555,18 @@ pub struct InstanceEntry {
     /// dashboard flips the bit when the user pauses or stops the instance.
     #[serde(default)]
     pub status: InstanceStatus,
-    /// LEGACY (fixed 10-slot ladder): parsed for TOML backward compatibility
-    /// and IGNORED. The ladder is fixed — every instance runs the 10 slots
-    /// declared by `FIXED_TF_LADDER` with the workspace-level indicator
-    /// defaults. Presence of these keys only triggers a boot warning.
-    #[serde(default)]
-    pub micro_term: TimeframeConfig,
-    #[serde(default)]
-    pub fast_term: TimeframeConfig,
-    #[serde(default)]
-    pub slow_term: Option<TimeframeConfig>,
-    #[serde(default)]
-    pub macro_term: Option<TimeframeConfig>,
+    /// v11.9: per-duration indicator overrides keyed by duration seconds.
+    /// Each entry is the COMPLETE `TimeframeConfig` for that duration: at
+    /// spawn/recharge it replaces the `duration_profile` row + workspace
+    /// defaults for that duration. Absent durations use the profile.
+    /// `candles.duration_seconds` must equal the map key; keys must be
+    /// supported pool members.
+    #[serde(
+        with = "u64_key_map",
+        default,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub timeframes: std::collections::BTreeMap<u64, TimeframeConfig>,
     #[serde(default)]
     pub automation: AutomationConfig,
     #[serde(default)]
@@ -592,23 +589,10 @@ pub struct InstanceEntry {
     /// Per-instance activation overrides (union with global [activation]).
     #[serde(default)]
     pub activation: Option<ActivationConfig>,
-    /// Operator-defined custom slot pipelines (`TimeframeSlot::Custom { id }`).
-    /// Empty for the default 4-slot ladder. The registry maps `id → name`
-    /// and the `TimeframeSlot::Custom { id }` enum variant carries the index
-    /// on the wire. Default is empty for backward compatibility.
-    #[serde(default)]
-    pub custom_pipelines: std::collections::HashMap<u16, TimeframeConfig>,
 }
 
 fn default_portfolio_capital() -> f64 {
     1_000.0
-}
-
-/// v11.2 default active-timeframe count (fastest N of the fixed pool).
-pub const DEFAULT_ACTIVE_TIMEFRAMES: usize = 5;
-
-fn default_active_timeframes() -> usize {
-    DEFAULT_ACTIVE_TIMEFRAMES
 }
 
 /// Execution mode for the unified execution engine. The mode only affects
@@ -849,6 +833,7 @@ pub fn load_platform() -> Result<PlatformConfig> {
 pub fn load_workspace() -> Result<WorkspaceConfig> {
     assert_no_legacy_files()?;
     let (raw, _src) = read_config_raw()?;
+    reject_legacy_timeframe_keys(&raw)?;
     let on_disk: OnDiskConfig =
         toml::from_str(&raw).map_err(|e: toml::de::Error| ConfigError::Parse {
             path: config_path(),
@@ -865,6 +850,7 @@ pub fn load_workspace() -> Result<WorkspaceConfig> {
 pub fn load() -> Result<(PlatformConfig, WorkspaceConfig)> {
     assert_no_legacy_files()?;
     let (raw, _src) = read_config_raw()?;
+    reject_legacy_timeframe_keys(&raw)?;
     let on_disk: OnDiskConfig =
         toml::from_str(&raw).map_err(|e: toml::de::Error| ConfigError::Parse {
             path: config_path(),
@@ -877,11 +863,53 @@ pub fn load() -> Result<(PlatformConfig, WorkspaceConfig)> {
 /// Fail-fast boot validation (audit fix M6): surfaces config surfaces the
 /// runtime cannot honor instead of silently ignoring them.
 ///
-/// Currently rejected: `InstanceEntry.custom_pipelines` — the registry has
-/// full PRI-07 code paths for custom slots (cluster handles, history,
-/// per-TF refresh) but no production call-site instantiates them, so a
-/// configured custom TF would be silently dropped. Explicit rejection is
-/// the honest behaviour until the wiring lands.
+/// v11.9: legacy named-slot keys are rejected at load by
+/// `reject_legacy_timeframe_keys` (there is no legacy fallback), and every
+/// instance `timeframes.<secs>` override is validated for pool membership,
+/// key/duration agreement, and indicator numeric guards.
+/// v11.9 (D2): hard-reject legacy named-slot keys at load. Parses the raw
+/// TOML value first so keys the new schema no longer declares cannot be
+/// silently ignored. There is no fallback — the operator migrates to
+/// `[workspace].timeframes = [..]` and `[workspace.instances.timeframes.<secs>]`.
+fn reject_legacy_timeframe_keys(raw: &str) -> Result<()> {
+    let value: toml::Value = match toml::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return Ok(()), // the real parse error surfaces downstream
+    };
+    let Some(workspace) = value.get("workspace") else {
+        return Ok(());
+    };
+    for key in ["active_slots", "active_timeframes"] {
+        if workspace.get(key).is_some() {
+            return Err(ConfigError::LegacyTimeframeKey {
+                key: format!("[workspace].{key}"),
+            });
+        }
+    }
+    if let Some(instances) = workspace.get("instances").and_then(|v| v.as_array()) {
+        for inst in instances {
+            let symbol = inst
+                .get("symbol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<unknown>");
+            for key in [
+                "micro_term",
+                "fast_term",
+                "slow_term",
+                "macro_term",
+                "custom_pipelines",
+            ] {
+                if inst.get(key).is_some() {
+                    return Err(ConfigError::LegacyTimeframeKey {
+                        key: format!("instance {symbol}: {key}"),
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
     // v7.3 (M8-style numeric guards): the significance treatment and the
     // risk limits are real numerics that flow into division/ranking logic —
@@ -1027,90 +1055,88 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
             ),
         });
     }
-    // v11.2: active-timeframe count — 1..=10 (fastest N of the fixed pool).
-    if !(1..=10).contains(&ws.active_timeframes) {
-        return Err(ConfigError::InvalidNumeric {
-            detail: format!(
-                "[workspace].active_timeframes = {} (must be in 1..=10)",
-                ws.active_timeframes
-            ),
-        });
-    }
-    // v11.4: explicit active slot set — valid canonical names, no
-    // duplicates, 1..=10 entries. Resolution (active_slot_names) drops
-    // unknowns and re-orders canonically; validation rejects typo'd or
-    // duplicated input loudly instead of silently healing.
-    if let Some(set) = &ws.active_slots {
+    // v11.9: the ACTIVE timeframe set — 1..=14 unique members of the
+    // supported duration pool. Validation rejects typos and duplicates
+    // loudly instead of silently healing.
+    {
+        let set = &ws.timeframes;
         let mut seen = std::collections::HashSet::new();
-        for name in set {
-            if !FIXED_TF_NAMES.contains(&name.as_str()) {
+        for &secs in set {
+            if !is_supported_duration(secs) {
                 return Err(ConfigError::InvalidNumeric {
                     detail: format!(
-                        "[workspace].active_slots: unknown slot name '{name}' (valid: {})",
-                        FIXED_TF_NAMES.join(", ")
+                        "[workspace].timeframes: {}s is not a supported duration (valid: {})",
+                        secs,
+                        SUPPORTED_DURATIONS
+                            .iter()
+                            .map(|d| duration_label(*d))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ),
                 });
             }
-            if !seen.insert(name.as_str()) {
+            if !seen.insert(secs) {
                 return Err(ConfigError::InvalidNumeric {
-                    detail: format!("[workspace].active_slots: duplicate slot name '{name}'"),
+                    detail: format!("[workspace].timeframes: duplicate duration {}s", secs),
                 });
             }
         }
-        if set.is_empty() || set.len() > 10 {
+        if set.is_empty() || set.len() > SUPPORTED_DURATIONS.len() {
             return Err(ConfigError::InvalidNumeric {
                 detail: format!(
-                    "[workspace].active_slots: {} entries (must be 1..=10)",
-                    set.len()
+                    "[workspace].timeframes: {} entries (must be 1..={})",
+                    set.len(),
+                    SUPPORTED_DURATIONS.len()
                 ),
             });
         }
     }
     for inst in &ws.instances {
-        if !inst.custom_pipelines.is_empty() {
-            let mut keys: Vec<String> = inst
-                .custom_pipelines
-                .keys()
-                .map(|k| k.to_string())
-                .collect();
-            keys.sort();
-            return Err(ConfigError::CustomTimeframesUnsupported {
-                symbol: inst.symbol.clone(),
-                count: inst.custom_pipelines.len(),
-                keys: keys.join(", "),
-            });
+        for (&secs, tf) in &inst.timeframes {
+            if !is_supported_duration(secs) {
+                return Err(ConfigError::InvalidNumeric {
+                    detail: format!(
+                        "instance {}: timeframes.{}s is not a supported duration",
+                        inst.symbol, secs
+                    ),
+                });
+            }
+            if tf.candles.duration_seconds != secs {
+                return Err(ConfigError::InvalidNumeric {
+                    detail: format!(
+                        "instance {}: timeframes.{}s declares candles.duration_seconds = {} (must equal the key)",
+                        inst.symbol, secs, tf.candles.duration_seconds
+                    ),
+                });
+            }
+            validate_indicators_config(
+                &tf.indicators,
+                &format!("workspace.instances.{}.timeframes.{}", inst.symbol, secs),
+            )?;
         }
-        // Fixed 10-slot ladder: the legacy per-slot duration blocks
-        // (`micro_term`/`fast_term`/`slow_term`/`macro_term`) are parsed for
-        // TOML backward compatibility but IGNORED — every instance runs
-        // `FIXED_TF_LADDER` with workspace-level indicator defaults. Warn
-        // (never fail) when legacy values are present so the operator knows
-        // they no longer take effect.
-        {
-            let legacy_secs = [
-                ("micro_term", Some(inst.micro_term.candles.duration_seconds)),
-                ("fast_term", Some(inst.fast_term.candles.duration_seconds)),
-                (
-                    "slow_term",
-                    inst.slow_term.as_ref().map(|t| t.candles.duration_seconds),
-                ),
-                (
-                    "macro_term",
-                    inst.macro_term.as_ref().map(|t| t.candles.duration_seconds),
-                ),
-            ];
-            let present: Vec<&str> = legacy_secs
-                .iter()
-                .filter(|(_, s)| s.is_some())
-                .map(|(name, _)| *name)
-                .collect();
-            if !present.is_empty() {
-                eprintln!(
-                    "[config] instance {}: legacy per-slot timeframe key(s) {} ignored — \
-                     the fixed 10-slot ladder (1s/3s/5s/15s/30s/1m/3m/5m/15m/1h) is not configurable",
-                    inst.symbol,
-                    present.join(", ")
-                );
+    }
+    // v11.9 (D4): ladder-role timeframes must be duration labels of the
+    // supported pool (only checked when role separation is enabled).
+    for strat in &ws.strategies {
+        let roles = &strat.ladder_roles;
+        if roles.enabled {
+            for (field, value) in [
+                ("decision_tf", &roles.decision_tf),
+                ("entry_tf", &roles.entry_tf),
+                ("stop_tf", &roles.stop_tf),
+                ("target_tf", &roles.target_tf),
+            ] {
+                let ok = SUPPORTED_DURATIONS
+                    .iter()
+                    .any(|d| duration_label(*d).eq_ignore_ascii_case(value));
+                if !ok {
+                    return Err(ConfigError::InvalidNumeric {
+                        detail: format!(
+                            "strategy {}: ladder_roles.{field} = `{value}` (must be a duration label like `1s`/`1m`/`1h`/`1d`)",
+                            strat.name
+                        ),
+                    });
+                }
             }
         }
     }
@@ -1381,12 +1407,6 @@ default_exchange = "Hyperliquid"
 id = "btc"
 symbol = "BTC-USDT"
 quote = "USDT"
-
-[workspace.instances.micro_term]
-candles = { duration_seconds = 60 }
-
-[workspace.instances.fast_term]
-candles = { duration_seconds = 180 }
 "#;
         let cfg: OnDiskConfig = toml::from_str(toml).expect("parse");
         let (platform, workspace) = cfg.split();
@@ -1450,22 +1470,22 @@ id = "btc"
 symbol = "BTC-USDT"
 quote = "USDT"
 
-[workspace.instances.micro_term]
+[workspace.instances.timeframes.60]
 candles = { duration_seconds = 60 }
 indicators = { rsi_period = 21 }
 
-[workspace.instances.fast_term]
+[workspace.instances.timeframes.180]
 candles = { duration_seconds = 180 }
 indicators = { rsi_period = 14 }
 "#;
         let cfg: OnDiskConfig = toml::from_str(toml).expect("partial indicators must parse");
         let (_platform, workspace) = cfg.split();
-        let micro = &workspace.instances[0].micro_term.indicators;
-        assert_eq!(micro.rsi_period, 21);
-        assert_eq!(micro.ema_fast, 10);
-        assert_eq!(micro.ema_long, 200);
-        assert_eq!(micro.macd_slow, 26);
-        assert_eq!(micro.squeeze_period, 20);
+        let tf60 = &workspace.instances[0].timeframes[&60].indicators;
+        assert_eq!(tf60.rsi_period, 21);
+        assert_eq!(tf60.ema_fast, 10);
+        assert_eq!(tf60.ema_long, 200);
+        assert_eq!(tf60.macd_slow, 26);
+        assert_eq!(tf60.squeeze_period, 20);
     }
 
     #[test]
@@ -1492,15 +1512,18 @@ indicators = { rsi_period = 14 }
     }
 
     #[test]
-    fn tf_ladder_defaults_match_fixed_ladder() {
-        // v11.1 parity gate: `tf_ladder_defaults` returns the FIXED 10-slot
-        // ladder regardless of the (now ignored) workspace slow/macro keys.
+    fn tf_ladder_defaults_match_supported_pool() {
+        // v11.9 parity gate: `tf_ladder_defaults` returns the full
+        // 14-duration supported pool regardless of the (now ignored)
+        // workspace slow/macro keys.
         let mut ws = WorkspaceConfig::default();
         ws.slow_timeframe.duration_seconds = 300;
         ws.macro_timeframe.duration_seconds = 900;
-        assert_eq!(ws.tf_ladder_defaults(), FIXED_TF_LADDER);
-        assert_eq!(FIXED_TF_LADDER, [1, 3, 5, 15, 30, 60, 180, 300, 900, 3600]);
-        assert_eq!(FIXED_TF_NAMES.len(), FIXED_TF_LADDER.len());
+        assert_eq!(ws.tf_ladder_defaults(), SUPPORTED_DURATIONS.to_vec());
+        assert_eq!(
+            SUPPORTED_DURATIONS,
+            [1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400, 43200, 86400]
+        );
     }
 
     #[test]
@@ -1529,7 +1552,7 @@ indicators = { rsi_period = 14 }
         .unwrap();
         std::fs::write(&bak, &template_src).unwrap();
         let ws = load_workspace().unwrap();
-        assert_eq!(ws.active_timeframes, DEFAULT_ACTIVE_TIMEFRAMES);
+        assert_eq!(ws.timeframes, DEFAULT_TIMEFRAMES.to_vec());
         assert!(cfg.exists());
 
         // (2) corrupt file + no .bak + template present → factory restore.
@@ -1537,7 +1560,7 @@ indicators = { rsi_period = 14 }
         std::fs::write(&cfg, "\u{0}garbage").unwrap();
         std::fs::write(&template, &template_src).unwrap();
         let ws = load_workspace().unwrap();
-        assert_eq!(ws.active_timeframes, DEFAULT_ACTIVE_TIMEFRAMES);
+        assert_eq!(ws.timeframes, DEFAULT_TIMEFRAMES.to_vec());
 
         // cleanup
         std::env::remove_var("MARKET_MONITOR_CONFIG");
@@ -1547,36 +1570,43 @@ indicators = { rsi_period = 14 }
     }
 
     #[test]
-    fn active_ladder_is_fastest_n() {
-        // v11.2: the active ladder is the FASTEST N slots of the fixed pool.
+    fn active_timeframes_default_is_fastest_eight() {
+        // v11.9: the default active set is the fastest 8 durations of the
+        // supported pool; the accessor heals order/dupes/out-of-pool input.
         let mut ws = WorkspaceConfig::default();
-        assert_eq!(ws.active_timeframes, DEFAULT_ACTIVE_TIMEFRAMES);
-        assert_eq!(ws.active_ladder(), vec![1, 3, 5, 15, 30]);
+        assert_eq!(ws.timeframes, DEFAULT_TIMEFRAMES.to_vec());
         assert_eq!(
-            ws.active_slot_names(),
-            vec!["micro1", "micro2", "fast1", "fast2", "slow1"]
+            ws.active_timeframes_for(),
+            vec![1, 3, 5, 15, 30, 60, 180, 300]
         );
-        ws.active_timeframes = 1;
-        assert_eq!(ws.active_ladder(), vec![1]);
-        ws.active_timeframes = 10;
-        assert_eq!(ws.active_ladder(), FIXED_TF_LADDER.to_vec());
-        // Out-of-range counts clamp defensively in the accessor (load rejects).
-        ws.active_timeframes = 99;
-        assert_eq!(ws.active_ladder(), FIXED_TF_LADDER.to_vec());
-        ws.active_timeframes = 0;
-        assert_eq!(ws.active_ladder(), vec![1]);
+        ws.timeframes = vec![3600];
+        assert_eq!(ws.active_timeframes_for(), vec![3600]);
+        ws.timeframes = vec![86400, 1, 300];
+        // Ascending canonical order regardless of the written order.
+        assert_eq!(ws.active_timeframes_for(), vec![1, 300, 86400]);
+        // Out-of-pool entries are dropped defensively (validation rejects).
+        ws.timeframes = vec![60, 240];
+        assert_eq!(ws.active_timeframes_for(), vec![60]);
+        ws.timeframes = vec![900, 900, 30];
+        assert_eq!(ws.active_timeframes_for(), vec![30, 900]);
     }
 
     #[test]
-    fn active_timeframes_range_rejected() {
+    fn timeframes_validation_rejects_bad_sets() {
         let mut ws = WorkspaceConfig::default();
-        ws.active_timeframes = 0;
+        ws.timeframes = Vec::new();
         assert!(validate_workspace(&ws).is_err());
-        ws.active_timeframes = 11;
-        assert!(validate_workspace(&ws).is_err());
-        ws.active_timeframes = 1;
+        ws.timeframes = SUPPORTED_DURATIONS.to_vec();
         assert!(validate_workspace(&ws).is_ok());
-        ws.active_timeframes = 10;
+        ws.timeframes = vec![60, 240];
+        assert!(validate_workspace(&ws).is_err());
+        ws.timeframes = vec![60, 60];
+        assert!(validate_workspace(&ws).is_err());
+        ws.timeframes = vec![60];
+        assert!(validate_workspace(&ws).is_ok());
+        ws.timeframes = vec![
+            1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400, 43200, 86400,
+        ];
         assert!(validate_workspace(&ws).is_ok());
     }
 
@@ -1594,12 +1624,6 @@ id = "btc"
 symbol = "BTC-USDT"
 quote = "USDT"
 mode = "observe"
-
-[workspace.instances.micro_term]
-candles = { duration_seconds = 60 }
-
-[workspace.instances.fast_term]
-candles = { duration_seconds = 180 }
 "#;
         let cfg: OnDiskConfig = toml::from_str(toml).expect("observe mode must parse");
         let (_platform, workspace) = cfg.split();
@@ -1630,10 +1654,7 @@ candles = { duration_seconds = 180 }
             symbol: "BTC-USDT".into(),
             quote: "USDT".into(),
             status: InstanceStatus::Running,
-            micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
-            fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
-            slow_term: None,
-            macro_term: None,
+            timeframes: std::collections::BTreeMap::new(),
             strategy: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
@@ -1641,17 +1662,13 @@ candles = { duration_seconds = 180 }
             allocation_pct: None,
             weight_overrides: None,
             activation: None,
-            custom_pipelines: std::collections::HashMap::new(),
         });
         ws.instances.push(InstanceEntry {
             id: "eth".into(),
             symbol: "ETH-USDT".into(),
             quote: "USDT".into(),
             status: InstanceStatus::Running,
-            micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
-            fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
-            slow_term: None,
-            macro_term: None,
+            timeframes: std::collections::BTreeMap::new(),
             strategy: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
@@ -1659,7 +1676,6 @@ candles = { duration_seconds = 180 }
             allocation_pct: None,
             weight_overrides: None,
             activation: None,
-            custom_pipelines: std::collections::HashMap::new(),
         });
         let syms = ws.declared_symbols();
         assert_eq!(syms, vec!["BTC-USDT", "ETH-USDT"]);
@@ -1681,100 +1697,61 @@ candles = { duration_seconds = 180 }
     }
 
     #[test]
-    fn custom_timeframes_rejected_at_load() {
-        // Audit fix (M6): `custom_pipelines` is configured-but-unimplemented
-        // in the runtime — the registry never instantiates custom slots. The
-        // loader must fail fast instead of silently dropping the config.
-        let mut ws = WorkspaceConfig::default();
-        let mut inst = InstanceEntry {
-            id: "btc".into(),
-            symbol: "BTC-USDT".into(),
-            quote: "USDT".into(),
-            status: InstanceStatus::Running,
-            micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
-            fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
-            slow_term: None,
-            macro_term: None,
-            strategy: None,
-            automation: AutomationConfig::default(),
-            operational_mode: OperationalMode::Advisory,
-            mode: ExecutionMode::default(),
-            allocation_pct: None,
-            weight_overrides: None,
-            activation: None,
-            custom_pipelines: std::collections::HashMap::new(),
-        };
-        assert!(
-            validate_workspace(&ws).is_ok(),
-            "empty custom_pipelines must pass validation"
-        );
-        ws.instances.push(inst.clone());
+    fn legacy_timeframe_keys_rejected_at_load() {
+        // D2: named-slot keys are hard-rejected with a migration message.
+        let cases = [
+            r#"
+[workspace]
+id = "main"
+active_slots = ["micro1", "fast1"]
+"#,
+            r#"
+[workspace]
+id = "main"
+active_timeframes = 5
+"#,
+            r#"
+[workspace]
+id = "main"
 
-        let mut custom = std::collections::HashMap::new();
-        custom.insert(5u16, TimeframeConfig::new(120, IndicatorsConfig::default()));
-        inst.custom_pipelines = custom;
-        ws.instances = vec![inst];
-        match validate_workspace(&ws) {
-            Err(ConfigError::CustomTimeframesUnsupported {
-                symbol,
-                count,
-                keys,
-            }) => {
-                assert_eq!(symbol, "BTC-USDT");
-                assert_eq!(count, 1);
-                assert_eq!(keys, "5");
-            }
-            other => panic!("expected CustomTimeframesUnsupported, got {:?}", other),
+[[workspace.instances]]
+id = "btc"
+symbol = "BTC-USDT"
+
+[workspace.instances.micro_term]
+candles = { duration_seconds = 60 }
+"#,
+            r#"
+[workspace]
+id = "main"
+
+[[workspace.instances]]
+id = "btc"
+symbol = "BTC-USDT"
+custom_pipelines = { 5 = { candles = { duration_seconds = 120 } } }
+"#,
+        ];
+        for raw in cases {
+            let err = reject_legacy_timeframe_keys(raw).expect_err("legacy key must be rejected");
+            assert!(matches!(err, ConfigError::LegacyTimeframeKey { .. }));
         }
+        assert!(
+            reject_legacy_timeframe_keys("[workspace]\nid = \"main\"\ntimeframes = [1, 60]\n")
+                .is_ok()
+        );
     }
 
     #[test]
     fn zero_valued_periods_rejected_at_load() {
         // M8 (production audit): zero periods panic in the hot path
         // (Decimal/u64 division, median-window indexing) — reject at boot.
-        // v11.1: the legacy per-slot blocks are IGNORED (fixed 10-slot
-        // ladder), so a zero legacy duration no longer fails load — only
-        // workspace/platform-level zero knobs and per-slot indicator
-        // overrides still do. The first branch below asserts the legacy
-        // duration is tolerated (warned, not rejected).
-        let bad_duration = InstanceEntry {
-            id: "btc".into(),
-            symbol: "BTC-USDT".into(),
-            quote: "USDT".into(),
-            status: InstanceStatus::Running,
-            micro_term: TimeframeConfig {
-                candles: CandlesConfig {
-                    duration_seconds: 0,
-                },
-                ..TimeframeConfig::new(60, IndicatorsConfig::default())
-            },
-            fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
-            slow_term: None,
-            macro_term: None,
-            strategy: None,
-            automation: AutomationConfig::default(),
-            operational_mode: OperationalMode::Advisory,
-            mode: ExecutionMode::default(),
-            allocation_pct: None,
-            weight_overrides: None,
-            activation: None,
-            custom_pipelines: std::collections::HashMap::new(),
-        };
-        let mut ws = WorkspaceConfig {
-            instances: vec![bad_duration],
-            ..WorkspaceConfig::default()
-        };
-        assert!(validate_workspace(&ws).is_ok());
-
+        // v11.9: per-duration overrides take effect directly, so a zero
+        // indicator period inside `timeframes.<secs>` is rejected.
         let mut bad_rsi = InstanceEntry {
             id: "btc".into(),
             symbol: "BTC-USDT".into(),
             quote: "USDT".into(),
             status: InstanceStatus::Running,
-            micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
-            fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
-            slow_term: None,
-            macro_term: None,
             strategy: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
@@ -1782,21 +1759,55 @@ candles = { duration_seconds = 180 }
             allocation_pct: None,
             weight_overrides: None,
             activation: None,
-            custom_pipelines: std::collections::HashMap::new(),
+            timeframes: std::collections::BTreeMap::new(),
         };
-        // Zero indicator periods are still rejected where they take
-        // effect: the WORKSPACE-level defaults feed every fixed-ladder
-        // pipeline. (Legacy per-slot overrides are ignored, so a zero
-        // there is harmless.)
-        bad_rsi.micro_term.indicators.rsi_period = 0;
-        ws.instances = vec![bad_rsi];
-        assert!(validate_workspace(&ws).is_ok());
-
-        let ws_bad_rsi = WorkspaceConfig {
-            instances: Vec::new(),
+        bad_rsi.timeframes.insert(
+            60,
+            TimeframeConfig {
+                indicators: IndicatorsConfig {
+                    rsi_period: 0,
+                    ..IndicatorsConfig::default()
+                },
+                ..TimeframeConfig::new(60, IndicatorsConfig::default())
+            },
+        );
+        let ws = WorkspaceConfig {
+            instances: vec![bad_rsi],
             ..WorkspaceConfig::default()
         };
-        let mut ws_bad_rsi = ws_bad_rsi;
+        assert!(matches!(
+            validate_workspace(&ws),
+            Err(ConfigError::InvalidNumeric { .. })
+        ));
+
+        // Key/duration mismatch is rejected too.
+        let mut mismatched = InstanceEntry {
+            id: "btc".into(),
+            symbol: "BTC-USDT".into(),
+            quote: "USDT".into(),
+            status: InstanceStatus::Running,
+            strategy: None,
+            automation: AutomationConfig::default(),
+            operational_mode: OperationalMode::Advisory,
+            mode: ExecutionMode::default(),
+            allocation_pct: None,
+            weight_overrides: None,
+            activation: None,
+            timeframes: std::collections::BTreeMap::new(),
+        };
+        mismatched
+            .timeframes
+            .insert(60, TimeframeConfig::new(180, IndicatorsConfig::default()));
+        let ws = WorkspaceConfig {
+            instances: vec![mismatched],
+            ..WorkspaceConfig::default()
+        };
+        assert!(matches!(
+            validate_workspace(&ws),
+            Err(ConfigError::InvalidNumeric { .. })
+        ));
+
+        let mut ws_bad_rsi = WorkspaceConfig::default();
         ws_bad_rsi.indicators.rsi_period = 0;
         assert!(matches!(
             validate_workspace(&ws_bad_rsi),

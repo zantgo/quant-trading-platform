@@ -250,7 +250,9 @@ pub struct OverviewParams {
     pub systemic_high_weight: f64,
     pub systemic_sync_weight: f64,
     pub sync_penalty: [f64; 5],
-    pub tf_decay: [f64; 10],
+    /// v11.9: per-duration systemic decay weights, aligned with
+    /// `core_domain::SUPPORTED_DURATIONS` (fastest → slowest).
+    pub tf_decay: [f64; 14],
     pub cascade_index_fallback: f64,
     pub entry_veto_threshold: f64,
     pub asset_rank_slope: f64,
@@ -275,7 +277,9 @@ impl Default for OverviewParams {
             systemic_high_weight: 0.6,
             systemic_sync_weight: 0.4,
             sync_penalty: [100.0, 60.0, 30.0, 10.0, 0.0],
-            tf_decay: [0.05, 0.05, 0.05, 0.1, 0.1, 0.15, 0.15, 0.15, 0.1, 0.1],
+            tf_decay: [
+                0.04, 0.04, 0.04, 0.07, 0.07, 0.10, 0.10, 0.10, 0.08, 0.07, 0.08, 0.07, 0.07, 0.07,
+            ],
             cascade_index_fallback: 50.0,
             entry_veto_threshold: 80.0,
             asset_rank_slope: 0.5,

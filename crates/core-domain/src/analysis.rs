@@ -1119,7 +1119,7 @@ mod tests {
 
     fn simple_alignment(tfs: u8, score: f64, agreement: f64, cross_tf: u32) -> AlignmentMatrix {
         let mut alignments = Vec::new();
-        let labels = ["micro60", "fast180", "slow300", "macro900"];
+        let labels = ["1m", "3m", "5m", "15m"];
         let secs = [60, 180, 300, 900];
         for i in 0..tfs as usize {
             alignments.push(TfAlignmentInfo {
@@ -1173,7 +1173,7 @@ mod tests {
         cross_tf: u32,
         per_tf_scores: &[i32],
     ) -> AlignmentMatrix {
-        let labels = ["micro60", "fast180", "slow300", "macro900"];
+        let labels = ["1m", "3m", "5m", "15m"];
         let secs = [60, 180, 300, 900];
         let mut c = simple_alignment(per_tf_scores.len() as u8, score, agreement, cross_tf);
         for (i, tf) in c.timeframe_alignments.iter_mut().enumerate() {

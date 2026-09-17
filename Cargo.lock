@@ -401,6 +401,7 @@ dependencies = [
 name = "config-models"
 version = "0.1.0"
 dependencies = [
+ "core-domain",
  "rust_decimal",
  "serde",
  "serde_json",

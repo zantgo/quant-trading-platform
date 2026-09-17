@@ -871,10 +871,9 @@ fn warm_tf(
         .unwrap_or_else(|| {
             config_models::TimeframeConfig::new(tf, config_models::IndicatorsConfig::default())
         });
-    // Fixed 10-slot ladder: slot identity is the exact duration (the same
-    // mapping the registry boot uses). Non-ladder durations resolve to
-    // `Custom`, preserving the legacy fallback semantics.
-    let slot = core_domain::models::TimeframeSlot::parse_from_secs(tf);
+    // v11.9: duration-keyed identity — the label is derived from the exact
+    // duration (the same mapping the registry boot uses).
+    let slot = core_domain::duration_label(tf);
     let symbol = run_cfg
         .symbols
         .iter()
@@ -899,7 +898,7 @@ fn warm_tf(
             &run_cfg.fib_config,
             &symbol,
             tf,
-            slot,
+            slot.clone(),
             CHUNK_CANDLES,
             &run_cfg.active_set,
             Some(run_cfg.exchange),

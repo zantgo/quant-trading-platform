@@ -29,21 +29,13 @@ pub async fn serve_system_pipelines(State(state): State<Arc<AppState>>) -> impl 
 
     for inst in &instances {
         let pair = inst.pair_key();
-        // Fixed 10-slot ladder (fastest → slowest), positionally aligned
-        // with `core_domain::FIXED_TF_SLOTS` / `ActivePair::all()`.
+        // v11.9: the ACTIVE durations (ascending fastest → slowest) — one
+        // pipeline each, labeled by the derived duration label.
         let pipelines: Vec<(String, &market_analyzer::analyzer::TimeframePipeline)> = {
             let ap = &inst.active_pair;
-            // v11.4: report only the ACTIVE ladder slots (arbitrary set) —
-            // slots outside the set are inert (never spawned).
-            inst.active_pair
-                .active_indices
+            ap.all()
                 .iter()
-                .filter_map(|&i| {
-                    core_domain::models::FIXED_TF_SLOTS
-                        .get(i)
-                        .zip(ap.all().get(i))
-                        .map(|(slot, pipe)| (slot.as_str(), *pipe))
-                })
+                .map(|pipe| (pipe.slot_label.clone(), pipe))
                 .collect()
         };
         for (slot_label, pipeline) in pipelines {
@@ -71,9 +63,8 @@ pub async fn serve_system_pipelines(State(state): State<Arc<AppState>>) -> impl 
                     recon,
                 )
             };
-            // Canonical wire identifier ("micro1".."longterm2") — the
-            // label came from `FIXED_TF_SLOTS`, the pipeline's own slot
-            // matches it for all ten fixed pipelines.
+            // v11.9: canonical wire identifier = the derived duration label
+            // ("1s".."1d"); `slot` is kept as the wire key for continuity.
             let slot_key = slot_label.as_str();
             rows.push(serde_json::json!({
                 "pair": pair,

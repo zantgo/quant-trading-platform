@@ -40,7 +40,7 @@ pub async fn serve_history(
             // sharing one duration previously both got the micro pipeline's
             // history via the duration-only shim.
             let mut snap_hist = pair
-                .snapshot_history_vec_for_slot_or_secs(query.slot.as_deref(), tf_secs)
+                .snapshot_history_vec_for_label_or_secs(query.slot.as_deref(), tf_secs)
                 .await;
             // When the in-memory snapshot_history is empty (e.g. fresh daemon
             // startup, bootstrap fetch failed, or no completed candles yet),
@@ -351,10 +351,10 @@ pub async fn serve_history(
     };
 
     // v6.5: per-TF cluster matrices. Each TF pipeline owns its own
-    // `cluster_matrix` handle, so we read all 10 fixed-ladder slots
-    // (micro1..longterm2). These are the same matrices the WS broadcast
-    // already carries on each snapshot — exposing them here lets the chart
-    // render overlays on first-mount (before the WS delivery has happened).
+    // `cluster_matrix` handle, so we read every ACTIVE duration. These are
+    // the same matrices the WS broadcast already carries on each snapshot —
+    // exposing them here lets the chart render overlays on first-mount
+    // (before the WS delivery has happened).
     let mut clusters = std::collections::HashMap::new();
     let mut volume_profiles = std::collections::HashMap::new();
     // Phase 0-4: per-TF latest `LiquidityFlow` so the Metrics tab's
@@ -365,21 +365,13 @@ pub async fn serve_history(
         core_domain::liquidity::LiquidityFlow,
     > = std::collections::HashMap::new();
     if let Some(pair) = get_active_pair(&state, &pair_key).await {
-        // PRI-07: custom slot pipelines (`TimeframeSlot::Custom { id }`,
-        // keyed `custom-<id>` on the wire) own full cluster/VP/flow state —
-        // iterate them alongside the 10 fixed-ladder slots so custom-N
-        // charts bootstrap their heatmap/volume-profile overlays from
-        // history on first mount instead of waiting for the next WS frame.
-        let mut slot_pipes: Vec<(String, &TimeframePipeline)> = Vec::with_capacity(10);
-        // v11.4: only ACTIVE ladder slots (arbitrary set) + custom pipelines.
-        for &i in &pair.active_indices {
-            slot_pipes.push((
-                core_domain::models::FIXED_TF_SLOTS[i].as_str(),
-                pair.all()[i],
-            ));
-        }
-        for (id, pipe) in &pair.custom_pipelines {
-            slot_pipes.push((format!("custom-{id}"), pipe));
+        // v11.9: the ACTIVE pipelines (ascending fastest → slowest) keyed by
+        // their derived duration label, so charts bootstrap their
+        // heatmap/volume-profile overlays from history on first mount
+        // instead of waiting for the next WS frame.
+        let mut slot_pipes: Vec<(String, &TimeframePipeline)> = Vec::new();
+        for pipe in pair.all() {
+            slot_pipes.push((pipe.slot_label.clone(), pipe));
         }
         for (slot_label, pipe) in slot_pipes {
             if let Ok(guard) = pipe.cluster_matrix.try_read() {

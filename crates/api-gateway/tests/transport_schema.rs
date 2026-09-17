@@ -20,7 +20,7 @@ fn sample_snapshot() -> MarketSnapshot {
         NormalizationEngine::normalize_macd(-12.4, -17.6, 5.2, 8.0, Some(1)),
     );
     MarketSnapshot {
-        timeframe_slot: Some(core_domain::models::TimeframeSlot::Micro1),
+        timeframe_label: Some("1s".to_string()),
         exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
         timeframe_secs: 60,
         timestamp: 1_718_000_000,

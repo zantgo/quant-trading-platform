@@ -542,7 +542,7 @@ pub async fn serve_backtest_run(
                 return (
                     axum::http::StatusCode::BAD_REQUEST,
                     Json(serde_json::json!({
-                        "error": "instance has no archive-eligible active timeframes (raise [workspace].active_timeframes past the 60s slots to backtest)",
+                        "error": "instance has no archive-eligible active timeframes (raise [workspace].timeframes past the 60s durations to backtest)",
                         "code": "no_active_ladder",
                     })),
                 )
@@ -1240,9 +1240,9 @@ pub async fn persist_backtest_run(
             t.clone()
         } else if let Some(inst) = bound_instance {
             let symbol = inst.symbol();
-            // Fixed 10-slot ladder (instances boot all ten pipelines from
-            // it); sub-minute entries simply find no archive rows.
-            (symbol, config_models::FIXED_TF_LADDER.to_vec())
+            // v11.9: the instance's ACTIVE ladder; sub-minute entries
+            // simply find no archive rows.
+            (symbol, inst.active_secs.clone())
         } else {
             (String::new(), Vec::new())
         };

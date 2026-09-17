@@ -31,6 +31,8 @@
 //!     `404 NOT_FOUND` immediately.
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -55,6 +57,39 @@ use tokio_util::sync::CancellationToken;
 
 const INSTANCE_ID: &str = "inst_save_recharge_cycle";
 const PAIR_KEY: &str = "BTC-USDT";
+
+/// Atomic counter so concurrent tests never collide on the same temp path.
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn unique_config_path() -> PathBuf {
+    let mut p = std::env::temp_dir();
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    p.push(format!(
+        "quant_trading_platform_save_recharge_{pid}_{n}.toml"
+    ));
+    p
+}
+
+/// Seed an isolated config file and point `config_models::config_path()`
+/// at it. Without isolation these tests race other api-gateway test
+/// binaries over the process CWD's `config.toml` (read-modify-write),
+/// which flaked the save→recharge assertions in parallel
+/// `cargo test --workspace` runs. Callers must hold `CONFIG_FILE_LOCK`.
+fn isolate_config() -> PathBuf {
+    let path = unique_config_path();
+    let seed = r#"
+[workspace]
+id = "main"
+name = "Test"
+default_currency = "USDC"
+default_exchange = "Hyperliquid"
+timeframes = [1, 3, 5, 15, 30, 60, 180, 300]
+"#;
+    std::fs::write(&path, seed).expect("seed isolated config");
+    std::env::set_var("MARKET_MONITOR_CONFIG", &path);
+    path
+}
 
 async fn setup_app_with_instance() -> Arc<AppState> {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -91,17 +126,13 @@ async fn setup_app_with_instance() -> Arc<AppState> {
     let cancel = CancellationToken::new();
 
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
-    let new_pipe = |secs,
-                    label,
-                    slot: core_domain::models::TimeframeSlot,
-                    tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
-        slot,
+    let new_pipe = |secs, tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
+        slot_label: core_domain::duration_label(secs),
         history: Arc::new(RwLock::new(VecDeque::new())),
         broadcast_tx: tx,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: snap_hist.clone(),
         timeframe_secs: secs,
-        timeframe_label: label,
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
         fibonacci: FibonacciConfig::default(),
@@ -126,7 +157,6 @@ async fn setup_app_with_instance() -> Arc<AppState> {
 
     let pair = Arc::new(ActivePair {
         symbol: PAIR_KEY.to_string(),
-        custom_pipelines: std::collections::HashMap::new(),
         latest_oi: Arc::new(RwLock::new(None)),
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
@@ -134,74 +164,26 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        // Fixed 10-slot ladder; the four representative broadcast channels
-        // ride on micro1/fast1/slow1/macro1, the rest on throwaways.
-        micro1: new_pipe(
-            1,
-            "Micro1",
-            core_domain::models::TimeframeSlot::Micro1,
-            mid_bcast.clone(),
-        ),
-        micro2: new_pipe(
-            3,
-            "Micro2",
-            core_domain::models::TimeframeSlot::Micro2,
-            broadcast::channel(8).0,
-        ),
-        fast1: new_pipe(
-            5,
-            "Fast1",
-            core_domain::models::TimeframeSlot::Fast1,
-            fast_bcast.clone(),
-        ),
-        fast2: new_pipe(
-            15,
-            "Fast2",
-            core_domain::models::TimeframeSlot::Fast2,
-            broadcast::channel(8).0,
-        ),
-        slow1: new_pipe(
-            30,
-            "Slow1",
-            core_domain::models::TimeframeSlot::Slow1,
-            slow_bcast.clone(),
-        ),
-        slow2: new_pipe(
-            60,
-            "Slow2",
-            core_domain::models::TimeframeSlot::Slow2,
-            broadcast::channel(8).0,
-        ),
-        macro1: new_pipe(
-            180,
-            "Macro1",
-            core_domain::models::TimeframeSlot::Macro1,
-            macro_bcast.clone(),
-        ),
-        macro2: new_pipe(
-            300,
-            "Macro2",
-            core_domain::models::TimeframeSlot::Macro2,
-            broadcast::channel(8).0,
-        ),
-        longterm1: new_pipe(
-            900,
-            "Longterm1",
-            core_domain::models::TimeframeSlot::Longterm1,
-            broadcast::channel(8).0,
-        ),
-        longterm2: new_pipe(
-            3600,
-            "Longterm2",
-            core_domain::models::TimeframeSlot::Longterm2,
-            broadcast::channel(8).0,
-        ),
+        // v11.9 active durations; the four representative broadcast
+        // channels ride on 1s/5s/30s/180s, the rest on throwaways.
+        pipelines: vec![
+            new_pipe(1, mid_bcast.clone()),
+            new_pipe(3, broadcast::channel(8).0),
+            new_pipe(5, fast_bcast.clone()),
+            new_pipe(15, broadcast::channel(8).0),
+            new_pipe(30, slow_bcast.clone()),
+            new_pipe(60, broadcast::channel(8).0),
+            new_pipe(180, macro_bcast.clone()),
+            new_pipe(300, broadcast::channel(8).0),
+            new_pipe(900, broadcast::channel(8).0),
+            new_pipe(3600, broadcast::channel(8).0),
+        ],
+        active_secs: config_models::SUPPORTED_DURATIONS.to_vec(),
         snapshot_tx,
         cancel,
-        active_indices: (0..10).collect(),
     });
 
-    let buffers: [TimeframeBuffers; 10] = pair
+    let buffers: Vec<TimeframeBuffers> = pair
         .all()
         .iter()
         .map(|pipe| TimeframeBuffers {
@@ -209,9 +191,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
             latest: pipe.latest_snapshot.clone(),
             snapshot_history: snap_hist.clone(),
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"));
+        .collect();
 
     let instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
@@ -223,7 +203,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         Default::default(),
         Default::default(),
         buffers,
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        config_models::SUPPORTED_DURATIONS.to_vec(), // v11.9 active ladder
         Default::default(),
     ));
 
@@ -286,13 +266,16 @@ async fn serve_for(state: Arc<AppState>) -> std::net::SocketAddr {
     addr
 }
 
-fn default_body(micro_secs: u64) -> serde_json::Value {
-    serde_json::json!({
-        "micro_term": {
-            "candles": { "duration_seconds": micro_secs },
+fn default_body(secs: u64) -> serde_json::Value {
+    let mut timeframes = serde_json::Map::new();
+    timeframes.insert(
+        secs.to_string(),
+        serde_json::json!({
+            "candles": { "duration_seconds": secs },
             "indicators": {}
-        }
-    })
+        }),
+    );
+    serde_json::json!({ "timeframes": timeframes })
 }
 
 /// Run an async test body on a dedicated multi-thread runtime whose worker
@@ -331,9 +314,11 @@ static CONFIG_FILE_LOCK: Mutex<()> = Mutex::new(());
 #[test]
 fn post_instance_config_by_uuid_recharges_in_memory_state() {
     let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let cfg_path = isolate_config();
     run_on_big_stack("save_recharge_uuid", || {
         post_instance_config_by_uuid_recharges_in_memory_state_inner()
     });
+    let _ = std::fs::remove_file(&cfg_path);
 }
 
 async fn post_instance_config_by_uuid_recharges_in_memory_state_inner() {
@@ -373,8 +358,8 @@ async fn post_instance_config_by_uuid_recharges_in_memory_state_inner() {
             .find(|i| i.symbol == PAIR_KEY)
             .expect("handler must persist an InstanceEntry");
         assert_eq!(
-            entry.micro_term.candles.duration_seconds, 30,
-            "micro_term override must reach the in-memory snapshot"
+            entry.timeframes[&30].candles.duration_seconds, 30,
+            "per-duration override must reach the in-memory snapshot"
         );
 
         // Live map must still hold the instance after the recharge.
@@ -419,9 +404,11 @@ async fn post_instance_config_by_pairkey_is_rejected_with_404_inner() {
 #[test]
 fn post_instance_config_uses_session_quote_in_default_pair_key() {
     let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let cfg_path = isolate_config();
     run_on_big_stack("save_recharge_quote", || {
         post_instance_config_uses_session_quote_in_default_pair_key_inner()
     });
+    let _ = std::fs::remove_file(&cfg_path);
 }
 
 async fn post_instance_config_uses_session_quote_in_default_pair_key_inner() {

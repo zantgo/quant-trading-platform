@@ -18,7 +18,6 @@
 use api_gateway::{self, AppState};
 use config_models::PlatformConfig;
 use core_domain::liquidity::{ClusterRefreshStatus, ClusterStatusSnapshot};
-use core_domain::models::TimeframeSlot;
 use core_domain::normalized::SymbolMapper;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
@@ -80,16 +79,15 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
     (state, pool)
 }
 
-fn make_pipe(slot: TimeframeSlot, secs: u64) -> TimeframePipeline {
+fn make_pipe(secs: u64) -> TimeframePipeline {
     let (bcast_tx, _) = broadcast::channel::<core_domain::models::MarketSnapshot>(8);
     TimeframePipeline {
-        slot,
+        slot_label: core_domain::duration_label(secs),
         history: Arc::new(RwLock::new(VecDeque::new())),
         broadcast_tx: bcast_tx,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: Arc::new(RwLock::new(VecDeque::new())),
         timeframe_secs: secs,
-        timeframe_label: "Test",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: config_models::FibonacciConfig::default(),
@@ -103,7 +101,7 @@ fn make_pipe(slot: TimeframeSlot, secs: u64) -> TimeframePipeline {
         cluster_matrix: Arc::new(RwLock::new(None)),
         cluster_status: Arc::new(RwLock::new(ClusterStatusSnapshot::pending(
             "BTC-USDC",
-            &slot.as_str(),
+            &core_domain::duration_label(secs),
         ))),
         pipeline_state: Arc::new(RwLock::new(
             core_domain::models::CandlePipelineState::Initializing,
@@ -120,17 +118,19 @@ async fn register_btc_usdc(state: &Arc<AppState>) {
     let (snapshot_tx, _snapshot_rx) = mpsc::channel(8);
     let active_pair = Arc::new(ActivePair {
         symbol: "BTC-USDC".to_string(),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro1: make_pipe(TimeframeSlot::Micro1, 1),
-        micro2: make_pipe(TimeframeSlot::Micro2, 3),
-        fast1: make_pipe(TimeframeSlot::Fast1, 5),
-        fast2: make_pipe(TimeframeSlot::Fast2, 15),
-        slow1: make_pipe(TimeframeSlot::Slow1, 30),
-        slow2: make_pipe(TimeframeSlot::Slow2, 60),
-        macro1: make_pipe(TimeframeSlot::Macro1, 180),
-        macro2: make_pipe(TimeframeSlot::Macro2, 300),
-        longterm1: make_pipe(TimeframeSlot::Longterm1, 900),
-        longterm2: make_pipe(TimeframeSlot::Longterm2, 3600),
+        pipelines: vec![
+            make_pipe(1),
+            make_pipe(3),
+            make_pipe(5),
+            make_pipe(15),
+            make_pipe(30),
+            make_pipe(60),
+            make_pipe(180),
+            make_pipe(300),
+            make_pipe(900),
+            make_pipe(3600),
+        ],
+        active_secs: config_models::SUPPORTED_DURATIONS.to_vec(),
         snapshot_tx,
         cancel: tokio_util::sync::CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -140,7 +140,6 @@ async fn register_btc_usdc(state: &Arc<AppState>) {
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        active_indices: (0..10).collect(),
     });
 
     let buffers = TimeframeBuffers {
@@ -157,8 +156,10 @@ async fn register_btc_usdc(state: &Arc<AppState>) {
         state.workspace.clone(),
         config_models::IntervalsConfig::default(),
         config_models::SafetyConfig::default(),
-        std::array::from_fn(|_| buffers.clone()),
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        std::iter::repeat(buffers)
+            .take(config_models::SUPPORTED_DURATIONS.len())
+            .collect(),
+        config_models::SUPPORTED_DURATIONS.to_vec(), // v11.9 active ladder
         config_models::OperationalMode::Advisory,
     ));
     state
@@ -243,21 +244,12 @@ async fn cluster_status_by_symbol_returns_all_10_slots() {
     assert_eq!(parsed["symbol"], "BTC-USDC");
     let slots = parsed["slots"].as_object().unwrap();
     for name in [
-        "micro1",
-        "micro2",
-        "fast1",
-        "fast2",
-        "slow1",
-        "slow2",
-        "macro1",
-        "macro2",
-        "longterm1",
-        "longterm2",
+        "1s", "3s", "5s", "15s", "30s", "1m", "3m", "5m", "15m", "1h",
     ] {
         assert!(slots.contains_key(name), "missing slot key {name}");
     }
     // Default state is Pending.
-    assert_eq!(slots["micro1"]["status"], "PENDING");
+    assert_eq!(slots["1s"]["status"], "PENDING");
 }
 
 #[tokio::test]
@@ -269,7 +261,7 @@ async fn cluster_status_single_slot_returns_flat_snapshot() {
     let res = router
         .oneshot(
             axum::http::Request::builder()
-                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=micro1")
+                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=1s")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -279,7 +271,7 @@ async fn cluster_status_single_slot_returns_flat_snapshot() {
     let body = axum::body::to_bytes(res.into_body(), 8192).await.unwrap();
     let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(parsed["symbol"], "BTC-USDC");
-    assert_eq!(parsed["slot"], "micro1");
+    assert_eq!(parsed["timeframe_label"], "1s");
     assert_eq!(parsed["status"], "PENDING");
 }
 
@@ -293,11 +285,11 @@ async fn cluster_status_derives_stale_from_expired_ttl() {
     // Reach into the active pair's micro pipeline and overwrite the
     // cluster_status with a fake "successful but expired" snapshot.
     let pair = state.workspace.get("BTC-USDC").await.unwrap();
-    let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro1);
+    let micro_pipe = pair.active_pair.pipeline_for_secs(1);
     {
         let mut guard = micro_pipe
             .as_ref()
-            .expect("micro slot must be present")
+            .expect("fastest active pipeline must be present")
             .cluster_status
             .write()
             .await;
@@ -315,7 +307,7 @@ async fn cluster_status_derives_stale_from_expired_ttl() {
     let res = router
         .oneshot(
             axum::http::Request::builder()
-                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=micro1")
+                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=1s")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -336,11 +328,11 @@ async fn cluster_status_keeps_ok_for_fresh_ttl() {
     register_btc_usdc(&state).await;
 
     let pair = state.workspace.get("BTC-USDC").await.unwrap();
-    let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro1);
+    let micro_pipe = pair.active_pair.pipeline_for_secs(1);
     {
         let mut guard = micro_pipe
             .as_ref()
-            .expect("micro slot must be present")
+            .expect("fastest active pipeline must be present")
             .cluster_status
             .write()
             .await;
@@ -356,7 +348,7 @@ async fn cluster_status_keeps_ok_for_fresh_ttl() {
     let res = router
         .oneshot(
             axum::http::Request::builder()
-                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=micro1")
+                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=1s")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -374,13 +366,13 @@ async fn cluster_status_preserves_skip_reason_in_payload() {
     register_btc_usdc(&state).await;
 
     let pair = state.workspace.get("BTC-USDC").await.unwrap();
-    let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro1);
+    let micro_pipe = pair.active_pair.pipeline_for_secs(1);
     let expected_reason =
         "no open_interest yet (HL derivatives poller hasn't populated this symbol)";
     {
         let mut guard = micro_pipe
             .as_ref()
-            .expect("micro slot must be present")
+            .expect("fastest active pipeline must be present")
             .cluster_status
             .write()
             .await;
@@ -393,7 +385,7 @@ async fn cluster_status_preserves_skip_reason_in_payload() {
     let res = router
         .oneshot(
             axum::http::Request::builder()
-                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=micro1")
+                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=1s")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -415,13 +407,13 @@ async fn cluster_status_preserves_bitget_skip_reason_in_payload() {
     register_btc_usdc(&state).await;
 
     let pair = state.workspace.get("BTC-USDC").await.unwrap();
-    let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro1);
+    let micro_pipe = pair.active_pair.pipeline_for_secs(1);
     let expected_reason =
         "no open_interest yet (Bitget ticker channel hasn't delivered holdingAmount)";
     {
         let mut guard = micro_pipe
             .as_ref()
-            .expect("micro slot must be present")
+            .expect("fastest active pipeline must be present")
             .cluster_status
             .write()
             .await;
@@ -434,7 +426,7 @@ async fn cluster_status_preserves_bitget_skip_reason_in_payload() {
     let res = router
         .oneshot(
             axum::http::Request::builder()
-                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=micro1")
+                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=1s")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )

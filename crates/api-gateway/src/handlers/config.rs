@@ -49,13 +49,10 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
 pub struct ConfigUpdateRequest {
     #[serde(default)]
     pub candles: Option<config_models::CandlesConfig>,
-    /// v11.2: active-timeframe count (fastest N of the fixed pool, 1..=10).
+    /// v11.9: the ACTIVE timeframe set — explicit subset of the supported
+    /// duration pool in seconds (1..=14 unique pool members).
     #[serde(default)]
-    pub active_timeframes: Option<usize>,
-    /// v11.4: explicit ACTIVE slot set (arbitrary subset by canonical name,
-    /// e.g. ["micro1","longterm2"]). Wins over `active_timeframes`.
-    #[serde(default)]
-    pub active_slots: Option<Vec<String>>,
+    pub timeframes: Option<Vec<u64>>,
     #[serde(default)]
     pub indicators: Option<config_models::IndicatorsConfig>,
     #[serde(default)]
@@ -98,34 +95,20 @@ pub struct ConfigUpdateRequest {
 /// first offending field description (the dashboard mirrors these ranges).
 fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
     let f = |v: f64, min: f64, max: f64| v >= min && v <= max;
-    if let Some(n) = payload.active_timeframes {
-        if !(1..=10).contains(&n) {
-            return Some("active_timeframes must be 1–10".into());
-        }
-    }
-    if let Some(set) = &payload.active_slots {
-        const VALID: &[&str] = &[
-            "micro1",
-            "micro2",
-            "fast1",
-            "fast2",
-            "slow1",
-            "slow2",
-            "macro1",
-            "macro2",
-            "longterm1",
-            "longterm2",
-        ];
-        if set.is_empty() || set.len() > 10 {
-            return Some("active_slots must contain 1–10 slot names".into());
+    if let Some(set) = &payload.timeframes {
+        if set.is_empty() || set.len() > core_domain::SUPPORTED_DURATIONS.len() {
+            return Some(format!(
+                "timeframes must contain 1–{} durations",
+                core_domain::SUPPORTED_DURATIONS.len()
+            ));
         }
         let mut seen = std::collections::HashSet::new();
-        for name in set {
-            if !VALID.contains(&name.as_str()) {
-                return Some(format!("active_slots: unknown slot '{name}'").into());
+        for &secs in set {
+            if !config_models::is_supported_duration(secs) {
+                return Some(format!("timeframes: unsupported duration {secs}s").into());
             }
-            if !seen.insert(name.as_str()) {
-                return Some(format!("active_slots: duplicate slot '{name}'").into());
+            if !seen.insert(secs) {
+                return Some(format!("timeframes: duplicate duration {secs}s").into());
             }
         }
     }
@@ -261,20 +244,16 @@ pub async fn update_config(
         || payload.leverage.is_some()
         || payload.activation.is_some()
         || payload.backtest.is_some()
-        // v11.2/v11.4: the active-timeframe count / slot set reshapes every
-        // running instance's pipeline set — recharge so it applies live.
-        || payload.active_timeframes.is_some()
-        || payload.active_slots.is_some();
+        // v11.9: the active timeframe set reshapes every running
+        // instance's pipeline set — recharge so it applies live.
+        || payload.timeframes.is_some();
 
     let mut merged = state.workspace.config().await;
     if let Some(candles) = payload.candles {
         merged.candles = candles;
     }
-    if let Some(n) = payload.active_timeframes {
-        merged.active_timeframes = n;
-    }
-    if let Some(set) = &payload.active_slots {
-        merged.active_slots = Some(set.clone());
+    if let Some(set) = &payload.timeframes {
+        merged.timeframes = set.clone();
     }
     if let Some(indicators) = payload.indicators {
         merged.indicators = indicators;

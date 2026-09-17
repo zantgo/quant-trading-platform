@@ -1,7 +1,6 @@
 use api_gateway::{self, AppState};
 use config_models::FibonacciConfig;
 use core_domain::models::MarketSnapshot;
-use core_domain::models::TimeframeSlot;
 use core_domain::normalized::SymbolMapper;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
@@ -169,37 +168,39 @@ async fn test_websocket_stream_with_active_pair() {
     let snap_hist = Arc::new(RwLock::new(
         std::collections::VecDeque::<MarketSnapshot>::new(),
     ));
-    let make_pipe =
-        |slot: TimeframeSlot, secs: u64, tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
-            slot,
-            history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-            broadcast_tx: tx,
-            latest_snapshot: Arc::new(RwLock::new(None)),
-            snapshot_history: snap_hist.clone(),
-            timeframe_secs: secs,
-            timeframe_label: "Test",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
-            fibonacci: FibonacciConfig::default(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
-            cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-            )),
-            pipeline_state: Arc::new(RwLock::new(
-                core_domain::models::CandlePipelineState::Initializing,
-            )),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
-        };
+    let make_pipe = |secs: u64, tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
+        slot_label: core_domain::duration_label(secs),
+        history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
+        broadcast_tx: tx,
+        latest_snapshot: Arc::new(RwLock::new(None)),
+        snapshot_history: snap_hist.clone(),
+        timeframe_secs: secs,
+        divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+        sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
+        fibonacci: FibonacciConfig::default(),
+        latest_oi: Arc::new(RwLock::new(None)),
+        latest_funding: Arc::new(RwLock::new(None)),
+        latest_mark_px: Arc::new(RwLock::new(None)),
+        latest_index_px: Arc::new(RwLock::new(None)),
+        active_set: Default::default(),
+        cluster_matrix: Arc::new(RwLock::new(None)),
+        cluster_status: Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+        )),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
+        )),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        advisory: Arc::new(RwLock::new(None)),
+        tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
+    };
     let throwaway = || broadcast::channel::<MarketSnapshot>(10).0;
+    let active_secs: Vec<u64> = config_models::SUPPORTED_DURATIONS.to_vec();
+    let pipelines: Vec<TimeframePipeline> = (0..10)
+        .map(|i| make_pipe(active_secs[i], throwaway()))
+        .collect();
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -209,23 +210,13 @@ async fn test_websocket_stream_with_active_pair() {
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro1: make_pipe(TimeframeSlot::Micro1, 1, throwaway()),
-        micro2: make_pipe(TimeframeSlot::Micro2, 3, throwaway()),
-        fast1: make_pipe(TimeframeSlot::Fast1, 5, throwaway()),
-        fast2: make_pipe(TimeframeSlot::Fast2, 15, throwaway()),
-        slow1: make_pipe(TimeframeSlot::Slow1, 30, throwaway()),
-        slow2: make_pipe(TimeframeSlot::Slow2, 60, throwaway()),
-        macro1: make_pipe(TimeframeSlot::Macro1, 180, throwaway()),
-        macro2: make_pipe(TimeframeSlot::Macro2, 300, throwaway()),
-        longterm1: make_pipe(TimeframeSlot::Longterm1, 900, throwaway()),
-        longterm2: make_pipe(TimeframeSlot::Longterm2, 3600, throwaway()),
+        pipelines,
+        active_secs: active_secs.clone(),
         snapshot_tx,
         cancel,
-        active_indices: (0..10).collect(),
     });
 
-    let buffers: [TimeframeBuffers; 10] = pair
+    let buffers: Vec<TimeframeBuffers> = pair
         .all()
         .iter()
         .map(|pipe| TimeframeBuffers {
@@ -233,9 +224,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest: pipe.latest_snapshot.clone(),
             snapshot_history: snap_hist.clone(),
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"));
+        .collect();
 
     let instance = Arc::new(portfolio_supervisor::instance::Instance::new(
         "inst_test".to_string(),
@@ -247,7 +236,7 @@ async fn test_websocket_stream_with_active_pair() {
         Default::default(),
         Default::default(),
         buffers,
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        active_secs, // v11.9 active ladder
         Default::default(),
     ));
     let workspace = WorkspaceState::empty();

@@ -12,7 +12,6 @@ use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::liquidity::{LiquidationClusterMatrix, LiquidityFlow};
 use core_domain::market_context::MarketContext;
 use core_domain::models::MarketSnapshot;
-use core_domain::models::TimeframeSlot;
 use core_domain::opportunity::{ConfluentLevel, LevelSource, NeutralBracket, OpportunityMatrix};
 use core_domain::risk::{self, RiskMatrix};
 use std::collections::HashMap;
@@ -2283,18 +2282,18 @@ pub fn synthesize_cross_tf(
         let decision_label = params.ladder_roles.decision_tf.as_str();
         let mut rest: Vec<(u64, &MarketSnapshot)> = Vec::new();
         for item in tf_snapshots {
-            // Case-insensitive: role names are lowercase snake on the wire
-            // ("longterm2"), slot labels are uppercase ("LONGTERM2").
+            // Case-insensitive: role values and derived duration labels
+            // both come from the canonical pool ("1s"…"1d").
             if slot_label(item.1).eq_ignore_ascii_case(decision_label) {
                 ordered.push(*item);
             } else {
                 rest.push(*item);
             }
         }
-        // v11.2 active-extremes fallback: when the configured decision slot
-        // is NOT in the active set (e.g. decision_tf = "longterm2" with the
-        // default fastest-5 count), the SLOWEST ACTIVE snapshot leads the
-        // merge instead — the decision role stays anchored to the slow
+        // v11.2 active-extremes fallback: when the configured decision
+        // duration is NOT in the active set (e.g. decision_tf = "1d" with
+        // the default fastest-8 ladder), the SLOWEST ACTIVE snapshot leads
+        // the merge instead — the decision role stays anchored to the slow
         // horizon the operator asked for, never to the fastest.
         if ordered.is_empty() {
             if let Some(slowest) = tf_snapshots.iter().max_by_key(|(secs, _)| *secs) {
@@ -2469,9 +2468,7 @@ fn nearest_sr_distance_atr(
 }
 
 fn slot_label(snap: &MarketSnapshot) -> String {
-    snap.timeframe_slot
-        .unwrap_or(TimeframeSlot::Micro1)
-        .display_name()
+    core_domain::duration_label(snap.timeframe_secs)
 }
 
 #[allow(dead_code)]
@@ -2626,7 +2623,7 @@ mod tests {
 
         let close = Decimal::from_f64_retain(price).unwrap_or_default();
         MarketSnapshot {
-            timeframe_slot: None,
+            timeframe_label: None,
             exchange: None,
             timeframe_secs: secs,
             timestamp: 0,

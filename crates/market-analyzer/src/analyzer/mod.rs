@@ -34,7 +34,7 @@ use core_domain::advisory::AdvisoryMatrix;
 use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
 use core_domain::liquidity::LiquidationClusterMatrix;
 use core_domain::models::{
-    CandlePipelineState, CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot,
+    CandlePipelineState, CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity,
 };
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
 use core_domain::statistics::{StatisticsConfig, StatisticsEngine};
@@ -89,17 +89,15 @@ fn classify_sequence(prev_start_ms: Option<u64>, start_ms: u64) -> SequenceInteg
 pub const DEFAULT_BUFFER_SIZE: usize = 500;
 
 pub struct TimeframePipeline {
-    /// Stable slot identity. The frontend never has to re-derive slot from
-    /// `timeframe_secs` because every snapshot carries `timeframe_slot` and
-    /// every chart component renders the slot the pipeline was constructed
-    /// with. Allowed at construction: `Micro | Fast | Slow | Macro`.
-    pub slot: TimeframeSlot,
+    /// v11.9: stable duration label ("1s".."1d") derived from
+    /// `timeframe_secs` — the duration IS the identity; there are no
+    /// named slots.
+    pub slot_label: String,
     pub history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     pub broadcast_tx: broadcast::Sender<MarketSnapshot>,
     pub latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
     pub snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
     pub timeframe_secs: u64,
-    pub timeframe_label: &'static str,
     pub divergence_detector: Arc<tokio::sync::Mutex<DivergenceDetector>>,
     pub sr_tracker: Arc<tokio::sync::Mutex<SrRoleTracker>>,
     pub fibonacci: FibonacciConfig,
@@ -158,28 +156,13 @@ pub struct TimeframePipeline {
 
 pub struct ActivePair {
     pub symbol: String,
-    /// Fixed 10-slot ladder (fastest → slowest): micro1=1s, micro2=3s,
-    /// fast1=5s, fast2=15s, slow1=30s, slow2=60s, macro1=180s, macro2=300s,
-    /// longterm1=900s, longterm2=3600s. Positionally aligned with
-    /// `core_domain::FIXED_TF_SLOTS` / `config_models::FIXED_TF_LADDER`.
-    pub micro1: TimeframePipeline,
-    pub micro2: TimeframePipeline,
-    pub fast1: TimeframePipeline,
-    pub fast2: TimeframePipeline,
-    pub slow1: TimeframePipeline,
-    pub slow2: TimeframePipeline,
-    pub macro1: TimeframePipeline,
-    pub macro2: TimeframePipeline,
-    pub longterm1: TimeframePipeline,
-    pub longterm2: TimeframePipeline,
-    /// Operator-defined custom pipelines (`TimeframeSlot::Custom { id }`).
-    /// Always empty for the fixed ladder; retained for non-ladder duration
-    /// dispatch (`Custom` slots from ad-hoc resolution).
-    pub custom_pipelines: std::collections::HashMap<u16, TimeframePipeline>,
-    /// v11.4: which ladder slots actually run — canonical indices into
-    /// `FIXED_TF_SLOTS` (an arbitrary subset; was a fastest-N prefix count).
-    /// Slots outside the set exist as inert pipelines (never spawned).
-    pub active_indices: Vec<usize>,
+    /// v11.9: the ACTIVE pipelines — one per configured duration, ordered
+    /// ascending (fastest → slowest, canonical `SUPPORTED_DURATIONS`
+    /// order). Callers pass `active_secs` at construction; only ACTIVE
+    /// durations are constructed (no inert pipelines).
+    pub pipelines: Vec<TimeframePipeline>,
+    /// The ACTIVE durations (ascending), mirrors `[workspace].timeframes`.
+    pub active_secs: Vec<u64>,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
     /// Latest Open Interest (shared across all timeframes, updated by WS events).
@@ -208,141 +191,94 @@ pub struct ActivePair {
 }
 
 impl ActivePair {
-    /// All ten fixed-ladder pipelines, fastest → slowest.
-    pub fn all(&self) -> [&TimeframePipeline; 10] {
-        [
-            &self.micro1,
-            &self.micro2,
-            &self.fast1,
-            &self.fast2,
-            &self.slow1,
-            &self.slow2,
-            &self.macro1,
-            &self.macro2,
-            &self.longterm1,
-            &self.longterm2,
-        ]
+    /// All ACTIVE pipelines, fastest → slowest.
+    pub fn all(&self) -> &[TimeframePipeline] {
+        &self.pipelines
     }
 
-    /// O(1) slot-based dispatch. Replaces the legacy `pipeline_for(secs)`
-    /// linear lookup that collapsed duplicate durations and silently
-    /// defaulted to `micro` for any unmatched frame.
-    pub fn pipeline_for_slot(&self, slot: TimeframeSlot) -> Option<&TimeframePipeline> {
-        match slot {
-            TimeframeSlot::Micro1 => Some(&self.micro1),
-            TimeframeSlot::Micro2 => Some(&self.micro2),
-            TimeframeSlot::Fast1 => Some(&self.fast1),
-            TimeframeSlot::Fast2 => Some(&self.fast2),
-            TimeframeSlot::Slow1 => Some(&self.slow1),
-            TimeframeSlot::Slow2 => Some(&self.slow2),
-            TimeframeSlot::Macro1 => Some(&self.macro1),
-            TimeframeSlot::Macro2 => Some(&self.macro2),
-            TimeframeSlot::Longterm1 => Some(&self.longterm1),
-            TimeframeSlot::Longterm2 => Some(&self.longterm2),
-            TimeframeSlot::Custom { id } => self.custom_pipelines.get(&id),
-        }
+    /// O(1)-intent duration-keyed dispatch: find the ACTIVE pipeline whose
+    /// `timeframe_secs` matches exactly (fastest first on duplicates).
+    pub fn pipeline_for_secs(&self, timeframe_secs: u64) -> Option<&TimeframePipeline> {
+        self.pipelines
+            .iter()
+            .find(|p| p.timeframe_secs == timeframe_secs)
     }
 
-    /// Legacy shim for callers that still key on a duration. Picks the
-    /// matching slot; when multiple slots share the same duration, the
-    /// fastest matching pipeline is returned deterministically. Returns
-    /// `Err` only when no slot at all matches the requested duration.
-    pub fn pipeline_for_duration(&self, timeframe_secs: u64) -> Result<&TimeframePipeline, String> {
-        for p in self.all() {
-            if p.timeframe_secs == timeframe_secs {
-                return Ok(p);
-            }
-        }
-        Err(format!("No slot matches timeframe_secs={timeframe_secs}"))
+    /// Resolve a pipeline by its derived duration label ("1m", "15s", …),
+    /// case-insensitive. Used by callers that receive a slot-string on the
+    /// wire (`?slot=1m` WS/history/cluster-status params).
+    pub fn pipeline_for_label(&self, label: &str) -> Option<&TimeframePipeline> {
+        self.pipelines
+            .iter()
+            .find(|p| core_domain::duration_label(p.timeframe_secs).eq_ignore_ascii_case(label))
     }
 
-    pub fn subscribe_broadcast_by_slot(
+    pub fn subscribe_broadcast_by_secs(
         &self,
-        slot: TimeframeSlot,
+        timeframe_secs: u64,
     ) -> Option<broadcast::Receiver<MarketSnapshot>> {
-        self.pipeline_for_slot(slot)
+        self.pipeline_for_secs(timeframe_secs)
             .map(|p| p.broadcast_tx.subscribe())
     }
 
     pub async fn latest_close_str(&self) -> Option<String> {
-        let hist = self.micro1.history.read().await;
+        let fastest = self.pipelines.first()?;
+        let hist = fastest.history.read().await;
         hist.back().map(|c| c.close.to_string())
     }
 
     pub async fn latest_price(&self) -> Option<f64> {
-        let snap = self.micro1.latest_snapshot.read().await;
+        let fastest = self.pipelines.first()?;
+        let snap = fastest.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
     }
 
-    /// Latest completed `MarketSnapshot` for a given timeframe slot.
+    /// Latest completed `MarketSnapshot` for a given duration.
     ///
     /// The WS handler uses this to bootstrap a fresh socket: it replays
     /// the most recent completed snapshot before the next live tick, so
     /// the frontend Metrics table is populated immediately rather than
     /// waiting `candle_buffer.size × timeframe_secs` for the first
     /// shadow tick.
-    pub async fn latest_snapshot_for_slot(&self, slot: TimeframeSlot) -> Option<MarketSnapshot> {
-        self.pipeline_for_slot(slot)?
+    pub async fn latest_snapshot_for_secs(&self, timeframe_secs: u64) -> Option<MarketSnapshot> {
+        self.pipeline_for_secs(timeframe_secs)?
             .latest_snapshot
             .read()
             .await
             .clone()
     }
 
-    pub async fn snapshot_history_vec(&self, slot: TimeframeSlot) -> Vec<MarketSnapshot> {
-        let Some(p) = self.pipeline_for_slot(slot) else {
+    pub async fn snapshot_history_vec(&self, timeframe_secs: u64) -> Vec<MarketSnapshot> {
+        let Some(p) = self.pipeline_for_secs(timeframe_secs) else {
             return Vec::new();
         };
         let hist = p.snapshot_history.read().await;
         hist.iter().cloned().collect()
     }
 
-    pub async fn snapshot_history_vec_for_secs(&self, timeframe_secs: u64) -> Vec<MarketSnapshot> {
-        match self.pipeline_for_duration(timeframe_secs) {
-            Ok(p) => {
-                let hist = p.snapshot_history.read().await;
-                hist.iter().cloned().collect()
-            }
-            Err(_) => Vec::new(),
-        }
-    }
-
-    /// AUDIT-AIU-121: slot-authoritative history — used by `/api/history`
-    /// when the caller passes `?slot=`. Unlike the duration-only shim above,
-    /// this resolves the EXACT pipeline, so duplicate-duration slots never
-    /// cross-wire each other's history. Falls back to the duration shim when
-    /// the slot hint is absent or unknown.
-    pub async fn snapshot_history_vec_for_slot_or_secs(
+    /// AUDIT-AIU-121 successor: label-authoritative history — used by
+    /// `/api/history` when the caller passes `?slot=1m`. Resolves the
+    /// EXACT pipeline by derived duration label; falls back to the
+    /// duration when the label hint is absent or unknown.
+    pub async fn snapshot_history_vec_for_label_or_secs(
         &self,
-        slot: Option<&str>,
+        label: Option<&str>,
         timeframe_secs: u64,
     ) -> Vec<MarketSnapshot> {
-        if let Some(resolved) = slot
-            .map(core_domain::models::TimeframeSlot::parse)
-            .and_then(|s| self.pipeline_for_slot(s))
-        {
+        if let Some(resolved) = label.and_then(|l| self.pipeline_for_label(l)) {
             let hist = resolved.snapshot_history.read().await;
             return hist.iter().cloned().collect();
         }
-        // Best-effort: no hint, or a custom-slot hint this pair doesn't run —
-        // fall back to the duration shim (the WS live path remains
-        // slot-authoritative regardless).
-        match self.pipeline_for_duration(timeframe_secs) {
-            Ok(p) => {
-                let hist = p.snapshot_history.read().await;
-                hist.iter().cloned().collect()
-            }
-            Err(_) => Vec::new(),
-        }
+        self.snapshot_history_vec(timeframe_secs).await
     }
 
-    /// Latest completed snapshot for each of the ten fixed-ladder
-    /// timeframes (fastest → slowest), for cross-timeframe synthesis.
-    pub async fn latest_snapshots_all_tf(&self) -> [Option<MarketSnapshot>; 10] {
-        let mut out = [None, None, None, None, None, None, None, None, None, None];
-        for (i, p) in self.all().iter().enumerate() {
-            out[i] = p.latest_snapshot.read().await.clone();
+    /// Latest completed snapshot for each ACTIVE duration (fastest →
+    /// slowest), for cross-timeframe synthesis and the monitor surfaces.
+    pub async fn latest_snapshots_active(&self) -> Vec<Option<MarketSnapshot>> {
+        let mut out = Vec::with_capacity(self.pipelines.len());
+        for p in &self.pipelines {
+            out.push(p.latest_snapshot.read().await.clone());
         }
         out
     }
@@ -690,8 +626,7 @@ pub async fn run_single(
     symbol: String,
     pair_key: String,
     timeframe_secs: u64,
-    timeframe_label: &'static str,
-    slot: TimeframeSlot,
+    slot_label: String,
     cancel: CancellationToken,
     candle_forward: Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
     warmed: Option<WarmedPipelineState>,
@@ -756,7 +691,7 @@ pub async fn run_single(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
         symbol,
         pair_key,
-        slot.display_name(),
+        slot_label,
         tf_config.candles.duration_seconds,
         if warmed.is_some() {
             " [pre-warmed]"
@@ -1239,7 +1174,7 @@ pub async fn run_single(
         let action = tokio::select! {
             biased;
             _ = cancel.cancelled() => {
-                println!("🛑 Analysis Task: {} ({}) cancelled, shutting down.", symbol, timeframe_label);
+                println!("🛑 Analysis Task: {} ({}) cancelled, shutting down.", symbol, slot_label);
                 LoopAction::Shutdown
             }
             _ = stale_check.tick() => {
@@ -1249,7 +1184,7 @@ pub async fn run_single(
                 match result {
                     Some(e) => LoopAction::Process(e),
                     None => {
-                        println!("🛑 Analysis Task: {} ({}) channel closed.", symbol, timeframe_label);
+                        println!("🛑 Analysis Task: {} ({}) channel closed.", symbol, slot_label);
                         LoopAction::Shutdown
                     }
                 }
@@ -1344,7 +1279,7 @@ pub async fn run_single(
                         last_day_index = Some(day_index);
                         let force_close_readings = apply_candle_to_indicators(
                             &symbol,
-                            slot,
+                            &slot_label,
                             timeframe_secs,
                             &live,
                             day_index,
@@ -1459,8 +1394,7 @@ pub async fn run_single(
                         };
                         let completed_snapshot = synthesize_completed_candle(
                             &symbol,
-                            timeframe_label,
-                            slot,
+                            &slot_label,
                             timeframe_secs,
                             &live,
                             candle_close_sec,
@@ -1609,7 +1543,7 @@ pub async fn run_single(
                             // Bitget 1s / 3s / 5s / 15s charts.
                             let doji_readings = apply_candle_to_indicators(
                                 &symbol,
-                                slot,
+                                &slot_label,
                                 timeframe_secs,
                                 &doji,
                                 day_index,
@@ -1675,7 +1609,7 @@ pub async fn run_single(
                                 &doji,
                                 &symbol,
                                 &pair_key,
-                                slot,
+                                &slot_label,
                                 timeframe_secs,
                                 bar_count,
                                 real_bar_count,
@@ -1791,7 +1725,7 @@ pub async fn run_single(
                                 };
                                 let idle_readings = apply_candle_to_indicators(
                                     &symbol,
-                                    slot,
+                                    &slot_label,
                                     timeframe_secs,
                                     &idle_doji,
                                     day_index,
@@ -1851,7 +1785,7 @@ pub async fn run_single(
                                     &idle_doji,
                                     &symbol,
                                     &pair_key,
-                                    slot,
+                                    &slot_label,
                                     timeframe_secs,
                                     bar_count,
                                     real_bar_count,
@@ -1950,7 +1884,7 @@ pub async fn run_single(
                         reliability.increment_bypassed(1).await;
                         eprintln!(
                             "🔍 DIE L3 [{} {}]: median = 0 (venue reset) — filter bypassed for tick at price {}",
-                            symbol, timeframe_label, trade_price_f
+                            symbol, slot_label, trade_price_f
                         );
                     }
                     FilterVerdict::Accepted => {}
@@ -1984,7 +1918,7 @@ pub async fn run_single(
                             &telemetry_tx,
                             database_storage::TelemetryMsg::ConsoleLog(format!(
                                 "DIE L3: validity check failed for {}/{} candle at {} — quarantined ({})",
-                                symbol, timeframe_label, candidate.start_time_ms, reason
+                                symbol, slot_label, candidate.start_time_ms, reason
                             )),
                         );
                         let mut replacement: Option<NormalizedCandle> = None;
@@ -2043,7 +1977,7 @@ pub async fn run_single(
                             reliability.increment_gaps(missing as u32).await;
                             eprintln!(
                                 "🕳️  DIE L3 [{} {}]: {} missing bar(s) detected before {} — recovering {}",
-                                symbol, timeframe_label, missing, completed.start_time_ms, fill_n
+                                symbol, slot_label, missing, completed.start_time_ms, fill_n
                             );
 
                             let mut filled: Vec<NormalizedCandle> = Vec::new();
@@ -2134,7 +2068,7 @@ pub async fn run_single(
                                 last_day_index = Some(day_index);
                                 let gap_readings = apply_candle_to_indicators(
                                     &symbol,
-                                    slot,
+                                    &slot_label,
                                     timeframe_secs,
                                     &gap_candle,
                                     day_index,
@@ -2212,7 +2146,7 @@ pub async fn run_single(
                                     &gap_candle,
                                     &symbol,
                                     &pair_key,
-                                    slot,
+                                    &slot_label,
                                     timeframe_secs,
                                     bar_count,
                                     real_bar_count,
@@ -2360,7 +2294,7 @@ pub async fn run_single(
                     // pins that motivated this extraction.
                     let readings = apply_candle_to_indicators(
                         &symbol,
-                        slot,
+                        &slot_label,
                         timeframe_secs,
                         &completed,
                         day_index,
@@ -2407,8 +2341,7 @@ pub async fn run_single(
 
                     let completed_snapshot = synthesize_completed_candle(
                         &symbol,
-                        timeframe_label,
-                        slot,
+                        &slot_label,
                         timeframe_secs,
                         &completed,
                         candle_close_sec,
@@ -2529,7 +2462,7 @@ pub async fn run_single(
                             shadow_ask,
                             ob_bid_size,
                             ob_ask_size,
-                            slot,
+                            &slot_label,
                             &ema_fast,
                             &ema_medium,
                             &ema_slow,
@@ -2648,7 +2581,7 @@ pub async fn run_single(
                             shadow_ask,
                             ob_bid_size,
                             ob_ask_size,
-                            slot,
+                            &slot_label,
                             &ema_fast,
                             &ema_medium,
                             &ema_slow,
@@ -2757,7 +2690,7 @@ pub async fn run_single(
             } => {
                 println!(
                     "[STATUS {}] {}: {:?} — {}",
-                    timeframe_label, exchange, status, message
+                    slot_label, exchange, status, message
                 );
             }
         }
@@ -2777,8 +2710,7 @@ pub async fn run_single(
 #[allow(clippy::too_many_arguments)]
 async fn synthesize_completed_candle(
     symbol: &str,
-    timeframe_label: &str,
-    slot: TimeframeSlot,
+    slot_label: &str,
     timeframe_secs: u64,
     completed: &NormalizedCandle,
     candle_close_sec: u64,
@@ -2953,7 +2885,7 @@ async fn synthesize_completed_candle(
     let log_line = format!(
         "🕯️  [{}] {} Candle Closed | Start: {} | Close: ${:.4} | Vol: {:.4} | Trades: {}",
         symbol,
-        timeframe_label,
+        slot_label,
         completed.start_time_ms,
         completed.close,
         completed.volume,
@@ -3418,7 +3350,7 @@ async fn synthesize_completed_candle(
     let pipeline_is_live = current_state == CandlePipelineState::Live;
 
     let this_snapshot_for_synth = MarketSnapshot {
-        timeframe_slot: Some(slot),
+        timeframe_label: Some(slot_label.to_string()),
         exchange: shadow_exchange,
         timeframe_secs,
         timestamp: candle_close_sec,
@@ -3783,7 +3715,7 @@ async fn synthesize_completed_candle(
     }
 
     let completed_snapshot = MarketSnapshot {
-        timeframe_slot: Some(slot),
+        timeframe_label: Some(slot_label.to_string()),
         exchange: shadow_exchange,
         timeframe_secs,
         timestamp: candle_close_sec,
@@ -4219,7 +4151,7 @@ pub(crate) fn update_sr_levels(
 /// mount without waiting for the first live candle close.
 pub(super) fn build_volume_profile_snapshot(
     symbol: &str,
-    slot: TimeframeSlot,
+    slot_label: &str,
     timeframe_secs: u64,
     reading: &Option<crate::indicators::VolumeProfileOutput>,
     bins: Option<&Vec<crate::indicators::volume_profile::BinAggregate>>,
@@ -4307,11 +4239,9 @@ pub(super) fn build_volume_profile_snapshot(
 
     Some(VolumeProfileSnapshot {
         symbol: symbol.to_string(),
-        // Canonical slot string (`micro`/`fast`/`slow`/`macro`/`custom-N`,
-        // same as the WS envelope and TimeframeSlot::as_str) — the old
-        // `format!("{:?}", slot)` produced `"custom { id: 3 }"` for
-        // operator-defined pipelines.
-        timeframe_slot: slot.as_str(),
+        // v11.9: derived duration label ("1s".."1d") — same string the WS
+        // envelope carries as `timeframe_label`.
+        timeframe_label: slot_label.to_string(),
         timeframe_secs,
         bins: out_bins,
         poc_price,
@@ -4479,7 +4409,7 @@ pub(super) struct CandleIndicatorReadings {
 #[allow(clippy::too_many_arguments)]
 fn apply_candle_to_indicators(
     symbol: &str,
-    slot: TimeframeSlot,
+    slot_label: &str,
     timeframe_secs: u64,
     completed: &NormalizedCandle,
     day_index: u64,
@@ -4561,7 +4491,7 @@ fn apply_candle_to_indicators(
         };
     let volume_profile_snapshot = build_volume_profile_snapshot(
         symbol,
-        slot,
+        slot_label,
         timeframe_secs,
         &live_reading,
         volume_profile_indicator
@@ -4699,7 +4629,7 @@ pub(super) fn build_completed_snapshot_from_readings(
     candle: &NormalizedCandle,
     symbol: &str,
     _pair_key: &str,
-    slot: TimeframeSlot,
+    slot_label: &str,
     timeframe_secs: u64,
     bar_count: u32,
     real_bar_count: u32,
@@ -4936,7 +4866,7 @@ pub(super) fn build_completed_snapshot_from_readings(
     );
 
     MarketSnapshot {
-        timeframe_slot: Some(slot),
+        timeframe_label: Some(slot_label.to_string()),
         exchange: shadow_exchange,
         timeframe_secs,
         timestamp: candle.start_time_ms / 1000,
@@ -5025,7 +4955,7 @@ fn broadcast_live_snapshot(
     // frames never carry candle volume as depth, 02-07 §2.1 semantics).
     ob_bid_size: Option<Decimal>,
     ob_ask_size: Option<Decimal>,
-    slot: TimeframeSlot,
+    slot_label: &str,
     ema_fast: &Ema,
     ema_medium: &Ema,
     ema_slow: &Ema,
@@ -5228,7 +5158,7 @@ fn broadcast_live_snapshot(
     );
 
     let snapshot = MarketSnapshot {
-        timeframe_slot: Some(slot),
+        timeframe_label: Some(slot_label.to_string()),
         exchange,
         timeframe_secs,
         timestamp: candle.start_time_ms / 1000,

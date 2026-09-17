@@ -1,23 +1,28 @@
-//! duration_profile — per-duration indicator parameter baseline (v11.8).
+//! duration_profile — per-duration indicator parameter baseline (v11.8,
+//! v11.9 extended to the full 14-duration pool).
 //!
-//! The canonical per-duration tuning matrix for the fixed 10-slot ladder.
-//! Each duration carries explicit provenance from the trader-approved
+//! The canonical per-duration tuning matrix for the supported duration
+//! pool. Each duration carries explicit provenance from the trader-approved
 //! tier architecture; no silent inheritance. Canonical thresholds (RSI
 //! 30/50/70, RVOL 1.5/3.0, squeeze-min 5, candlestick window 5) stay
-//! constant across slots — periods carry the responsiveness.
+//! constant across durations — periods carry the responsiveness.
 //!
 //! Provenance rules:
 //!   R1: 1s and 3s share the microstructure tier (T0) verbatim
 //!   R2: 5s=T1, 15s=T2, 30s=T3, 1m=T4, 5m=T5, 15m=T6, 1h=T8 (verbatim)
 //!   R3: 3m = T4·T5 blend (structure from T5, fast oscillators from T4)
-//!   R4: 1h is the strategic ceiling — T9/T10 values are never used
+//!   R4: v11.9 extends past the strategic ceiling: 30m=T7, 4h=T9,
+//!       12h=T9·T10 lean-4h, 1d=T10
 //!   R5: canonical thresholds constant
 //!   R6: provenance recorded per column in the docs table
 
 use crate::models::IndicatorsConfig;
 
-/// All profile entries keyed by `timeframe_secs`.
-pub const PROFILE_DURATIONS: &[u64] = &[1, 3, 5, 15, 30, 60, 180, 300, 900, 3600];
+/// All profile entries keyed by `timeframe_secs` (aligned with
+/// `core_domain::SUPPORTED_DURATIONS`).
+pub const PROFILE_DURATIONS: &[u64] = &[
+    1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400, 43200, 86400,
+];
 
 /// Provenance label per duration (aligned with PROFILE_DURATIONS).
 pub const PROFILE_PROVENANCE: &[&str] = &[
@@ -30,7 +35,11 @@ pub const PROFILE_PROVENANCE: &[&str] = &[
     "T4·T5 blend",
     "T5",
     "T6",
+    "T7",
     "T8",
+    "T9",
+    "T9·T10 lean-4h",
+    "T10",
 ];
 
 /// Resolve the tier provenance label for a duration.
@@ -416,6 +425,55 @@ pub fn for_duration(secs: u64) -> IndicatorsConfig {
             cfg.linreg_period = 50;
             cfg.zscore_period = 50;
         }
+        // ── T7: swing structure (30m) ──
+        1800 => {
+            cfg.ema_fast = 10;
+            cfg.ema_medium = 21;
+            cfg.ema_slow = 55;
+            cfg.ema_long = 144;
+            cfg.rsi_period = 14;
+            cfg.macd_fast = 12;
+            cfg.macd_slow = 26;
+            cfg.macd_signal = 9;
+            cfg.adx_period = 14;
+            cfg.adx_trend_threshold = 20;
+            cfg.adx_exhaustion_threshold = 40;
+            cfg.atr_period = 14;
+            cfg.supertrend_period = 12;
+            cfg.supertrend_multiplier = 2.5;
+            cfg.donchian_period = 55;
+            cfg.keltner_ema_period = 20;
+            cfg.keltner_atr_period = 20;
+            cfg.keltner_multiplier = 2.0;
+            cfg.ichimoku_tenkan = 12;
+            cfg.ichimoku_kijun = 30;
+            cfg.ichimoku_senkou_b = 60;
+            cfg.psar_af_step = 0.02;
+            cfg.psar_af_max = 0.20;
+            cfg.hull_ma_period = 55;
+            cfg.stoch_k_period = 14;
+            cfg.stoch_d_period = 3;
+            cfg.stoch_s_period = 3;
+            cfg.chandemo_period = 14;
+            cfg.williams_r_period = 14;
+            cfg.cci_period = 20;
+            cfg.bbwp_period = 20;
+            cfg.bbwp_lookback = 252;
+            cfg.squeeze_period = 20;
+            cfg.squeeze_bb_period = 20;
+            cfg.squeeze_bb_std_dev = 2.0;
+            cfg.squeeze_kc_period = 20;
+            cfg.squeeze_kc_atr_multiplier = 1.5;
+            cfg.stddev_channel_period = 100;
+            cfg.obv_smoothing = 30;
+            cfg.cmf_period = 20;
+            cfg.mfi_period = 14;
+            cfg.force_index_smoothing = 13;
+            cfg.aroon_period = 25;
+            cfg.chop_period = 14;
+            cfg.linreg_period = 50;
+            cfg.zscore_period = 50;
+        }
         // ── T8: strategic intraday ceiling (1h) ──
         3600 => {
             cfg.ema_fast = 10;
@@ -462,6 +520,43 @@ pub fn for_duration(secs: u64) -> IndicatorsConfig {
             cfg.chop_period = 14;
             cfg.linreg_period = 50;
             cfg.zscore_period = 50;
+        }
+        // ── T9: multi-session swing (4h) ──
+        14400 => {
+            cfg.ema_fast = 10;
+            cfg.ema_medium = 20;
+            cfg.ema_slow = 50;
+            cfg.ema_long = 200;
+            cfg.adx_period = 14;
+            cfg.adx_trend_threshold = 22;
+            cfg.adx_exhaustion_threshold = 40;
+            cfg.ichimoku_tenkan = 12;
+            cfg.ichimoku_kijun = 36;
+            cfg.ichimoku_senkou_b = 72;
+            cfg.chandemo_period = 20;
+            cfg.supertrend_period = 14;
+            cfg.supertrend_multiplier = 3.0;
+        }
+        // ── T9·T10 lean-4h: multi-day structure (12h) ──
+        43200 => {
+            cfg.ema_fast = 20;
+            cfg.ema_medium = 50;
+            cfg.ema_slow = 100;
+            cfg.ema_long = 200;
+            cfg.adx_period = 14;
+            cfg.adx_trend_threshold = 25;
+            cfg.adx_exhaustion_threshold = 45;
+        }
+        // ── T10: positional (1d) ──
+        86400 => {
+            cfg.ema_fast = 20;
+            cfg.ema_medium = 50;
+            cfg.ema_slow = 100;
+            cfg.ema_long = 200;
+            cfg.donchian_period = 20;
+            cfg.ichimoku_tenkan = 20;
+            cfg.ichimoku_kijun = 60;
+            cfg.ichimoku_senkou_b = 120;
         }
         _ => {}
     }

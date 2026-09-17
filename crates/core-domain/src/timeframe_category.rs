@@ -1,6 +1,6 @@
 //! # TimeframeCategory — abstract trading horizon
 //!
-//! Each `TimeframeSlot` (passed at the operator level via `TimeframeSlotsConfig`)
+//! Each active duration (passed at the operator level via `[workspace].timeframes`)
 //! is auto-classified into a `TimeframeCategory` based on its `timeframe_secs`.
 //! The category controls the cross-engine recommendation chain: stop widths,
 //! confidence thresholds, which indicators feed the L4/L5/L6 chain, and how

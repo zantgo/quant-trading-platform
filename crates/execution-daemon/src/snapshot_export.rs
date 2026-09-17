@@ -177,19 +177,19 @@ pub async fn tick_once(
         // Pull the latest 10-slot snapshots for this instance — same
         // pattern used by the L7 Overview aggregator at
         // `crates/execution-daemon/src/main.rs`.
-        let snaps = inst.active_pair.latest_snapshots_all_tf().await;
-        // Slot names come from the snapshot itself (matches the WS wire
-        // and `/api/history` keys) and `timeframe_secs` comes from the
-        // snapshot's actual configured duration — never hardcoded
+        let snaps = inst.active_pair.latest_snapshots_active().await;
+        // Duration labels come from the snapshot itself (matches the WS
+        // wire and `/api/history` keys) and `timeframe_secs` comes from
+        // the snapshot's actual configured duration — never hardcoded
         // defaults.
-        let mut snap_slots: Vec<(String, u64, &Option<MarketSnapshot>)> = Vec::with_capacity(10);
+        let mut snap_slots: Vec<(String, u64, &Option<MarketSnapshot>)> =
+            Vec::with_capacity(snaps.len());
         for slot_ref in snaps.iter() {
             if let Some(s) = slot_ref.as_ref() {
                 let name = s
-                    .timeframe_slot
-                    .as_ref()
-                    .map(|ts| ts.as_str())
-                    .unwrap_or_default();
+                    .timeframe_label
+                    .clone()
+                    .unwrap_or_else(|| core_domain::duration_label(s.timeframe_secs));
                 snap_slots.push((name, s.timeframe_secs, slot_ref));
             }
         }
@@ -203,7 +203,7 @@ pub async fn tick_once(
                         timestamp_ms: now.timestamp_millis(),
                         tab: tab.clone(),
                         pair_key: pair_key.clone(),
-                        timeframe_slot: slot_name.to_string(),
+                        timeframe_label: slot_name.clone(),
                         timeframe_secs: slot_secs,
                     },
                     payload,
@@ -265,7 +265,10 @@ fn build_tab_payload(tab: &str, snap: &MarketSnapshot) -> serde_json::Value {
         }
         "metrics" => serde_json::to_value(snap).unwrap_or(serde_json::Value::Null),
         "mtf" => serde_json::json!({
-            "slot": snap.timeframe_slot.as_ref().map(|ts| ts.as_str()).unwrap_or_default(),
+            "slot": snap
+                .timeframe_label
+                .clone()
+                .unwrap_or_else(|| core_domain::duration_label(snap.timeframe_secs)),
             "timeframe_secs": snap.timeframe_secs,
             "indicators": snap.indicators.len(),
             "alignment": snap.alignment,

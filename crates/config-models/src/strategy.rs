@@ -388,18 +388,22 @@ pub struct L2TfWeighting {
 impl Default for L2TfWeighting {
     fn default() -> Self {
         let mut w = std::collections::HashMap::new();
-        // Fixed 10-slot ladder (family-split defaults: the legacy per-family
-        // values split evenly across each family pair).
-        w.insert("micro1".into(), 0.1);
-        w.insert("micro2".into(), 0.1);
-        w.insert("fast1".into(), 0.1);
-        w.insert("fast2".into(), 0.1);
-        w.insert("slow1".into(), 0.166);
-        w.insert("slow2".into(), 0.166);
-        w.insert("macro1".into(), 0.5);
-        w.insert("macro2".into(), 0.5);
-        w.insert("longterm1".into(), 1.0);
-        w.insert("longterm2".into(), 1.0);
+        // v11.9 duration-keyed pool (family-split defaults; the newer
+        // long-horizon durations extend the top weight).
+        w.insert("1s".into(), 0.1);
+        w.insert("3s".into(), 0.1);
+        w.insert("5s".into(), 0.1);
+        w.insert("15s".into(), 0.1);
+        w.insert("30s".into(), 0.166);
+        w.insert("1m".into(), 0.166);
+        w.insert("3m".into(), 0.5);
+        w.insert("5m".into(), 0.5);
+        w.insert("15m".into(), 1.0);
+        w.insert("1h".into(), 1.0);
+        w.insert("30m".into(), 1.0);
+        w.insert("4h".into(), 1.0);
+        w.insert("12h".into(), 1.0);
+        w.insert("1d".into(), 1.0);
         Self {
             mode: "proportional".into(),
             weights: w,
@@ -1885,17 +1889,21 @@ impl Default for L7Systemic {
         sync.insert("fragmented".into(), 10.0);
         sync.insert("highly_fragmented".into(), 0.0);
         let mut decay = std::collections::HashMap::new();
-        // Fixed 10-slot ladder (family-split defaults, Σ = 1.0).
-        decay.insert("micro1".into(), 0.05);
-        decay.insert("micro2".into(), 0.05);
-        decay.insert("fast1".into(), 0.05);
-        decay.insert("fast2".into(), 0.1);
-        decay.insert("slow1".into(), 0.1);
-        decay.insert("slow2".into(), 0.15);
-        decay.insert("macro1".into(), 0.15);
-        decay.insert("macro2".into(), 0.15);
-        decay.insert("longterm1".into(), 0.1);
-        decay.insert("longterm2".into(), 0.1);
+        // v11.9 duration-keyed pool (family-split defaults, Σ = 1.0).
+        decay.insert("1s".into(), 0.04);
+        decay.insert("3s".into(), 0.04);
+        decay.insert("5s".into(), 0.04);
+        decay.insert("15s".into(), 0.07);
+        decay.insert("30s".into(), 0.07);
+        decay.insert("1m".into(), 0.10);
+        decay.insert("3m".into(), 0.10);
+        decay.insert("5m".into(), 0.10);
+        decay.insert("15m".into(), 0.08);
+        decay.insert("1h".into(), 0.08);
+        decay.insert("30m".into(), 0.07);
+        decay.insert("4h".into(), 0.07);
+        decay.insert("12h".into(), 0.07);
+        decay.insert("1d".into(), 0.07);
         Self {
             weights: [0.6, 0.4],
             sync_penalty: sync,
@@ -2448,13 +2456,14 @@ impl Default for LadderRoles {
     fn default() -> Self {
         Self {
             enabled: false,
-            // Extremes mapping on the fixed 10-slot ladder: decision/stop
-            // anchor on the slowest slot (longterm2, 1h), entry/target on
-            // the fastest (micro1, 1s).
-            decision_tf: "longterm2".into(),
-            entry_tf: "micro1".into(),
-            stop_tf: "longterm2".into(),
-            target_tf: "micro1".into(),
+            // v11.9 duration labels: decision/stop anchor on the slowest
+            // supported duration (1d), entry/target on the fastest (1s).
+            // When the configured duration is not ACTIVE the synthesis
+            // falls back to the slowest ACTIVE duration.
+            decision_tf: "1d".into(),
+            entry_tf: "1s".into(),
+            stop_tf: "1d".into(),
+            target_tf: "1s".into(),
         }
     }
 }
