@@ -219,8 +219,8 @@ pub fn compute_state(decisions: &[AnalysisMatrix], instances: &[InstanceMeta]) -
 mod tests {
     use super::*;
     use crate::analysis::{
-        MarketPhase, MarketRegime, MomentumAssessment, OpportunityType, QualityLevel,
-        StructureAssessment, TrendAssessment, VolatilityAssessment, VolumeAssessment,
+        MarketPhase, MarketRegime, MomentumAssessment, QualityLevel, StructureAssessment,
+        TrendAssessment, VolatilityAssessment, VolumeAssessment,
     };
 
     fn sample_decision(symbol: &str, bias: MarketBias, confidence: f64, tfs: u8) -> AnalysisMatrix {
@@ -253,7 +253,7 @@ mod tests {
             market_interpretation: format!("Test interpretation for {}", symbol),
             rationale: format!("MTF test for {}", symbol),
             supporting_signals: vec![
-                "fast180 (bullish): score +72, TRENDING regime, 2 active signals".into(),
+                "3m (bullish): score +72, TRENDING regime, 2 active signals".into(),
                 "macro900 (bullish): score +85, TRENDING regime, 1 active signals".into(),
             ],
             contradicting_signals: vec![
@@ -274,7 +274,7 @@ mod tests {
             InstanceMeta {
                 symbol: symbol.into(),
                 timeframe_secs: 180,
-                timeframe_label: "fast180".into(),
+                timeframe_label: "3m".into(),
                 is_active: true,
             },
             InstanceMeta {

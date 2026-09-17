@@ -16,6 +16,10 @@ pub mod latency;
 pub mod liquidity;
 pub mod market_context;
 pub mod models;
+pub use models::{
+    duration_from_label, duration_label, duration_label_upper, is_supported_duration,
+    slot_label_for, SUPPORTED_DURATIONS,
+};
 pub mod normalized;
 pub mod opportunity;
 pub mod overview;

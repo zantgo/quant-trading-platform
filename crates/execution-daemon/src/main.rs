@@ -483,8 +483,8 @@ fn confirm(label: &str, default_yes: bool) -> bool {
 }
 
 /// One instance configured in the CLI launch prompt. Durations are no
-/// longer prompted — every instance runs the fixed 10-slot ladder
-/// (`config_models::FIXED_TF_LADDER`).
+/// longer prompted — every instance runs `[workspace].timeframes`
+/// (the 14-duration pool, default fastest eight).
 struct CliInstance {
     base: String,
 }
@@ -502,23 +502,22 @@ struct CliLaunchPlan {
     trading: String,
 }
 
-/// The ACTIVE ladder (fastest N of the fixed pool), rendered compactly for
-/// the launch prompt and the summary ("1s/3s/5s/15s/30s" at the default
-/// count of 5). `config_models::FIXED_TF_LADDER` is the single source of
-/// truth for CLI, GUI, and registry alike; `[workspace].active_timeframes`
-/// selects how many of the fastest slots run.
-/// Best-effort read of `[workspace].active_timeframes` for CLI display.
-fn cli_ws_active_timeframes() -> usize {
+/// The ACTIVE ladder (`[workspace].timeframes`), rendered compactly for
+/// the launch prompt and the summary ("1s/3s/5s/15s/30s/1m/3m/5m" at the
+/// default). `config_models::SUPPORTED_DURATIONS` is the single source of
+/// truth for CLI, GUI, and registry alike; `[workspace].timeframes`
+/// selects WHICH durations run.
+/// Best-effort read of `[workspace].timeframes` for CLI display.
+fn cli_ws_active_timeframes() -> Vec<u64> {
     load_workspace()
-        .map(|ws| ws.active_timeframes)
-        .unwrap_or(config_models::DEFAULT_ACTIVE_TIMEFRAMES)
+        .map(|ws| ws.active_timeframes_for())
+        .unwrap_or_else(|_| config_models::DEFAULT_TIMEFRAMES.to_vec())
 }
 
-fn fixed_ladder_display(active_count: usize) -> String {
-    let n = active_count.clamp(1, config_models::FIXED_TF_LADDER.len());
-    config_models::FIXED_TF_LADDER[..n]
+fn fixed_ladder_display(active_secs: &[u64]) -> String {
+    active_secs
         .iter()
-        .map(|s| tf_label(*s))
+        .map(|&s| tf_label(s))
         .collect::<Vec<_>>()
         .join("/")
 }
@@ -611,7 +610,7 @@ fn cli_launch_plan(
     );
     println!(
         "  Timeframes (active ladder): {}",
-        fixed_ladder_display(cli_ws_active_timeframes())
+        fixed_ladder_display(&cli_ws_active_timeframes())
     );
     loop {
         let default_base = if instances.is_empty() {
@@ -667,7 +666,7 @@ fn cli_launch_plan(
     println!("  Settlement currency  : {}", currency);
     println!(
         "  Active TF ladder     : {}",
-        fixed_ladder_display(cli_ws_active_timeframes())
+        fixed_ladder_display(&cli_ws_active_timeframes())
     );
     for inst in &instances {
         println!(
@@ -1064,7 +1063,7 @@ async fn async_main() {
                         std::process::exit(1);
                     }
                 },
-                None => config_models::FIXED_TF_LADDER.to_vec(),
+                None => vec![60, 180, 300, 900, 3600],
             },
             depth_days: cli
                 .bt_depth
@@ -1390,20 +1389,15 @@ async fn async_main() {
             if cfg.instances.iter().any(|e| e.symbol == symbol) {
                 continue;
             }
-            // Legacy per-slot fields are parsed but IGNORED by the loader —
-            // every instance runs the fixed 10-slot ladder
-            // (`FIXED_TF_LADDER`) with workspace-level indicator defaults.
-            // Defaults suffice: `TimeframeConfig::default()` for the always
-            // present micro_term/fast_term, `None` for slow/macro.
+            // v11.9: every instance runs the workspace duration ladder
+            // (`[workspace].timeframes`) with per-duration profiles; no
+            // per-instance overrides are created at launch.
             cfg.instances.push(config_models::InstanceEntry {
                 id: format!("inst_{}", inst.base.to_lowercase()),
                 symbol,
                 quote: plan.currency.clone(),
                 status: config_models::InstanceStatus::Running,
-                micro_term: config_models::TimeframeConfig::default(),
-                fast_term: config_models::TimeframeConfig::default(),
-                slow_term: None,
-                macro_term: None,
+                timeframes: std::collections::BTreeMap::new(),
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: config_models::OperationalMode::Advisory,
                 mode: exec_mode.clone(),
@@ -1411,7 +1405,6 @@ async fn async_main() {
                 allocation_pct: None,
                 weight_overrides: None,
                 activation: None,
-                custom_pipelines: std::collections::HashMap::new(),
             });
         }
         let _ = config_models::save_workspace(&cfg);
@@ -2086,26 +2079,36 @@ async fn async_main() {
                 let mut panel_instances: Vec<core_domain::overview_panel::PanelInstance> =
                     Vec::new();
                 for inst in &instances {
-                    let snapshots = inst.active_pair.latest_snapshots_all_tf().await;
-                    // v6.10.18 (I-2): the L7 aggregates ALL TEN fixed-ladder
-                    // timeframe windows (micro1..longterm2) — per-window
-                    // advisories feed the breadth / bias / opportunity /
-                    // regime tallies. The previous slow-300s-only basis
+                    let snapshots = inst.active_pair.latest_snapshots_active().await;
+                    // v6.10.18 (I-2): the L7 aggregates ALL ACTIVE duration
+                    // windows — per-window advisories feed the breadth /
+                    // bias / opportunity / regime tallies. The previous
+                    // slow-300s-only basis
                     // made the dashboard headline contradict every panel
                     // (e.g. HIGH_RISK next to an avg-risk of 41, or a
                     // stale "Pullback" while the Opportunity tab shows
                     // Scalp).
                     // v6.10.19a: the canonical per-pair risk is the fastest
-                    // window's (micro1) L5 score (the same number the Risk
-                    // panel, the dashboard KPI, and the asset rows show) —
-                    // the TF-window MEAN drifted upward whenever the slow
+                    // window's L5 score (the same number the Risk panel,
+                    // the dashboard KPI, and the asset rows show) — the
+                    // TF-window MEAN drifted upward whenever the slow
                     // windows scored high (MAX_COMPRESSION / thin
                     // participation) and rendered "HIGH_RISK" next to a
                     // visible avg-risk of 41–46. The window mean remains
-                    // the warmup fallback when micro1 has no risk matrix
-                    // yet.
-                    let snaps: [Option<&core_domain::models::MarketSnapshot>; 10] =
-                        std::array::from_fn(|i| snapshots[i].as_ref());
+                    // the warmup fallback when the fastest window has no
+                    // risk matrix yet.
+                    // v11.9: one window per ACTIVE duration (ascending).
+                    let snaps: Vec<Option<&core_domain::models::MarketSnapshot>> =
+                        snapshots.iter().map(|s| s.as_ref()).collect();
+                    // Per-pool-index decay weights (P7): micro-tier windows
+                    // contribute little, slow windows dominate. Index-aligned
+                    // with `core_domain::SUPPORTED_DURATIONS` so any ACTIVE
+                    // subset maps deterministically (the L7 SYSTEMIC path
+                    // normalizes by the weight sum).
+                    const POOL_WEIGHTS: [f64; 14] = [
+                        0.04, 0.04, 0.04, 0.07, 0.07, 0.10, 0.10, 0.10, 0.08, 0.07, 0.08, 0.07,
+                        0.07, 0.07,
+                    ];
                     // Audit fix (M6): `instance_count`/`is_active` must
                     // reflect actual monitoring — the previous `!cancel`
                     // check only flipped on delete/recharge, so a
@@ -2118,35 +2121,40 @@ async fn async_main() {
                     let is_active = !inst.cancel.is_cancelled()
                         && lifecycle_state != config_models::LifecycleState::Stopped
                         && lifecycle_state != config_models::LifecycleState::Stopping;
-                    // v6.10.19 (P7) / 10-slot ladder: per-slot-window risk
-                    // pairs with decay weights (micro1/micro2/fast1 0.05 ·
-                    // fast2/slow1 0.1 · slow2/macro1/macro2 0.15 ·
-                    // longterm1/longterm2 0.1 — Σ = 1.0) — the L7 SYSTEMIC
-                    // path stays anchored to the slower windows so a
-                    // transient micro risk spike can never fire the PME
-                    // safety veto.
-                    let tf_weights = [0.05_f64, 0.05, 0.05, 0.1, 0.1, 0.15, 0.15, 0.15, 0.1, 0.1];
+                    // v6.10.19 (P7) / v11.9 duration pool: per-window risk
+                    // pairs with decay weights (fastest 0.04 · mid 0.07 ·
+                    // 1m/3m/5m 0.1 · 15m/1h 0.08 · long horizon 0.07 —
+                    // Σ = 1.0, index-aligned with `SUPPORTED_DURATIONS`) —
+                    // the L7 SYSTEMIC path stays anchored to the slower
+                    // windows so a transient fast-window risk spike can
+                    // never fire the PME safety veto.
                     let mut risk_windows: Vec<(f64, f64)> = Vec::new();
                     let mut risk_sum = 0.0;
                     let mut risk_count = 0u32;
                     let mut alignment_pushed = false;
-                    for (i, snap) in snaps.iter().enumerate() {
-                        if let Some(snap) = snap {
-                            if let Some(adv) = snap.advisory.clone() {
-                                advisories.push(adv);
-                            }
-                            if let Some(r) = snap.risk.as_ref() {
-                                risk_windows.push((tf_weights[i], r.overall_risk.score));
-                                risk_sum += r.overall_risk.score;
-                                risk_count += 1;
-                            }
-                            // The MTF AlignmentMatrix is one per symbol — push
-                            // it once, from the fastest present window.
-                            if !alignment_pushed {
-                                if let Some(aln) = snap.alignment.clone() {
-                                    alignments.push(aln);
-                                    alignment_pushed = true;
-                                }
+                    for snap in snaps.iter().flatten() {
+                        if let Some(adv) = snap.advisory.clone() {
+                            advisories.push(adv);
+                        }
+                        if let Some(r) = snap.risk.as_ref() {
+                            // v11.9: weight by the duration's canonical
+                            // pool position (deterministic for any ACTIVE
+                            // subset).
+                            let pool_idx = core_domain::SUPPORTED_DURATIONS
+                                .iter()
+                                .position(|&d| d == snap.timeframe_secs)
+                                .unwrap_or(core_domain::SUPPORTED_DURATIONS.len() - 1);
+                            let w = POOL_WEIGHTS[pool_idx];
+                            risk_windows.push((w, r.overall_risk.score));
+                            risk_sum += r.overall_risk.score;
+                            risk_count += 1;
+                        }
+                        // The MTF AlignmentMatrix is one per symbol — push
+                        // it once, from the fastest present window.
+                        if !alignment_pushed {
+                            if let Some(aln) = snap.alignment.clone() {
+                                alignments.push(aln);
+                                alignment_pushed = true;
                             }
                         }
                     }
@@ -2162,12 +2170,9 @@ async fn async_main() {
                         // "BTC-USDT").
                         symbol: inst.symbol(),
                         // tf-average label: the meta describes the whole
-                        // 10-slot aggregate — the representative duration is
-                        // the ladder max (3600s), never a single slot's.
-                        timeframe_secs: *config_models::FIXED_TF_LADDER
-                            .iter()
-                            .max()
-                            .unwrap_or(&900),
+                        // ACTIVE aggregate — the representative duration is
+                        // the active ladder max, never a single slot's.
+                        timeframe_secs: inst.active_secs.iter().copied().max().unwrap_or(900),
                         timeframe_label: "tf-average".into(),
                         is_active,
                         // L7-A (v6.10.13): the per-symbol L5 overall risk —
@@ -2176,7 +2181,9 @@ async fn async_main() {
                         // (operator-visible); falls back to the window mean,
                         // then 50 (moderate) during warmup.
                         overall_risk: canonical_overall_risk(
-                            snaps[0]
+                            snaps
+                                .first()
+                                .and_then(|s| *s)
                                 .and_then(|s| s.risk.as_ref())
                                 .map(|r| r.overall_risk.score),
                             risk_count,

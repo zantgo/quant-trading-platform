@@ -27,8 +27,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let (telemetry_tx, _telemetry_rx) = mpsc::channel(10);
 
         let test_workspace = config_models::WorkspaceConfig {
-            active_timeframes: 10,
-            active_slots: None,
+            timeframes: config_models::SUPPORTED_DURATIONS.to_vec(),
             id: "test".into(),
             name: "Test".into(),
             default_currency: "USDC".into(),
@@ -92,8 +91,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_symbol,
                 analyzer_pair_key,
                 60,
-                "Micro",
-                core_domain::models::TimeframeSlot::Micro1,
+                "1m".to_string(),
                 analyzer_cancel,
                 None,
                 None,

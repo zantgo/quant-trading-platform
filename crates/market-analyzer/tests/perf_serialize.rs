@@ -14,9 +14,7 @@ use core_domain::analysis::AnalysisMatrix;
 use core_domain::decision_context::DecisionContext;
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::{ContextDimension, MarketContext};
-use core_domain::models::{
-    CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot,
-};
+use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity};
 use core_domain::normalized::Exchange;
 use core_domain::risk::RiskMatrix;
 use rust_decimal_macros::dec;
@@ -120,7 +118,7 @@ fn build_realistic_snapshot() -> MarketSnapshot {
     };
 
     MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro1),
+        timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 60,
         timestamp: 1700000000,

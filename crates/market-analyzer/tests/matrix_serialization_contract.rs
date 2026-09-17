@@ -17,9 +17,7 @@ use core_domain::analysis::AnalysisMatrix;
 use core_domain::decision_context::DecisionContext;
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::{ContextDimension, MarketContext};
-use core_domain::models::{
-    CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot,
-};
+use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity};
 use core_domain::normalized::Exchange;
 use core_domain::risk::RiskMatrix;
 use rust_decimal_macros::dec;
@@ -72,7 +70,7 @@ fn build_realistic_snapshot() -> MarketSnapshot {
     };
 
     MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro1),
+        timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 60,
         timestamp: 1700000000,
@@ -313,7 +311,7 @@ fn snapshot_top_level_keys_match_frontend_contract() {
     // (`ui/src/lib/websocket.svelte.ts`) and the metrics/MTF builders.
     let keys = sorted_keys(&v);
     for required in [
-        "timeframe_slot",
+        "timeframe_label",
         "exchange",
         "timeframe_secs",
         "timestamp",
@@ -567,7 +565,7 @@ fn volume_profile_snapshot_keys_match_frontend_contract() {
         &v,
         &[
             "symbol",
-            "timeframe_slot",
+            "timeframe_label",
             "timeframe_secs",
             "timestamp_ms",
             "bins",

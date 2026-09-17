@@ -12,7 +12,7 @@ use std::time::Duration;
 use api_gateway::{self, AppState};
 use config_models::FibonacciConfig;
 use config_models::WorkspaceConfig;
-use core_domain::models::{MarketSnapshot, TimeframeSlot};
+use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{Exchange, SymbolMapper};
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
@@ -62,14 +62,13 @@ async fn build_router_with_snapshots(
         }
     }
 
-    let build_pipe = |slot, secs, tx| TimeframePipeline {
-        slot,
+    let build_pipe = |secs, tx| TimeframePipeline {
+        slot_label: core_domain::duration_label(secs),
         history: Arc::new(RwLock::new(VecDeque::new())),
         broadcast_tx: tx,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: snap_hist.clone(),
         timeframe_secs: secs,
-        timeframe_label: "Test",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: FibonacciConfig::default(),
@@ -94,21 +93,22 @@ async fn build_router_with_snapshots(
 
     let active_pair = Arc::new(ActivePair {
         symbol: PAIR_KEY.to_string(),
-        custom_pipelines: std::collections::HashMap::new(),
-        // Fixed 10-slot ladder with canonical durations (1s → Micro1,
-        // 3s → Micro2, 5s → Fast1 …): every pipeline shares the seeded
-        // `snap_hist`, so whichever slot the requested sub-minute duration
+        // v11.9 supported-pool durations: every pipeline shares the seeded
+        // `snap_hist`, so whichever duration the requested sub-minute TF
         // resolves to sees the bootstrap snapshots.
-        micro1: build_pipe(TimeframeSlot::Micro1, 1, bcast_tx.clone()),
-        micro2: build_pipe(TimeframeSlot::Micro2, 3, bcast_tx.clone()),
-        fast1: build_pipe(TimeframeSlot::Fast1, 5, bcast_tx.clone()),
-        fast2: build_pipe(TimeframeSlot::Fast2, 15, bcast_tx.clone()),
-        slow1: build_pipe(TimeframeSlot::Slow1, 30, bcast_tx.clone()),
-        slow2: build_pipe(TimeframeSlot::Slow2, 60, bcast_tx.clone()),
-        macro1: build_pipe(TimeframeSlot::Macro1, 180, bcast_tx.clone()),
-        macro2: build_pipe(TimeframeSlot::Macro2, 300, bcast_tx.clone()),
-        longterm1: build_pipe(TimeframeSlot::Longterm1, 900, bcast_tx.clone()),
-        longterm2: build_pipe(TimeframeSlot::Longterm2, 3600, bcast_tx),
+        pipelines: vec![
+            build_pipe(1, bcast_tx.clone()),
+            build_pipe(3, bcast_tx.clone()),
+            build_pipe(5, bcast_tx.clone()),
+            build_pipe(15, bcast_tx.clone()),
+            build_pipe(30, bcast_tx.clone()),
+            build_pipe(60, bcast_tx.clone()),
+            build_pipe(180, bcast_tx.clone()),
+            build_pipe(300, bcast_tx.clone()),
+            build_pipe(900, bcast_tx.clone()),
+            build_pipe(3600, bcast_tx),
+        ],
+        active_secs: config_models::SUPPORTED_DURATIONS.to_vec(),
         snapshot_tx: mpsc::channel::<core_domain::normalized::NormalizedEvent>(50).0,
         cancel: CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -118,10 +118,9 @@ async fn build_router_with_snapshots(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
-        active_indices: (0..10).collect(),
     });
 
-    let buffers: [TimeframeBuffers; 10] = active_pair
+    let buffers: Vec<TimeframeBuffers> = active_pair
         .all()
         .iter()
         .map(|pipe| TimeframeBuffers {
@@ -129,9 +128,7 @@ async fn build_router_with_snapshots(
             latest: pipe.latest_snapshot.clone(),
             snapshot_history: snap_hist.clone(),
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"));
+        .collect();
 
     let instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
@@ -143,7 +140,7 @@ async fn build_router_with_snapshots(
         Default::default(),
         Default::default(),
         buffers,
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        config_models::SUPPORTED_DURATIONS.to_vec(), // v11.9 active ladder
         Default::default(),
     ));
     workspace.insert(PAIR_KEY.to_string(), instance).await;
@@ -197,7 +194,7 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
     let bid = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap_or_default();
     let ask = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap_or_default();
     MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro1),
+        timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: secs,
         timestamp,

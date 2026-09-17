@@ -1054,21 +1054,26 @@ pub struct InstanceDetailQuery {
     pub id: String,
     #[serde(default)]
     pub pair_key: Option<String>,
+    /// Legacy alias accepted by the reload endpoint (`?slot=`); prefer
+    /// `?tf=<secs|label>`. Not used by other routes.
     #[serde(default)]
     pub slot: Option<String>,
+    /// v11.9: duration in seconds (`60`) or label (`1m`) for the reload
+    /// endpoint. `all` (default) recharges every ACTIVE duration.
+    #[serde(default)]
+    pub tf: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstanceConfigPayload {
+    /// v11.9: per-duration overrides keyed by duration seconds
+    /// (`{"60": { candles, indicators, leverage }, ...}`). Each entry is
+    /// the COMPLETE `TimeframeConfig` for that duration; absent durations
+    /// keep the per-duration profile. When present the whole map replaces
+    /// the stored overrides.
     #[serde(default)]
-    pub micro_term: Option<config_models::TimeframeConfig>,
-    #[serde(default)]
-    pub fast_term: Option<config_models::TimeframeConfig>,
-    #[serde(default)]
-    pub slow_term: Option<config_models::TimeframeConfig>,
-    #[serde(default)]
-    pub macro_term: Option<config_models::TimeframeConfig>,
+    pub timeframes: Option<std::collections::BTreeMap<u64, config_models::TimeframeConfig>>,
     #[serde(default)]
     pub automation: Option<config_models::AutomationConfig>,
     #[serde(default)]

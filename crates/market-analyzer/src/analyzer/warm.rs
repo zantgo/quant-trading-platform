@@ -17,7 +17,7 @@ use crate::indicators::{
     SqueezeMomentum, StdDevChannel, Stochastic, Supertrend, VolumeProfile, WilliamsR, ZScore,
 };
 use crate::sr_engine::SrRoleTracker;
-use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
+use core_domain::models::{CandlePipelineState, MarketSnapshot};
 use core_domain::normalized::{Exchange, NormalizedCandle};
 use core_domain::volume_profile::VolumeProfileSnapshot;
 
@@ -314,7 +314,7 @@ pub fn warm_indicators_for_timeframe(
     fib_config: &FibonacciConfig,
     symbol: &str,
     timeframe_secs: u64,
-    slot: TimeframeSlot,
+    slot_label: String,
     buffer_size: usize,
     active_set: &crate::active_set::ActiveSet,
     // AUDIT-H5: the venue for the pre-warm snapshots (was hardcoded
@@ -512,7 +512,7 @@ pub fn warm_indicators_for_timeframe(
             };
         let volume_profile_snapshot = super::build_volume_profile_snapshot(
             symbol,
-            slot,
+            &slot_label,
             timeframe_secs,
             &seeded_reading,
             volume_profile_indicator
@@ -658,7 +658,7 @@ pub fn warm_indicators_for_timeframe(
             completed,
             symbol,
             timeframe_secs,
-            slot,
+            slot_label.clone(),
             final_vwap,
             avwap_reading,
             final_ema_fast,
@@ -821,7 +821,7 @@ fn build_historical_snapshot(
     completed: &NormalizedCandle,
     symbol: &str,
     timeframe_secs: u64,
-    slot: TimeframeSlot,
+    slot_label: String,
     final_vwap: Option<Decimal>,
     avwap_reading: crate::indicators::AvwapOutput,
     final_ema_fast: Decimal,
@@ -1004,7 +1004,7 @@ fn build_historical_snapshot(
     );
 
     MarketSnapshot {
-        timeframe_slot: Some(slot),
+        timeframe_label: Some(slot_label.clone()),
         exchange: shadow_exchange,
         timeframe_secs,
         timestamp: candle_close_sec,
@@ -1074,7 +1074,7 @@ mod tests {
     //! non-zero priors at boot instead of starting from `None` for
     //! the first WS frame.
     use super::*;
-    use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
+    use core_domain::models::{CandlePipelineState, MarketSnapshot};
     use rust_decimal_macros::dec;
 
     fn make_snap_with_derivs(
@@ -1111,7 +1111,7 @@ mod tests {
             oi_delta_1h: None,
             prev_day_px: None,
             pipeline_state: CandlePipelineState::Loading,
-            timeframe_slot: Some(TimeframeSlot::Micro1),
+            timeframe_label: Some("1s".to_string()),
             indicator_lifecycle: std::collections::HashMap::new(),
             indicators: Default::default(),
             alignment: None,

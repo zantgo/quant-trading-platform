@@ -222,17 +222,13 @@ pub async fn serve_update_instance_config(
         .find(|i| i.symbol == symbol)
         .cloned();
     if existing.is_none() {
-        let default_indicators = config_models::IndicatorsConfig::default();
         existing = Some(config_models::InstanceEntry {
             id: symbol.clone(),
             symbol: symbol.clone(),
             quote: String::new(),
             status: config_models::InstanceStatus::Running,
             strategy: None,
-            micro_term: config_models::TimeframeConfig::new(60, default_indicators.clone()),
-            fast_term: config_models::TimeframeConfig::new(180, default_indicators.clone()),
-            slow_term: None,
-            macro_term: None,
+            timeframes: std::collections::BTreeMap::new(),
             automation: Default::default(),
             operational_mode: Default::default(),
             mode: match state.session.session_mode().await.as_deref() {
@@ -243,15 +239,13 @@ pub async fn serve_update_instance_config(
             allocation_pct: None,
             weight_overrides: None,
             activation: None,
-            custom_pipelines: std::collections::HashMap::new(),
         });
     }
     let mut entry = existing.expect("entry created above");
     entry.id = instance_id.clone();
-    entry.micro_term = payload.micro_term.unwrap_or(entry.micro_term);
-    entry.fast_term = payload.fast_term.unwrap_or(entry.fast_term);
-    entry.slow_term = payload.slow_term.or(entry.slow_term);
-    entry.macro_term = payload.macro_term.or(entry.macro_term);
+    if let Some(timeframes) = payload.timeframes {
+        entry.timeframes = timeframes;
+    }
     entry.automation = payload.automation.unwrap_or(entry.automation);
     entry.operational_mode = payload
         .operational_mode
@@ -566,7 +560,7 @@ pub async fn serve_get_portfolio(
             let symbol = inst.symbol();
             let engine = &state.execution_engine;
             let mid = {
-                let guard = inst.micro1.latest.read().await;
+                let guard = inst.fastest_buffer().latest.read().await;
                 guard.as_ref().map(|s| s.mid_price).unwrap_or_default()
             };
             let equity = engine.get_equity_decimal().await;
@@ -728,7 +722,7 @@ pub async fn serve_get_exposure(
     let engine = &state.execution_engine;
     let equity = engine.get_equity_decimal().await;
     let mid = {
-        let guard = inst.micro1.latest.read().await;
+        let guard = inst.fastest_buffer().latest.read().await;
         guard.as_ref().map(|s| s.mid_price).unwrap_or_default()
     };
 
@@ -800,7 +794,7 @@ pub async fn serve_get_capital(
 
     let position = engine.get_position(&symbol).await;
     let mid = {
-        let guard = inst.micro1.latest.read().await;
+        let guard = inst.fastest_buffer().latest.read().await;
         guard.as_ref().map(|s| s.mid_price).unwrap_or_default()
     };
     let positions: Vec<core_domain::portfolio::PositionMatrix> = if let Some(pos) = &position {
@@ -1055,7 +1049,7 @@ pub async fn serve_automation_close(
     let symbol = inst.symbol();
 
     let mid = {
-        let guard = inst.micro1.latest.read().await;
+        let guard = inst.fastest_buffer().latest.read().await;
         guard.as_ref().map(|s| s.mid_price).unwrap_or_default()
     };
     if mid <= rust_decimal::Decimal::ZERO {
@@ -1156,40 +1150,61 @@ pub async fn serve_get_activation(
     .into_response()
 }
 
-/// POST /api/instances/:id/reload?slot=micro1|…|longterm2|all —
-/// rebuild the instance's pipeline(s) (V7-310…314). `all` (the default)
-/// delegates to the full recharge, which rebuilds all ten fixed-ladder
-/// TFs.
+/// POST /api/instances/:id/reload?tf=<secs|label|all> — rebuild the
+/// instance's pipeline(s) (V7-310…314). `all` (the default) delegates to
+/// the full recharge, which rebuilds every ACTIVE duration.
 pub async fn serve_reload_timeframe(
     State(state): State<Arc<AppState>>,
     Path(instance_id): Path<String>,
     Query(query): Query<InstanceDetailQuery>,
 ) -> impl IntoResponse {
-    let slot = query.slot.as_deref().unwrap_or("all");
-    if slot != "all"
-        && !matches!(
-            slot,
-            "micro1"
-                | "micro2"
-                | "fast1"
-                | "fast2"
-                | "slow1"
-                | "slow2"
-                | "macro1"
-                | "macro2"
-                | "longterm1"
-                | "longterm2"
-        )
+    let requested = query
+        .tf
+        .as_deref()
+        .or(query.slot.as_deref())
+        .unwrap_or("all");
+    // v11.9: accept a duration in seconds (`tf=60`) or a duration label
+    // (`tf=1m`). Unknown durations are rejected loudly.
+    let resolved: String = if requested == "all" {
+        "all".to_string()
+    } else if let Ok(secs) = requested.parse::<u64>() {
+        if !core_domain::is_supported_duration(secs) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                format!(
+                    "Unknown duration '{}s' (valid: {}|all)",
+                    secs,
+                    core_domain::SUPPORTED_DURATIONS
+                        .iter()
+                        .map(|d| core_domain::duration_label(*d))
+                        .collect::<Vec<_>>()
+                        .join("|")
+                ),
+            )
+                .into_response();
+        }
+        core_domain::duration_label(secs)
+    } else if core_domain::SUPPORTED_DURATIONS
+        .iter()
+        .any(|d| core_domain::duration_label(*d).eq_ignore_ascii_case(requested))
     {
+        requested.to_string()
+    } else {
         return (
             axum::http::StatusCode::BAD_REQUEST,
             format!(
-                "Unknown slot '{}' (micro1|micro2|fast1|fast2|slow1|slow2|macro1|macro2|longterm1|longterm2|all)",
-                slot
+                "Unknown duration '{}' (valid: {}|all)",
+                requested,
+                core_domain::SUPPORTED_DURATIONS
+                    .iter()
+                    .map(|d| core_domain::duration_label(*d))
+                    .collect::<Vec<_>>()
+                    .join("|")
             ),
         )
             .into_response();
-    }
+    };
+    let slot = resolved.as_str();
 
     if slot == "all" {
         return match portfolio_supervisor::registry::recharge_instance(

@@ -43,25 +43,9 @@ fn make_test_config(duration_seconds: u64) -> TimeframeConfig {
     }
 }
 
-fn slot_for(tf_secs: u64) -> core_domain::models::TimeframeSlot {
-    // Fixed 10-slot ladder: identity is the exact duration.
-    core_domain::models::TimeframeSlot::parse_from_secs(tf_secs)
-}
-
-fn label_for(tf_secs: u64) -> &'static str {
-    match core_domain::models::TimeframeSlot::parse_from_secs(tf_secs) {
-        core_domain::models::TimeframeSlot::Micro1 => "MICRO1",
-        core_domain::models::TimeframeSlot::Micro2 => "MICRO2",
-        core_domain::models::TimeframeSlot::Fast1 => "FAST1",
-        core_domain::models::TimeframeSlot::Fast2 => "FAST2",
-        core_domain::models::TimeframeSlot::Slow1 => "SLOW1",
-        core_domain::models::TimeframeSlot::Slow2 => "SLOW2",
-        core_domain::models::TimeframeSlot::Macro1 => "MACRO1",
-        core_domain::models::TimeframeSlot::Macro2 => "MACRO2",
-        core_domain::models::TimeframeSlot::Longterm1 => "LONGTERM1",
-        core_domain::models::TimeframeSlot::Longterm2 => "LONGTERM2",
-        _ => "CUSTOM",
-    }
+fn slot_label_for(tf_secs: u64) -> String {
+    // v11.9: the duration IS the identity; the label is derived.
+    core_domain::duration_label(tf_secs)
 }
 
 /// Spawn a cold (un-warmed) analyzer.
@@ -103,8 +87,7 @@ fn spawn_analyzer_with_warm(
     let snap_hist = Arc::new(RwLock::new(VecDeque::new()));
 
     let tf = make_test_config(duration_seconds);
-    let slot = slot_for(duration_seconds);
-    let label = label_for(duration_seconds);
+    let slot_label = slot_label_for(duration_seconds);
 
     tokio::spawn(async move {
         let strategy = config_models::StrategyConfig::default();
@@ -122,8 +105,7 @@ fn spawn_analyzer_with_warm(
             "BTC-USDT".to_string(),
             "BTC-USDT".to_string(),
             duration_seconds,
-            label,
-            slot,
+            slot_label,
             cancel,
             None,
             // PRI-03: warmed state handover (None = cold start).
@@ -1041,7 +1023,7 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
         &FibonacciConfig::default(),
         "BTC-USDT",
         1,
-        core_domain::models::TimeframeSlot::Micro1,
+        "1s".to_string(),
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
         Some(core_domain::normalized::Exchange::Hyperliquid),

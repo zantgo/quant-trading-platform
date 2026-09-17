@@ -19,17 +19,10 @@ pub struct BootstrapInput {
     pub rest_url: String,
     pub exchange_choice: ExchangeChoice,
     pub pool: SqlitePool,
-    /// Fixed 10-slot ladder configs, positional fastest → slowest
-    /// (aligned with `config_models::FIXED_TF_LADDER`).
-    pub ladder_cfgs: [TimeframeConfig; 10],
+    /// v11.9: the ACTIVE timeframe configs — one per configured duration,
+    /// ascending fastest → slowest.
+    pub ladder_cfgs: Vec<TimeframeConfig>,
     pub fib_config: FibonacciConfig,
-    /// Fixed 10-slot ladder durations, positional fastest → slowest.
-    pub ladder_secs: [u64; 10],
-    /// v11.2: how many of the fastest slots actually run (1..=10). Slots
-    /// beyond this are NOT fetched/warmed — they return default state.
-    /// v11.4: WHICH ladder slots run — canonical indices (arbitrary
-    /// subset). Slots outside the set are NOT fetched/warmed.
-    pub active_slots: Vec<usize>,
     /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     /// Single source of truth for the rolling window. Replaces the previous
     /// per-tier `analysis_limit` field.
@@ -241,40 +234,41 @@ async fn collect_candles(
 /// labels / `confidence = 0.0` until their per-indicator minimum buffers fill.
 pub const MIN_WARMUP_BARS: usize = 200;
 
-/// Per-slot fetch helper — one `collect_candles` call for ladder slot `i`.
+/// Per-duration fetch helper — one `collect_candles` call for active
+/// duration `secs`. Takes owned arguments so it can run on a spawned task.
 #[allow(clippy::too_many_arguments)]
 async fn collect_slot_candles(
-    input: &BootstrapInput,
-    i: usize,
+    secs: u64,
     is_bitget: bool,
     exchange_raw: String,
+    internal_symbol: String,
     product_type: String,
+    rest_url: String,
+    pool: SqlitePool,
+    limit: u64,
     now_ms: u64,
+    fetch_timeout_ms: u64,
+    sub_minute_skip_historical: bool,
 ) -> Result<(Vec<NormalizedCandle>, u64, u64), String> {
-    // v11.2: inactive slots (beyond the fastest `active_count`) are never
-    // fetched — the spawn loop below never runs them.
-    if !input.active_slots.contains(&i) {
-        return Ok((Vec::new(), 0, 0));
-    }
     collect_candles(
         is_bitget,
         exchange_raw,
-        input.internal_symbol.clone(),
+        internal_symbol,
         product_type,
-        input.rest_url.clone(),
-        input.pool.clone(),
-        input.ladder_secs[i],
-        input.buffer_size as u64,
+        rest_url,
+        pool,
+        secs,
+        limit,
         now_ms,
-        input.fetch_timeout_ms,
-        input.sub_minute_skip_historical,
+        fetch_timeout_ms,
+        sub_minute_skip_historical,
     )
     .await
 }
 
 pub async fn fetch_and_warm_bootstrap(
     input: &BootstrapInput,
-) -> Result<[analyzer::WarmedPipelineState; 10], String> {
+) -> Result<Vec<analyzer::WarmedPipelineState>, String> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -288,88 +282,45 @@ pub async fn fetch_and_warm_bootstrap(
         .unwrap_or("")
         .to_string();
 
-    // Fetch all 10 ladder slots concurrently (one join arm per slot).
-    let (r0, r1, r2, r3, r4, r5, r6, r7, r8, r9) = tokio::join!(
-        collect_slot_candles(
-            input,
-            0,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(
-            input,
-            1,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(
-            input,
-            2,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(
-            input,
-            3,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(
-            input,
-            4,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(
-            input,
-            5,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(
-            input,
-            6,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(
-            input,
-            7,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(
-            input,
-            8,
-            is_bitget,
-            exchange_raw.clone(),
-            product_type.clone(),
-            now_ms
-        ),
-        collect_slot_candles(input, 9, is_bitget, exchange_raw, product_type, now_ms),
-    );
-    let slot_results: [Result<(Vec<NormalizedCandle>, u64, u64), String>; 10] =
-        [r0, r1, r2, r3, r4, r5, r6, r7, r8, r9];
+    let ladder_secs: Vec<u64> = input
+        .ladder_cfgs
+        .iter()
+        .map(|c| c.candles.duration_seconds)
+        .collect();
 
-    // Fail fast on the first hard error (≥60s slot with unreachable REST
-    // and an empty DB), preserving the pre-ladder behaviour.
-    let mut slot_candles: [Vec<NormalizedCandle>; 10] = std::array::from_fn(|_| Vec::new());
+    // Fetch every ACTIVE duration concurrently (one spawned task per
+    // duration; handles are awaited in spawn order so the result vec stays
+    // aligned with `ladder_secs`).
+    let mut handles: Vec<
+        tokio::task::JoinHandle<Result<(Vec<NormalizedCandle>, u64, u64), String>>,
+    > = Vec::with_capacity(ladder_secs.len());
+    for &secs in &ladder_secs {
+        handles.push(tokio::spawn(collect_slot_candles(
+            secs,
+            is_bitget,
+            exchange_raw.clone(),
+            input.internal_symbol.clone(),
+            product_type.clone(),
+            input.rest_url.clone(),
+            input.pool.clone(),
+            input.buffer_size as u64,
+            now_ms,
+            input.fetch_timeout_ms,
+            input.sub_minute_skip_historical,
+        )));
+    }
+    let mut slot_results: Vec<Result<(Vec<NormalizedCandle>, u64, u64), String>> =
+        Vec::with_capacity(handles.len());
+    for h in handles {
+        slot_results.push(
+            h.await
+                .map_err(|e| format!("bootstrap fetch task failed: {e}"))?,
+        );
+    }
+
+    // Fail fast on the first hard error (≥60s duration with unreachable
+    // REST and an empty DB), preserving the pre-ladder behaviour.
+    let mut slot_candles: Vec<Vec<NormalizedCandle>> = vec![Vec::new(); ladder_secs.len()];
     let mut total_db: u64 = 0;
     let mut total_rest: u64 = 0;
     for (i, res) in slot_results.into_iter().enumerate() {
@@ -401,8 +352,7 @@ pub async fn fetch_and_warm_bootstrap(
         .map(|c| c.len().to_string())
         .collect::<Vec<_>>()
         .join("/");
-    let secs_labels = input
-        .ladder_secs
+    let secs_labels = ladder_secs
         .iter()
         .map(|&s| label(s))
         .collect::<Vec<_>>()
@@ -439,12 +389,12 @@ pub async fn fetch_and_warm_bootstrap(
             );
         }
     };
-    for i in 0..10 {
-        warn_empty(&slot_candles[i], input.ladder_secs[i]);
+    for i in 0..slot_candles.len() {
+        warn_empty(&slot_candles[i], ladder_secs[i]);
         // min_warmup_bars gate (03-01-04 §2.1.1): warm-up proceeds
-        // best-effort, but a slot seeded below the gate is flagged as
+        // best-effort, but a duration seeded below the gate is flagged as
         // partially warmed.
-        gate_warn(&slot_candles[i], input.ladder_secs[i]);
+        gate_warn(&slot_candles[i], ladder_secs[i]);
     }
 
     // v6.10 (Phase 5 / E1): bootstrap warm-up runs with all indicators enabled
@@ -460,30 +410,34 @@ pub async fn fetch_and_warm_bootstrap(
         ExchangeChoice::Bitget => core_domain::normalized::Exchange::Bitget,
     };
 
-    // Warm each fixed-ladder slot with its own candles, config, and slot
-    // identity (positional with `FIXED_TF_SLOTS` / `FIXED_TF_LADDER`).
-    let warmed: [analyzer::WarmedPipelineState; 10] = std::array::from_fn(|i| {
-        analyzer::warm_indicators_for_timeframe(
-            std::mem::take(&mut slot_candles[i]),
-            &input.ladder_cfgs[i],
-            &input.fib_config,
-            &input.internal_symbol,
-            input.ladder_secs[i],
-            core_domain::models::FIXED_TF_SLOTS[i],
-            input.buffer_size,
-            &warm_active_set,
-            Some(warm_exchange),
-        )
-    });
+    // Warm each ACTIVE duration with its own candles, config, and derived
+    // duration label (ascending fastest → slowest).
+    let warmed: Vec<analyzer::WarmedPipelineState> = slot_candles
+        .iter_mut()
+        .enumerate()
+        .map(|(i, candles)| {
+            analyzer::warm_indicators_for_timeframe(
+                std::mem::take(candles),
+                &input.ladder_cfgs[i],
+                &input.fib_config,
+                &input.internal_symbol,
+                ladder_secs[i],
+                core_domain::duration_label(ladder_secs[i]),
+                input.buffer_size,
+                &warm_active_set,
+                Some(warm_exchange),
+            )
+        })
+        .collect();
 
     Ok(warmed)
 }
 
 pub(crate) async fn populate_buffers(
-    warmed: &[Option<analyzer::WarmedPipelineState>; 10],
-    histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>; 10],
-    latests: &[Arc<RwLock<Option<MarketSnapshot>>>; 10],
-    snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>; 10],
+    warmed: &[Option<analyzer::WarmedPipelineState>],
+    histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>],
+    latests: &[Arc<RwLock<Option<MarketSnapshot>>>],
+    snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>],
     latest_oi: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
     latest_funding: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
     latest_mark_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
@@ -491,11 +445,11 @@ pub(crate) async fn populate_buffers(
     // AUDIT-AIU-051: timestamped OI history `(timestamp_secs, value)`.
     oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
     funding_history: &Arc<RwLock<VecDeque<f64>>>,
-    // PRI-08: per-slot flag — `true` for ≥60s slots (warm snapshots become
-    // chart history), `false` for sub-minute slots (state-replay warmup
-    // must NOT pollute the chart's `snapshot_history` or `latest_snapshot`).
-    // Positional with `FIXED_TF_LADDER` (fastest → slowest).
-    warm_snapshots: [bool; 10],
+    // PRI-08: per-duration flag — `true` for ≥60s durations (warm snapshots
+    // become chart history), `false` for sub-minute durations (state-replay
+    // warmup must NOT pollute the chart's `snapshot_history` or
+    // `latest_snapshot`). Ascending fastest → slowest.
+    warm_snapshots: Vec<bool>,
 ) {
     // All ten timeframes share the same per-pair derivatives state
     // (latest_* locks and rolling history), so the first warmed slot in
@@ -513,7 +467,7 @@ pub(crate) async fn populate_buffers(
         .await;
     }
 
-    for i in 0..10 {
+    for i in 0..warmed.len() {
         populate_single(
             &warmed[i],
             &histories[i],
@@ -838,24 +792,20 @@ mod cold_start_sub_minute_tests {
     async fn fetch_and_warm_bootstrap_returns_empty_snapshot_history_for_sub_minute() {
         let pool = empty_pool().await;
         let input = BootstrapInput {
-            active_slots: (0..10).collect(),
             base: "BTC".to_string(),
             internal_symbol: "BTC-USDC".to_string(),
             quote: Currency::USDC,
             rest_url: "ws://unreachable.invalid".to_string(),
             exchange_choice: ExchangeChoice::Hyperliquid,
-            pool,
-            ladder_cfgs: std::array::from_fn(|i| {
-                TimeframeConfig::new(
-                    config_models::FIXED_TF_LADDER[i],
-                    config_models::IndicatorsConfig::default(),
-                )
-            }),
+            pool: pool.clone(),
+            // The default active ladder. The sub-minute durations under
+            // test (1s/3s/5s/15s) are the first four entries; all follow
+            // the state-only warmup path.
+            ladder_cfgs: config_models::DEFAULT_TIMEFRAMES
+                .iter()
+                .map(|&secs| TimeframeConfig::new(secs, config_models::IndicatorsConfig::default()))
+                .collect(),
             fib_config: FibonacciConfig::default(),
-            // The fixed 10-slot ladder. The sub-minute slots under test
-            // (1s/3s/5s/15s) are the first four entries; all follow the
-            // state-only warmup path.
-            ladder_secs: config_models::FIXED_TF_LADDER,
             buffer_size: 500,
             stale_threshold_secs: 300,
             fetch_timeout_ms: 100,
@@ -863,11 +813,11 @@ mod cold_start_sub_minute_tests {
             reliability: None,
         };
 
-        // ≥60s TFs are required in BootstrapInput via `secs`. The ladder
-        // carries several ≥60s slots, but THIS test only drives
-        // `collect_candles` directly for the four sub-minute slots —
-        // asserting each returns an empty warm result before any ≥60s
-        // fetch could fail. The end-to-end path follows from that.
+        // ≥60s durations require a reachable REST in `collect_candles`.
+        // THIS test only drives `collect_candles` directly for the four
+        // sub-minute durations — asserting each returns an empty warm
+        // result before any ≥60s fetch could fail. The end-to-end path
+        // follows from that.
 
         let (candles_1s, _, _) = collect_candles(
             false,
@@ -876,7 +826,7 @@ mod cold_start_sub_minute_tests {
             String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
-            input.ladder_secs[0],
+            1,
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
@@ -891,7 +841,7 @@ mod cold_start_sub_minute_tests {
             String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
-            input.ladder_secs[1],
+            3,
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
@@ -906,7 +856,7 @@ mod cold_start_sub_minute_tests {
             String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
-            input.ladder_secs[2],
+            5,
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
@@ -921,7 +871,7 @@ mod cold_start_sub_minute_tests {
             String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
-            input.ladder_secs[3],
+            15,
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,

@@ -839,8 +839,6 @@ mod tests {
 
 #[cfg(test)]
 mod fetch_debug_tests {
-    use super::*;
-
     #[tokio::test]
     #[ignore]
     async fn debug_hl_fetch_rows() {

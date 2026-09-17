@@ -98,26 +98,17 @@ pub async fn serve_monitor(
         .into_response();
     };
 
-    // Fixed 10-slot ladder (fastest → slowest): latest snapshot + derived
-    // snapshot values per slot, positionally aligned with
-    // `core_domain::models::FIXED_TF_SLOTS`.
-    let snaps = pair.latest_snapshots_all_tf().await;
+    // v11.9: the ACTIVE durations (fastest → slowest): latest snapshot +
+    // derived snapshot values, one entry per configured duration.
+    let snaps = pair.latest_snapshots_active().await;
     let svs: Vec<Option<SnapshotValues>> = snaps.iter().map(snap_values).collect();
 
-    // v11.4: report only the ACTIVE ladder slots (arbitrary set, canonical order).
     let timeframes: Vec<MonitorTimeframe> = pair
-        .active_indices
+        .all()
         .iter()
-        .filter_map(|&i| {
-            let slot = core_domain::models::FIXED_TF_SLOTS[i];
-            let snap = snaps.get(i)?;
-            let sv = svs.get(i)?;
-            let secs = pair
-                .pipeline_for_slot(slot)
-                .map(|p| p.timeframe_secs)
-                .unwrap_or(config_models::FIXED_TF_LADDER[i]);
-            Some(tf_summary(&slot.display_name(), secs, snap, sv))
-        })
+        .zip(snaps.iter())
+        .zip(svs.iter())
+        .map(|((pipe, snap), sv)| tf_summary(&pipe.slot_label, pipe.timeframe_secs, snap, sv))
         .collect();
 
     // MTF per-indicator agreement matrix (directional registry indicators).

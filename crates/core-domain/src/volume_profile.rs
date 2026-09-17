@@ -58,8 +58,9 @@ pub struct VolumeProfileBin {
 pub struct VolumeProfileSnapshot {
     /// Symbol this profile applies to (e.g. "BTC-USDT").
     pub symbol: String,
-    /// Timeframe slot that produced this profile.
-    pub timeframe_slot: String,
+    /// v11.9: derived duration label ("1s".."1d") of the timeframe that
+    /// produced this profile.
+    pub timeframe_label: String,
     /// Bar duration in seconds that defines the loaded candle set.
     pub timeframe_secs: u64,
     /// Bin edges, sorted ascending.
@@ -85,10 +86,10 @@ pub struct VolumeProfileSnapshot {
 impl VolumeProfileSnapshot {
     /// Empty placeholder returned when the analyzer cannot yet produce a
     /// profile (insufficient candle history, zero volume, etc.).
-    pub fn empty(symbol: &str, timeframe_slot: &str, timeframe_secs: u64, mid_price: f64) -> Self {
+    pub fn empty(symbol: &str, timeframe_label: &str, timeframe_secs: u64, mid_price: f64) -> Self {
         Self {
             symbol: symbol.to_string(),
-            timeframe_slot: timeframe_slot.to_string(),
+            timeframe_label: timeframe_label.to_string(),
             timeframe_secs,
             bins: Vec::new(),
             poc_price: mid_price,

@@ -91,8 +91,8 @@ pub struct SnapshotMetadata {
     pub tab: String,
     /// Source instance pair-key (`BTC-USDT`, `ETH-USDT`, ...).
     pub pair_key: String,
-    /// Source timeframe slot (`micro` / `fast` / `slow` / `macro`).
-    pub timeframe_slot: String,
+    /// v11.9: derived duration label ("1s".."1d") of the source timeframe.
+    pub timeframe_label: String,
     /// Timeframe in seconds.
     pub timeframe_secs: u64,
 }

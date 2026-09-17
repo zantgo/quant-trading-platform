@@ -64,6 +64,11 @@ name = "My Portfolio"
 default_currency = "USDC"
 default_exchange = "Hyperliquid"
 
+# Active timeframes as durations in seconds (fastest -> slowest), any
+# subset of the 14-slot pool [1, 3, 5, 15, 30, 60, 180, 300, 900, 1800,
+# 3600, 14400, 43200, 86400]. Shown default: the fastest eight.
+timeframes = [1, 3, 5, 15, 30, 60, 180, 300]
+
 # ── TAE v7 setup executor (master switch) ──
 # enabled = true keeps the 1s setup-executor loop running: fills, setup
 # evaluation, equity sync, PME safety updates, STOP flatten, funding.
@@ -255,11 +260,10 @@ render_hl_caveat = true
 # INSTANCES — trading pairs
 # ──────────────────────────────────────────────────────────────────────────────
 #
-# Each `[[workspace.instances]]` block is one trading pair. The four
-# timeframes (micro / fast / slow / macro) are positional slots; any
-# slot may share its duration with another — the engine runs each as
-# an independent pipeline regardless of numeric values. Override
-# indicator periods inside each timeframe.
+# Each `[[workspace.instances]]` block is one trading pair. Every instance
+# runs the durations declared by `[workspace].timeframes` (fastest ->
+# slowest); a timeframe IS its duration in seconds. Per-duration indicator
+# overrides are optional and keyed by the duration in seconds:
 #
 # Add instances below, e.g.:
 #
@@ -267,8 +271,9 @@ render_hl_caveat = true
 # id = "btc"
 # symbol = "BTC-USDT"
 # quote = "USDT"
-# initial_capital_usd = 1000.0
 # status = "running"
 # operational_mode = "advisory"
-# [workspace.instances.micro_term]
+#
+# [workspace.instances.timeframes.60]
 # candles = { duration_seconds = 60 }
+# indicators = { rsi_period = 21 }

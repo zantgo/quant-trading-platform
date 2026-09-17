@@ -6,7 +6,6 @@ use axum::{
 };
 use core_domain::jsonrpc::JsonRpcNotification;
 use core_domain::models::MarketSnapshot;
-use core_domain::models::TimeframeSlot;
 use market_analyzer::analyzer::ActivePair;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -96,17 +95,43 @@ pub async fn ws_handler(
         query.symbol
     };
     let tf_secs = query.timeframe_secs.unwrap_or(60);
-    // `slot` is the authoritative wire-side identifier. New clients send
-    // `?slot=micro1|…|longterm2`; legacy clients omit it and we derive
-    // a best-effort slot from the requested duration. Once the connection
-    // is bound, every notification carries `timeframe_slot` so the
-    // frontend never has to re-derive slot from duration.
-    let slot = query
-        .slot
-        .as_deref()
-        .map(TimeframeSlot::parse)
-        .unwrap_or_else(|| TimeframeSlot::parse_from_secs(tf_secs));
-    ws.on_upgrade(move |socket| handle_ws_socket(socket, state, pair_key, tf_secs, slot, _guard))
+    // v11.9: `slot` is a duration LABEL ("1m", "15s", …) resolved against
+    // the ACTIVE pipelines. Clients may alternatively send `?tf=<secs>`;
+    // when both are absent we fall back to the 60s duration. Once the
+    // connection is bound, every notification carries `timeframe_label`
+    // so the frontend never has to re-derive the label from duration.
+    let requested_secs: u64 = if let Some(label) = query.slot.as_deref() {
+        if let Some(secs) = parse_duration_label(label) {
+            secs
+        } else {
+            tf_secs
+        }
+    } else {
+        tf_secs
+    };
+    ws.on_upgrade(move |socket| {
+        handle_ws_socket(socket, state, pair_key, tf_secs, requested_secs, _guard)
+    })
+}
+
+/// Parse a duration label ("1s", "3s", "15s", "1m", "3m", "5m", "15m",
+/// "30m", "1h", "4h", "12h", "1d", plus case-insensitive variants and raw
+/// seconds) into its duration in seconds. Returns `None` when the label
+/// does not resolve to a supported duration.
+fn parse_duration_label(label: &str) -> Option<u64> {
+    let trimmed = label.trim();
+    for &secs in core_domain::SUPPORTED_DURATIONS.iter() {
+        if core_domain::duration_label(secs).eq_ignore_ascii_case(trimmed) {
+            return Some(secs);
+        }
+    }
+    // Raw seconds ("60") also resolve — friendly to programmatic clients.
+    if let Ok(secs) = trimmed.parse::<u64>() {
+        if core_domain::is_supported_duration(secs) {
+            return Some(secs);
+        }
+    }
+    None
 }
 
 /// Serialize and send a `broadcast.market_snapshot` notification for the
@@ -115,14 +140,14 @@ pub async fn ws_handler(
 async fn send_snapshot_to_socket(
     socket: &mut WebSocket,
     snapshot: &MarketSnapshot,
-    requested_slot: TimeframeSlot,
+    requested_secs: u64,
 ) -> bool {
     let symbol = snapshot.symbol.clone();
     let tf = snapshot.timeframe_secs;
     let slot_str = snapshot
-        .timeframe_slot
-        .map(|s| s.as_str())
-        .unwrap_or_else(|| requested_slot.as_str());
+        .timeframe_label
+        .clone()
+        .unwrap_or_else(|| core_domain::duration_label(requested_secs));
     let payload = match serde_json::to_value(snapshot) {
         Ok(v) => v,
         Err(e) => {
@@ -134,7 +159,7 @@ async fn send_snapshot_to_socket(
         "broadcast.market_snapshot",
         serde_json::json!({
             "symbol": symbol,
-            "timeframe_slot": slot_str,
+            "timeframe_label": slot_str,
             "timeframe_secs": tf,
             "snapshot": payload,
         }),
@@ -153,7 +178,7 @@ async fn handle_ws_socket(
     state: Arc<AppState>,
     pair_key: String,
     tf_secs: u64,
-    requested_slot: TimeframeSlot,
+    requested_secs: u64,
     _connection_guard: Arc<WsConnectionGuard>,
 ) {
     let _ = tf_secs; // keep param for logs in a future iteration; suppresses unused-but-set warning
@@ -173,7 +198,7 @@ async fn handle_ws_socket(
         match state.get_active_pair(&pair_key).await {
             Some(p) => {
                 current_pair = Some(p.clone());
-                rx_stream = p.subscribe_broadcast_by_slot(requested_slot);
+                rx_stream = p.subscribe_broadcast_by_secs(requested_secs);
                 break;
             }
             None => {
@@ -199,28 +224,27 @@ async fn handle_ws_socket(
             }
         }
     }
-    // Audit fix (M3): `subscribe_broadcast_by_slot` returns None for
-    // Custom{id} slots (custom pipelines are never instantiated) — the
-    // previous `rx_stream.expect(...)` panicked the socket task and killed
-    // the connection. Fall back to the micro1 channel (fastest ladder slot;
-    // best-effort slot resolution per 06-01 §3.1) so slot-less legacy
-    // clients and custom durations stay alive and receive data.
+    // Audit fix (M3): an unknown duration (pipeline not configured for
+    // this pair) previously panicked the socket task and killed the
+    // connection. Fall back to the FASTEST ACTIVE channel (best-effort
+    // resolution per 06-01 §3.1) so legacy clients and unknown durations
+    // stay alive and receive data.
     let mut rx_stream: broadcast::Receiver<MarketSnapshot> = match rx_stream {
         Some(rx) => rx,
         None => {
             eprintln!(
-                "WS: no pipeline for slot {:?} (pair {}) — falling back to micro1",
-                requested_slot, pair_key
+                "WS: no pipeline for {}s (pair {}) — falling back to the fastest active pipeline",
+                requested_secs, pair_key
             );
-            match state
-                .get_active_pair(&pair_key)
-                .await
-                .and_then(|p| p.subscribe_broadcast_by_slot(TimeframeSlot::Micro1))
-            {
+            match state.get_active_pair(&pair_key).await.and_then(|p| {
+                p.all()
+                    .first()
+                    .map(|fastest| fastest.broadcast_tx.subscribe())
+            }) {
                 Some(rx) => rx,
                 None => {
                     eprintln!(
-                        "WS: micro1 pipeline missing for '{}' (pair deleted mid-upgrade) — closing socket",
+                        "WS: fastest pipeline missing for '{}' (pair deleted mid-upgrade) — closing socket",
                         pair_key
                     );
                     return;
@@ -240,8 +264,8 @@ async fn handle_ws_socket(
     // lifecycle map + signals, so the first WS frame is identical in
     // shape to a normal live frame.
     if let Some(pair) = current_pair.as_ref() {
-        if let Some(cached) = pair.latest_snapshot_for_slot(requested_slot).await {
-            if !send_snapshot_to_socket(&mut socket, &cached, requested_slot).await {
+        if let Some(cached) = pair.latest_snapshot_for_secs(requested_secs).await {
+            if !send_snapshot_to_socket(&mut socket, &cached, requested_secs).await {
                 return;
             }
         }
@@ -252,7 +276,7 @@ async fn handle_ws_socket(
             result = rx_stream.recv() => {
                 match result {
                     Ok(snapshot) => {
-                        if !send_snapshot_to_socket(&mut socket, &snapshot, requested_slot).await {
+                        if !send_snapshot_to_socket(&mut socket, &snapshot, requested_secs).await {
                             break;
                         }
                     }
@@ -286,7 +310,7 @@ async fn handle_ws_socket(
                             if !same_pair {
                                 current_pair = Some(new_pair.clone());
                                 if let Some(new_rx) =
-                                    new_pair.subscribe_broadcast_by_slot(requested_slot)
+                                    new_pair.subscribe_broadcast_by_secs(requested_secs)
                                 {
                                     rx_stream = new_rx;
                                 }
@@ -295,13 +319,13 @@ async fn handle_ws_socket(
                                 // does not see an empty slot while the
                                 // first live frame is still in flight.
                                 if let Some(cached) = new_pair
-                                    .latest_snapshot_for_slot(requested_slot)
+                                    .latest_snapshot_for_secs(requested_secs)
                                     .await
                                 {
                                     if !send_snapshot_to_socket(
                                         &mut socket,
                                         &cached,
-                                        requested_slot,
+                                        requested_secs,
                                     )
                                     .await
                                     {

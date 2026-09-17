@@ -52,25 +52,7 @@ async fn spawn_analyzer(
     let latest = Arc::new(RwLock::new(None));
     let snap_hist = Arc::new(RwLock::new(VecDeque::new()));
 
-    let slot = match duration_seconds {
-        ..=180 => core_domain::models::TimeframeSlot::Micro1,
-        181..=300 => core_domain::models::TimeframeSlot::Fast1,
-        301..=900 => core_domain::models::TimeframeSlot::Slow1,
-        _ => core_domain::models::TimeframeSlot::Longterm1,
-    };
-    let label = match slot {
-        core_domain::models::TimeframeSlot::Micro1 => "MICRO1",
-        core_domain::models::TimeframeSlot::Micro2 => "MICRO2",
-        core_domain::models::TimeframeSlot::Fast1 => "FAST1",
-        core_domain::models::TimeframeSlot::Fast2 => "FAST2",
-        core_domain::models::TimeframeSlot::Slow1 => "SLOW1",
-        core_domain::models::TimeframeSlot::Slow2 => "SLOW2",
-        core_domain::models::TimeframeSlot::Macro1 => "MACRO1",
-        core_domain::models::TimeframeSlot::Macro2 => "MACRO2",
-        core_domain::models::TimeframeSlot::Longterm1 => "LONGTERM1",
-        core_domain::models::TimeframeSlot::Longterm2 => "LONGTERM2",
-        core_domain::models::TimeframeSlot::Custom { .. } => "CUSTOM",
-    };
+    let slot_label = core_domain::duration_label(duration_seconds);
 
     tokio::spawn(async move {
         let strategy = config_models::StrategyConfig::default();
@@ -88,8 +70,7 @@ async fn spawn_analyzer(
             "BTC-USDT".to_string(),
             "BTC-USDT".to_string(),
             duration_seconds,
-            label,
-            slot,
+            slot_label,
             cancel,
             None,
             None,

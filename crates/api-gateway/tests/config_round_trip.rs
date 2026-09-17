@@ -90,16 +90,12 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
         symbol: "BTC-USDT".into(),
         quote: "USDT".into(),
         status: config_models::InstanceStatus::Running,
-        micro_term: config_models::TimeframeConfig::new(
-            60,
-            config_models::IndicatorsConfig::default(),
-        ),
-        fast_term: config_models::TimeframeConfig::new(
-            180,
-            config_models::IndicatorsConfig::default(),
-        ),
-        slow_term: None,
-        macro_term: None,
+        timeframes: [(
+            60u64,
+            config_models::TimeframeConfig::new(60, config_models::IndicatorsConfig::default()),
+        )]
+        .into_iter()
+        .collect(),
         automation: config_models::AutomationConfig::default(),
         operational_mode: config_models::OperationalMode::Advisory,
         mode: config_models::ExecutionMode::Paper,
@@ -107,7 +103,6 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
         allocation_pct: None,
         weight_overrides: None,
         activation: None,
-        custom_pipelines: Default::default(),
     });
     ws.api_failover = config_models::ApiFailoverConfig {
         max_retries_per_call: 7,

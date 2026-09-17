@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use crate::instance::{ConfigState, Instance, InstanceStatus, TimeframeBuffers};
+use crate::instance::{ConfigState, Instance, InstanceStatus};
 use crate::lifecycle::LifecycleManager;
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
@@ -149,30 +149,29 @@ pub async fn add_instance(
     let fib_config = config_guard.fibonacci.clone();
     let intervals_config = config_guard.intervals.clone();
 
-    // v11.1: the FIXED 10-slot ladder — every instance runs the same slots
-    // (positional with `config_models::FIXED_TF_LADDER`), with indicator
-    // knobs from the workspace-level defaults. The legacy per-instance
-    // `micro_term`/`fast_term`/`slow_term`/`macro_term` keys are parsed for
-    // TOML compatibility and intentionally IGNORED (no per-TF overrides).
+    // v11.9: the ACTIVE timeframe set — every instance runs exactly the
+    // durations declared by `[workspace].timeframes` (ascending fastest →
+    // slowest). Config chain per duration: workspace indicators →
+    // per-duration profile row → optional per-instance override.
     let ws_indicators = config_guard.indicators.clone();
-    let ladder_cfgs: [TimeframeConfig; 10] = std::array::from_fn(|i| {
-        // v11.8: per-duration profile baseline — the matrix values for this
-        // duration override the workspace-level defaults.
-        TimeframeConfig::new(
-            config_models::FIXED_TF_LADDER[i],
-            config_models::duration_profile::overlay(
-                &ws_indicators,
-                config_models::FIXED_TF_LADDER[i],
-            ),
-        )
-    });
-    let ladder_secs: [u64; 10] = config_models::FIXED_TF_LADDER;
-    // v11.4: the ACTIVE SET — arbitrary subset of the pool (explicit
-    // `[workspace].active_slots` wins; legacy default = fastest N).
-    let config_guard_active_slots: Vec<usize> = config_guard
-        .active_slot_names()
+    let active_ladder_secs: Vec<u64> = config_guard.active_timeframes_for();
+    let instance_timeframes: std::collections::BTreeMap<u64, TimeframeConfig> = pair_cfg
+        .as_ref()
+        .map(|p| p.timeframes.clone())
+        .unwrap_or_default();
+    let ladder_cfgs: Vec<TimeframeConfig> = active_ladder_secs
         .iter()
-        .filter_map(|name| config_models::FIXED_TF_NAMES.iter().position(|n| n == name))
+        .map(|&secs| {
+            if let Some(tf) = instance_timeframes.get(&secs) {
+                return tf.clone();
+            }
+            // v11.8: per-duration profile baseline — the matrix values for
+            // this duration override the workspace-level defaults.
+            TimeframeConfig::new(
+                secs,
+                config_models::duration_profile::overlay(&ws_indicators, secs),
+            )
+        })
         .collect();
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
@@ -254,8 +253,6 @@ pub async fn add_instance(
         pool: state.pool.clone(),
         ladder_cfgs: ladder_cfgs.clone(),
         fib_config: drop_fib.clone(),
-        ladder_secs,
-        active_slots: config_guard_active_slots.clone(),
         buffer_size,
         stale_threshold_secs,
         fetch_timeout_ms,
@@ -269,11 +266,9 @@ pub async fn add_instance(
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
         internal_symbol: normalized.clone(),
-        custom_pipelines: std::collections::HashMap::new(),
         quote,
         pair_key: pair_key.clone(),
         exchange_choice,
-        active_slots: config_guard_active_slots.clone(),
         ladder_cfgs,
         fib_config: drop_fib,
         safety_config,
@@ -301,24 +296,36 @@ pub async fn add_instance(
 
     // Populates buffers directly if warmed states are present
     if let Ok(ref warmed) = warmed_states {
-        // Positional with the fixed ladder (fastest → slowest).
-        let slot_buffers: [&TimeframeBuffers; 10] = artifacts.instance.buffers();
-        let warmed_opts: [Option<market_analyzer::analyzer::WarmedPipelineState>; 10] =
-            std::array::from_fn(|i| Some(warmed[i].clone()));
+        // Ascending fastest → slowest, aligned with the ACTIVE durations.
+        let slot_buffers = artifacts.instance.buffers();
+        let warmed_opts: Vec<Option<market_analyzer::analyzer::WarmedPipelineState>> =
+            warmed.iter().map(|w| Some(w.clone())).collect();
         bootstrap::populate_buffers(
             &warmed_opts,
-            &std::array::from_fn(|i| slot_buffers[i].history.clone()),
-            &std::array::from_fn(|i| slot_buffers[i].latest.clone()),
-            &std::array::from_fn(|i| slot_buffers[i].snapshot_history.clone()),
+            &slot_buffers
+                .iter()
+                .map(|b| b.history.clone())
+                .collect::<Vec<_>>(),
+            &slot_buffers
+                .iter()
+                .map(|b| b.latest.clone())
+                .collect::<Vec<_>>(),
+            &slot_buffers
+                .iter()
+                .map(|b| b.snapshot_history.clone())
+                .collect::<Vec<_>>(),
             &artifacts.instance.active_pair.latest_oi,
             &artifacts.instance.active_pair.latest_funding,
             &artifacts.instance.active_pair.latest_mark_px,
             &artifacts.instance.active_pair.latest_index_px,
             &artifacts.instance.active_pair.oi_history,
             &artifacts.instance.active_pair.funding_history,
-            // PRI-08: only ≥60s slots propagate warmed snapshots to the
-            // chart; sub-minute slots warm state + history only.
-            std::array::from_fn(|i| config_models::FIXED_TF_LADDER[i] >= 60),
+            // PRI-08: only ≥60s durations propagate warmed snapshots to the
+            // chart; sub-minute durations warm state + history only.
+            active_ladder_secs
+                .iter()
+                .map(|&s| s >= 60)
+                .collect::<Vec<_>>(),
         )
         .await;
     }
@@ -358,12 +365,9 @@ pub async fn add_instance(
                 symbol: pair_key.clone(),
                 quote: quote.as_str().to_string(),
                 status: config_models::InstanceStatus::Running,
-                // v11.1: legacy per-TF keys are ignored — the fixed ladder
-                // plus workspace indicator defaults governs all slots.
-                micro_term: TimeframeConfig::default(),
-                fast_term: TimeframeConfig::default(),
-                slow_term: None,
-                macro_term: None,
+                // v11.9: no per-duration overrides by default — the
+                // workspace ladder + per-duration profiles govern.
+                timeframes: std::collections::BTreeMap::new(),
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: operational_mode.clone(),
                 mode: execution_mode,
@@ -371,7 +375,6 @@ pub async fn add_instance(
                 allocation_pct: None,
                 weight_overrides: weight_overrides.clone(),
                 activation: None,
-                custom_pipelines: std::collections::HashMap::new(),
             };
             config.instances.push(entry);
         }
@@ -667,38 +670,25 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
             eprintln!("strategy resolution failed ({e}); using built-in default");
             config_models::StrategyConfig::default()
         });
-    // v11.1: the FIXED 10-slot ladder governs all slots (same rule as
-    // add_instance). The legacy per-instance `micro_term`/`fast_term`/
-    // `slow_term`/`macro_term` keys are ignored; indicator knobs come
-    // from the workspace-level defaults.
+    // v11.9: the ACTIVE timeframe set governs all slots (same rule as
+    // add_instance). Config chain per duration: workspace indicators →
+    // per-duration profile row → optional per-instance override.
     let ws_indicators = config_guard.indicators.clone();
-    let ladder_cfgs: [TimeframeConfig; 10] = std::array::from_fn(|i| {
-        // v11.8: per-duration profile baseline — the matrix values for this
-        // duration override the workspace-level defaults.
-        TimeframeConfig::new(
-            config_models::FIXED_TF_LADDER[i],
-            config_models::duration_profile::overlay(
-                &ws_indicators,
-                config_models::FIXED_TF_LADDER[i],
-            ),
-        )
-    });
-    let ladder_secs: [u64; 10] = config_models::FIXED_TF_LADDER;
-    // v11.4: the ACTIVE SET — arbitrary subset of the pool (explicit
-    // `[workspace].active_slots` wins; legacy default = fastest N).
-    let config_guard_active_slots: Vec<usize> = config_guard
-        .active_slot_names()
+    let config_guard_active_ladder_secs: Vec<u64> = config_guard.active_timeframes_for();
+    let instance_timeframes: std::collections::BTreeMap<u64, TimeframeConfig> =
+        pair_cfg.timeframes.clone();
+    let ladder_cfgs: Vec<TimeframeConfig> = config_guard_active_ladder_secs
         .iter()
-        .filter_map(|name| config_models::FIXED_TF_NAMES.iter().position(|n| n == name))
-        .collect();
-    let config_guard_active_ladder_secs: Vec<u64> = config_guard
-        .active_slot_names()
-        .iter()
-        .filter_map(|name| {
-            config_models::FIXED_TF_NAMES
-                .iter()
-                .position(|n| n == name)
-                .map(|idx| config_models::FIXED_TF_LADDER[idx])
+        .map(|&secs| {
+            if let Some(tf) = instance_timeframes.get(&secs) {
+                return tf.clone();
+            }
+            // v11.8: per-duration profile baseline — the matrix values for
+            // this duration override the workspace-level defaults.
+            TimeframeConfig::new(
+                secs,
+                config_models::duration_profile::overlay(&ws_indicators, secs),
+            )
         })
         .collect();
     drop(config_guard);
@@ -721,8 +711,6 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         pool: state.pool.clone(),
         ladder_cfgs: ladder_cfgs.clone(),
         fib_config: fib_config.clone(),
-        ladder_secs,
-        active_slots: config_guard_active_slots.clone(),
         buffer_size,
         stale_threshold_secs,
         fetch_timeout_ms,
@@ -737,11 +725,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
         internal_symbol: pair_key.to_string(),
-        custom_pipelines: std::collections::HashMap::new(),
         quote,
         pair_key: pair_key.to_string(),
         exchange_choice,
-        active_slots: config_guard_active_slots.clone(),
         ladder_cfgs,
         fib_config,
         safety_config: safety_config.clone(),
@@ -769,24 +755,36 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
 
     // Populate buffers from warmed states
     if let Ok(ref warmed) = warmed_states {
-        // Positional with the fixed ladder (fastest → slowest).
-        let slot_buffers: [&TimeframeBuffers; 10] = artifacts.instance.buffers();
-        let warmed_opts: [Option<market_analyzer::analyzer::WarmedPipelineState>; 10] =
-            std::array::from_fn(|i| Some(warmed[i].clone()));
+        // Ascending fastest → slowest, aligned with the ACTIVE durations.
+        let slot_buffers = artifacts.instance.buffers();
+        let warmed_opts: Vec<Option<market_analyzer::analyzer::WarmedPipelineState>> =
+            warmed.iter().map(|w| Some(w.clone())).collect();
         bootstrap::populate_buffers(
             &warmed_opts,
-            &std::array::from_fn(|i| slot_buffers[i].history.clone()),
-            &std::array::from_fn(|i| slot_buffers[i].latest.clone()),
-            &std::array::from_fn(|i| slot_buffers[i].snapshot_history.clone()),
+            &slot_buffers
+                .iter()
+                .map(|b| b.history.clone())
+                .collect::<Vec<_>>(),
+            &slot_buffers
+                .iter()
+                .map(|b| b.latest.clone())
+                .collect::<Vec<_>>(),
+            &slot_buffers
+                .iter()
+                .map(|b| b.snapshot_history.clone())
+                .collect::<Vec<_>>(),
             &artifacts.instance.active_pair.latest_oi,
             &artifacts.instance.active_pair.latest_funding,
             &artifacts.instance.active_pair.latest_mark_px,
             &artifacts.instance.active_pair.latest_index_px,
             &artifacts.instance.active_pair.oi_history,
             &artifacts.instance.active_pair.funding_history,
-            // PRI-08: only ≥60s slots propagate warmed snapshots to the
-            // chart; sub-minute slots warm state + history only.
-            std::array::from_fn(|i| config_models::FIXED_TF_LADDER[i] >= 60),
+            // PRI-08: only ≥60s durations propagate warmed snapshots to the
+            // chart; sub-minute durations warm state + history only.
+            config_guard_active_ladder_secs
+                .iter()
+                .map(|&s| s >= 60)
+                .collect::<Vec<_>>(),
         )
         .await;
     }
@@ -794,16 +792,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let recharged_active_pair = artifacts.instance.active_pair.clone();
     let pipelines::PipelineArtifacts {
         instance: _,
-        micro1,
-        micro2,
-        fast1,
-        fast2,
-        slow1,
-        slow2,
-        macro1,
-        macro2,
-        longterm1,
-        longterm2,
+        buffers: recharged_buffers,
     } = artifacts;
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
@@ -824,16 +813,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         active_pair: recharged_active_pair,
         pool: old_instance.pool.clone(),
         workspace: old_instance.workspace.clone(),
-        micro1,
-        micro2,
-        fast1,
-        fast2,
-        slow1,
-        slow2,
-        macro1,
-        macro2,
-        longterm1,
-        longterm2,
+        buffers: recharged_buffers,
         lifecycle: RwLock::new(LifecycleManager::new_for_mode(None, Some(pair_cfg.mode))),
         execution_mode: tokio::sync::RwLock::new(pair_cfg.mode),
     });
@@ -846,7 +826,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
 
     sync_exchange_status_active_pairs(state).await;
 
-    let secs_list = config_models::FIXED_TF_LADDER
+    let secs_list = new_instance
+        .active_secs
         .iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
@@ -885,9 +866,8 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
 /// Tear down and rebuild **only one timeframe pipeline** of one instance
 /// (v6.5, CB-11 / DCP-09 / ILS-13). The other TFs continue uninterrupted.
 ///
-/// `slot` must be one of the canonical fixed-ladder wire names
-/// (`"micro1"` … `"longterm2"`, case-sensitive, matching
-/// `TimeframeSlot::as_str`).
+/// `slot` is a duration label (`"1s"` … `"1d"`, case-insensitive) or a
+/// raw duration in seconds; it is resolved against the ACTIVE pipelines.
 ///
 /// Behavior:
 ///   1. Look up the instance by `instance_id` (must exist).
@@ -912,20 +892,7 @@ pub async fn reload_timeframe(
     instance_id: &str,
     slot: &str,
 ) -> Result<(), String> {
-    use core_domain::models::{CandlePipelineState, TimeframeSlot};
-    let slot_enum = match slot {
-        "micro1" => TimeframeSlot::Micro1,
-        "micro2" => TimeframeSlot::Micro2,
-        "fast1" => TimeframeSlot::Fast1,
-        "fast2" => TimeframeSlot::Fast2,
-        "slow1" => TimeframeSlot::Slow1,
-        "slow2" => TimeframeSlot::Slow2,
-        "macro1" => TimeframeSlot::Macro1,
-        "macro2" => TimeframeSlot::Macro2,
-        "longterm1" => TimeframeSlot::Longterm1,
-        "longterm2" => TimeframeSlot::Longterm2,
-        _ => return Err(format!("Unknown slot '{}'", slot)),
-    };
+    use core_domain::models::CandlePipelineState;
 
     let instance = state
         .workspace
@@ -935,13 +902,14 @@ pub async fn reload_timeframe(
 
     println!(
         "🔄 Reload TF requested: instance={} slot={} (delegating to full recharge for now)",
-        instance_id,
-        slot_enum.as_str()
+        instance_id, slot
     );
 
-    // Reset only the slot's pipeline_state so the next emitted snapshot
-    // carries the LOADING badge.
-    let Some(pipeline) = instance.active_pair.pipeline_for_slot(slot_enum) else {
+    // v11.9: `slot` is a duration label ("1m", "15s", …). Resolve the
+    // matching ACTIVE pipeline (case-insensitive) and reset only its
+    // pipeline_state so the next emitted snapshot carries the LOADING
+    // badge.
+    let Some(pipeline) = instance.active_pair.pipeline_for_label(slot) else {
         return recharge_instance(state, instance_id).await;
     };
     *pipeline.pipeline_state.write().await = CandlePipelineState::Initializing;

@@ -13,7 +13,7 @@ use config_models::{
     OperationalMode, OrderBookConfig, SafetyConfig, StrategyConfig, TimeframeConfig,
 };
 use core_domain::liquidity::{ClusterRefreshStatus, ClusterStatusSnapshot};
-use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
+use core_domain::models::{CandlePipelineState, MarketSnapshot};
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
 use database_storage;
 use market_analyzer::analyzer;
@@ -25,20 +25,14 @@ pub struct PipelineContext {
     pub base: String,
     /// Unified internal symbol (e.g. "BTC-USDT") used across the state.
     pub internal_symbol: String,
-    pub custom_pipelines: std::collections::HashMap<u16, TimeframeConfig>,
     /// Settlement/quote currency for this session.
     pub quote: Currency,
     pub pair_key: String,
     pub exchange_choice: ExchangeChoice,
-    /// Fixed 10-slot ladder configs, positional fastest → slowest
-    /// (aligned with `config_models::FIXED_TF_LADDER` /
-    /// `core_domain::models::FIXED_TF_SLOTS`).
-    pub ladder_cfgs: [TimeframeConfig; 10],
-    /// v11.4: WHICH ladder slots run — canonical indices into
-    /// `FIXED_TF_SLOTS` (arbitrary subset of the pool). Slots outside the
-    /// set exist as inert pipelines (never spawned, never emit) so every
-    /// array stays total.
-    pub active_slots: Vec<usize>,
+    /// v11.9: the ACTIVE timeframe configs — one per configured duration,
+    /// ordered ascending fastest → slowest. Only ACTIVE durations are
+    /// constructed and spawned (no inert pipelines).
+    pub ladder_cfgs: Vec<TimeframeConfig>,
     pub fib_config: FibonacciConfig,
     pub safety_config: SafetyConfig,
     pub intervals_config: IntervalsConfig,
@@ -76,55 +70,59 @@ pub struct PipelineContext {
 
 pub struct PipelineArtifacts {
     pub instance: Arc<Instance>,
-    /// Fixed 10-slot ladder buffers, fastest → slowest (keeps `Instance`
-    /// construction symmetric).
-    pub micro1: TimeframeBuffers,
-    pub micro2: TimeframeBuffers,
-    pub fast1: TimeframeBuffers,
-    pub fast2: TimeframeBuffers,
-    pub slow1: TimeframeBuffers,
-    pub slow2: TimeframeBuffers,
-    pub macro1: TimeframeBuffers,
-    pub macro2: TimeframeBuffers,
-    pub longterm1: TimeframeBuffers,
-    pub longterm2: TimeframeBuffers,
+    /// v11.9: the ACTIVE buffers — one per configured duration, ascending
+    /// fastest → slowest (keeps `Instance` construction symmetric).
+    pub buffers: Vec<TimeframeBuffers>,
 }
 
 pub async fn build_pipelines(
     ctx: &PipelineContext,
     state: &RegistryContext,
-    warmed_states: Option<[analyzer::WarmedPipelineState; 10]>,
+    warmed_states: Option<Vec<analyzer::WarmedPipelineState>>,
 ) -> PipelineArtifacts {
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(500);
     let cancel = ctx.cancel.clone();
 
-    // Per-slot state (arrays of 10, positional with FIXED_TF_SLOTS /
-    // FIXED_TF_LADDER, fastest → slowest).
-    let broadcast_txs: [tokio::sync::broadcast::Sender<MarketSnapshot>; 10] =
-        std::array::from_fn(|_| tokio::sync::broadcast::channel::<MarketSnapshot>(200).0);
+    // v11.9: the ACTIVE durations drive every handle set — one entry per
+    // configured duration, ascending fastest → slowest.
+    let active_secs: Vec<u64> = ctx
+        .ladder_cfgs
+        .iter()
+        .map(|c| c.candles.duration_seconds)
+        .collect();
+    let n = active_secs.len();
 
-    let histories: [Arc<RwLock<VecDeque<NormalizedCandle>>>; 10] = std::array::from_fn(|_| {
-        Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-            ctx.buffer_size,
-        )))
-    });
+    let broadcast_txs: Vec<tokio::sync::broadcast::Sender<MarketSnapshot>> = (0..n)
+        .map(|_| tokio::sync::broadcast::channel::<MarketSnapshot>(200).0)
+        .collect();
 
-    let latests: [Arc<RwLock<Option<MarketSnapshot>>>; 10] =
-        std::array::from_fn(|_| Arc::new(RwLock::new(None::<MarketSnapshot>)));
+    let histories: Vec<Arc<RwLock<VecDeque<NormalizedCandle>>>> = (0..n)
+        .map(|_| {
+            Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+                ctx.buffer_size,
+            )))
+        })
+        .collect();
 
-    let snapshot_histories: [Arc<RwLock<VecDeque<MarketSnapshot>>>; 10] =
-        std::array::from_fn(|_| {
+    let latests: Vec<Arc<RwLock<Option<MarketSnapshot>>>> = (0..n)
+        .map(|_| Arc::new(RwLock::new(None::<MarketSnapshot>)))
+        .collect();
+
+    let snapshot_histories: Vec<Arc<RwLock<VecDeque<MarketSnapshot>>>> = (0..n)
+        .map(|_| {
             Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
                 ctx.buffer_size,
             )))
-        });
+        })
+        .collect();
 
     // Per-TF cluster-matrix handles (Phase 2). Each TF pipeline gets its
     // own handle so the dashboard charts can show clusters at their own
     // horizons. Populated by the cluster refresh tasks spawned below;
     // read by `run_single` on every candle close.
-    let cluster_matrices: [Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>;
-        10] = std::array::from_fn(|_| Arc::new(RwLock::new(None)));
+    let cluster_matrices: Vec<
+        Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+    > = (0..n).map(|_| Arc::new(RwLock::new(None))).collect();
 
     // Per-TF cluster-refresh status handles (sibling to the matrix handles).
     // The refresh task writes to both on every tick; the
@@ -132,15 +130,16 @@ pub async fn build_pipelines(
     // distinguish "no data yet" (Pending) from "refresh task failed"
     // (Skipped with reason) — without this distinction the LIQ HEATMAP can
     // appear empty for minutes at boot with zero operator feedback.
-    let cluster_statuses: [Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>; 10] =
-        std::array::from_fn(|i| {
+    let cluster_statuses: Vec<Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>> = (0..n)
+        .map(|i| {
             Arc::new(RwLock::new(
                 core_domain::liquidity::ClusterStatusSnapshot::pending(
                     ctx.pair_key.as_str(),
-                    config_models::FIXED_TF_NAMES[i],
+                    &core_domain::duration_label(active_secs[i]),
                 ),
             ))
-        });
+        })
+        .collect();
 
     // v6.10 (Phase 5 / E1): build the real ActiveSet from config instead
     // of the default all-enabled set. Global `[activation]` + per-instance
@@ -170,18 +169,16 @@ pub async fn build_pipelines(
     active_set.cluster_estimation = eff_liq.cfg.cluster_estimation;
     active_set.liquidity_signals_enabled = eff_liq.cfg.signals;
 
-    // Per-slot pipelines, built by index over the fixed ladder then moved
-    // into the named `ActivePair` fields (positionally aligned with
-    // `core_domain::models::FIXED_TF_SLOTS` / `FIXED_TF_LADDER`).
-    let pipes: [analyzer::TimeframePipeline; 10] =
-        std::array::from_fn(|i| analyzer::TimeframePipeline {
-            slot: core_domain::models::FIXED_TF_SLOTS[i],
+    // v11.9: per-duration pipelines, built over the ACTIVE set then moved
+    // into the `ActivePair.pipelines` vec (duration-ordered).
+    let pipes: Vec<analyzer::TimeframePipeline> = (0..n)
+        .map(|i| analyzer::TimeframePipeline {
+            slot_label: core_domain::duration_label(active_secs[i]),
             history: histories[i].clone(),
             broadcast_tx: broadcast_txs[i].clone(),
             latest_snapshot: latests[i].clone(),
             snapshot_history: snapshot_histories[i].clone(),
-            timeframe_secs: ctx.ladder_cfgs[i].candles.duration_seconds,
-            timeframe_label: config_models::FIXED_TF_NAMES[i],
+            timeframe_secs: active_secs[i],
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
@@ -198,22 +195,13 @@ pub async fn build_pipelines(
             tf_leverage_config: Arc::new(ctx.ladder_cfgs[i].leverage.clone()),
             buffer_size: ctx.buffer_size,
             stale_threshold_secs: ctx.stale_threshold_secs,
-        });
-    let [micro1, micro2, fast1, fast2, slow1, slow2, macro1, macro2, longterm1, longterm2] = pipes;
+        })
+        .collect();
 
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro1,
-        micro2,
-        fast1,
-        fast2,
-        slow1,
-        slow2,
-        macro1,
-        macro2,
-        longterm1,
-        longterm2,
+        pipelines: pipes,
+        active_secs: active_secs.clone(),
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -223,7 +211,6 @@ pub async fn build_pipelines(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))), // AUDIT-AIU-051: (timestamp_secs, value)
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: state.latency_tracker.clone(),
-        active_indices: ctx.active_slots.clone(),
     });
 
     spawn_tasks(
@@ -231,8 +218,8 @@ pub async fn build_pipelines(
         &ctx.base,
         &ctx.internal_symbol,
         &ctx.pair_key,
-        &ctx.active_slots,
         &ctx.ladder_cfgs,
+        &active_secs,
         &ctx.fib_config,
         &cancel,
         &broadcast_txs,
@@ -260,13 +247,15 @@ pub async fn build_pipelines(
     )
     .await;
 
-    // Per-slot chart/telemetry buffers handed to the `Instance`, positional
-    // with the ladder (fastest → slowest).
-    let buffers: [TimeframeBuffers; 10] = std::array::from_fn(|i| TimeframeBuffers {
-        history: histories[i].clone(),
-        latest: latests[i].clone(),
-        snapshot_history: snapshot_histories[i].clone(),
-    });
+    // Per-duration chart/telemetry buffers handed to the `Instance`,
+    // ascending fastest → slowest.
+    let buffers: Vec<TimeframeBuffers> = (0..n)
+        .map(|i| TimeframeBuffers {
+            history: histories[i].clone(),
+            latest: latests[i].clone(),
+            snapshot_history: snapshot_histories[i].clone(),
+        })
+        .collect();
 
     let instance = Arc::new(Instance::new(
         format!("inst_{}", uuid_v4_simple()),
@@ -278,29 +267,11 @@ pub async fn build_pipelines(
         ctx.intervals_config.clone(),
         ctx.safety_config.clone(),
         buffers.clone(),
-        ctx.active_slots
-            .iter()
-            .map(|&i| config_models::FIXED_TF_LADDER[i])
-            .collect(),
+        active_secs.clone(),
         ctx.operational_mode.clone(),
     ));
 
-    let [micro1, micro2, fast1, fast2, slow1, slow2, macro1, macro2, longterm1, longterm2] =
-        buffers;
-
-    PipelineArtifacts {
-        instance,
-        micro1,
-        micro2,
-        fast1,
-        fast2,
-        slow1,
-        slow2,
-        macro1,
-        macro2,
-        longterm1,
-        longterm2,
-    }
+    PipelineArtifacts { instance, buffers }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -309,17 +280,17 @@ async fn spawn_tasks(
     base: &str,
     internal_symbol: &str,
     pair_key: &str,
-    active_slots: &[usize],
-    ladder_cfgs: &[TimeframeConfig; 10],
+    ladder_cfgs: &[TimeframeConfig],
+    active_secs: &[u64],
     fib_config: &FibonacciConfig,
     cancel: &CancellationToken,
-    broadcast_txs: &[tokio::sync::broadcast::Sender<MarketSnapshot>; 10],
-    histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>; 10],
-    latests: &[Arc<RwLock<Option<MarketSnapshot>>>; 10],
-    snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>; 10],
+    broadcast_txs: &[tokio::sync::broadcast::Sender<MarketSnapshot>],
+    histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>],
+    latests: &[Arc<RwLock<Option<MarketSnapshot>>>],
+    snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>],
     active_pair: &Arc<analyzer::ActivePair>,
     state: &RegistryContext,
-    warmed_states: Option<[analyzer::WarmedPipelineState; 10]>,
+    warmed_states: Option<Vec<analyzer::WarmedPipelineState>>,
     exchange_choice: ExchangeChoice,
     quote: Currency,
     liquidity_config: LiquidityConfig,
@@ -328,8 +299,8 @@ async fn spawn_tasks(
     // v9: wired order-book config + the effective strategy.
     ob_config: OrderBookConfig,
     strategy: StrategyConfig,
-    cluster_matrices: &[Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>; 10],
-    cluster_statuses: &[Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>; 10],
+    cluster_matrices: &[Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>],
+    cluster_statuses: &[Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>],
     buffer_size: usize,
     // AUDIT-H7: `[candle_buffer] stale_threshold_secs` (CB-04/ILS-07) —
     // threaded into run_single (was hardcoded 300 inside the analyzer).
@@ -338,6 +309,7 @@ async fn spawn_tasks(
     // per-instance). `false` => the L2.5 refresh loop is not spawned.
     cluster_estimation: bool,
 ) {
+    let n = active_secs.len();
     // v9: the strategy's `l1_5` section is the single source of truth for
     // the liquidity pipeline (legacy sections remain only as the fallback
     // baked into the EffectiveLiquidity resolver).
@@ -378,14 +350,14 @@ async fn spawn_tasks(
         tokio::sync::mpsc::channel::<market_analyzer::candle_aggregator::AggregatedCandle>(200);
     let agg_symbol = internal_symbol.to_string();
 
-    // Spawn the candle aggregator — the fixed ladder IS the target set
-    // (v11.1: no more micro×N derivation; every ladder duration is
-    // aggregated from the fastest slot's forwarded candles).
+    // Spawn the candle aggregator — the ACTIVE set IS the target set
+    // (every active duration is aggregated from the fastest duration's
+    // forwarded candles).
     tokio::spawn(market_analyzer::candle_aggregator::spawn_candle_aggregator(
         agg_symbol.clone(),
         candle_bcast_rx,
         agg_tx,
-        config_models::FIXED_TF_LADDER.to_vec(),
+        active_secs.to_vec(),
     ));
 
     let logger_agg_telemetry = state.telemetry_tx.clone();
@@ -404,15 +376,17 @@ async fn spawn_tasks(
     });
 
     if let Some(ref ws) = warmed_states {
-        for c in &ws[0].history {
-            let _ = candle_fwd_tx.send(c.clone()).await;
+        if let Some(first) = ws.first() {
+            for c in &first.history {
+                let _ = candle_fwd_tx.send(c.clone()).await;
+            }
         }
     }
 
-    // Spawn the 10 fixed-ladder pipeline tasks
-    let warmed_opts: [Option<analyzer::WarmedPipelineState>; 10] = match &warmed_states {
-        Some(ws) => std::array::from_fn(|i| Some(ws[i].clone())),
-        None => std::array::from_fn(|_| None),
+    // Spawn one pipeline task per ACTIVE duration
+    let warmed_opts: Vec<Option<analyzer::WarmedPipelineState>> = match &warmed_states {
+        Some(ws) => (0..n).map(|i| ws.get(i).cloned()).collect(),
+        None => (0..n).map(|_| None).collect(),
     };
 
     #[allow(clippy::type_complexity)]
@@ -422,33 +396,30 @@ async fn spawn_tasks(
         Arc<RwLock<VecDeque<NormalizedCandle>>>,
         Arc<RwLock<Option<MarketSnapshot>>>,
         Arc<RwLock<VecDeque<MarketSnapshot>>>,
-        core_domain::models::TimeframeSlot,
-        &'static str,
+        String,
         u64,
         tokio::sync::broadcast::Sender<MarketSnapshot>,
         Arc<tokio::sync::Mutex<DivergenceDetector>>,
         Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
         Option<analyzer::WarmedPipelineState>,
         market_analyzer::active_set::ActiveSet,
-    )> = Vec::with_capacity(10);
+    )> = Vec::with_capacity(n);
     let pair_pipes = active_pair.all();
     let mut rx_iter = pipeline_rxs.into_iter();
-    // v11.4: only the ACTIVE slots are spawned; the rest stay inert
-    // (constructed but never fed events, never emit).
-    for &i in active_slots {
+    // v11.9: every ACTIVE duration is spawned (there are no inert slots).
+    for i in 0..n {
         pipeline_specs.push((
-            rx_iter.next().expect("one rx per fixed-ladder slot"),
+            rx_iter.next().expect("one rx per active duration"),
             ladder_cfgs[i].clone(),
             histories[i].clone(),
             latests[i].clone(),
             snapshot_histories[i].clone(),
-            core_domain::models::FIXED_TF_SLOTS[i],
-            config_models::FIXED_TF_NAMES[i],
-            ladder_cfgs[i].candles.duration_seconds,
+            core_domain::duration_label(active_secs[i]),
+            active_secs[i],
             broadcast_txs[i].clone(),
             pair_pipes[i].divergence_detector.clone(),
-            // The fastest slot forwards its candles to the aggregator (the
-            // ladder targets are all derived from that single stream).
+            // The fastest duration forwards its candles to the aggregator
+            // (the ladder targets are all derived from that single stream).
             if i == 0 {
                 Some(candle_fwd_tx.clone())
             } else {
@@ -486,8 +457,7 @@ async fn spawn_tasks(
             hist,
             snap,
             snap_hist,
-            slot,
-            label,
+            slot_label,
             tf_secs,
             bcast,
             div_det,
@@ -584,8 +554,7 @@ async fn spawn_tasks(
                 a_symbol,
                 a_pair_key,
                 tf_secs,
-                label,
-                slot,
+                slot_label,
                 a_cancel,
                 candle_fwd,
                 warmed,
@@ -657,7 +626,7 @@ async fn spawn_tasks(
     let es_disconnect_label = exchange_label.clone();
     let cq_registry = state.connection_quality.clone();
     let cq_pair_key = pair_key.to_string();
-    let cq_timeframes: [u64; 10] = std::array::from_fn(|i| ladder_cfgs[i].candles.duration_seconds);
+    let cq_timeframes: Vec<u64> = active_secs.to_vec();
     // AUDIT-V9 B7: capture the workspace-wide latency tracker so the
     // heartbeat task can record inter-tick drift into
     // `system_heartbeat_latency_ms`. Previously this field was always
@@ -731,7 +700,7 @@ async fn spawn_tasks(
             // First-ever connect: emit Connected event. Subsequent
             // cycles: emit ReconnectCompleted after the adapter
             // returns, with the actual handshake duration (B5).
-            for tf in cq_timeframes {
+            for &tf in &cq_timeframes {
                 let scope = cq_registry.scope(&cq_pair_key, tf).await;
                 if last_disconnect_ms.is_none() {
                     scope.record_connect(connect_ms).await;
@@ -840,7 +809,7 @@ async fn spawn_tasks(
             // the 5 s reconnect ceiling even when the handshake itself
             // was instant.
             if last_disconnect_ms.take().is_some() {
-                for tf in cq_timeframes {
+                for &tf in &cq_timeframes {
                     let scope = cq_registry.scope(&cq_pair_key, tf).await;
                     scope
                         .record_reconnect(connect_ms, recorded_handshake_ms)
@@ -858,7 +827,7 @@ async fn spawn_tasks(
                 let grace_label = exchange_label.clone();
                 let grace_cq = cq_registry.clone();
                 let grace_pair = cq_pair_key.clone();
-                let grace_tfs = cq_timeframes;
+                let grace_tfs = cq_timeframes.clone();
                 let grace_cancel = ws_cancel.clone();
                 pending_disconnect = Some(tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(disconnect_grace_ms)).await;
@@ -870,7 +839,7 @@ async fn spawn_tasks(
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis() as u64)
                         .unwrap_or(0);
-                    for tf in grace_tfs {
+                    for &tf in &grace_tfs {
                         let scope = grace_cq.scope(&grace_pair, tf).await;
                         scope.record_disconnect(ms).await;
                     }
@@ -880,7 +849,7 @@ async fn spawn_tasks(
                 // immediately. Kept for operators who explicitly opt out.
                 es_disconnect.set_disconnected(&es_disconnect_label).await;
                 let disconnect_ms = now_ms();
-                for tf in cq_timeframes {
+                for &tf in &cq_timeframes {
                     let scope = cq_registry.scope(&cq_pair_key, tf).await;
                     scope.record_disconnect(disconnect_ms).await;
                 }
@@ -974,51 +943,35 @@ async fn spawn_tasks(
     if liquidity_config.enabled && cluster_estimation {
         let pair_str = pair_key.to_string();
         type ClusterRefreshHandle<'a> = (
-            TimeframeSlot,
+            u64,
             &'a Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
             &'a Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
             u64,
         );
-        // One refresh handle-set per ACTIVE ladder slot (fastest → slowest).
-        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = active_slots
-            .iter()
-            .copied()
+        // One refresh handle-set per ACTIVE duration (fastest → slowest).
+        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = (0..n)
             .map(|i| {
                 (
-                    core_domain::models::FIXED_TF_SLOTS[i],
+                    active_secs[i],
                     &cluster_matrices[i],
                     &cluster_statuses[i],
-                    ladder_cfgs[i].candles.duration_seconds,
+                    active_secs[i],
                 )
             })
             .collect();
-        // PRI-07 (v6.10.7): custom slots also get a cluster refresh task
-        // (previously only the four default slots did, so custom-slot charts
-        // had no LIQ HEATMAP data). Each custom pipeline is a full
-        // `TimeframePipeline` with its own cluster_matrix / cluster_status /
-        // timeframe_secs.
-        for (id, pipe) in &active_pair.custom_pipelines {
-            per_tf_handles.push((
-                TimeframeSlot::Custom { id: *id },
-                &pipe.cluster_matrix,
-                &pipe.cluster_status,
-                pipe.timeframe_secs,
-            ));
-        }
-
-        for (slot, handle, status_handle, tf_secs) in per_tf_handles {
+        for (tf_key, handle, status_handle, tf_secs) in per_tf_handles {
+            let slot_label = core_domain::duration_label(tf_key);
             // v6.10 (Phase 2 / B5): per-TF kill switch. Read
             // `tf_leverage_config.enabled` from the active pipeline; if false,
             // skip this TF entirely (no spawn, no cluster field on snapshot).
             let tf_leverage_enabled = active_pair
-                .pipeline_for_slot(slot)
+                .pipeline_for_secs(tf_key)
                 .map(|p| p.tf_leverage_config.enabled)
                 .unwrap_or(true);
             if !tf_leverage_enabled {
                 println!(
                     "⏭  Cluster Refresh: {} {} skipped (per-TF leverage.enabled=false)",
-                    pair_str,
-                    &slot.as_str(),
+                    pair_str, &slot_label,
                 );
                 write_cluster_status(
                     status_handle,
@@ -1044,9 +997,7 @@ async fn spawn_tasks(
             };
             println!(
                 "🌀 Cluster Refresh: {} {} started ({}s cadence, first fire immediate)",
-                pair_str,
-                &slot.as_str(),
-                cadence_secs,
+                pair_str, &slot_label, cadence_secs,
             );
             let pair_log = pair_str.clone();
             let handle = handle.clone();
@@ -1058,6 +1009,7 @@ async fn spawn_tasks(
             let cluster_overrides = ClusterOverrides::from_strategy(&strategy);
             let cancel_for_refresh = cancel.clone();
             let exchange_for_refresh = exchange_choice;
+            let slot_label = slot_label.clone();
             tokio::spawn(async move {
                 // AUDIT-AIU-116: consecutive-skip counter. Every `Skipped`
                 // tick keeps the LAST successful matrix in the handle, so a
@@ -1072,7 +1024,7 @@ async fn spawn_tasks(
                 let started = std::time::Instant::now();
                 match compute_cluster_for_tf(
                     &active_pair_clone,
-                    slot,
+                    tf_key,
                     &refresh_config,
                     exchange_for_refresh,
                     &cluster_overrides,
@@ -1088,7 +1040,7 @@ async fn spawn_tasks(
                         println!(
                             "✅ Cluster Refresh: {} {} mid={:.2} OI=${:.0} → {} short + {} long clusters (first fire, {}ms)",
                             pair_log,
-                            &slot.as_str(),
+                            &slot_label,
                             mid,
                             oi,
                             n_short,
@@ -1107,9 +1059,7 @@ async fn spawn_tasks(
                     Err(e) => {
                         eprintln!(
                             "⚠️  Cluster Refresh: {} {} first fire skipped: {}",
-                            pair_log,
-                            &slot.as_str(),
-                            e,
+                            pair_log, &slot_label, e,
                         );
                         write_cluster_status(
                             &status_handle,
@@ -1143,7 +1093,7 @@ async fn spawn_tasks(
                             println!(
                                 "🛑 Cluster Refresh: {} {} cancelled, shutting down.",
                                 pair_log,
-                                &slot.as_str(),
+                                &slot_label,
                             );
                             break;
                         }
@@ -1152,7 +1102,7 @@ async fn spawn_tasks(
                     let started = std::time::Instant::now();
                     match compute_cluster_for_tf(
                         &active_pair_clone,
-                        slot,
+                        tf_key,
                         &refresh_config,
                         exchange_for_refresh,
                         &cluster_overrides,
@@ -1168,7 +1118,7 @@ async fn spawn_tasks(
                             println!(
                                 "✅ Cluster Refresh: {} {} mid={:.2} OI=${:.0} → {} short + {} long clusters ({}ms)",
                                 pair_log,
-                                &slot.as_str(),
+                                &slot_label,
                                 mid,
                                 oi,
                                 n_short,
@@ -1188,11 +1138,7 @@ async fn spawn_tasks(
                             consecutive_skips += 1;
                             eprintln!(
                                 "⚠️  Cluster Refresh: {} {} skipped this tick: {} (skip {} of {})",
-                                pair_log,
-                                &slot.as_str(),
-                                e,
-                                consecutive_skips,
-                                MAX_CONSECUTIVE_SKIPS,
+                                pair_log, &slot_label, e, consecutive_skips, MAX_CONSECUTIVE_SKIPS,
                             );
                             write_cluster_status(
                                 &status_handle,
@@ -1213,7 +1159,7 @@ async fn spawn_tasks(
                                     println!(
                                         "🕸️  Cluster Refresh: {} {} cleared stale matrix after {} consecutive skips",
                                         pair_log,
-                                        &slot.as_str(),
+                                        &slot_label,
                                         consecutive_skips,
                                     );
                                 }
@@ -1341,7 +1287,7 @@ impl ClusterOverrides {
 /// can drive it without instantiating the full pipeline machinery.
 pub async fn compute_cluster_for_tf(
     active_pair: &Arc<analyzer::ActivePair>,
-    slot: core_domain::models::TimeframeSlot,
+    tf_secs: u64,
     config: &config_models::LiquidityConfig,
     exchange: ExchangeChoice,
     overrides: &ClusterOverrides,
@@ -1349,7 +1295,7 @@ pub async fn compute_cluster_for_tf(
     use core_domain::liquidity::{estimate_clusters, ClusterEstimateInput};
 
     // 1. Pull latest snapshot from the TF we are computing for.
-    let tf_snapshot = tf_latest_snapshot(active_pair, slot).await;
+    let tf_snapshot = tf_latest_snapshot(active_pair, tf_secs).await;
     let tf_snapshot = match tf_snapshot {
         Some(s) => s,
         None => return Err(ClusterRefreshError::NoSnapshotYet),
@@ -1375,7 +1321,7 @@ pub async fn compute_cluster_for_tf(
     }
 
     // 3. Build price history (last 200 candles of *this* TF, not micro).
-    let history_arc = match tf_history(active_pair, slot) {
+    let history_arc = match tf_history(active_pair, tf_secs) {
         Some(h) => h,
         None => return Err(ClusterRefreshError::NoSnapshotYet),
     };
@@ -1404,7 +1350,7 @@ pub async fn compute_cluster_for_tf(
     //    v9: the strategy's `l1_5.per_tf_leverage` (when enabled) replaces
     //    the pipeline config.
     let tf_cfg = active_pair
-        .pipeline_for_slot(slot)
+        .pipeline_for_secs(tf_secs)
         .map(|p| p.tf_leverage_config.as_ref().clone())
         .unwrap_or_default();
     let (buckets, weights, min_notional) = match overrides.per_tf_leverage.as_ref() {
@@ -1441,22 +1387,22 @@ pub async fn compute_cluster_for_tf(
     Ok(estimate_clusters(&input))
 }
 
-/// Helper: read the latest snapshot from one TF slot.
+/// Helper: read the latest snapshot from one ACTIVE duration.
 async fn tf_latest_snapshot(
     active_pair: &Arc<analyzer::ActivePair>,
-    slot: core_domain::models::TimeframeSlot,
+    tf_secs: u64,
 ) -> Option<core_domain::models::MarketSnapshot> {
-    let pipe = active_pair.pipeline_for_slot(slot)?;
+    let pipe = active_pair.pipeline_for_secs(tf_secs)?;
     pipe.latest_snapshot.read().await.clone()
 }
 
-/// Helper: get a reference to the history `VecDeque` of one TF slot.
+/// Helper: get a reference to the history `VecDeque` of one ACTIVE duration.
 fn tf_history(
     active_pair: &Arc<analyzer::ActivePair>,
-    slot: core_domain::models::TimeframeSlot,
+    tf_secs: u64,
 ) -> Option<Arc<RwLock<std::collections::VecDeque<core_domain::normalized::NormalizedCandle>>>> {
     active_pair
-        .pipeline_for_slot(slot)
+        .pipeline_for_secs(tf_secs)
         .map(|p| p.history.clone())
 }
 

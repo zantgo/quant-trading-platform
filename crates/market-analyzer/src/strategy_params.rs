@@ -279,19 +279,19 @@ pub fn overview_params_from_strategy(
         sp.get("fragmented").copied().unwrap_or(10.0),
         sp.get("highly_fragmented").copied().unwrap_or(0.0),
     ];
-    let td = &l7.systemic.tf_decay;
-    p.tf_decay = [
-        td.get("micro1").copied().unwrap_or(0.05),
-        td.get("micro2").copied().unwrap_or(0.05),
-        td.get("fast1").copied().unwrap_or(0.05),
-        td.get("fast2").copied().unwrap_or(0.1),
-        td.get("slow1").copied().unwrap_or(0.1),
-        td.get("slow2").copied().unwrap_or(0.15),
-        td.get("macro1").copied().unwrap_or(0.15),
-        td.get("macro2").copied().unwrap_or(0.15),
-        td.get("longterm1").copied().unwrap_or(0.1),
-        td.get("longterm2").copied().unwrap_or(0.1),
+    // v11.9: duration-keyed decay — look each supported duration up by its
+    // canonical label ("1s"…"1d"), aligned with `SUPPORTED_DURATIONS`.
+    const DEFAULT_TF_DECAY: [f64; 14] = [
+        0.04, 0.04, 0.04, 0.07, 0.07, 0.10, 0.10, 0.10, 0.08, 0.07, 0.08, 0.07, 0.07, 0.07,
     ];
+    let td = &l7.systemic.tf_decay;
+    let mut decay = DEFAULT_TF_DECAY;
+    for (i, secs) in core_domain::SUPPORTED_DURATIONS.iter().enumerate() {
+        if let Some(v) = td.get(&core_domain::duration_label(*secs)) {
+            decay[i] = *v;
+        }
+    }
+    p.tf_decay = decay;
     p.cascade_index_fallback = l7.systemic.cascade_index_fallback;
     p.entry_veto_threshold = l7.systemic.entry_veto_threshold;
     p.asset_rank_slope = l7.asset_rank.slope;

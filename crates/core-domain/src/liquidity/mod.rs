@@ -925,7 +925,9 @@ pub enum ClusterRefreshStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusterStatusSnapshot {
     pub symbol: String,
-    pub slot: String,
+    /// v11.9: derived duration label ("1s".."1d") of the TF this snapshot
+    /// describes.
+    pub timeframe_label: String,
     pub status: ClusterRefreshStatus,
     /// Unix epoch ms of the last attempted refresh (success OR failure).
     pub last_refresh_attempt_ms: u64,
@@ -946,10 +948,10 @@ pub struct ClusterStatusSnapshot {
 
 impl ClusterStatusSnapshot {
     /// Initial pending state used at cold boot before the first tick.
-    pub fn pending(symbol: &str, slot: &str) -> Self {
+    pub fn pending(symbol: &str, timeframe_label: &str) -> Self {
         Self {
             symbol: symbol.to_string(),
-            slot: slot.to_string(),
+            timeframe_label: timeframe_label.to_string(),
             status: ClusterRefreshStatus::Pending,
             last_refresh_attempt_ms: 0,
             last_success_ms: None,

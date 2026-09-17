@@ -42,7 +42,7 @@ use std::sync::Mutex;
 use api_gateway::AppState;
 use config_models::{CandleBufferConfig, InstanceEntry, PlatformConfig, WorkspaceConfig};
 use core_domain::liquidity::ClusterStatusSnapshot;
-use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
+use core_domain::models::{CandlePipelineState, MarketSnapshot};
 use core_domain::normalized::{NormalizedEvent, SymbolMapper};
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
@@ -114,10 +114,7 @@ fn make_instance(id: &str, pair: &str) -> InstanceEntry {
         symbol: pair.to_string(),
         quote: "USDT".to_string(),
         status: config_models::InstanceStatus::Running,
-        micro_term: config_models::TimeframeConfig::new(60, Default::default()),
-        fast_term: config_models::TimeframeConfig::new(180, Default::default()),
-        slow_term: None,
-        macro_term: None,
+        timeframes: Default::default(),
         automation: Default::default(),
         operational_mode: Default::default(),
         mode: config_models::ExecutionMode::Paper,
@@ -125,7 +122,6 @@ fn make_instance(id: &str, pair: &str) -> InstanceEntry {
         allocation_pct: None,
         weight_overrides: None,
         activation: None,
-        custom_pipelines: std::collections::HashMap::new(),
     }
 }
 
@@ -163,14 +159,14 @@ fn build_stub_instance(
 ) -> Arc<Instance> {
     let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(8);
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
-    let build_pipe = |slot: TimeframeSlot, secs: u64, tx| TimeframePipeline {
-        slot,
+    let active_secs: Vec<u64> = config_models::SUPPORTED_DURATIONS.to_vec();
+    let build_pipe = |secs: u64, tx| TimeframePipeline {
+        slot_label: core_domain::duration_label(secs),
         history: Arc::new(RwLock::new(VecDeque::new())),
         broadcast_tx: tx,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: snap_hist.clone(),
         timeframe_secs: secs,
-        timeframe_label: "Test",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: config_models::FibonacciConfig::default(),
@@ -182,7 +178,7 @@ fn build_stub_instance(
         cluster_matrix: Arc::new(RwLock::new(None)),
         cluster_status: Arc::new(RwLock::new(ClusterStatusSnapshot::pending(
             "TEST-USD",
-            &slot.as_str(),
+            &core_domain::duration_label(secs),
         ))),
         pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
@@ -193,17 +189,10 @@ fn build_stub_instance(
     };
     let active = Arc::new(ActivePair {
         symbol: format!("{}-{}", base, quote),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro1: build_pipe(TimeframeSlot::Micro1, 1, bcast_tx.clone()),
-        micro2: build_pipe(TimeframeSlot::Micro2, 3, bcast_tx.clone()),
-        fast1: build_pipe(TimeframeSlot::Fast1, 5, bcast_tx.clone()),
-        fast2: build_pipe(TimeframeSlot::Fast2, 15, bcast_tx.clone()),
-        slow1: build_pipe(TimeframeSlot::Slow1, 30, bcast_tx.clone()),
-        slow2: build_pipe(TimeframeSlot::Slow2, 60, bcast_tx.clone()),
-        macro1: build_pipe(TimeframeSlot::Macro1, 180, bcast_tx.clone()),
-        macro2: build_pipe(TimeframeSlot::Macro2, 300, bcast_tx.clone()),
-        longterm1: build_pipe(TimeframeSlot::Longterm1, 900, bcast_tx.clone()),
-        longterm2: build_pipe(TimeframeSlot::Longterm2, 3600, bcast_tx),
+        pipelines: (0..10)
+            .map(|i| build_pipe(active_secs[i], bcast_tx.clone()))
+            .collect(),
+        active_secs: active_secs.clone(),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -213,9 +202,8 @@ fn build_stub_instance(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
-        active_indices: (0..10).collect(),
     });
-    let buffers: [TimeframeBuffers; 10] = active
+    let buffers: Vec<TimeframeBuffers> = active
         .all()
         .iter()
         .map(|pipe| TimeframeBuffers {
@@ -223,9 +211,7 @@ fn build_stub_instance(
             latest: pipe.latest_snapshot.clone(),
             snapshot_history: snap_hist.clone(),
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"));
+        .collect();
     Arc::new(Instance::new(
         id.to_string(),
         (base.to_string(), quote.to_string()),
@@ -236,7 +222,7 @@ fn build_stub_instance(
         Default::default(),
         Default::default(),
         buffers,
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        active_secs, // v11.9 active ladder
         Default::default(),
     ))
 }

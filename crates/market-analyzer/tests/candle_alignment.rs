@@ -53,7 +53,7 @@ fn completed_candle_closes_on_integer_epoch_multiple() {
 
 #[test]
 fn utc_boundary_map_for_all_default_tiers() {
-    // micro60 / fast180 / slow300 / macro900 all close on exact epoch
+    // 1m / 3m / 5m / 15m all close on exact epoch
     // multiples of their duration (03-01-03 §3.1 UTC boundary map).
     for duration_secs in [60u64, 180, 300, 900] {
         let duration_ms = duration_secs * 1000;

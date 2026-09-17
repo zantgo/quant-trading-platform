@@ -78,12 +78,14 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
             extension_coefficients: vec![1.618, 2.618],
         };
 
-        // Per-slot TimeframeConfigs over the fixed ladder.
-        let ladder_cfgs: [TimeframeConfig; 10] = std::array::from_fn(|i| {
-            TimeframeConfig::new(config_models::FIXED_TF_LADDER[i], indicators.clone())
-        });
+        // Per-duration TimeframeConfigs over the supported pool.
+        let active_secs: Vec<u64> = config_models::SUPPORTED_DURATIONS.to_vec();
+        let ladder_cfgs: Vec<TimeframeConfig> = active_secs
+            .iter()
+            .map(|&secs| TimeframeConfig::new(secs, indicators.clone()))
+            .collect();
 
-        // Event router fanning out to all 10 fixed-ladder timeframes
+        // Event router fanning out to every pool duration
         let router_cancel = cancel.clone();
         let router_symbol = symbol.clone();
         tokio::spawn(async move {
@@ -100,8 +102,7 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
                               symbol: String,
                               pk: String,
                               secs: u64,
-                              label: &'static str,
-                              slot: core_domain::models::TimeframeSlot,
+                              slot_label: String,
                               cancel: CancellationToken| {
             let t = telemetry_tx.clone();
             tokio::spawn(async move {
@@ -120,8 +121,7 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
                     symbol,
                     pk,
                     secs,
-                    label,
-                    slot,
+                    slot_label,
                     cancel,
                     None,
                     None,
@@ -177,9 +177,8 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
                 latests[i].clone(),
                 symbol.clone(),
                 pair_key.clone(),
-                config_models::FIXED_TF_LADDER[i],
-                config_models::FIXED_TF_NAMES[i],
-                core_domain::models::FIXED_TF_SLOTS[i],
+                active_secs[i],
+                core_domain::duration_label(active_secs[i]),
                 cancel.clone(),
             );
             handles.push(handle);
@@ -216,22 +215,19 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
         let micro_count = histories[0].read().await.len();
         let fast_count = histories[2].read().await.len();
         eprintln!(
-            "History counts — Micro1({}s): {}, Fast1({}s): {}",
-            config_models::FIXED_TF_LADDER[0],
-            micro_count,
-            config_models::FIXED_TF_LADDER[2],
-            fast_count
+            "History counts — 1s({}s): {}, 5s({}s): {}",
+            active_secs[0], micro_count, active_secs[2], fast_count
         );
 
         assert!(
             micro_count <= cap,
-            "Micro1 history capped at {}; got {}",
+            "1s history capped at {}; got {}",
             cap,
             micro_count
         );
         assert!(
             fast_count <= cap,
-            "Fast1 history capped at {}; got {}",
+            "5s history capped at {}; got {}",
             cap,
             fast_count
         );
@@ -246,7 +242,7 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
         let micro_snaps = drain_broadcast(&mut micro_bcast_rx);
         let fast_snaps = drain_broadcast(&mut fast_bcast_rx);
         eprintln!(
-            "Broadcast snapshots — Micro1: {}, Fast1: {}",
+            "Broadcast snapshots — 1s: {}, 5s: {}",
             micro_snaps, fast_snaps
         );
 

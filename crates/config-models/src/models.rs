@@ -890,9 +890,9 @@ impl TimeframeConfig {
 }
 
 impl Default for TimeframeConfig {
-    /// Placeholder per-TF block bound to the fastest ladder slot. Used only
-    /// by serde when a legacy `micro_term`/`fast_term` key is absent — the
-    /// fixed 10-slot ladder ignores these legacy per-slot values entirely.
+    /// Placeholder bound to the fastest duration (1s). Used by serde when a
+    /// per-duration block omits fields that serde must default."""
+
     fn default() -> Self {
         Self::new(1, IndicatorsConfig::default())
     }

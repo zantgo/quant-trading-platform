@@ -37,7 +37,7 @@ use std::time::Duration;
 use api_gateway::{self, AppState, RechargeNotice};
 use config_models::FibonacciConfig;
 use config_models::WorkspaceConfig;
-use core_domain::models::{MarketSnapshot, TimeframeSlot};
+use core_domain::models::MarketSnapshot;
 use core_domain::normalized::SymbolMapper;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
@@ -57,7 +57,7 @@ const INSTANCE_ID: &str = "inst_recharge_rebind";
 
 fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
     MarketSnapshot {
-        timeframe_slot: Some(TimeframeSlot::Micro1),
+        timeframe_label: Some("1s".to_string()),
         exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
         timeframe_secs,
         timestamp: 1_700_000_000,
@@ -104,9 +104,9 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
 
 /// Build an `ActivePair` wired to a fresh set of broadcast channels.
 /// Returns the pair plus the `broadcast::Sender`s of the four
-/// representative ladder slots (micro1/fast1/slow1/macro1) so the test
-/// can publish snapshots on any of them; the remaining six slots carry
-/// throwaway channels.
+/// representative active durations (1s/5s/30s/180s) so the test can
+/// publish snapshots on any of them; the remaining six carry throwaway
+/// channels.
 type PairWithSenders = (
     Arc<ActivePair>,
     broadcast::Sender<MarketSnapshot>,
@@ -124,17 +124,13 @@ fn build_active_pair_with_channels(pair_key: &str) -> PairWithSenders {
         mpsc::channel::<core_domain::normalized::NormalizedEvent>(100);
     let cancel = CancellationToken::new();
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
-    let new_pipe = |secs: u64,
-                    label: &'static str,
-                    slot: TimeframeSlot,
-                    tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
-        slot,
+    let new_pipe = |secs: u64, tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
+        slot_label: core_domain::duration_label(secs),
         history: Arc::new(RwLock::new(VecDeque::new())),
         broadcast_tx: tx,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: snap_hist.clone(),
         timeframe_secs: secs,
-        timeframe_label: label,
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
         fibonacci: FibonacciConfig::default(),
@@ -165,25 +161,26 @@ fn build_active_pair_with_channels(pair_key: &str) -> PairWithSenders {
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        custom_pipelines: std::collections::HashMap::new(),
-        micro1: new_pipe(1, "Micro1", TimeframeSlot::Micro1, micro_bcast.clone()),
-        micro2: new_pipe(3, "Micro2", TimeframeSlot::Micro2, throwaway()),
-        fast1: new_pipe(5, "Fast1", TimeframeSlot::Fast1, fast_bcast.clone()),
-        fast2: new_pipe(15, "Fast2", TimeframeSlot::Fast2, throwaway()),
-        slow1: new_pipe(30, "Slow1", TimeframeSlot::Slow1, slow_bcast.clone()),
-        slow2: new_pipe(60, "Slow2", TimeframeSlot::Slow2, throwaway()),
-        macro1: new_pipe(180, "Macro1", TimeframeSlot::Macro1, macro_bcast.clone()),
-        macro2: new_pipe(300, "Macro2", TimeframeSlot::Macro2, throwaway()),
-        longterm1: new_pipe(900, "Longterm1", TimeframeSlot::Longterm1, throwaway()),
-        longterm2: new_pipe(3600, "Longterm2", TimeframeSlot::Longterm2, throwaway()),
+        pipelines: vec![
+            new_pipe(1, micro_bcast.clone()),
+            new_pipe(3, throwaway()),
+            new_pipe(5, fast_bcast.clone()),
+            new_pipe(15, throwaway()),
+            new_pipe(30, slow_bcast.clone()),
+            new_pipe(60, throwaway()),
+            new_pipe(180, macro_bcast.clone()),
+            new_pipe(300, throwaway()),
+            new_pipe(900, throwaway()),
+            new_pipe(3600, throwaway()),
+        ],
+        active_secs: config_models::SUPPORTED_DURATIONS.to_vec(),
         snapshot_tx,
         cancel,
-        active_indices: (0..10).collect(),
     });
     (pair, micro_bcast, fast_bcast, slow_bcast, macro_bcast)
 }
 
-fn make_buffers_for(pair: &ActivePair) -> [TimeframeBuffers; 10] {
+fn make_buffers_for(pair: &ActivePair) -> Vec<TimeframeBuffers> {
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
     pair.all()
         .iter()
@@ -192,9 +189,7 @@ fn make_buffers_for(pair: &ActivePair) -> [TimeframeBuffers; 10] {
             latest: pipe.latest_snapshot.clone(),
             snapshot_history: snap_hist.clone(),
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap_or_else(|_| panic!("expected ten fixed-ladder buffers"))
+        .collect()
 }
 
 async fn setup_app_with_pair() -> (
@@ -231,7 +226,7 @@ async fn setup_app_with_pair() -> (
         Default::default(),
         Default::default(),
         buffers,
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        config_models::SUPPORTED_DURATIONS.to_vec(), // v11.9 active ladder
         Default::default(),
     ));
     workspace.insert(PAIR_KEY.to_string(), instance).await;
@@ -298,7 +293,7 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
     // 1. Take a Receiver on the OLD ActivePair's micro channel, mimicking
     //    what the WS handler does on connect.
     let old_pair = state.get_active_pair(PAIR_KEY).await.unwrap();
-    let mut old_rx = old_pair.subscribe_broadcast_by_slot(TimeframeSlot::Micro1);
+    let mut old_rx = old_pair.subscribe_broadcast_by_secs(1);
 
     // 2. Sanity: the OLD channel delivers a snapshot before any swap.
     micro_old
@@ -329,7 +324,7 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
         Default::default(),
         Default::default(),
         buffers,
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        config_models::SUPPORTED_DURATIONS.to_vec(), // v11.9 active ladder
         Default::default(),
     ));
     state
@@ -421,7 +416,7 @@ async fn ws_handler_rebinds_after_recharge_notice() {
 
     // Open a WS client. The handler will cache the OLD ActivePair and
     // subscribe to its micro broadcast channel.
-    let req = format!("ws://{addr}/ws?symbol={PAIR_KEY}&timeframe_secs=60&slot=micro1")
+    let req = format!("ws://{addr}/ws?symbol={PAIR_KEY}&timeframe_secs=60&slot=1s")
         .into_client_request()
         .unwrap();
     let (mut ws, _resp) = tokio_tungstenite::connect_async(req).await.unwrap();
@@ -458,7 +453,7 @@ async fn ws_handler_rebinds_after_recharge_notice() {
         Default::default(),
         Default::default(),
         buffers,
-        config_models::FIXED_TF_LADDER.to_vec(), // v11.2 active ladder
+        config_models::SUPPORTED_DURATIONS.to_vec(), // v11.9 active ladder
         Default::default(),
     ));
     state

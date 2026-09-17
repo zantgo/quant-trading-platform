@@ -433,12 +433,9 @@ pub async fn compile_session_result(
         avg_hold_secs,
     };
 
-    let timeframe_secs = workspace
-        .instances
-        .iter()
-        .find(|i| !i.symbol.is_empty())
-        .map(|i| i.micro_term.candles.duration_seconds)
-        .unwrap_or(1);
+    // v11.9: identity is the duration in seconds — report the fastest
+    // active duration of the workspace ladder.
+    let timeframe_secs = workspace.timeframes.iter().min().copied().unwrap_or(1);
 
     Some(SessionResult {
         session_id,

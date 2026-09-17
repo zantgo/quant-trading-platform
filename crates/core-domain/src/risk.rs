@@ -548,30 +548,30 @@ fn assess_volatility_risk(
         evidence.push("Squeeze compression active".into());
     }
     // v6.10.18 (I-8): the fast-weighted TF volatility state.
-    // AUDIT-AIU-109: pair the micro/fast states BY SLOT LABEL, not by list
+    // AUDIT-AIU-109: pair the micro/fast states BY DURATION, not by list
     // position. `tf_volatility` arrives in `tf_data` order, which is
     // current-pipeline-first — on the fast/slow/macro pipelines `.first()`
     // was the pipeline itself, so the documented `0.7 × micro + 0.3 × fast`
     // blend was silently computed as `0.7 × self + 0.3 × micro` on 3 of 4
     // pipelines (corrupting `volatility_risk` and its downstream guidance
-    // on those snapshots). Label-based pairing restores the actionable-
-    // horizon blend on every pipeline.
+    // on those snapshots). v11.9: labels are duration labels ("1s"…"1d"),
+    // so the pairing sorts by parsed duration and reads the two FASTEST
+    // windows (fastest = micro leg, second-fastest = fast leg) — stable
+    // for any ACTIVE subset.
     let mut vol_component: Option<f64> = None;
     if !tf_volatility.is_empty() {
         for (label, state, _) in tf_volatility {
             evidence.push(format!("{} volatility {}", label, state));
         }
-        let micro = tf_volatility
+        let mut by_duration: Vec<(u64, f64)> = tf_volatility
             .iter()
-            .find(|(label, _, _)| label.eq_ignore_ascii_case("micro1"))
-            .map(|(_, _, s)| *s);
-        let fast = tf_volatility
-            .iter()
-            .find(|(label, _, _)| label.eq_ignore_ascii_case("fast1"))
-            .map(|(_, _, s)| *s);
+            .map(|(label, _, s)| (crate::duration_from_label(label).unwrap_or(u64::MAX), *s))
+            .collect();
+        by_duration.sort_by_key(|(secs, _)| *secs);
+        let micro = by_duration.first().map(|(_, s)| *s);
+        let fast = by_duration.get(1).map(|(_, s)| *s);
         let (micro, fast) = match (micro, fast) {
-            // Defensive fallback: no labeled entries (e.g. a degenerate
-            // single-TF snapshot) — fall back to the legacy positional read.
+            // Defensive fallback: no parseable labels (degenerate snapshot).
             (None, None) => (
                 tf_volatility.first().map(|(_, _, s)| *s),
                 tf_volatility.get(1).map(|(_, _, s)| *s),
@@ -1027,8 +1027,8 @@ fn clamp01(x: f64) -> f64 {
 mod tests {
     use super::*;
     use crate::analysis::{
-        AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, MomentumAssessment, OpportunityType,
-        QualityLevel, StructureAssessment, TrendAssessment, VolatilityAssessment, VolumeAssessment,
+        AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, MomentumAssessment, QualityLevel,
+        StructureAssessment, TrendAssessment, VolatilityAssessment, VolumeAssessment,
     };
 
     fn make_analysis_with_timeframes() -> AnalysisMatrix {
@@ -1157,13 +1157,13 @@ mod tests {
         analysis.state_confidence = 0.5;
         let indicators = HashMap::new();
 
-        // Fast1 pipeline order: [FAST1, MICRO1, SLOW1, LONGTERM2] — micro1
-        // is NOT first. A positional read would blend 0.7×fast1 + 0.3×micro1.
+        // 5s pipeline order: [5S, 1S, 30S, 1H] — 1s is NOT first. A
+        // positional read would blend 0.7×5s + 0.3×1s.
         let tf_volatility = vec![
-            ("FAST1".to_string(), "EXPANSION_CLIMAX".to_string(), 97.2),
-            ("MICRO1".to_string(), "EXPANDING".to_string(), 83.25),
-            ("SLOW1".to_string(), "NORMAL".to_string(), 58.0),
-            ("LONGTERM2".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
+            ("5S".to_string(), "EXPANSION_CLIMAX".to_string(), 97.2),
+            ("1S".to_string(), "EXPANDING".to_string(), 83.25),
+            ("30S".to_string(), "NORMAL".to_string(), 58.0),
+            ("1H".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
         ];
         let risk = compute_risk(
             "BTC-USD",
