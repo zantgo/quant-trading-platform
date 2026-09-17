@@ -42,12 +42,11 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
         // legitimately produces more, and the real invariant is the
         // HIST_BUFFER_MAX trim).
         let cap = analyzer::HIST_BUFFER_MAX;
-        let histories: [Arc<RwLock<VecDeque<NormalizedCandle>>>; 10] =
-            std::array::from_fn(|_| {
-                Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-                    120,
-                )))
-            });
+        let histories: [Arc<RwLock<VecDeque<NormalizedCandle>>>; 10] = std::array::from_fn(|_| {
+            Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+                120,
+            )))
+        });
         let latests: [Arc<RwLock<Option<MarketSnapshot>>>; 10] =
             std::array::from_fn(|_| Arc::new(RwLock::new(None::<MarketSnapshot>)));
 
@@ -258,8 +257,7 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
         );
 
         // Verify latest snapshots
-        let has_latest =
-            latests[0].read().await.is_some() || latests[2].read().await.is_some();
+        let has_latest = latests[0].read().await.is_some() || latests[2].read().await.is_some();
         assert!(
             has_latest,
             "At least one timeframe should have a latest snapshot"

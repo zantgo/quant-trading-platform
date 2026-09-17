@@ -164,11 +164,7 @@ pub async fn add_instance(
     let config_guard_active_slots: Vec<usize> = config_guard
         .active_slot_names()
         .iter()
-        .filter_map(|name| {
-            config_models::FIXED_TF_NAMES
-                .iter()
-                .position(|n| n == name)
-        })
+        .filter_map(|name| config_models::FIXED_TF_NAMES.iter().position(|n| n == name))
         .collect();
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
@@ -677,11 +673,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let config_guard_active_slots: Vec<usize> = config_guard
         .active_slot_names()
         .iter()
-        .filter_map(|name| {
-            config_models::FIXED_TF_NAMES
-                .iter()
-                .position(|n| n == name)
-        })
+        .filter_map(|name| config_models::FIXED_TF_NAMES.iter().position(|n| n == name))
         .collect();
     let config_guard_active_ladder_secs: Vec<u64> = config_guard
         .active_slot_names()

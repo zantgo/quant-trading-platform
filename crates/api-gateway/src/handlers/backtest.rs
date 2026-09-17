@@ -93,7 +93,11 @@ pub async fn serve_backfill_start(
             )
                 .into_response();
         };
-        let Some(tfs) = payload.timeframes.as_ref().filter(|t| (1..=10).contains(&t.len())) else {
+        let Some(tfs) = payload
+            .timeframes
+            .as_ref()
+            .filter(|t| (1..=10).contains(&t.len()))
+        else {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({

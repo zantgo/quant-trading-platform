@@ -131,24 +131,30 @@ pub async fn interrupt_stale_sessions(
 
 /// v11.6: mark an interrupted session as recovered by the operator.
 pub async fn mark_session_recovered(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE sessions SET status = 'recovered' WHERE id = ?1 AND status = 'interrupted'")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE sessions SET status = 'recovered' WHERE id = ?1 AND status = 'interrupted'",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
 /// v11.6: mark an interrupted session as discarded by the operator.
 pub async fn mark_session_discarded(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE sessions SET status = 'discarded' WHERE id = ?1 AND status = 'interrupted'")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE sessions SET status = 'discarded' WHERE id = ?1 AND status = 'interrupted'",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
 /// v11.6: newest interrupted row (Recovery card payload).
-pub async fn latest_interrupted_session(pool: &SqlitePool) -> Result<Option<SessionRow>, sqlx::Error> {
+pub async fn latest_interrupted_session(
+    pool: &SqlitePool,
+) -> Result<Option<SessionRow>, sqlx::Error> {
     sqlx::query_as(
         "SELECT id, mode, exchange, currency, portfolio_capital_usd, \
                 started_at_ms, ended_at_ms, status \

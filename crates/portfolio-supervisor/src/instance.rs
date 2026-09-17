@@ -292,52 +292,51 @@ impl Instance {
 
         let cancel = CancellationToken::new();
         let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(2);
-        let new_pipeline = |slot: core_domain::models::TimeframeSlot,
-                            secs: u64|
-         -> TimeframePipeline {
-            TimeframePipeline {
-            slot,
-            history: Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::new())),
-            broadcast_tx: bcast_tx.clone(),
-            latest_snapshot: Arc::new(RwLock::new(None)),
-            snapshot_history: Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new())),
-            timeframe_secs: secs,
-            timeframe_label: "TEST",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(
-                market_analyzer::indicators::DivergenceDetector::new(20),
-            )),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(
-                market_analyzer::sr_engine::SrRoleTracker::new(0.003),
-            )),
-            fibonacci: config_models::FibonacciConfig::default(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            active_set: Default::default(),
-            // Per-TF cluster-matrix handle (Phase 2). Empty by default;
-            // tests don't exercise cluster refresh so leaving this as
-            // None is fine.
-            cluster_matrix: Arc::new(RwLock::new(None)),
-            // Per-TF cluster-refresh status snapshot (sibling to
-            // `cluster_matrix`). Tests don't exercise refresh, so we
-            // initialize as Pending with empty fields.
-            cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending(
-                    &format!("{}-{}", pair.0, pair.1),
-                    &slot.as_str(),
-                ),
-            )),
-            pipeline_state: Arc::new(RwLock::new(
-                core_domain::models::CandlePipelineState::Initializing,
-            )),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
-            tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
-        }
-        };
+        let new_pipeline =
+            |slot: core_domain::models::TimeframeSlot, secs: u64| -> TimeframePipeline {
+                TimeframePipeline {
+                    slot,
+                    history: Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::new())),
+                    broadcast_tx: bcast_tx.clone(),
+                    latest_snapshot: Arc::new(RwLock::new(None)),
+                    snapshot_history: Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new())),
+                    timeframe_secs: secs,
+                    timeframe_label: "TEST",
+                    divergence_detector: Arc::new(tokio::sync::Mutex::new(
+                        market_analyzer::indicators::DivergenceDetector::new(20),
+                    )),
+                    sr_tracker: Arc::new(tokio::sync::Mutex::new(
+                        market_analyzer::sr_engine::SrRoleTracker::new(0.003),
+                    )),
+                    fibonacci: config_models::FibonacciConfig::default(),
+                    latest_oi: Arc::new(RwLock::new(None)),
+                    latest_funding: Arc::new(RwLock::new(None)),
+                    latest_mark_px: Arc::new(RwLock::new(None)),
+                    latest_index_px: Arc::new(RwLock::new(None)),
+                    active_set: Default::default(),
+                    // Per-TF cluster-matrix handle (Phase 2). Empty by default;
+                    // tests don't exercise cluster refresh so leaving this as
+                    // None is fine.
+                    cluster_matrix: Arc::new(RwLock::new(None)),
+                    // Per-TF cluster-refresh status snapshot (sibling to
+                    // `cluster_matrix`). Tests don't exercise refresh, so we
+                    // initialize as Pending with empty fields.
+                    cluster_status: Arc::new(RwLock::new(
+                        core_domain::liquidity::ClusterStatusSnapshot::pending(
+                            &format!("{}-{}", pair.0, pair.1),
+                            &slot.as_str(),
+                        ),
+                    )),
+                    pipeline_state: Arc::new(RwLock::new(
+                        core_domain::models::CandlePipelineState::Initializing,
+                    )),
+                    indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+                    advisory: Arc::new(RwLock::new(None)),
+                    tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
+                    buffer_size: 500,
+                    stale_threshold_secs: 300,
+                }
+            };
         let empty_buffers = TimeframeBuffers::new();
         let workspace = WorkspaceState::empty();
         // Use a no-op sqlite pool for tests. We never hit the DB.

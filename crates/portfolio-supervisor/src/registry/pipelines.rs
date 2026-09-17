@@ -103,12 +103,11 @@ pub async fn build_pipelines(
     let broadcast_txs: [tokio::sync::broadcast::Sender<MarketSnapshot>; 10] =
         std::array::from_fn(|_| tokio::sync::broadcast::channel::<MarketSnapshot>(200).0);
 
-    let histories: [Arc<RwLock<VecDeque<NormalizedCandle>>>; 10] =
-        std::array::from_fn(|_| {
-            Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-                ctx.buffer_size,
-            )))
-        });
+    let histories: [Arc<RwLock<VecDeque<NormalizedCandle>>>; 10] = std::array::from_fn(|_| {
+        Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+            ctx.buffer_size,
+        )))
+    });
 
     let latests: [Arc<RwLock<Option<MarketSnapshot>>>; 10] =
         std::array::from_fn(|_| Arc::new(RwLock::new(None::<MarketSnapshot>)));
@@ -174,8 +173,8 @@ pub async fn build_pipelines(
     // Per-slot pipelines, built by index over the fixed ladder then moved
     // into the named `ActivePair` fields (positionally aligned with
     // `core_domain::models::FIXED_TF_SLOTS` / `FIXED_TF_LADDER`).
-    let pipes: [analyzer::TimeframePipeline; 10] = std::array::from_fn(|i| {
-        analyzer::TimeframePipeline {
+    let pipes: [analyzer::TimeframePipeline; 10] =
+        std::array::from_fn(|i| analyzer::TimeframePipeline {
             slot: core_domain::models::FIXED_TF_SLOTS[i],
             history: histories[i].clone(),
             broadcast_tx: broadcast_txs[i].clone(),
@@ -199,10 +198,8 @@ pub async fn build_pipelines(
             tf_leverage_config: Arc::new(ctx.ladder_cfgs[i].leverage.clone()),
             buffer_size: ctx.buffer_size,
             stale_threshold_secs: ctx.stale_threshold_secs,
-        }
-    });
-    let [micro1, micro2, fast1, fast2, slow1, slow2, macro1, macro2, longterm1, longterm2] =
-        pipes;
+        });
+    let [micro1, micro2, fast1, fast2, slow1, slow2, macro1, macro2, longterm1, longterm2] = pipes;
 
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
@@ -281,7 +278,10 @@ pub async fn build_pipelines(
         ctx.intervals_config.clone(),
         ctx.safety_config.clone(),
         buffers.clone(),
-        ctx.active_slots.iter().map(|&i| config_models::FIXED_TF_LADDER[i]).collect(),
+        ctx.active_slots
+            .iter()
+            .map(|&i| config_models::FIXED_TF_LADDER[i])
+            .collect(),
         ctx.operational_mode.clone(),
     ));
 
@@ -478,21 +478,24 @@ async fn spawn_tasks(
         }
     };
 
-    for (i, (
-        rx,
-        tf_cfg,
-        hist,
-        snap,
-        snap_hist,
-        slot,
-        label,
-        tf_secs,
-        bcast,
-        div_det,
-        candle_fwd,
-        warmed,
-        active_set,
-    )) in pipeline_specs.into_iter().enumerate()
+    for (
+        i,
+        (
+            rx,
+            tf_cfg,
+            hist,
+            snap,
+            snap_hist,
+            slot,
+            label,
+            tf_secs,
+            bcast,
+            div_det,
+            candle_fwd,
+            warmed,
+            active_set,
+        ),
+    ) in pipeline_specs.into_iter().enumerate()
     {
         let a_symbol = internal_symbol.to_string();
         let a_pair_key = pair_key.to_string();
@@ -654,8 +657,7 @@ async fn spawn_tasks(
     let es_disconnect_label = exchange_label.clone();
     let cq_registry = state.connection_quality.clone();
     let cq_pair_key = pair_key.to_string();
-    let cq_timeframes: [u64; 10] =
-        std::array::from_fn(|i| ladder_cfgs[i].candles.duration_seconds);
+    let cq_timeframes: [u64; 10] = std::array::from_fn(|i| ladder_cfgs[i].candles.duration_seconds);
     // AUDIT-V9 B7: capture the workspace-wide latency tracker so the
     // heartbeat task can record inter-tick drift into
     // `system_heartbeat_latency_ms`. Previously this field was always

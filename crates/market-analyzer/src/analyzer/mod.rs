@@ -211,8 +211,16 @@ impl ActivePair {
     /// All ten fixed-ladder pipelines, fastest → slowest.
     pub fn all(&self) -> [&TimeframePipeline; 10] {
         [
-            &self.micro1, &self.micro2, &self.fast1, &self.fast2, &self.slow1, &self.slow2,
-            &self.macro1, &self.macro2, &self.longterm1, &self.longterm2,
+            &self.micro1,
+            &self.micro2,
+            &self.fast1,
+            &self.fast2,
+            &self.slow1,
+            &self.slow2,
+            &self.macro1,
+            &self.macro2,
+            &self.longterm1,
+            &self.longterm2,
         ]
     }
 
@@ -331,9 +339,7 @@ impl ActivePair {
 
     /// Latest completed snapshot for each of the ten fixed-ladder
     /// timeframes (fastest → slowest), for cross-timeframe synthesis.
-    pub async fn latest_snapshots_all_tf(
-        &self,
-    ) -> [Option<MarketSnapshot>; 10] {
+    pub async fn latest_snapshots_all_tf(&self) -> [Option<MarketSnapshot>; 10] {
         let mut out = [None, None, None, None, None, None, None, None, None, None];
         for (i, p) in self.all().iter().enumerate() {
             out[i] = p.latest_snapshot.read().await.clone();

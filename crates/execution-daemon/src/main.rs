@@ -558,7 +558,10 @@ fn cli_launch_plan(
         "live" => "live (real orders — requires keys)",
         _ => "observe (monitoring only — no orders dispatched)",
     };
-    println!("Mode: {} — Press <Enter> to accept each default.", trading_label);
+    println!(
+        "Mode: {} — Press <Enter> to accept each default.",
+        trading_label
+    );
     println!();
 
     // 1. Exchange
@@ -606,7 +609,10 @@ fn cli_launch_plan(
         "\nInstances (blank base = finish). {} configured in config.toml — press Enter to keep.",
         instances.len()
     );
-    println!("  Timeframes (active ladder): {}", fixed_ladder_display(cli_ws_active_timeframes()));
+    println!(
+        "  Timeframes (active ladder): {}",
+        fixed_ladder_display(cli_ws_active_timeframes())
+    );
     loop {
         let default_base = if instances.is_empty() {
             "BTC".to_string()
@@ -649,14 +655,20 @@ fn cli_launch_plan(
     println!("\n──────────────────────────────────────────────");
     println!("Trading Platform — CLI Launch Summary");
     println!("──────────────────────────────────────────────");
-    println!("  Mode                 : {} ({})", cli_trading, trading_label);
+    println!(
+        "  Mode                 : {} ({})",
+        cli_trading, trading_label
+    );
     println!(
         "  TAE                  : {}",
         if tae_on { "ON" } else { "OFF" }
     );
     println!("  Exchange             : {}", exchange);
     println!("  Settlement currency  : {}", currency);
-    println!("  Active TF ladder     : {}", fixed_ladder_display(cli_ws_active_timeframes()));
+    println!(
+        "  Active TF ladder     : {}",
+        fixed_ladder_display(cli_ws_active_timeframes())
+    );
     for inst in &instances {
         println!(
             "  Instance             : {}-{} ({})",
@@ -847,9 +859,7 @@ async fn async_main() {
         for offset in 0..attempts {
             let candidate = requested_port.saturating_add(offset);
             if offset > 0 {
-                println!(
-                    "🌐 Smart port: {requested_port} in use — trying {candidate}…"
-                );
+                println!("🌐 Smart port: {requested_port} in use — trying {candidate}…");
             }
             tried.push(candidate);
             match tokio::net::TcpListener::bind((server_bind.as_str(), candidate)).await {
@@ -1126,10 +1136,11 @@ async fn async_main() {
     // Live instances simply stay PAUSED on the simulation engine this run.
     let mut live_boot_blocked = false;
     if any_live_early && !database_storage::crypto::master_key_available() {
-        let keys: Option<(i64,)> = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM exchange_keys")
-            .fetch_one(&db_pool)
-            .await
-            .ok();
+        let keys: Option<(i64,)> =
+            sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM exchange_keys")
+                .fetch_one(&db_pool)
+                .await
+                .ok();
         let keys_exist = keys.map(|(c,)| c > 0).unwrap_or(false);
         if keys_exist {
             live_boot_blocked = true;
@@ -1287,10 +1298,10 @@ async fn async_main() {
 
     // ── Launch plan (CLI mode: interactive; web mode: config-driven) ──
     //
-// CLI mode prompts the operator for exchange/currency/instances BEFORE
-// spawning anything — the plan is written into the workspace config so
-// `registry::add_instance` binds each pair to the fixed 10-slot TF
-// ladder, then every instance is spawned with the boot retry policy.
+    // CLI mode prompts the operator for exchange/currency/instances BEFORE
+    // spawning anything — the plan is written into the workspace config so
+    // `registry::add_instance` binds each pair to the fixed 10-slot TF
+    // ladder, then every instance is spawned with the boot retry policy.
     // v8.2: the prompt offers a Backtest choice — the interactive sibling
     // of the GUI launcher (runs the simulation, then exits).
     let cli_plan: Option<CliLaunchPlan> = if matches!(cli.mode, LaunchMode::Cli) {
@@ -1444,7 +1455,7 @@ async fn async_main() {
                     let id = inst.id.clone();
                     match portfolio_supervisor::registry::start_instance(&ctx, &id).await {
                         Ok(()) => eprintln!("▶️  TAE activated for {} (lifecycle → RUNNING)", id),
-                        Err(e) if e.contains("already RUNNING") => {},
+                        Err(e) if e.contains("already RUNNING") => {}
                         Err(e) => eprintln!("⚠️  Failed to activate TAE for {}: {}", id, e),
                     }
                 }
@@ -1505,122 +1516,124 @@ async fn async_main() {
     // v11.6: failures inside this block degrade to the simulation engine
     // (instances stay PAUSED) instead of killing the daemon.
     'live_boot: {
-    if any_live {
-        let live_quote = workspace
-            .instances
-            .iter()
-            .find(|i| i.mode == config_models::ExecutionMode::Live)
-            .map(|i| i.quote.clone())
-            .filter(|q| !q.is_empty())
-            .unwrap_or_else(|| workspace.default_currency.clone());
+        if any_live {
+            let live_quote = workspace
+                .instances
+                .iter()
+                .find(|i| i.mode == config_models::ExecutionMode::Live)
+                .map(|i| i.quote.clone())
+                .filter(|q| !q.is_empty())
+                .unwrap_or_else(|| workspace.default_currency.clone());
 
-        let (address_or_key, secret_enc, passphrase_opt) = match workspace.default_exchange.as_str()
-        {
-            "Hyperliquid" => {
-                let key_row = match sqlx::query_as::<_, (String, String, String)>(
-                    "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
+            let (address_or_key, secret_enc, passphrase_opt) = match workspace
+                .default_exchange
+                .as_str()
+            {
+                "Hyperliquid" => {
+                    let key_row = match sqlx::query_as::<_, (String, String, String)>(
+                        "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
                          WHERE exchange = 'Hyperliquid' AND is_active = 1 ORDER BY id DESC LIMIT 1",
-                )
-                .fetch_optional(&db_pool)
-                .await
-                {
-                    Ok(row) => row,
-                    Err(e) => {
-                        eprintln!("❌ Live-mode key query failed: {e}");
-                        break 'live_boot;
-                    }
-                };
-                match key_row {
-                    Some((key, secret, _pass)) => (key, secret, None),
-                    None => {
-                        eprintln!(
-                            "❌ mode = \"live\" requires an active Hyperliquid API key \
-                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
-                        );
-                        break 'live_boot;
-                    }
-                }
-            }
-            "Bitget" => {
-                let key_row = match sqlx::query_as::<_, (String, String, String)>(
-                    "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
-                         WHERE exchange = 'Bitget' AND is_active = 1 ORDER BY id DESC LIMIT 1",
-                )
-                .fetch_optional(&db_pool)
-                .await
-                {
-                    Ok(row) => row,
-                    Err(e) => {
-                        eprintln!("❌ Live-mode key query failed: {e}");
-                        break 'live_boot;
-                    }
-                };
-                match key_row {
-                    Some((key, secret, pass)) => {
-                        if pass.is_empty() {
+                    )
+                    .fetch_optional(&db_pool)
+                    .await
+                    {
+                        Ok(row) => row,
+                        Err(e) => {
+                            eprintln!("❌ Live-mode key query failed: {e}");
+                            break 'live_boot;
+                        }
+                    };
+                    match key_row {
+                        Some((key, secret, _pass)) => (key, secret, None),
+                        None => {
                             eprintln!(
-                                "❌ mode = \"live\" (Bitget) requires a passphrase — \
-                                     re-add the key with a passphrase"
+                                "❌ mode = \"live\" requires an active Hyperliquid API key \
+                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
                             );
                             break 'live_boot;
                         }
-                        (key, secret, Some(pass))
-                    }
-                    None => {
-                        eprintln!(
-                            "❌ mode = \"live\" requires an active Bitget API key \
-                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
-                        );
-                        break 'live_boot;
                     }
                 }
-            }
-            other => {
-                eprintln!(
+                "Bitget" => {
+                    let key_row = match sqlx::query_as::<_, (String, String, String)>(
+                        "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
+                         WHERE exchange = 'Bitget' AND is_active = 1 ORDER BY id DESC LIMIT 1",
+                    )
+                    .fetch_optional(&db_pool)
+                    .await
+                    {
+                        Ok(row) => row,
+                        Err(e) => {
+                            eprintln!("❌ Live-mode key query failed: {e}");
+                            break 'live_boot;
+                        }
+                    };
+                    match key_row {
+                        Some((key, secret, pass)) => {
+                            if pass.is_empty() {
+                                eprintln!(
+                                    "❌ mode = \"live\" (Bitget) requires a passphrase — \
+                                     re-add the key with a passphrase"
+                                );
+                                break 'live_boot;
+                            }
+                            (key, secret, Some(pass))
+                        }
+                        None => {
+                            eprintln!(
+                                "❌ mode = \"live\" requires an active Bitget API key \
+                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
+                            );
+                            break 'live_boot;
+                        }
+                    }
+                }
+                other => {
+                    eprintln!(
                     "❌ mode = \"live\" is not supported for exchange '{}' (Hyperliquid and Bitget only)",
                     other
                 );
-                break 'live_boot;
-            }
-        };
+                    break 'live_boot;
+                }
+            };
 
-        let secret = match database_storage::crypto::decrypt_field(&secret_enc) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("❌ Failed to decrypt the live API secret (is EXCHANGE_SECRET_KEY correct?): {e}");
-                break 'live_boot;
-            }
-        };
+            let secret = match database_storage::crypto::decrypt_field(&secret_enc) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("❌ Failed to decrypt the live API secret (is EXCHANGE_SECRET_KEY correct?): {e}");
+                    break 'live_boot;
+                }
+            };
 
-        let broker: Box<dyn portfolio_supervisor::execution::ExecutionBackend> = if workspace
-            .default_exchange
-            .eq_ignore_ascii_case("Hyperliquid")
-        {
-            Box::new(portfolio_supervisor::execution::backend::LiveBroker::new(
-                address_or_key,
-                secret,
-                true,
-                None,
-            ))
-        } else {
-            let product_type =
-                network_adapters::adapters::bitget_live::product_type_from_quote(&live_quote)
-                    .to_string();
-            Box::new(
-                portfolio_supervisor::execution::backend::BitgetLiveBroker::new(
+            let broker: Box<dyn portfolio_supervisor::execution::ExecutionBackend> = if workspace
+                .default_exchange
+                .eq_ignore_ascii_case("Hyperliquid")
+            {
+                Box::new(portfolio_supervisor::execution::backend::LiveBroker::new(
                     address_or_key,
                     secret,
-                    passphrase_opt.unwrap_or_default(),
-                    product_type,
-                ),
-            )
-        };
-        execution_engine.set_live_backend(broker).await;
-        println!(
-            "🔴 TAE v7.1: LIVE mode active — orders dispatch to {}",
-            workspace.default_exchange
-        );
-    }
+                    true,
+                    None,
+                ))
+            } else {
+                let product_type =
+                    network_adapters::adapters::bitget_live::product_type_from_quote(&live_quote)
+                        .to_string();
+                Box::new(
+                    portfolio_supervisor::execution::backend::BitgetLiveBroker::new(
+                        address_or_key,
+                        secret,
+                        passphrase_opt.unwrap_or_default(),
+                        product_type,
+                    ),
+                )
+            };
+            execution_engine.set_live_backend(broker).await;
+            println!(
+                "🔴 TAE v7.1: LIVE mode active — orders dispatch to {}",
+                workspace.default_exchange
+            );
+        }
     } // 'live_boot
 
     // ── Clock-drift monitor (NTP-based) — must run BEFORE build_router
@@ -2112,9 +2125,7 @@ async fn async_main() {
                     // path stays anchored to the slower windows so a
                     // transient micro risk spike can never fire the PME
                     // safety veto.
-                    let tf_weights = [
-                        0.05_f64, 0.05, 0.05, 0.1, 0.1, 0.15, 0.15, 0.15, 0.1, 0.1,
-                    ];
+                    let tf_weights = [0.05_f64, 0.05, 0.05, 0.1, 0.1, 0.15, 0.15, 0.15, 0.1, 0.1];
                     let mut risk_windows: Vec<(f64, f64)> = Vec::new();
                     let mut risk_sum = 0.0;
                     let mut risk_count = 0u32;
@@ -2378,7 +2389,12 @@ async fn async_main() {
     let eq_cancel = eval_cancel.clone();
     let eq_engine = execution_engine.clone();
     handles.push(tokio::spawn(async move {
-        portfolio_equity::run_portfolio_equity_logger_with_engine(eq_pool, Some(eq_engine), eq_cancel).await;
+        portfolio_equity::run_portfolio_equity_logger_with_engine(
+            eq_pool,
+            Some(eq_engine),
+            eq_cancel,
+        )
+        .await;
     }));
 
     let opt_pool = db_pool.clone();
@@ -2446,7 +2462,9 @@ mod tests {
     // fallback candidate is free (two concurrent sessions, folder-per-session).
     #[tokio::test]
     async fn smart_port_falls_back_to_next_free_port() {
-        let l1 = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let l1 = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let held = l1.local_addr().unwrap().port();
         // Same port → AddrInUse (the probe's skip condition).
         let again = tokio::net::TcpListener::bind(("127.0.0.1", held)).await;

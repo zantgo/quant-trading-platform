@@ -71,9 +71,7 @@ pub enum TimeframeSlot {
     /// Operator-defined custom slot (non-ladder durations, e.g. ad-hoc
     /// `/api/history?timeframe_secs=` requests). The 16-bit `id` carries the
     /// duration in seconds for display and DB persistence.
-    Custom {
-        id: u16,
-    },
+    Custom { id: u16 },
 }
 
 /// The fixed 10-slot ladder: canonical order (fastest → slowest) and the
