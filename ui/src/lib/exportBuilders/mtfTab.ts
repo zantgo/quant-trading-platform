@@ -13,55 +13,19 @@
 //   - top-level signals_by_kind, divergences, levels (cross-TF aggregates)
 //   - meta.timeframes list (removes the timeframe_secs=0 ambiguity)
 
-import type {
-  TimeframeTelemetry,
-  TimeframeSlotKind,
-  IndicatorMeta,
-  IndicatorDto,
-  IndicatorGroup,
-  IndicatorClass,
-  SignalDirection,
-  SignalStatus,
-  VolumeProfileSnapshot,
-  LiquidationClusterMatrix,
-  LiquidityFlow,
-  MarketContext,
-} from '../../types';
-import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../../types';
-import {
-  buildPriceBlock,
-  buildHeaderBlock,
-  type MetaEnvelope,
-  type HeaderBlock,
-  type LiquidityPanelBlock,
-} from './shared';
+import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, IndicatorGroup, IndicatorClass, SignalDirection, SignalStatus, VolumeProfileSnapshot, LiquidationClusterMatrix, LiquidityFlow, MarketContext } from '../../types';
+import { DURATIONS, tfLabel } from '../../types';
+import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type LiquidityPanelBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { GROUP_META } from '../groupMeta';
 import { type FilterState } from '../filtering';
 import { fibStatusString, vpPositionLabel } from '../structuralStrings';
 import { classifyDivergence, type DivergenceSubKind } from '../divergence';
-import {
-  classifyLevelKey,
-  parseLevelLabel,
-  resolveLevelPriceText,
-  LEVEL_KIND_ORDER,
-  type LevelKind,
-} from '../levelKind';
-import {
-  buildGroupConfluence as buildGroupConfluenceShared,
-  buildSignalsByKind,
-  buildDivergences,
-  buildLevels,
-  buildLiquidityPanelBlock,
-  type GroupConfluenceRow,
-  type IndicatorSignalExport,
-  type DivergenceRow,
-  type LevelRow,
-} from './metricsTab';
+import { classifyLevelKey, parseLevelLabel, resolveLevelPriceText, LEVEL_KIND_ORDER, type LevelKind } from '../levelKind';
+import { buildGroupConfluence as buildGroupConfluenceShared, buildSignalsByKind, buildDivergences, buildLevels, buildLiquidityPanelBlock, type GroupConfluenceRow, type IndicatorSignalExport, type DivergenceRow, type LevelRow } from './metricsTab';
 
-export type MtfSlotLabel =
-  | 'Micro1' | 'Micro2' | 'Fast1' | 'Fast2' | 'Slow1' | 'Slow2'
-  | 'Macro1' | 'Macro2' | 'Longterm1' | 'Longterm2';
+/// v11.9: labels are derived duration strings ("1s".."1d").
+export type MtfSlotLabel = string;
 
 export interface MtfTimeframeEntry {
   label: MtfSlotLabel;
@@ -752,7 +716,7 @@ function aggregateAcrossTFs(perTf: MtfTimeframeEntry[], registry: IndicatorMeta[
 
 export interface MtfTabInputs {
   /** Per-slot telemetry keyed by the fixed 10-slot ladder. */
-  terms: Record<TimeframeSlotKind, TimeframeTelemetry>;
+  terms: Record<number, TimeframeTelemetry>;
   registry: IndicatorMeta[];
   /** v6.11: filtering was removed entirely — every registry row is always
    *  exported and every `visible` flag is always `true` (superset = shown
@@ -773,7 +737,7 @@ export interface MtfTabInputs {
   /** v11.2 — the ACTIVE slot ladder: `meta.timeframes`, the per-TF
    *  `timeframes[]` block and every per-indicator column walk only these
    *  slots (fastest N of the fixed pool). Absent → all 10. */
-  activeSlots?: TimeframeSlotKind[];
+  activeDurations?: number[];
   headerSpec: LayerHeaderSpec;
 }
 
@@ -781,22 +745,22 @@ export interface MtfTabInputs {
  * Build the MTF tab export payload. Mirrors `MtfView.svelte` 1:1.
  */
 export function buildMtfExportJson(args: MtfTabInputs): string {
-  const activeSlots = args.activeSlots && args.activeSlots.length > 0
-    ? args.activeSlots
-    : [...TIMEFRAME_SLOT_KINDS];
+  const activeDurations = args.activeDurations && args.activeDurations.length > 0
+    ? args.activeDurations
+    : [...DURATIONS];
   const { meta } = buildPriceBlock({
     symbol: args.symbol,
     exchange: args.exchange,
     terms: args.terms,
-    activeSlots,
+    activeDurations,
     fallbackMarkPrice: args.markPrice,
     tfSecs: args.tfSecs ?? 0,
     timestamp: args.timestamp,
     isCompleted: args.isCompleted,
   });
   const slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[] =
-    activeSlots.map((slot) => ({
-      label: TIMEFRAME_SLOT_LABELS[slot] as MtfSlotLabel,
+    activeDurations.map((slot) => ({
+      label: tfLabel(slot),
       tf: args.terms[slot],
     }));
   const markPrice = meta.current_price;

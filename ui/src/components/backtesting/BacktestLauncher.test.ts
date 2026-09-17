@@ -33,6 +33,10 @@ function mockFetchImpl() {
                     { symbol: 'BTC-USDC', timeframe_secs: 300, candle_count: 60000, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 1500000, coverage_pct: 100 },
                     { symbol: 'BTC-USDC', timeframe_secs: 900, candle_count: 20000, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 4500000, coverage_pct: 100 },
                     { symbol: 'BTC-USDC', timeframe_secs: 3600, candle_count: 5000, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 18000000, coverage_pct: 100 },
+                    { symbol: 'BTC-USDC', timeframe_secs: 1800, candle_count: 30000, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 9000000, coverage_pct: 100 },
+                    { symbol: 'BTC-USDC', timeframe_secs: 14400, candle_count: 1500, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 72000000, coverage_pct: 100 },
+                    { symbol: 'BTC-USDC', timeframe_secs: 43200, candle_count: 600, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 216000000, coverage_pct: 100 },
+                    { symbol: 'BTC-USDC', timeframe_secs: 86400, candle_count: 300, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 432000000, coverage_pct: 100 },
                 ],
                 backfill_jobs: [],
             }));
@@ -138,10 +142,10 @@ describe('BacktestLauncher wizard (v8.2)', () => {
         );
         expect(tfSelects.length).toBe(0);
 
-        // The canonical ARCHIVE ladder is displayed instead (1m..1h —
-        // sub-minute slots are live-only under the 60 s archive floor).
+        // The canonical ARCHIVE ladder is displayed instead (1m..1d —
+        // sub-minute durations are live-only under the 60 s archive floor).
         const { container } = { container: document.body };
-        expect(container.textContent).toContain('1m · 3m · 5m · 15m · 1h');
+        expect(container.textContent).toContain('1m · 3m · 5m · 15m · 30m · 1h · 4h · 12h · 24h');
     });
 
     it('G30 — Σ allocations > 100 % blocks the run', async () => {
@@ -173,8 +177,9 @@ describe('BacktestLauncher wizard (v8.2)', () => {
 
     it('G31 — the Run step posts, polls progress phases, completes, and cancels', async () => {
         let completedId: number | null = null;
-        // warmupBars 10 → burnIn 1d, so clamped depth 3 satisfies warmup (4d needed for 300 would be impossible with HL 1m max 3d)
-        renderLauncher({ onCompleted: (id: number) => { completedId = id; }, warmupBars: 10 });
+        // warmupBars 1 → burnIn 1d (slowest ladder TF = 1d), so the 3-day
+        // Hyperliquid 1m ceiling still satisfies the burn-in.
+        renderLauncher({ onCompleted: (id: number) => { completedId = id; }, warmupBars: 1 });
         await goToInstancesStep();
         const ticker = screen.getByPlaceholderText('BTC') as HTMLInputElement;
         fireEvent.input(ticker, { target: { value: 'BTC' } });
@@ -195,7 +200,7 @@ describe('BacktestLauncher wizard (v8.2)', () => {
         expect(body.exchange).toBe('Hyperliquid');
         expect(body.symbols[0]).toEqual({
             symbol: 'BTC-USDC',
-            timeframes: [60, 180, 300, 900, 3600],
+            timeframes: [60, 180, 300, 900, 1800, 3600, 14400, 43200, 86400],
             allocation_pct: 10,
         });
         expect(body.mode).toBe('historical');
@@ -204,7 +209,7 @@ describe('BacktestLauncher wizard (v8.2)', () => {
     });
 
     it('G31b — the cancel button POSTs the cancel endpoint', async () => {
-        renderLauncher({ warmupBars: 10 });
+        renderLauncher({ warmupBars: 1 });
         await goToInstancesStep();
         const ticker = screen.getByPlaceholderText('BTC') as HTMLInputElement;
         fireEvent.input(ticker, { target: { value: 'BTC' } });

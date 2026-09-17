@@ -9,18 +9,8 @@
 // verdict renders as a header + sub-label, and the "polarization"
 // term is retired (field renamed `consensus.axes`).
 
-import type {
-  AlignmentMatrix,
-  AlignmentDimension,
-  TfAlignmentInfo,
-} from '../../types';
-import {
-  buildPriceBlock,
-  buildHeaderBlock,
-  type MetaEnvelope,
-  type HeaderBlock,
-  type InstanceTermsLike,
-} from './shared';
+import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo } from '../../types';
+import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { mLabel } from '../layerHeader';
 
@@ -346,7 +336,7 @@ function buildCompositionNote(alignment: AlignmentMatrix): string | null {
 // ── Public builder ───────────────────────────────────────────────────────
 
 export interface AlignmentTimeframeStatusRow {
-  slot: string;
+  slot: number;
   secs: number;
   badge_label: string;
   badge_sublabel: string | undefined;

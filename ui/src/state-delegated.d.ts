@@ -1,10 +1,4 @@
-import type {
-    DecisionProfile, DecisionScore, RiskProfile, RiskCalculation,
-    FeeTableRow, CommissionProjection, ExchangeAccount,
-    DashboardStats, TradeLedgerRecord, TradeJournalRecord,
-    OpenOrder, SlotState,
-    OverviewMatrix,
-} from './types';
+import type { DecisionProfile, DecisionScore, RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection, ExchangeAccount, DashboardStats, TradeLedgerRecord, TradeJournalRecord, OpenOrder, SlotState, OverviewMatrix } from './types';
 
 declare module './state.svelte' {
     interface AppStore {
@@ -40,7 +34,7 @@ declare module './state.svelte' {
         activePlan: Record<string, unknown> | null;
         activeConsoleOpen: boolean;
         activeConsoleTab: 'positions' | 'orders' | 'history' | 'plan';
-        activeSlots: SlotState[];
+        activeDurations: SlotState[];
         paperBreakEvenTrailEnabled: boolean;
 
         apiKeyConfigured: boolean; rulesContent: string;

@@ -8,9 +8,7 @@
     // shared `classifyDivergence` helper, and surfaces the pivot coordinates
     // (`points[]`) for chart overlay on click.
 
-    import type {
-        IndicatorMeta, IndicatorSignal, TimeframeTelemetry,
-    } from '../../types';
+    import type { IndicatorMeta, IndicatorSignal, TimeframeTelemetry } from '../../types';
     import { classifyDivergence, divergenceLabel, divergenceAccent } from '../../lib/divergence';
     import { confPct, dirColor, ageLabel } from '../../lib/scoreStyles';
     import styles from './DivergencesView.module.css';

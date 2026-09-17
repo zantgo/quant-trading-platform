@@ -77,12 +77,12 @@ describe('buildEngineHash / parseEngineHash round-trip', () => {
     });
 
     it('parses keyed segments in any order after the middleTab', () => {
-        const parsed = parseEngineHash('#/engine/backtesting/study/run/9/instance/ETH-USDC/tf/slow1');
+        const parsed = parseEngineHash('#/engine/backtesting/study/run/9/instance/ETH-USDC/tf/30s');
         expect(parsed).toEqual({
             engine: 'backtesting',
             middleTab: 'study',
             instance: 'ETH-USDC',
-            tf: 'slow1',
+            tf: '30s',
             run: '9',
         });
     });
@@ -198,13 +198,13 @@ describe('currentHashFor — per-engine serialization', () => {
         app.middleTab = 'workspace';
         app.enterInstance('BTC-USDT');
         app.instancesMap['BTC-USDT'].currentView = 'monitor';
-        app.instancesMap['BTC-USDT'].activeTf = 'micro2';
+        app.instancesMap['BTC-USDT'].activeTf = 3;
         expect(currentHashFor(app)).toBe(
-            '#/engine/market_monitor/workspace/instance/BTC-USDT/view/monitor/tf/micro2',
+            '#/engine/market_monitor/workspace/instance/BTC-USDT/view/monitor/tf/3s',
         );
     });
 
-    it('omits the MME view/tf defaults (terminal / micro1)', () => {
+    it('omits the MME view/tf defaults (terminal / 1s)', () => {
         const app = createAppStore();
         app.initInstance('BTC');
         app.enterInstance('BTC-USDT');
@@ -255,14 +255,14 @@ describe('applyRouteToStore', () => {
 
     it('applies the MME instance, view, and tf segments', () => {
         applyRouteToStore(app, parseEngineHash(
-            '#/engine/market_monitor/workspace/instance/BTC-USDT/view/risk/tf/slow1',
+            '#/engine/market_monitor/workspace/instance/BTC-USDT/view/risk/tf/30s',
         )!);
         expect(app.currentEngine).toBe('market_monitor');
         expect(app.middleTab).toBe('workspace');
         expect(app.selectedInstance).toBe('BTC-USDT');
         expect(app.activeTab).toBe('BTC-USDT');
         expect(app.instancesMap['BTC-USDT'].currentView).toBe('risk');
-        expect(app.instancesMap['BTC-USDT'].activeTf).toBe('slow1');
+        expect(app.instancesMap['BTC-USDT'].activeTf).toBe(30);
     });
 
     it('defaults the view to terminal and ignores an invalid tf', () => {
@@ -272,14 +272,14 @@ describe('applyRouteToStore', () => {
         expect(app.instancesMap['BTC-USDT'].currentView).toBe('terminal');
         // `createInstanceState` seeds the per-pair default — an invalid
         // URL tf must leave it untouched.
-        expect(app.instancesMap['BTC-USDT'].activeTf).toBe('micro1');
+        expect(app.instancesMap['BTC-USDT'].activeTf).toBe(1);
     });
 
     it('applies a valid tf segment onto the active pair', () => {
         applyRouteToStore(app, parseEngineHash(
-            '#/engine/market_monitor/workspace/instance/BTC-USDT/tf/fast2',
+            '#/engine/market_monitor/workspace/instance/BTC-USDT/tf/15s',
         )!);
-        expect(app.instancesMap['BTC-USDT'].activeTf).toBe('fast2');
+        expect(app.instancesMap['BTC-USDT'].activeTf).toBe(15);
     });
 
     it('ignores an unknown MME pair gracefully (keeps current selection)', () => {

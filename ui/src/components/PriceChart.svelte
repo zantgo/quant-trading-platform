@@ -6,20 +6,7 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
-    import {
-        fetchIndicatorHistoryOnce,
-        pairsFromHistory,
-        alignedSeriesFromHistory,
-        getCachedCandles,
-        setCachedCandles,
-        fillTimeGaps,
-        buildPaintCandles,
-        purgeCacheForKey,
-        getResolvedHistory,
-        lastHistoricalTime,
-        type CandleOHLCV,
-        type IndicatorFlatHistory,
-    } from '../lib/indicatorHistory';
+    import { fetchIndicatorHistoryOnce, pairsFromHistory, alignedSeriesFromHistory, getCachedCandles, setCachedCandles, fillTimeGaps, buildPaintCandles, purgeCacheForKey, getResolvedHistory, lastHistoricalTime, type CandleOHLCV, type IndicatorFlatHistory } from '../lib/indicatorHistory';
     import { attachVolumeProfile, type VolumeProfilePrimitive } from '../lib/volumeProfile';
     import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
     import { attachFvgZones, type FvgZonesPrimitive } from '../lib/fvgZones';
@@ -31,9 +18,9 @@
     import { buildTradeMarkers } from '../lib/tradeMarkerHelper';
     import styles from './PriceChart.module.css';
     import { getTerm } from '../lib/terms';
-    import type { TimeframeSlotKind } from '../types';
+    
     const app = useAppStore();
-    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: TimeframeSlotKind; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
+    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
 
     /// Number of recent candles + overlay data points seeded at bootstrap.
     /// Scales with timeframe so micro charts load a manageable window and
@@ -653,7 +640,7 @@
                 // v6.5: capture per-TF cluster + volume profile from
                 // history (used as a fallback if the WS stream hasn't
                 // yet populated tf.cluster / tf.volumeProfile).
-                const slotKey = slot; // TimeframeSlotKind (`micro1`..`longterm2`)
+                const slotKey = slot; // number (duration seconds)
                 historyCluster = hist.clusters?.[slotKey] as LiquidationClusterMatrix | null;
                 historyVolumeProfile = hist.volumeProfiles?.[slotKey] as VolumeProfileSnapshot | null;
                 _bootstrapComplete = true;

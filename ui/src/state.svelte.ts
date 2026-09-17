@@ -1,24 +1,13 @@
 // Global reactive state using Svelte 5 runes
-import type {
-    DecisionProfile, DecisionScore,
-    RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection,
-    DashboardStats, TradeLedgerRecord, TradeJournalRecord,
-    InstanceState, TimeframeTelemetry, TimeframeSlotKind,
-    ScaleInPortion, TakeProfitTarget, UserTrade,
-    CurrentView,
-    AlignmentMatrix, AnalysisMatrix, OverviewMatrix,
-    ExchangeAccount,
-    SnapshotExportStatus, SnapshotExportConfigPatch,
-    BteResult, BtePortfolioPayload, BteSignalsPayload,
-} from './types';
-import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_DURATION_SECS } from './types';
+import type { DecisionProfile, DecisionScore, RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection, DashboardStats, TradeLedgerRecord, TradeJournalRecord, InstanceState, TimeframeTelemetry, ScaleInPortion, TakeProfitTarget, UserTrade, CurrentView, AlignmentMatrix, AnalysisMatrix, OverviewMatrix, ExchangeAccount, SnapshotExportStatus, SnapshotExportConfigPatch, BteResult, BtePortfolioPayload, BteSignalsPayload } from './types';
+import { DURATIONS } from './types';
 import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
 import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 import { ENGINE_DEFAULT_TAB } from './lib/engineTabs';
 import { loadPref } from './lib/prefs';
-import { slotsFromSecs } from './lib/terms';
+import { durationsFromSecs } from './lib/terms';
 import { pushBadge, notifyBadgeChanged, L7_KEY } from './lib/badgeHistory.svelte';
 import { buildL7OverviewHeader } from './lib/layerHeader';
 import { applyChartOverlays } from './lib/chartOverlays';
@@ -34,12 +23,11 @@ const TAB_JITTER_MS = Math.floor(Math.random() * 500) - 250;
 
 function createTimeframeTelemetry(
     symbol: string,
-    slot: TimeframeSlotKind,
-    barDurationSec: number,
+    slotSecs: number,
 ): TimeframeTelemetry {
     return {
-        slot,
-        symbol, exchange: 'Hyperliquid', barDurationSec,
+        slot: slotSecs,
+        symbol, exchange: 'Hyperliquid', barDurationSec: slotSecs,
         indicators: {},
         priceText: '--', volText: '--', avgVolText: '--',
         showPatterns: true,
@@ -91,15 +79,18 @@ function createInstanceState(symbol: string): InstanceState {
         // sync populates it) so App-level `activeMode` derivations are
         // reactive to the later assignment.
         mode: undefined,
+        // v11.9: terms built for ALL 14 supported durations, keyed by secs;
+        // only the ACTIVE durations ever populate (no sockets, no snapshots
+        // for the rest).
         terms: Object.fromEntries(
-            TIMEFRAME_SLOT_KINDS.map((slot) => [slot, createTimeframeTelemetry(symbol, slot, TIMEFRAME_SLOT_DURATION_SECS[slot])]),
-        ) as Record<TimeframeSlotKind, TimeframeTelemetry>,
-        // v11.2: default to the full ladder until `/api/instances` delivers
-        // `active_secs` (syncInstanceIdsFromList narrows it to the fastest N).
-        activeSlots: [...TIMEFRAME_SLOT_KINDS],
+            DURATIONS.map((secs) => [secs, createTimeframeTelemetry(symbol, secs)]),
+        ) as Record<number, TimeframeTelemetry>,
+        // Default to the full pool until `/api/instances` delivers
+        // `active_secs` (reconcileInstances narrows it to the ACTIVE set).
+        activeDurations: [...DURATIONS],
         historyLatestClose: '0',
         currentView: 'terminal',
-        activeTf: 'micro1',
+        activeTf: 1,
         alignment: null,
         analysis: null,
         risk: null,
@@ -144,8 +135,8 @@ export class AppStore {
     // Rendered at the root of App.svelte so it escapes the grid container's
     // stacking context and covers the entire viewport (including the top
     // navigation bar). null = modal closed.
-    fullscreenChart = $state<{ chartType: string; slot: TimeframeSlotKind; pairKey: string } | null>(null);
-    openFullscreenChart(chartType: string, slot: TimeframeSlotKind, pairKey: string) {
+    fullscreenChart = $state<{ chartType: string; slot: number; pairKey: string } | null>(null);
+    openFullscreenChart(chartType: string, slot: number, pairKey: string) {
         this.fullscreenChart = { chartType, slot, pairKey };
     }
     closeFullscreenChart() {
@@ -217,7 +208,7 @@ export class AppStore {
     }    /// Per-pair LiveTerminal timeframe selection. Routed through a
     /// mutator so the state→URL effect can push a history entry for the
     /// TF change (Phase 2 history policy).
-    setActiveTf(pairKey: string, tf: TimeframeSlotKind) {
+    setActiveTf(pairKey: string, tf: number) {
         this.markNavOrigin('user');
         const p = this.instancesMap[pairKey];
         if (p) p.activeTf = tf;
@@ -331,7 +322,7 @@ export class AppStore {
     activePaperPosition = $state<Record<string, unknown> | null>(null);
     paperHistory = $state<Record<string, unknown>[]>([]);
     openOrders = $state<Record<string, unknown>[]>([]);
-    activeSlots = $state<Record<string, unknown>[]>([]);
+    activeDurations = $state<Record<string, unknown>[]>([]);
     activeEntryOrders = $state<Record<string, unknown>[]>([]);
     positionBrackets = $state<Record<string, unknown>[]>([]);
     paper = {
@@ -501,15 +492,15 @@ export class AppStore {
                     this.removeInstance(key);
                 }
             }
-            // v11.4: re-apply the ACTIVE ladder on every reconcile — the
+            // v11.9: re-apply the ACTIVE ladder on every reconcile — the
             // server is the single source of truth. This heals any wipe
             // race (e.g. a config refetch rebuilding instancesMap with the
-            // all-10 default between syncs), so TF rails/tables can never
-            // stay stuck on the full ladder.
+            // full-pool default between syncs), so TF rails/tables can
+            // never stay stuck on the full pool.
             for (const inst of instances) {
                 if (!inst?.pair || !Array.isArray(inst.active_secs) || inst.active_secs.length === 0) continue;
                 const entry = this.instancesMap[inst.pair];
-                if (entry) entry.activeSlots = slotsFromSecs(inst.active_secs);
+                if (entry) entry.activeDurations = durationsFromSecs(inst.active_secs);
             }
         } catch (_) {}
     }
@@ -727,7 +718,7 @@ export class AppStore {
 
     async evaluateDecision(profileId: number) {
         const pair = this.activeInstance();
-        await this.profiles.evaluateDecision(profileId, this.activeTab, pair.terms.micro1.latestSnapshot);
+        await this.profiles.evaluateDecision(profileId, this.activeTab, pair.terms[1]?.latestSnapshot ?? null);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────
@@ -739,8 +730,13 @@ export class AppStore {
         return this.instancesMap[this.activeTab];
     }
 
-    /// Fastest slot of the active instance (`terms.micro1`).
-    micro(): TimeframeTelemetry { return this.activeInstance().terms.micro1; }
+    /// Fastest ACTIVE duration of the active instance (`terms[1]` when
+    /// 1s runs; the first active duration otherwise).
+    micro(): TimeframeTelemetry {
+        const pair = this.activeInstance();
+        const fastest = pair.activeDurations?.[0] ?? 1;
+        return pair.terms[fastest] ?? pair.terms[1];
+    }
 
     // ─── Quote-asset abstraction ─────────────────────────────────────
     get quote(): string { return this.sessionCurrency || 'USDT'; }
@@ -761,7 +757,7 @@ export class AppStore {
                 this.instancesMap[key].instanceId = instanceId;
             }
             const pair = this.instancesMap[key];
-            for (const slot of TIMEFRAME_SLOT_KINDS) {
+            for (const slot of DURATIONS) {
                 const tf = pair.terms[slot];
                 tf.emaFastVal = this.settings.globalIndicatorsConfig.ema_fast;
                 tf.emaMediumVal = this.settings.globalIndicatorsConfig.ema_medium;
@@ -793,8 +789,8 @@ export class AppStore {
 
     // ─── Instance / Telemetry Accessors ──────────────────────────────
 
-    /// Per-slot telemetry record for the active instance
-    /// (`terms.micro1` .. `terms.longterm2`).
+    /// Per-duration telemetry record for the active instance
+    /// (`terms[1]` .. `terms[86400]`).
     get terms() { return this.activeInstance().terms; }
     get activeSymbol() { return this.activeInstance().symbol; }
     get activeExchange() { return this.activeInstance().exchange; }

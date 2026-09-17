@@ -18,7 +18,7 @@
 //
 // Bind contract: the panel reads the L4 matrix from `pair.opportunity`
 // (mirrored from the WS frame in `applySnapshotToTimeframe`), NOT from
-// `terms.micro1.latestSnapshot.opportunity` — shadow ticks in the
+// `terms[1].latestSnapshot.opportunity` — shadow ticks in the
 // `broadcast_live_snapshot` path intentionally zero the latter and
 // would otherwise wipe the completed-candle payload between bars.
 
@@ -33,7 +33,7 @@ function seedSnapshot(pairKey: string, opp: OpportunityMatrix, markPrice: number
     const [base] = pairKey.split('-');
     if (!app.instancesMap[pairKey]) app.initInstance(base);
     const entry = app.instancesMap[pairKey];
-    entry.terms.micro1.priceText = String(markPrice);
+    entry.terms[1].priceText = String(markPrice);
     const analysis: AnalysisMatrix = {
         symbol: pairKey,
         bias: 'Bullish' as AnalysisMatrix['bias'],
@@ -83,14 +83,14 @@ function seedSnapshot(pairKey: string, opp: OpportunityMatrix, markPrice: number
         final_recommendation: 'Long bias',
     };
     // Mirror the WS pair-level binding. The panel reads `entry.opportunity`,
-    // not `entry.terms.micro1.latestSnapshot.opportunity`, because shadow
+    // not `entry.terms[1].latestSnapshot.opportunity`, because shadow
     // frames hard-code the snapshot field to `None` between candle closes.
     entry.opportunity = opp;
     const snap: MarketSnapshot = {
         timestamp: 1_700_000_000,
         opportunity: opp,
     } as unknown as MarketSnapshot;
-    entry.terms.micro1.latestSnapshot = snap as unknown as Record<string, unknown>;
+    entry.terms[1].latestSnapshot = snap as unknown as Record<string, unknown>;
 }
 
 function makeOpportunity(): OpportunityMatrix {
@@ -348,7 +348,7 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
     it('renders awaiting-message when no opportunity matrix is present', () => {
         const app = useAppStore();
         if (!app.instancesMap['BTC-USDT']) app.initInstance('BTC');
-        app.instancesMap['BTC-USDT'].terms.micro1.priceText = '64000';
+        app.instancesMap['BTC-USDT'].terms[1].priceText = '64000';
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         expect(screen.getByText(/Trade Setups/i)).toBeTruthy();
         expect(screen.getByText('no qualifying profile — reference brackets shown')).toBeTruthy();
@@ -363,7 +363,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
         const app = useAppStore();
         if (!app.instancesMap['BTC-USDT']) app.initInstance('BTC');
         const entry = app.instancesMap['BTC-USDT'];
-        entry.terms.micro1.priceText = '64000';
+        entry.terms[1].priceText = '64000';
         // Seed a bullish analysis + advisory + decisionContext so the
         // rank resolves to LONG and the per-profile cards surface zones.
         entry.analysis = {
@@ -397,7 +397,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
             final_recommendation: 'Long bias',
         };
         entry.opportunity = makeOpportunity();
-        entry.terms.micro1.latestSnapshot = {
+        entry.terms[1].latestSnapshot = {
             timestamp: 1_700_000_000,
             opportunity: null,
         } as unknown as Record<string, unknown>;
@@ -414,7 +414,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
         const app = useAppStore();
         if (!app.instancesMap['BTC-USDT']) app.initInstance('BTC');
         const entry = app.instancesMap['BTC-USDT'];
-        entry.terms.micro1.priceText = '64000';
+        entry.terms[1].priceText = '64000';
         entry.opportunity = null;
 
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
@@ -428,7 +428,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
         const app = useAppStore();
         if (!app.instancesMap['BTC-USDT']) app.initInstance('BTC');
         const entry = app.instancesMap['BTC-USDT'];
-        entry.terms.micro1.priceText = '64000';
+        entry.terms[1].priceText = '64000';
         const opp = makeOpportunity();
         opp.primary_opportunity = 'Breakout';
         opp.opportunity_score = 43;

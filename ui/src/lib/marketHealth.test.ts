@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeTerms } from '../tests/makeTerms';
-import {
-    aggregateHealthBars,
-    collectHealthBarInputs,
-    computeMarketHealth,
-} from './marketHealth';
+import { aggregateHealthBars, collectHealthBarInputs, computeMarketHealth } from './marketHealth';
 import type { InstanceState, OverviewMatrix } from '../types';
 
 describe('aggregateHealthBars', () => {

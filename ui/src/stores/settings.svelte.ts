@@ -5,17 +5,12 @@ export class SettingsStore {
     /** Authoritative indicator manifest fetched from /api/config (source of truth). */
     indicatorRegistry = $state<import('../types').IndicatorMeta[]>([]);
 
-    /// v11.2 — `[workspace].active_timeframes` (1..=10, backend default 5):
-    /// how many of the FASTEST slots of the fixed 10-slot ladder actually
-    /// run. Edited from the MME TimeframeSettings tab; saving POSTs it to
-    /// `/api/config`, which live-recharges running instances. Seeded from
-    /// the GET payload in `applyConfigToStore`.
-    activeTimeframes = $state(5);
-
-    /// v11.4 — explicit ACTIVE slot set (arbitrary subset, canonical order).
-    /// `null` = derive from `activeTimeframes` (fastest-N). Seeded from
-    /// `/api/config` `active_slots` when the backend carries one.
-    activeSlotsList = $state<import('../types').TimeframeSlotKind[] | null>(null);
+    /// v11.9 — `[workspace].timeframes`: the ACTIVE duration set (seconds,
+    /// ascending subset of the 14-duration pool). Edited from the MME
+    /// TimeframeSettings tab; saving POSTs it to `/api/config`, which
+    /// live-recharges running instances. Seeded from the GET payload in
+    /// `applyConfigToStore`.
+    timeframes = $state<number[]>([1, 3, 5, 15, 30, 60, 180, 300]);
 
     globalCandlesConfig = $state({ duration_seconds: 60 });
     globalIndicatorsConfig = $state({

@@ -1,9 +1,7 @@
 // studyCharts — pure math contracts for the BTE Study Report: line/area
 // paths, rolling win-rate, histogram bucketing, drawdown series.
 import { describe, expect, it } from 'vitest';
-import {
-    linePath, areaPath, rollingWinRate, pnlHistogram, drawdownSeries, fmtSpan,
-} from './studyCharts';
+import { linePath, areaPath, rollingWinRate, pnlHistogram, drawdownSeries, fmtSpan } from './studyCharts';
 
 describe('studyCharts', () => {
     it('linePath maps points into the viewbox', () => {

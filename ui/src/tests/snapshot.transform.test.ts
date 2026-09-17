@@ -68,7 +68,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
     });
 
     it('parses the nested indicators map into the state rune', () => {
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[1];
         applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');
 
         // Nested map is the source of truth.
@@ -80,7 +80,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
     });
 
     it('exposes indicator values via the shared telemetry accessors', () => {
-        const tf = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf = app.instancesMap['BTC-USDT'].terms[1];
         applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');
 
         // Core (non-indicator) market data stays as flat text, price-scaled.
@@ -101,7 +101,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
     });
 
     it('falls back to close and mark_price when mid_price is absent', () => {
-        const tf = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf = app.instancesMap['BTC-USDT'].terms[1];
 
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
@@ -131,7 +131,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
     });
 
     it('renders the backend state_label verbatim (no client re-derivation)', () => {
-        const tf = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf = app.instancesMap['BTC-USDT'].terms[1];
         applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');
         // The TelemetryTable binds directly to these labels.
         expect(tf.indicators['squeeze'].state_label).toBe('BULLISH_EXPANSION_ACCELERATING');
@@ -145,7 +145,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // completed-bar path). The WS handler now merges per-key instead of
         // wiping the entire map, so prior Fibonacci GP zone + ext targets
         // persist across ticks.
-        const tf = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf = app.instancesMap['BTC-USDT'].terms[1];
         // Prime with a completed snapshot so we have a non-empty tf.indicators.
         applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');
         const beforeKeys = Object.keys(tf.indicators).length;
@@ -168,7 +168,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // When the tf.indicators was already empty AND incoming is empty,
         // the merge keeps it empty. This protects the case where no
         // snapshot data has arrived yet for a fresh timeframe.
-        const tf = app.instancesMap['BTC-USDT'].terms.longterm1;
+        const tf = app.instancesMap['BTC-USDT'].terms[900];
         tf.indicators = {};
         applySnapshotToTimeframe(app,
             tf,
@@ -180,8 +180,8 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
     it('routes nested snapshots independently per pair', () => {
         app.initInstance('ETH');
-        const btc = app.instancesMap['BTC-USDT'].terms.micro1;
-        const eth = app.instancesMap['ETH-USDT'].terms.micro1;
+        const btc = app.instancesMap['BTC-USDT'].terms[1];
+        const eth = app.instancesMap['ETH-USDT'].terms[1];
 
         applySnapshotToTimeframe(app, btc, wsEvent(nestedSnapshot()), 'BTC-USDT');
         applySnapshotToTimeframe(app,
@@ -204,17 +204,17 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
     it('drops foreign-slot snapshots even when duration matches', () => {
         // Regression: with the legacy duration-based dispatcher, a snapshot
-        // whose `timeframe_slot` doesn't match the receiving slot (e.g. a
+        // whose `timeframe_label` doesn't match the receiving duration (e.g. a
         // micro snapshot accidentally routed to the slow WS connection
         // because both happened to share `timeframe_secs=60`) silently
-        // mutated the wrong slot. With `timeframe_slot` on the wire we
+        // mutated the wrong duration. With `timeframe_label` on the wire we
         // reject foreign slots so this cannot happen.
-        const tf = app.instancesMap['BTC-USDT'].terms.slow1;
+        const tf = app.instancesMap['BTC-USDT'].terms[30];
         const indicatorsBefore = { ...tf.indicators };
         const rsiBefore = tf.indicators['rsi']?.state_label;
 
         const foreignMicro = {
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             symbol: 'BTC',
             timeframe_secs: 60,
             is_completed: true,
@@ -230,7 +230,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(Object.keys(tf.indicators).length).toBe(Object.keys(indicatorsBefore).length);
 
         const ownSlow = {
-            timeframe_slot: 'slow1',
+            timeframe_label: '30s',
             symbol: 'BTC',
             timeframe_secs: 60,
             is_completed: true,
@@ -244,14 +244,14 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(tf.indicators['rsi'].state_label).toBe('OVERSOLD');
     });
 
-    it('accepts legacy snapshots without timeframe_slot via positional slot binding', () => {
-        // Backward-compat: older backends omit `timeframe_slot`. The chart
+    it('accepts legacy snapshots without timeframe_label via positional binding', () => {
+        // Backward-compat: older backends omit `timeframe_label`. The chart
         // is bound by positional slot, not by inferred duration, so a
-        // missing `timeframe_slot` must NOT cause the snapshot to be
+        // missing `timeframe_label` must NOT cause the snapshot to be
         // dropped — the receiving slot is already identified by the WS
         // dispatcher, and the dispatcher's slot choice is what determines
         // where the snapshot lands.
-        const tf = app.instancesMap['BTC-USDT'].terms.fast1;
+        const tf = app.instancesMap['BTC-USDT'].terms[5];
         const legacy = {
             symbol: 'BTC',
             timeframe_secs: 180,
@@ -273,7 +273,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // several seconds until the new pipeline's first WS frame
         // landed. The helper now mutates only config scalars.
         const { applyTimeframeConfig } = await import('../lib/timeframeConfig');
-        const tf = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf = app.instancesMap['BTC-USDT'].terms[1];
 
         // Populate live state as if a WS frame had landed.
         tf.priceText = '65000.00';
@@ -330,14 +330,14 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
         // Three slots fresh, one stale. micro=5s ago, slow=10s ago,
         // macro=15s ago, fast=120s ago (stale, ignored).
-        inst.terms.micro1.priceText = '65000.00';
-        inst.terms.micro1.latestSnapshot = { timestamp: now - 5 } as never;
-        inst.terms.slow1.priceText = '65100.00';
-        inst.terms.slow1.latestSnapshot = { timestamp: now - 10 } as never;
-        inst.terms.longterm1.priceText = '65200.00';
-        inst.terms.longterm1.latestSnapshot = { timestamp: now - 15 } as never;
-        inst.terms.fast1.priceText = '64900.00';
-        inst.terms.fast1.latestSnapshot = { timestamp: now - 120 } as never;
+        inst.terms[1].priceText = '65000.00';
+        inst.terms[1].latestSnapshot = { timestamp: now - 5 } as never;
+        inst.terms[30].priceText = '65100.00';
+        inst.terms[30].latestSnapshot = { timestamp: now - 10 } as never;
+        inst.terms[900].priceText = '65200.00';
+        inst.terms[900].latestSnapshot = { timestamp: now - 15 } as never;
+        inst.terms[5].priceText = '64900.00';
+        inst.terms[5].latestSnapshot = { timestamp: now - 120 } as never;
 
         expect(pickInstanceLivePrice(inst as never, now * 1000)).toBe('65000.00');
     });
@@ -348,12 +348,12 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // frontend per-key spread merge preserves the last completed
         // reading. Hull MA's contract is `normalized = 0.0` (event-only
         // overlay), but `raw_value` carries the actual HMA price.
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[1];
 
         // Step 1: a completed candle frame populates Hull MA with a real value.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: true,
             mid_price: '65000.00',
@@ -373,7 +373,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // persist because the keys are absent from the incoming map.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: false,
             mid_price: '65010.00',
@@ -402,7 +402,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // `DivergencesView.svelte`). The WS handler must preserve any
         // `Divergence`-kind signal from the prior tick when the incoming
         // snapshot doesn't re-emit it.
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[1];
 
         const potentialBullish = {
             kind: 'Divergence',
@@ -417,7 +417,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // Step 1: completed candle arrives — RSI carries the divergence signal.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: true,
             mid_price: '65000.00',
@@ -453,7 +453,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // the next completed bar.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: false,
             mid_price: '65010.00',
@@ -490,7 +490,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // to Confirmed), the prior signal MUST be replaced by the new
         // one. Without this the UI would show stale "Potential" tags
         // even after the underlying detector upgraded to "Confirmed".
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[1];
 
         const potentialBullish = {
             kind: 'Divergence',
@@ -513,7 +513,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: true,
             mid_price: '65000.00',
@@ -530,7 +530,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: true,
             mid_price: '65010.00',
@@ -555,7 +555,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // (signals that stop firing are simply dropped — there is no
         // "expired" marker). Preserving on completed frames froze retired
         // divergences in the UI forever with a stale `age_bars`.
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[1];
 
         const potentialBullish = {
             kind: 'Divergence',
@@ -570,7 +570,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // Completed candle carries the divergence.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: true,
             mid_price: '65000.00',
@@ -589,7 +589,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // disappear, not be re-supplied from the previous tick.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: true,
             mid_price: '64900.00',
@@ -611,7 +611,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // the LiquidityPanel signal list at up to 4 Hz between candle
         // closes. Shadow frames must carry forward the previous list;
         // completed frames remain the authoritative source.
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[1];
 
         const signal = {
             kind: 'CASCADE_DETECTED',
@@ -626,7 +626,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // Completed frame seeds the signal list.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: true,
             mid_price: '65000.00',
@@ -640,7 +640,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // has NO `liquidity_signals` key at all.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: false,
             mid_price: '65010.00',
@@ -654,7 +654,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // completed frame is the authoritative "no active signals".
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 60,
             is_completed: true,
             mid_price: '65020.00',
@@ -667,12 +667,12 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // Regression: a sparse shadow frame must NOT wipe the prior
         // loading state for keys omitted from the incoming lifecycle map
         // (e.g. when the analyzer temporarily drops a key mid-bar).
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.fast1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[5];
 
         // Completed candle seeds the lifecycle map for both rsi and ichimoku.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'fast1',
+            timeframe_label: '5s',
             timeframe_secs: 180,
             is_completed: true,
             mid_price: '65000.00',
@@ -690,7 +690,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // Shadow frame omits the ichimoku lifecycle entry.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'fast1',
+            timeframe_label: '5s',
             timeframe_secs: 180,
             is_completed: false,
             mid_price: '65010.00',
@@ -717,10 +717,10 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // already covered by the backend integration; this test pins the
         // merged behaviour so a regression is detected at the API
         // boundary instead of silently producing empty values.
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.slow1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[30];
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'slow1',
+            timeframe_label: '30s',
             timeframe_secs: 300,
             is_completed: true,
             mid_price: '65000.00',
@@ -748,14 +748,14 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         //   most recent we have);
         // slow: stale by 200s; macro: still the placeholder;
         // fast: stale by 300s.
-        inst.terms.micro1.priceText = '65000.00';
-        inst.terms.micro1.latestSnapshot = { timestamp: now - 60 } as never;
-        inst.terms.slow1.priceText = '64950.00';
-        inst.terms.slow1.latestSnapshot = { timestamp: now - 200 } as never;
-        inst.terms.fast1.priceText = '64900.00';
-        inst.terms.fast1.latestSnapshot = { timestamp: now - 300 } as never;
-        inst.terms.longterm1.priceText = '--';
-        inst.terms.longterm1.latestSnapshot = null;
+        inst.terms[1].priceText = '65000.00';
+        inst.terms[1].latestSnapshot = { timestamp: now - 60 } as never;
+        inst.terms[30].priceText = '64950.00';
+        inst.terms[30].latestSnapshot = { timestamp: now - 200 } as never;
+        inst.terms[5].priceText = '64900.00';
+        inst.terms[5].latestSnapshot = { timestamp: now - 300 } as never;
+        inst.terms[900].priceText = '--';
+        inst.terms[900].latestSnapshot = null;
 
         // All four slots are stale, but micro (60s) is the youngest
         // non-placeholder — the picker must return it, not '--'.
@@ -767,10 +767,10 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         const inst = app.instancesMap['BTC-USDT'];
 
         const slotPool = [
-            inst.terms.micro1,
-            inst.terms.fast1,
-            inst.terms.slow1,
-            inst.terms.longterm1,
+            inst.terms[1],
+            inst.terms[5],
+            inst.terms[30],
+            inst.terms[900],
         ] as unknown as Array<{ priceText: string; latestSnapshot: unknown }>;
         // Reset everything to seeded placeholders.
         for (const tf of slotPool) {
@@ -790,15 +790,15 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // pair.alignment/analysis/risk/opportunity/advisory/decisionContext
         // stayed null and every non-chart tab showed no values.
         const pair = app.instancesMap['BTC-USDT'];
-        const micro = pair.terms.micro1;
-        const fast = pair.terms.fast1;
+        const micro = pair.terms[1];
+        const fast = pair.terms[5];
 
         // Step 1: sub-minute micro closes at ts=200 and ts=201 — matrix-less
         // completed frames (chart/indicator continuity only). These must NOT
         // advance the guard.
         applySnapshotToTimeframe(app, micro, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 1,
             timestamp: 200,
             is_completed: true,
@@ -807,7 +807,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         }), 'BTC-USDT');
         applySnapshotToTimeframe(app, micro, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 1,
             timestamp: 201,
             is_completed: true,
@@ -828,7 +828,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         const opportunity = { opportunity_score: 61.0 } as never;
         applySnapshotToTimeframe(app, fast, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'fast1',
+            timeframe_label: '5s',
             timeframe_secs: 180,
             timestamp: 100,
             is_completed: true,
@@ -852,7 +852,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // mirrors (they carry no payload and don't advance the guard).
         applySnapshotToTimeframe(app, micro, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 1,
             timestamp: 202,
             is_completed: true,
@@ -866,7 +866,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // matrix frame (ts=90 < guard 100) must still be rejected.
         applySnapshotToTimeframe(app, fast, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'fast1',
+            timeframe_label: '5s',
             timeframe_secs: 180,
             timestamp: 90,
             is_completed: true,
@@ -882,7 +882,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         const newerAlignment = { mtf_trend_alignment: 0.8, mtf_overall_score: 84.0 } as never;
         applySnapshotToTimeframe(app, fast, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'fast1',
+            timeframe_label: '5s',
             timeframe_secs: 180,
             timestamp: 180,
             is_completed: true,
@@ -901,12 +901,12 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // lines from the chart until the next completed frame — a 4 Hz
         // flicker. The merge must carry forward absent sub-keys from the
         // previous entry while incoming sub-keys win.
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms.micro1;
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[1];
 
         // Step 1: a completed frame carries the full ribbon.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 1,
             is_completed: true,
             mid_price: '65000.00',
@@ -925,7 +925,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // omitted). medium/slow/long must survive the merge.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 1,
             is_completed: false,
             mid_price: '65010.00',
@@ -949,7 +949,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // Step 3: a completed frame with the full ribbon overwrites everything.
         applySnapshotToTimeframe(app, tf, wsEvent({
             symbol: 'BTC',
-            timeframe_slot: 'micro1',
+            timeframe_label: '1s',
             timeframe_secs: 1,
             is_completed: true,
             mid_price: '65020.00',

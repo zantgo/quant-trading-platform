@@ -167,13 +167,10 @@ export function formatTimeframeLabel(secs: number): string {
 }
 
 // `resolveChartTimeframe(timeframe, pair)` was deleted: every chart
-// component now takes a positional `slot: TimeframeSlotKind` prop
-// (`micro1`..`longterm2`). The old duration-based dispatch was the source of the
-// label/contents cross-talk whenever the user picked non-default
-// durations (e.g. micro=1s, fast=3m, slow=1m, macro=1h — every column
-// rendered micro data). Slot identity is the single source of truth:
-// stamped onto every MarketSnapshot on the wire (`timeframe_slot`)
-// and stamped onto every TimeframeTelemetry in the store (`slot`).
+// v11.9: duration-keyed identity. The component takes a `slot` prop
+// carrying the DURATION SECS (a member of `DURATIONS`) — the duration IS
+// the slot. The label is derived (`tfLabel`) and travels on the wire as
+// `timeframe_label` on every MarketSnapshot.
 
 // ── EMA Ribbon — single source of truth for the 4-line overlay ──
 //

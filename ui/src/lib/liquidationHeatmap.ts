@@ -1,19 +1,6 @@
-import type {
-    IChartApi,
-    ISeriesApi,
-    ISeriesPrimitiveBase,
-    SeriesAttachedParameter,
-    IPrimitivePaneView,
-    IPrimitivePaneRenderer,
-    Time,
-} from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, ISeriesPrimitiveBase, SeriesAttachedParameter, IPrimitivePaneView, IPrimitivePaneRenderer, Time } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
-import type {
-    LiquidationCluster,
-    LiquidationClusterMatrix,
-    LiquidityFlow,
-    RealLiquidationBucket,
-} from '../types';
+import type { LiquidationCluster, LiquidationClusterMatrix, LiquidityFlow, RealLiquidationBucket } from '../types';
 
 const DEBUG_TAG = '[LH]';
 

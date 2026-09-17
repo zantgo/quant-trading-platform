@@ -1,8 +1,8 @@
 import type { AppStore } from '../state.svelte';
-import type { InstanceState, TimeframeSlotKind } from '../types';
-import { TIMEFRAME_SLOT_KINDS } from '../types';
+import type { InstanceState } from '../types';
+import { DURATIONS } from '../types';
 import { decide } from './watchlistScanner';
-import { slotsFromSecs } from './terms';
+import { durationsFromSecs } from './terms';
 
 export function formatIntervalRemaining(totalSeconds: number): string {
     const h = Math.floor(totalSeconds / 3600);
@@ -62,24 +62,18 @@ function pairKeyFromDeclaredSymbol(app: AppStore, symbol: string): string {
 export function applyConfigToStore(app: AppStore, config: Record<string, unknown>): ApplyConfigResult {
     app.apiKeyConfigured = (config.api_key_configured as boolean) ?? true;
 
-    // v11.2: `[workspace].active_timeframes` (1..=10, backend default 5) —
-    // how many of the FASTEST slots of the fixed ladder run. Seeded into
-    // the settings store so the MME TimeframeSettings editor starts from
-    // the authoritative value. The wire may carry it top-level or under a
+    // v11.9: `[workspace].timeframes` — the ACTIVE duration set (seconds,
+    // ascending subset of the supported pool). Seeded into the settings
+    // store so the MME TimeframeSettings editor starts from the
+    // authoritative value. The wire may carry it top-level or under a
     // `workspace` sub-object; anything malformed leaves the store as-is.
-    const rawActive = config.active_timeframes
-        ?? (config.workspace as Record<string, unknown> | undefined)?.active_timeframes;
-    if (typeof rawActive === 'number' && Number.isInteger(rawActive) && rawActive >= 1 && rawActive <= 10) {
-        app.settings.activeTimeframes = rawActive;
-    }
-    // v11.4: explicit ACTIVE slot set (arbitrary subset) wins over the count.
-    const rawSet = (config.active_slots
-        ?? (config.workspace as Record<string, unknown> | undefined)?.active_slots) as
-        | string[]
+    const rawSet = (config.timeframes
+        ?? (config.workspace as Record<string, unknown> | undefined)?.timeframes) as
+        | number[]
         | undefined;
-    app.settings.activeSlotsList = Array.isArray(rawSet) && rawSet.length > 0
-        ? TIMEFRAME_SLOT_KINDS.filter((k) => rawSet.includes(k))
-        : null;
+    if (Array.isArray(rawSet) && rawSet.length > 0) {
+        app.settings.timeframes = DURATIONS.filter((d) => rawSet.includes(d));
+    }
 
     if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number };
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
@@ -372,7 +366,7 @@ export async function syncInstanceIdsFromList(app: AppStore): Promise<void> {
             // An absent/empty list leaves the store's all-10 default — the
             // instance payload always carries the field on v11.2+ backends.
             if (entry && Array.isArray(inst.active_secs) && inst.active_secs.length > 0) {
-                entry.activeSlots = slotsFromSecs(inst.active_secs);
+                entry.activeDurations = durationsFromSecs(inst.active_secs);
             }
         }
     } catch (_) {}
@@ -391,7 +385,7 @@ export function readDraftFromPair(pair: InstanceState): {
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
     slowInterval: number; normalInterval: number; fastInterval: number;
 } {
-    const sec = pair.terms.micro1.barDurationSec;
+    const sec = pair.terms[1].barDurationSec;
     let durationValue: number, durationUnit: 'seconds' | 'minutes' | 'hours';
     if (sec % 3600 === 0) { durationValue = sec / 3600; durationUnit = 'hours'; }
     else if (sec % 60 === 0) { durationValue = sec / 60; durationUnit = 'minutes'; }
@@ -408,29 +402,29 @@ export function readDraftFromPair(pair: InstanceState): {
         symbol: pair.symbol,
         exchange: pair.exchange,
         durationValue, durationUnit,
-        emaFast: pair.terms.micro1.emaFastVal,
-        emaMedium: pair.terms.micro1.emaMediumVal,
-        emaSlow: pair.terms.micro1.emaSlowVal,
-        emaLong: pair.terms.micro1.emaLongVal,
-        rsiPeriod: pair.terms.micro1.rsiPeriodVal,
-        macdFast: pair.terms.micro1.macdFastVal,
-        macdSlow: pair.terms.micro1.macdSlowVal,
-        macdSignal: pair.terms.micro1.macdSignalVal,
-        adxPeriod: pair.terms.micro1.adxPeriodVal,
-        atrPeriod: pair.terms.micro1.atrPeriodVal,
-        squeezePeriod: pair.terms.micro1.squeezePeriodVal,
-        showEmas: pair.terms.micro1.showEmas,
-        showBb: pair.terms.micro1.showBb,
-        showVwap: pair.terms.micro1.showVwap,
-        showVolume: pair.terms.micro1.showVolume,
-        showAdx: pair.terms.micro1.showAdx,
-        showAtr: pair.terms.micro1.showAtr,
-        showRsi: pair.terms.micro1.showRsi,
-        showMacd: pair.terms.micro1.showMacd,
-        showSqueeze: pair.terms.micro1.showSqueeze,
-    showBbwp: pair.terms.micro1.showBbwp,
-    showFib: pair.terms.micro1.showFib,
-    showRvol: pair.terms.micro1.showRvol,
+        emaFast: pair.terms[1].emaFastVal,
+        emaMedium: pair.terms[1].emaMediumVal,
+        emaSlow: pair.terms[1].emaSlowVal,
+        emaLong: pair.terms[1].emaLongVal,
+        rsiPeriod: pair.terms[1].rsiPeriodVal,
+        macdFast: pair.terms[1].macdFastVal,
+        macdSlow: pair.terms[1].macdSlowVal,
+        macdSignal: pair.terms[1].macdSignalVal,
+        adxPeriod: pair.terms[1].adxPeriodVal,
+        atrPeriod: pair.terms[1].atrPeriodVal,
+        squeezePeriod: pair.terms[1].squeezePeriodVal,
+        showEmas: pair.terms[1].showEmas,
+        showBb: pair.terms[1].showBb,
+        showVwap: pair.terms[1].showVwap,
+        showVolume: pair.terms[1].showVolume,
+        showAdx: pair.terms[1].showAdx,
+        showAtr: pair.terms[1].showAtr,
+        showRsi: pair.terms[1].showRsi,
+        showMacd: pair.terms[1].showMacd,
+        showSqueeze: pair.terms[1].showSqueeze,
+    showBbwp: pair.terms[1].showBbwp,
+    showFib: pair.terms[1].showFib,
+    showRvol: pair.terms[1].showRvol,
     automationEnabled: pair.automationEnabled,
         automationIntervalValue: autoValue,
         automationIntervalUnit: autoUnit,

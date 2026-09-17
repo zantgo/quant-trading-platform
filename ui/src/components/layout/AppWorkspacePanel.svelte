@@ -1,16 +1,11 @@
 <script lang="ts">
     import { onDestroy, untrack } from 'svelte';
     import { useAppStore } from '../../state.svelte';
-    import { TIMEFRAME_SLOT_KINDS } from '../../types';
-    import {
-        connectWsForInstance, disconnectWsForInstance,
-        type WsState,
-    } from '../../lib/websocket.svelte';
+    import { DURATIONS } from '../../types';
+    import { connectWsForInstance, disconnectWsForInstance, type WsState } from '../../lib/websocket.svelte';
     import SvgIcon from '../../lib/SvgIcon.svelte';
     import { createInstance } from '../../lib/api.svelte';
-    import {
-        lifecyclePresentation, isActivatable, isActive,
-    } from '../../lib/lifecyclePresentation';
+    import { lifecyclePresentation, isActivatable, isActive } from '../../lib/lifecyclePresentation';
     import { buildEngineHash } from '../../lib/router.svelte';
     import styles from '../../styles/brutalist-grid.module.css';
 
@@ -48,7 +43,7 @@
     function changeStr(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
         if (!inst) return '';
-        const tfs = TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms?.[slot]);
+        const tfs = DURATIONS.map((slot) => inst.terms?.[slot]);
         for (const tf of tfs) {
             const snap = tf?.latestSnapshot;
             if (!snap) continue;
@@ -77,12 +72,12 @@
     function priceFor(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
         if (!inst) return '--';
-        const tfs = TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms?.[slot]);
+        const tfs = DURATIONS.map((slot) => inst.terms?.[slot]);
         for (const tf of tfs) {
             const p = tf?.priceText;
             if (p && p !== '0' && p !== 'NaN' && parseFloat(p) > 0) return p;
         }
-        return inst.terms?.micro1?.priceText || '--';
+        return inst.terms?.[1]?.priceText || '--';
     }
 
     function statusClass(status: string): string {

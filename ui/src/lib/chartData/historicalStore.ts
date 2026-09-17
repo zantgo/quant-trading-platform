@@ -4,6 +4,7 @@
 // Key: `${pair}@${slot}@${timeframe}` slot-aware, no duration fallback.
 // Used ONLY for timeframe >= 60 (PRI-08). Sub-minute (<60) never touches this store.
 
+import { tfLabel } from '../../types';
 import type { IndicatorFlatHistory } from '../indicatorHistory';
 import { normalizeHistoryForStore, type RawResponse } from './reconciledView';
 
@@ -13,14 +14,14 @@ const HISTORY_URL = '/api/history';
 const historicalCache = new Map<string, Promise<IndicatorFlatHistory | null>>();
 const historicalData = new Map<string, IndicatorFlatHistory>();
 
-function keyFor(pairKey: string, timeframe: number, slot?: string): string {
+function keyFor(pairKey: string, timeframe: number, slot?: number | string): string {
     return `${pairKey}@${slot ?? '?'}@${timeframe}`;
 }
 
 export function fetchHistorical(
     pairKey: string,
     timeframe: number,
-    slot?: string,
+    slot?: number | string,
 ): Promise<IndicatorFlatHistory | null> {
     if (!pairKey || !timeframe) return Promise.resolve(null);
     // HistoricalStore only for >=60; <60 should use liveRing
@@ -31,7 +32,7 @@ export function fetchHistorical(
 
     const promise = (async (): Promise<IndicatorFlatHistory | null> => {
         try {
-            const slotParam = slot ? `&slot=${encodeURIComponent(slot)}` : '';
+            const slotParam = slot != null ? `&slot=${encodeURIComponent(typeof slot === 'number' ? tfLabel(slot) : slot)}` : '';
             const res = await fetch(
                 `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000${slotParam}`,
             );
@@ -62,7 +63,7 @@ export function fetchHistorical(
     return promise;
 }
 
-export function getHistorical(pairKey: string, timeframe: number, slot?: string): IndicatorFlatHistory | null {
+export function getHistorical(pairKey: string, timeframe: number, slot?: number | string): IndicatorFlatHistory | null {
     return historicalData.get(keyFor(pairKey, timeframe, slot)) ?? null;
 }
 
@@ -70,7 +71,7 @@ export function hasHistorical(pairKey: string, timeframe: number, slot?: string)
     return historicalData.has(keyFor(pairKey, timeframe, slot));
 }
 
-export function purgeHistorical(pairKey: string, timeframe: number, slot?: string): void {
+export function purgeHistorical(pairKey: string, timeframe: number, slot?: number | string): void {
     const k = keyFor(pairKey, timeframe, slot);
     historicalCache.delete(k);
     historicalData.delete(k);

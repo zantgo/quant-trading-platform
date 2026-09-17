@@ -1,17 +1,12 @@
 import type { AppStore } from '../state.svelte';
-import type { IndicatorDto, IndicatorMap, TimeframeTelemetry, TimeframeSlotKind } from '../types';
-import { TIMEFRAME_SLOT_KINDS } from '../types';
+import type { IndicatorDto, IndicatorMap, TimeframeTelemetry } from '../types';
+import { DURATIONS, tfLabel } from '../types';
 import { getDecimalCount } from './telemetry';
-import { activeSlotKinds } from './terms';
+import { activeDurations } from './terms';
 import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
 import { emitCandleDebug } from './candleDebug';
-import {
-    pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY, getBadgeHistory,
-} from './badgeHistory.svelte';
-import {
-    buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader,
-    buildL5RiskHeader, buildL6DecisionHeader, metricsBadgeFor,
-} from './layerHeader';
+import { pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY, getBadgeHistory } from './badgeHistory.svelte';
+import { buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader, buildL5RiskHeader, buildL6DecisionHeader, metricsBadgeFor } from './layerHeader';
 import { computeDecisionRank } from './decisionRank';
 import type { Time } from 'lightweight-charts';
 
@@ -45,10 +40,10 @@ interface WsBackoff {
 }
 
 export interface WsState {
-    /// One live socket per fixed-ladder slot, keyed by slot identity.
-    sockets: Record<TimeframeSlotKind, WebSocket | null>;
+    /// One live socket per ACTIVE duration, keyed by duration secs.
+    sockets: Record<number, WebSocket | null>;
     currentWsSymbol: string;
-    backoff: Record<TimeframeSlotKind, WsBackoff>;
+    backoff: Record<number, WsBackoff>;
 }
 
 function freshBackoff(): WsBackoff {
@@ -64,23 +59,22 @@ function nextBackoff(b: WsBackoff): WsBackoff {
 
 export function createWsState(): WsState {
     return {
-        sockets: Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, null])) as Record<TimeframeSlotKind, WebSocket | null>,
+        sockets: Object.fromEntries(DURATIONS.map((secs) => [secs, null])) as Record<number, WebSocket | null>,
         currentWsSymbol: '',
-        backoff: Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, freshBackoff()])) as Record<TimeframeSlotKind, WsBackoff>,
+        backoff: Object.fromEntries(DURATIONS.map((secs) => [secs, freshBackoff()])) as Record<number, WsBackoff>,
     };
 }
 
 export function buildWsUrl(
     symbol: string,
     timeframeSecs: number,
-    slot: TimeframeSlotKind,
+    slotSecs: number,
 ): string {
     if (!symbol) return '';
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // The backend now uses `slot` (`micro|fast|slow|macro`) as the
-    // authoritative wire identifier, so it can never mis-route a snapshot
-    // even if two slots happen to share the same `timeframe_secs`.
-    return `${protocol}//${window.location.host}/ws?symbol=${encodeURIComponent(symbol)}&timeframe_secs=${timeframeSecs}&slot=${slot}`;
+    // v11.9: the backend resolves the `slot` param as a DURATION LABEL
+    // ("1s".."1d"), so the connection always binds the exact pipeline.
+    return `${protocol}//${window.location.host}/ws?symbol=${encodeURIComponent(symbol)}&timeframe_secs=${timeframeSecs}&slot=${tfLabel(slotSecs)}`;
 }
 
 export function closeWs(ws: WebSocket | null): void {
@@ -90,9 +84,9 @@ export function closeWs(ws: WebSocket | null): void {
 }
 
 export function disconnectAllWs(state: WsState): void {
-    for (const slot of TIMEFRAME_SLOT_KINDS) {
-        closeWs(state.sockets[slot]);
-        state.sockets[slot] = null;
+    for (const secs of DURATIONS) {
+        closeWs(state.sockets[secs]);
+        state.sockets[secs] = null;
     }
 }
 
@@ -111,19 +105,19 @@ function num(v: unknown): number | null {
 export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, event: MessageEvent, symbol: string): void {
     try {
     _globalMsgCount++;
-    logWsActivity(symbol, tf.slot, _globalMsgCount);
+    logWsActivity(symbol, tfLabel(tf.slot), _globalMsgCount);
     const raw = JSON.parse(event.data);
     const snapshot = (raw.jsonrpc === '2.0' && raw.method === 'broadcast.market_snapshot')
         ? (raw.params?.snapshot || raw)
         : raw;
     if (!snapshot || typeof snapshot !== 'object') return;
 
-    // Slot guard: the backend stamps `timeframe_slot` on every snapshot.
-    // If a foreign slot's snapshot somehow arrives (corrupted dispatcher,
-    // shared broadcast channel pre-fix, etc.) drop it instead of letting
-    // it silently mutate this slot's telemetry.
-    const wireSlot = (snapshot as Record<string, unknown>).timeframe_slot;
-    if (wireSlot != null && wireSlot !== tf.slot) return;
+    // Slot guard: the backend stamps `timeframe_label` on every snapshot.
+    // If a foreign duration's snapshot somehow arrives (corrupted
+    // dispatcher, shared broadcast channel, etc.) drop it instead of
+    // letting it silently mutate this duration's telemetry.
+    const wireSlot = (snapshot as Record<string, unknown>).timeframe_label;
+    if (wireSlot != null && wireSlot !== tfLabel(tf.slot)) return;
 
     // Completed-candle frames carry the full matrix + signal payload and
     // are the ONLY authority for retiring stale signals. Shadow ticks
@@ -378,7 +372,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     const pair = app.instancesMap[symbol];
     if (pair) {
         // ── Pair-level matrix guard ──
-        // All ten slot WebSocket streams (micro1..longterm2) deliver
+        // All ACTIVE duration WebSocket streams deliver
         // independently timed completed-candle frames. Each stream
         // carries forward its own last-completed matrices onto every
         // shadow tick, so without this guard every slot races to
@@ -461,7 +455,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             // shadow ticks hard-code it to `None` for performance. Mirroring
             // here means `OpportunitiesPanel`, `TradePlanStrip` and
             // `RecommendationPanel` can read from `pair.opportunity` directly
-            // instead of trawling `terms.micro1.latestSnapshot.opportunity`
+            // instead of trawling `terms[1].latestSnapshot.opportunity`
             // (which the unconditional assignment above used to wipe).
             if (snapshot.opportunity && typeof snapshot.opportunity === 'object') {
                 pair.opportunity = snapshot.opportunity;
@@ -481,7 +475,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             // duplicates of the same shared state. Same builders as the
             // live headers.
             const pairInst = app.instancesMap[symbol];
-            const fastestActive = activeSlotKinds(pairInst)[0];
+            const fastestActive = activeDurations(pairInst)[0];
             if (fastestActive === tf.slot) {
                 const now = Date.now();
                 pushBadge(layerKey('l2', symbol), (() => {
@@ -533,7 +527,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // stream, but it must not be invisible either — silent swallowing
         // made every applySnapshotToTimeframe failure undebuggable.
         if (typeof console !== 'undefined') {
-            console.error(`[ws] applySnapshotToTimeframe failed (${symbol}/${tf.slot})`, err);
+            console.error(`[ws] applySnapshotToTimeframe failed (${symbol}/${tfLabel(tf.slot)})`, err);
         }
     }
 }
@@ -545,7 +539,7 @@ export function connectWebsocketForTimeframe(
     tfSecs: number,
     symbol: string,
 ): void {
-    const wsKey: TimeframeSlotKind = tf.slot;
+    const wsKey: number = tf.slot;
     closeWs(state.sockets[wsKey]);
 
     const url = buildWsUrl(symbol, tfSecs, tf.slot);
@@ -613,13 +607,13 @@ export function connectWebsocket(app: AppStore, state: WsState, symbol: string):
     const pair = app.instancesMap[symbol];
     if (!pair) return;
 
-    // Each `TimeframeTelemetry` carries its own slot identity, so the WS
-    // dispatcher can no longer mis-route by shared duration. v11.2: only
-    // the instance's ACTIVE slots get sockets — the fastest N of the fixed
-    // ladder (`activeSlotKinds`); slots beyond N are INERT (the backend
-    // never serves their `/ws` routes) and must not even attempt one.
-    for (const slot of activeSlotKinds(pair)) {
-        const tf = pair.terms[slot];
+    // Each `TimeframeTelemetry` carries its own duration identity. v11.9:
+    // only the instance's ACTIVE durations get sockets (`activeDurations`);
+    // the rest are INERT (the backend never serves their `/ws` routes) and
+    // must not even attempt one.
+    for (const secs of activeDurations(pair)) {
+        const tf = pair.terms[secs];
+        if (!tf) continue;
         connectWebsocketForTimeframe(app, state, tf, tf.barDurationSec, symbol);
     }
 }
@@ -690,13 +684,13 @@ export function shouldReconnect(app: AppStore, state: WsState, symbol: string): 
     const pair = app.instancesMap[symbol];
     if (!pair) return false;
 
-    // v11.2: the expected socket count is the ACTIVE ladder length, not
-    // the full 10-slot pool — inactive slots have no sockets by design.
-    const active = activeSlotKinds(pair);
+    // v11.9: the expected socket count is the ACTIVE ladder length, not
+    // the full pool — inactive durations have no sockets by design.
+    const active = activeDurations(pair);
     const connectionsNeeded = active.length;
     let activeConnections = 0;
-    for (const slot of active) {
-        const ws = state.sockets[slot];
+    for (const secs of active) {
+        const ws = state.sockets[secs];
         if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) activeConnections++;
     }
 

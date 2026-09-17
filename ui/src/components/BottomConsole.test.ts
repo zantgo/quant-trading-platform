@@ -35,7 +35,7 @@ const mockApp = {
     },
     paperHistory: [],
     openOrders: [],
-    activeSlots: [],
+    activeDurations: [],
     activeEntryOrders: [],
     positionBrackets: [],
     paper: { openOrders: [] as Record<string, unknown>[] },

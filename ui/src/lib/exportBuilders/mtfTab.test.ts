@@ -48,10 +48,10 @@ describe('buildMtfExportJson', () => {
       headerSpec,
       registry,
       terms: makeTerms({
-          micro1: makeTf('Micro', '63390'),
-          fast1: makeTf('Fast', '63395'),
-          slow1: makeTf('Slow', '63300'),
-          macro1: makeTf('Macro', '63000'),
+          1: makeTf('Micro', '63390'),
+          5: makeTf('Fast', '63395'),
+          30: makeTf('Slow', '63300'),
+          180: makeTf('Macro', '63000'),
       }),
     }));
     expect(p.meta.pair).toBe('BTC-USDT');
@@ -60,7 +60,7 @@ describe('buildMtfExportJson', () => {
     const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
     expect(rsi.period).toBe(14);
     expect(rsi.display_name).toBe('RSI 14');
-    expect(rsi.values).toHaveLength(10);
+    expect(rsi.values).toHaveLength(14);
     expect(rsi.values[0].normalized_display).toBe('+0.24');
     expect(typeof rsi.agreement).toBe('number');
     expect(['BULL', 'BEAR', 'MIXED']).toContain(rsi.agreement_label);
@@ -73,13 +73,13 @@ describe('buildMtfExportJson', () => {
       headerSpec,
       registry,
       terms: makeTerms({
-          micro1: makeTf('Micro', '63390'),
-          fast1: makeTf('Fast', '63395'),
-          slow1: makeTf('Slow', '63300'),
-          macro1: makeTf('Macro', '63000'),
+          1: makeTf('Micro', '63390'),
+          5: makeTf('Fast', '63395'),
+          30: makeTf('Slow', '63300'),
+          180: makeTf('Macro', '63000'),
       }),
     }));
-    expect(p.timeframes).toHaveLength(10);
+    expect(p.timeframes).toHaveLength(14);
     expect(p.timeframes[0].fibonacci_summary.present).toBe(false);
     expect(p.timeframes[0].fibonacci_summary.swing_direction).toBe('NEUTRAL SWING');
   });
@@ -137,10 +137,10 @@ describe('buildMtfExportJson', () => {
       headerSpec,
       registry: confRegistry,
       terms: makeTerms({
-          micro1: makeTfWith('Micro', 1.0, 0.9, 'RSI_MICRO_BULLISH'),
-          fast1: makeTfWith('Fast', 0.6, -0.5, 'RSI_FAST_BEARISH'),
-          slow1: makeTfWith('Slow', 0.4, 0.2, 'RSI_SLOW_BULLISH'),
-          macro1: makeTfWith('Macro', 0.5, -0.1, 'RSI_MACRO_BEARISH'),
+          1: makeTfWith('Micro', 1.0, 0.9, 'RSI_MICRO_BULLISH'),
+          5: makeTfWith('Fast', 0.6, -0.5, 'RSI_FAST_BEARISH'),
+          30: makeTfWith('Slow', 0.4, 0.2, 'RSI_SLOW_BULLISH'),
+          180: makeTfWith('Macro', 0.5, -0.1, 'RSI_MACRO_BEARISH'),
       }),
     }));
 
@@ -179,10 +179,10 @@ it('zero-fills missing-DTO registry entries in the MTF indicator list', () => {
     headerSpec,
     registry: wideRegistry,
     terms: makeTerms({
-        micro1: makeTf('Micro', '63390'),
-        fast1: makeTf('Fast', '63395'),
-        slow1: makeTf('Slow', '63300'),
-        macro1: makeTf('Macro', '63000'),
+        1: makeTf('Micro', '63390'),
+        5: makeTf('Fast', '63395'),
+        30: makeTf('Slow', '63300'),
+        180: makeTf('Macro', '63000'),
     }),
   }));
   const rows = p.indicators as Array<{ key: string; values: Array<{ active: boolean; normalized: number }> }>;
@@ -227,10 +227,10 @@ it('warming placeholders and gated rows are inactive in MTF cells', () => {
     headerSpec,
     registry: warmRegistry,
     terms: makeTerms({
-        micro1: makeWarmTf('Micro'),
-        fast1: makeWarmTf('Fast'),
-        slow1: makeWarmTf('Slow'),
-        macro1: makeWarmTf('Macro'),
+        1: makeWarmTf('Micro'),
+        5: makeWarmTf('Fast'),
+        30: makeWarmTf('Slow'),
+        180: makeWarmTf('Macro'),
     }),
   }));
   const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
@@ -287,10 +287,10 @@ it('cross_tf_tables carries per-TF signal tallies and totals', () => {
     headerSpec,
     registry: sigRegistry,
     terms: makeTerms({
-        micro1: makeSigTf('Micro', 'Bullish'),
-        fast1: makeSigTf('Fast', 'Bullish'),
-        slow1: makeSigTf('Slow', 'Bearish'),
-        macro1: makeSigTf('Macro', 'Bearish'),
+        1: makeSigTf('Micro', 'Bullish'),
+        5: makeSigTf('Fast', 'Bullish'),
+        30: makeSigTf('Slow', 'Bearish'),
+        180: makeSigTf('Macro', 'Bearish'),
     }),
   }));
   const signals = p.cross_tf_tables.signals as Array<{
@@ -302,6 +302,7 @@ it('cross_tf_tables carries per-TF signal tallies and totals', () => {
   expect(th).toBeDefined();
   expect(th!.per_timeframe.map((c) => [c.bull, c.bear])).toEqual([
     [1, 0], [0, 0], [1, 0], [0, 0], [0, 1], [0, 0], [0, 1], [0, 0], [0, 0], [0, 0],
+    [0, 0], [0, 0], [0, 0], [0, 0],
   ]);
   expect(th!.totals).toEqual({ bull: 2, bear: 2, neutral: 0 });
   expect(th!.per_timeframe[0].entries).toHaveLength(1);

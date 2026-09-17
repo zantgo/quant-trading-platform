@@ -39,27 +39,8 @@
 // functions below are preserved unchanged for backward compatibility
 // with the existing test suite and any external consumers.
 
-import type {
-    AdvisoryMatrix,
-    AnalysisMatrix,
-    ConfluentLevel,
-    DecisionContext,
-    IndicatorDto,
-    IndicatorLifecycleStatus,
-    IndicatorMeta,
-    IndicatorSignal,
-    LiquidationCluster,
-    LiquidationClusterMatrix,
-    LiquidityFlow,
-    LiquiditySignal,
-    OpportunityMatrix,
-    RiskDimension,
-    RiskMatrix,
-    TimeframeSlotKind,
-    TimeframeTelemetry,
-    VolumeProfileSnapshot,
-} from '../types';
-import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../types';
+import type { AdvisoryMatrix, AnalysisMatrix, ConfluentLevel, DecisionContext, IndicatorDto, IndicatorLifecycleStatus, IndicatorMeta, IndicatorSignal, LiquidationCluster, LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal, OpportunityMatrix, RiskDimension, RiskMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../types';
+import { DURATIONS, tfLabel } from '../types';
 import { computeDecisionRank } from './decisionRank';
 
 interface ExportPayload {
@@ -311,7 +292,7 @@ interface AnalysisExport {
 
 interface VolumeProfileExport {
     symbol: string;
-    timeframe_slot: string;
+    timeframe_label: string;
     timeframe_secs: number;
     poc_price: number;
     value_area_high: number;
@@ -944,7 +925,7 @@ function exportVolumeProfile(vp: VolumeProfileSnapshot | null, markPrice: number
     const inVa = markPrice >= vp.value_area_low && markPrice <= vp.value_area_high;
     return {
         symbol: vp.symbol,
-        timeframe_slot: vp.timeframe_slot,
+        timeframe_label: vp.timeframe_label,
         timeframe_secs: vp.timeframe_secs,
         poc_price: vp.poc_price,
         value_area_high: vp.value_area_high,
@@ -1105,18 +1086,17 @@ export function buildPanelExportJson(args: PanelExportArgs): string | null {
 // timeframe `buildMetricsExportJson` can't be reused because it only carries
 // one TF's indicator snapshot — wrong shape for the MTF grid.
 
-export type MtfSlotLabel =
-    | 'Micro1' | 'Micro2' | 'Fast1' | 'Fast2' | 'Slow1' | 'Slow2'
-    | 'Macro1' | 'Macro2' | 'Longterm1' | 'Longterm2';
+/// v11.9: labels are derived duration strings ("1s".."1d").
+export type MtfSlotLabel = string;
 
 export interface MtfExportArgs {
     symbol: string;
-    terms: Record<TimeframeSlotKind, TimeframeTelemetry>;
+    terms: Record<number, TimeframeTelemetry>;
     registry: IndicatorMeta[];
     filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean; hideOverlays: boolean };
     /** v11.2 — the ACTIVE slot ladder; the per-TF detail block walks only
      *  these slots. Absent/empty → the full 10-slot pool. */
-    activeSlots?: TimeframeSlotKind[];
+    activeDurations?: number[];
 }
 
 interface MtfTimeframeEntry {
@@ -1202,12 +1182,12 @@ function parseSnapshotTimestamp(snap: unknown): number | null {
 export function buildMtfExportJson(args: MtfExportArgs): string {
     const { symbol, terms, registry, filters } = args;
 
-    const activeSlots = args.activeSlots && args.activeSlots.length > 0
-        ? args.activeSlots
-        : [...TIMEFRAME_SLOT_KINDS];
+    const activeDurations = args.activeDurations && args.activeDurations.length > 0
+        ? args.activeDurations
+        : [...DURATIONS];
     const slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[] =
-        activeSlots.map((slot) => ({
-            label: TIMEFRAME_SLOT_LABELS[slot] as MtfSlotLabel,
+        activeDurations.map((slot) => ({
+            label: tfLabel(slot),
             tf: terms[slot],
         }));
 

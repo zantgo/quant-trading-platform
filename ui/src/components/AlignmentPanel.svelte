@@ -1,7 +1,7 @@
 <script lang="ts">
-    import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo, TimeframeSlotKind, TimeframeTelemetry } from '../types';
-    import { TIMEFRAME_SLOT_LABELS } from '../types';
-    import { activeSlotKinds } from '../lib/terms';
+    import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo, TimeframeTelemetry } from '../types';
+    import { tfLabel } from '../types';
+    import { activeDurations } from '../lib/terms';
     import { useAppStore } from '../state.svelte';
     import type { WsState } from '../lib/websocket.svelte';
     import { buildAlignmentTabExport } from '../lib/exportBuilders/alignmentTab';
@@ -11,7 +11,6 @@
     import SummaryCard from './SummaryCard.svelte';
     import { buildL2AlignmentHeader, mLabel, metricsBadgeFor, type LayerHeaderSpec } from '../lib/layerHeader';
     import { getBadgeTrail, badgeHistoryVersion, layerKey } from '../lib/badgeHistory.svelte';
-    import { TIMEFRAME_SLOT_DURATION_SECS } from '../types';
     import { regimeTone } from '../lib/dashboardColors';
     import styles from './AlignmentPanel.module.css';
 
@@ -19,7 +18,7 @@
     let { pairKey, wssState }: { pairKey: string; wssState?: WsState } = $props();
     const instance = $derived(app.instancesMap[pairKey]);
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
-    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.micro1);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.[1]);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
     const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
@@ -29,12 +28,12 @@
     );
 
     function buildExport() {
-        // v11.4: mirror the TfStatusTable rows (per-ACTIVE-slot badges).
-        const timeframe_status = activeSlotKinds(instance).map((slot) => {
+        // v11.9: mirror the TfStatusTable rows (per-ACTIVE-duration badges).
+        const timeframe_status = activeDurations(instance).map((slot) => {
             const info = metricsBadgeFor(instance?.terms?.[slot] ?? null, wssState);
             return {
                 slot,
-                secs: TIMEFRAME_SLOT_DURATION_SECS[slot],
+                secs: slot,
                 badge_label: info.badge.label,
                 badge_sublabel: info.badge.sublabel,
                 pipeline_status: info.status,
@@ -101,10 +100,10 @@
     }
 
     // ── Per-Timeframe gauge grid (v8 fixed ladder): ACTIVE slots in
-    // MICRO1..LONGTERM2 order (v11.2) with a ring gauge per TF — the
+    // Canonical duration order (v11.9) with a ring gauge per TF — the
     // markup transplanted from the Analysis tab.
-    const timeframeSlots = $derived.by(() => {
-        const order = activeSlotKinds(instance).map((slot) => TIMEFRAME_SLOT_LABELS[slot].toUpperCase());
+    const timeframeCards = $derived.by(() => {
+        const order = activeDurations(instance).map((slot) => tfLabel(slot).toUpperCase());
         const alignments = alignment?.timeframe_alignments ?? [];
         return order.map(slot => {
             const found = alignments.find(a => a.timeframe.toUpperCase() === slot);
@@ -448,9 +447,9 @@
          from the legacy snapshot cards. ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Per-Timeframe Snapshot</div>
-        {#if timeframeSlots.some((tf) => tf.active)}
+        {#if timeframeCards.some((tf) => tf.active)}
             <div class={styles.timeframeGrid}>
-                {#each timeframeSlots as tf (tf.name)}
+                {#each timeframeCards as tf (tf.name)}
                     <div class={styles.tfSquare}>
                         <div class={styles.tfHeader}>
                             <span class={styles.tfName}>{tf.name}</span>

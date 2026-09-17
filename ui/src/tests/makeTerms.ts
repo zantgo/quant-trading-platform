@@ -1,15 +1,15 @@
-// Test helper — build a full 10-slot `terms` record for `InstanceState`
-// fixtures. Slots not listed in `overrides` get a minimal placeholder
-// telemetry bound to the fixed-ladder duration for that slot.
-import type { InstanceState, TimeframeSlotKind, TimeframeTelemetry } from '../types';
-import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_DURATION_SECS } from '../types';
+// Test helper — build a full duration-keyed `terms` record for
+// `InstanceState` fixtures. Durations not listed in `overrides` get a
+// minimal placeholder telemetry bound to its pool duration.
+import type { InstanceState, TimeframeTelemetry } from '../types';
+import { DURATIONS } from '../types';
 
-export function emptyTerm(slot: TimeframeSlotKind, symbol = 'BTC'): TimeframeTelemetry {
+export function emptyTerm(slotSecs: number, symbol = 'BTC'): TimeframeTelemetry {
     return {
-        slot,
+        slot: slotSecs,
         symbol,
         exchange: 'Hyperliquid',
-        barDurationSec: TIMEFRAME_SLOT_DURATION_SECS[slot],
+        barDurationSec: slotSecs,
         indicators: {},
         priceText: '--',
         volText: '--',
@@ -25,18 +25,18 @@ export function emptyTerm(slot: TimeframeSlotKind, symbol = 'BTC'): TimeframeTel
 }
 
 export function makeTerms(
-    overrides: Partial<Record<TimeframeSlotKind, Partial<TimeframeTelemetry>>> = {},
+    overrides: Partial<Record<number, Partial<TimeframeTelemetry>>> = {},
     symbol = 'BTC',
-): Record<TimeframeSlotKind, TimeframeTelemetry> {
+): Record<number, TimeframeTelemetry> {
     return Object.fromEntries(
-        TIMEFRAME_SLOT_KINDS.map((slot) => [slot, { ...emptyTerm(slot, symbol), ...(overrides[slot] ?? {}) }]),
-    ) as Record<TimeframeSlotKind, TimeframeTelemetry>;
+        DURATIONS.map((secs) => [secs, { ...emptyTerm(secs, symbol), ...(overrides[secs] ?? {}) }]),
+    ) as Record<number, TimeframeTelemetry>;
 }
 
 /// Attach a full `terms` record to a partial InstanceState fixture.
 export function withTerms(
     pair: Partial<InstanceState> & { symbol?: string },
-    overrides: Partial<Record<TimeframeSlotKind, Partial<TimeframeTelemetry>>> = {},
+    overrides: Partial<Record<number, Partial<TimeframeTelemetry>>> = {},
 ): InstanceState {
     return {
         ...pair,

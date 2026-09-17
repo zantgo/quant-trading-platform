@@ -1,21 +1,12 @@
 // Tests for the v7.0-audit shared envelope helpers.
 
 import { describe, it, expect } from 'vitest';
-import {
-  buildPriceBlock,
-  buildHeaderBlock,
-  buildRrBlock,
-  buildEmaBlock,
-  parseMarkPrice,
-  fmtUsd,
-  fmtPnl,
-  type HeaderBlock,
-} from './shared';
+import { buildPriceBlock, buildHeaderBlock, buildRrBlock, buildEmaBlock, parseMarkPrice, fmtUsd, fmtPnl, type HeaderBlock } from './shared';
 
 describe('buildPriceBlock', () => {
   it('computes current price, prev day and change from snapshot terms', () => {
     const terms = {
-      micro1: {
+      1: {
         priceText: '65000.00',
         latestSnapshot: {
           timestamp: 1_700_000_000,

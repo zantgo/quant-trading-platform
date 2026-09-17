@@ -7,7 +7,7 @@
     let { pairKey } = $props<{ pairKey: string }>();
 
     const instance = $derived(app.instancesMap[pairKey]);
-    const snap = $derived(instance?.terms?.micro1?.latestSnapshot as any);
+    const snap = $derived(instance?.terms?.[1]?.latestSnapshot as any);
     const opportunity = $derived(snap?.opportunity ?? null);
 
     function sourceColor(src: string): string {

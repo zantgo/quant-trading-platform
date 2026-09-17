@@ -5,24 +5,7 @@
 // component regression tests in `src/components/*.test.ts`).
 
 import { useAppStore } from '../../state.svelte';
-import type {
-  AdvisoryMatrix,
-  AlignmentMatrix,
-  AnalysisMatrix,
-  DecisionContext,
-  IndicatorLifecycleStatus,
-  IndicatorMeta,
-  IndicatorDto,
-  LiquidationClusterMatrix,
-  LiquidityFlow,
-  MarketContext,
-  OpportunityMatrix,
-  OpportunityProfile,
-  RiskDimension,
-  RiskMatrix,
-  TimeframeTelemetry,
-  VolumeProfileSnapshot,
-} from '../../types';
+import type { AdvisoryMatrix, AlignmentMatrix, AnalysisMatrix, DecisionContext, IndicatorLifecycleStatus, IndicatorMeta, IndicatorDto, LiquidationClusterMatrix, LiquidityFlow, MarketContext, OpportunityMatrix, OpportunityProfile, RiskDimension, RiskMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
 
 export const PAIR = 'BTC-USDT';
 export const MARK_PRICE = 63390.0;
@@ -33,21 +16,21 @@ export function seedRichInstance(): void {
   app.initInstance('BTC');
   const entry = app.instancesMap[PAIR];
 
-  entry.terms.micro1.priceText = String(MARK_PRICE);
-  entry.terms.micro1.barDurationSec = 60;
-  entry.terms.micro1.isCompleted = true;
-  entry.terms.fast1.priceText = '63395.00';
-  entry.terms.fast1.barDurationSec = 180;
-  entry.terms.fast1.isCompleted = true;
-  entry.terms.slow1.priceText = '63380.00';
-  entry.terms.slow1.barDurationSec = 300;
-  entry.terms.slow1.isCompleted = true;
-  entry.terms.longterm1.priceText = '63360.00';
-  entry.terms.longterm1.barDurationSec = 900;
-  entry.terms.longterm1.isCompleted = true;
+  entry.terms[1].priceText = String(MARK_PRICE);
+  entry.terms[1].barDurationSec = 60;
+  entry.terms[1].isCompleted = true;
+  entry.terms[5].priceText = '63395.00';
+  entry.terms[5].barDurationSec = 180;
+  entry.terms[5].isCompleted = true;
+  entry.terms[30].priceText = '63380.00';
+  entry.terms[30].barDurationSec = 300;
+  entry.terms[30].isCompleted = true;
+  entry.terms[900].priceText = '63360.00';
+  entry.terms[900].barDurationSec = 900;
+  entry.terms[900].isCompleted = true;
   entry.lastCompletedClose = String(MARK_PRICE);
 
-  entry.terms.micro1.latestSnapshot = {
+  entry.terms[1].latestSnapshot = {
     timestamp: 1_700_000_000,
     mid_price: MARK_PRICE,
     prev_day_px: 62000,
@@ -56,9 +39,9 @@ export function seedRichInstance(): void {
     liquidity: makeFlow(),
     cluster: makeCluster(),
   } as unknown as Record<string, unknown>;
-  entry.terms.fast1.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63395, is_completed: true } as unknown as Record<string, unknown>;
-  entry.terms.slow1.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63380, is_completed: true } as unknown as Record<string, unknown>;
-  entry.terms.longterm1.latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63360, is_completed: true } as unknown as Record<string, unknown>;
+  entry.terms[5].latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63395, is_completed: true } as unknown as Record<string, unknown>;
+  entry.terms[30].latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63380, is_completed: true } as unknown as Record<string, unknown>;
+  entry.terms[900].latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63360, is_completed: true } as unknown as Record<string, unknown>;
 
   entry.alignment = makeAlignment();
   entry.analysis = makeAnalysis();
@@ -67,15 +50,15 @@ export function seedRichInstance(): void {
   entry.advisory = makeAdvisory();
   entry.decisionContext = makeDecisionContext();
 
-  entry.terms.micro1.indicators = makeMicroIndicators();
-  entry.terms.micro1.indicatorLifecycle = makeMicroLifecycle() as unknown as Record<string, IndicatorLifecycleStatus>;
-  entry.terms.micro1.context = makeContext();
-  entry.terms.micro1.volumeProfile = makeVolumeProfile();
-  entry.terms.micro1.cluster = makeCluster();
-  entry.terms.micro1.liquidity = makeFlow();
-  entry.terms.micro1.liquiditySignals = [];
-  entry.terms.fast1.indicators = makeMicroIndicators();
-  entry.terms.fast1.indicators['rsi_14'] = {
+  entry.terms[1].indicators = makeMicroIndicators();
+  entry.terms[1].indicatorLifecycle = makeMicroLifecycle() as unknown as Record<string, IndicatorLifecycleStatus>;
+  entry.terms[1].context = makeContext();
+  entry.terms[1].volumeProfile = makeVolumeProfile();
+  entry.terms[1].cluster = makeCluster();
+  entry.terms[1].liquidity = makeFlow();
+  entry.terms[1].liquiditySignals = [];
+  entry.terms[5].indicators = makeMicroIndicators();
+  entry.terms[5].indicators['rsi_14'] = {
     raw_value: 63.5,
     normalized: 0.31,
     state_label: 'LIVE',
@@ -83,8 +66,8 @@ export function seedRichInstance(): void {
     values: null,
     signals: [],
   } as IndicatorDto;
-  entry.terms.slow1.indicators = makeMicroIndicators();
-  entry.terms.longterm1.indicators = makeMicroIndicators();
+  entry.terms[30].indicators = makeMicroIndicators();
+  entry.terms[900].indicators = makeMicroIndicators();
 
   app.indicatorRegistry = makeRegistry();
 }
@@ -236,7 +219,7 @@ export function makeContext(): MarketContext {
 export function makeVolumeProfile(): VolumeProfileSnapshot {
   return {
     symbol: PAIR,
-    timeframe_slot: 'micro1',
+    timeframe_label: '1s',
     timeframe_secs: 60,
     poc_price: 63300,
     value_area_high: 63700,
@@ -304,7 +287,7 @@ export function makeAlignment(): AlignmentMatrix {
   const dim = (score: number, state: string, confidence: number) => ({ score, state, confidence });
   return {
     symbol: PAIR,
-    timeframes_present: 10,
+    timeframes_present: 14,
     dimensions: [
       dim(75, 'STRONG_BULLISH', 78),
       dim(60, 'BULLISH', 72),
@@ -324,16 +307,16 @@ export function makeAlignment(): AlignmentMatrix {
     mtf_overall_score: 30.5,
     mtf_overall_label: 'WEAK_BULL_MTF',
     timeframe_alignments: [
-      { timeframe: 'MICRO1', timeframe_secs: 60, trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: MARK_PRICE },
-      { timeframe: 'MICRO2', timeframe_secs: 3, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
-      { timeframe: 'FAST1', timeframe_secs: 180, trend_score: 0.32, momentum_score: 0.25, overall_score: 0.6, regime: 'TRENDING', active_signals: 3, price: MARK_PRICE },
-      { timeframe: 'FAST2', timeframe_secs: 15, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
-      { timeframe: 'SLOW1', timeframe_secs: 300, trend_score: 0.15, momentum_score: 0.1, overall_score: 0.3, regime: 'RANGE', active_signals: 1, price: MARK_PRICE },
-      { timeframe: 'SLOW2', timeframe_secs: 60, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
-      { timeframe: 'MACRO1', timeframe_secs: 180, trend_score: -0.1, momentum_score: -0.05, overall_score: -0.2, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
-      { timeframe: 'MACRO2', timeframe_secs: 300, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
-      { timeframe: 'LONGTERM1', timeframe_secs: 900, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
-      { timeframe: 'LONGTERM2', timeframe_secs: 3600, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: '1S', timeframe_secs: 1, trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: MARK_PRICE },
+      { timeframe: '3S', timeframe_secs: 3, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: '5S', timeframe_secs: 5, trend_score: 0.32, momentum_score: 0.25, overall_score: 0.6, regime: 'TRENDING', active_signals: 3, price: MARK_PRICE },
+      { timeframe: '15S', timeframe_secs: 15, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: '30S', timeframe_secs: 30, trend_score: 0.15, momentum_score: 0.1, overall_score: 0.3, regime: 'RANGE', active_signals: 1, price: MARK_PRICE },
+      { timeframe: '1M', timeframe_secs: 60, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: '3M', timeframe_secs: 180, trend_score: -0.1, momentum_score: -0.05, overall_score: -0.2, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: '5M', timeframe_secs: 300, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: '15M', timeframe_secs: 900, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
+      { timeframe: '1H', timeframe_secs: 3600, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },
     ],
     signal_cross_tf_count: 2,
     trend_agreement_pct: 82,
@@ -368,13 +351,13 @@ export function makeAnalysis(): AnalysisMatrix {
     market_interpretation: 'Price is making higher highs and higher lows on strong volume. Momentum is increasing and structure remains intact.',
     rationale: 'The market is in a healthy uptrend with broad participation across timeframes.',
     supporting_signals: [
-      'MICRO1 (bullish): rsi_14 score +62, TRENDING regime, 3 signals',
-      'FAST1 (bullish): macd_12_26_9 score +45, TRENDING regime, 2 signals',
+      '1S (bullish): rsi_14 score +62, TRENDING regime, 3 signals',
+      '5S (bullish): macd_12_26_9 score +45, TRENDING regime, 2 signals',
     ],
     contradicting_signals: [
-      'MACRO1 (bearish): obv score -20, RANGE regime, 1 signals',
+      '3M (bearish): obv score -20, RANGE regime, 1 signals',
     ],
-    timeframes_considered: 10,
+    timeframes_considered: 14,
   };
 }
 

@@ -14,7 +14,7 @@
     //   Col 5  mode chip (observe / paper / live; dim)
     //
     // Expanded (per instance): N sub-rows — one per ACTIVE slot
-    // (`activeSlotKinds`, ladder order) — each showing the slot label +
+    // (`activeDurations`, ladder order) — each showing the slot label +
     // duration and the SAME badge + pipeline pill the Alignment tab's
     // TfStatusTable renders (`metricsBadgeFor`), reusing the LayerHeader
     // badge/status CSS classes verbatim.
@@ -24,11 +24,11 @@
     // handled by GeneralDashboard (the component renders nothing without
     // instances); an instance with no data shows the grey `—` badge and
     // loading pills — `emptyBadge()` semantics throughout.
-    import type { InstanceState, TimeframeSlotKind } from '../types';
-    import { TIMEFRAME_SLOT_LABELS, TIMEFRAME_SLOT_DURATION_SECS } from '../types';
+    import type { InstanceState } from '../types';
+    import { tfLabel } from '../types';
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
-    import { activeSlotKinds } from '../lib/terms';
+    import { activeDurations } from '../lib/terms';
     import { getBadgeTrail, badgeHistoryVersion, l1Key, layerKey } from '../lib/badgeHistory.svelte';
     import BadgeTrail from './BadgeTrail.svelte';
     import { computeDecisionRank, type DecisionRank } from '../lib/decisionRank';
@@ -115,8 +115,8 @@
         }).badge;
     }
 
-    function slotLabel(slot: TimeframeSlotKind): string {
-        return TIMEFRAME_SLOT_LABELS[slot].toUpperCase();
+    function slotLabel(slot: number): string {
+        return tfLabel(slot).toUpperCase();
     }
 
     function durationLabel(secs: number): string {
@@ -205,14 +205,14 @@
                         </td>
                     </tr>
                     {#if expanded[pairKey]}
-                        {#each activeSlotKinds(inst) as slot (slot)}
+                        {#each activeDurations(inst) as slot (slot)}
                             {@const info = metricsBadgeFor(inst.terms?.[slot] ?? null, wssMap[pairKey])}
                             {@const tfTrail = (() => { void trailVersion; return getBadgeTrail(l1Key(pairKey, slot)); })()}
                             <tr class={styles.tfRow}>
                                 <td class={styles.toggleCell} aria-hidden="true"></td>
                                 <td class={styles.tfCell}>
                                     <span class={styles.tfName}>{slotLabel(slot)}</span>
-                                    <span class={styles.tfDuration}>· {durationLabel(TIMEFRAME_SLOT_DURATION_SECS[slot])}</span>
+                                    <span class={styles.tfDuration}>· {tfLabel(slot)}</span>
                                 </td>
                                 <td class={styles.badgeCell}>
                                     <div

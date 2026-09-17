@@ -5,19 +5,7 @@
 // that drives the modal's done-phase cards.
 
 import { describe, it, expect } from 'vitest';
-import {
-    clampWaitMinutes,
-    decide,
-    detectBackendErrorKind,
-    parseSymbols,
-    reasonFor,
-    reasonLabel,
-    summarize,
-    WAIT_WINDOW_DEFAULT,
-    WAIT_WINDOW_MAX,
-    WAIT_WINDOW_MIN,
-    type PairOutcome,
-} from './watchlistScanner';
+import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from './watchlistScanner';
 import type { AdvisoryMatrix, DecisionContext } from '../types';
 
 function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {

@@ -7,16 +7,7 @@
 // new shape so the inconsistency cannot regress.
 
 import { describe, it, expect } from 'vitest';
-import {
-  buildPositionsTabExport,
-  buildOrdersTabExport,
-  buildHistoryTabExport,
-  buildPlanTabExport,
-  type PositionsPayload,
-  type OrdersPayload,
-  type HistoryPayload,
-  type PlanPayload,
-} from './chartsTab';
+import { buildPositionsTabExport, buildOrdersTabExport, buildHistoryTabExport, buildPlanTabExport, type PositionsPayload, type OrdersPayload, type HistoryPayload, type PlanPayload } from './chartsTab';
 
 // Minimal mock of AppStore covering every field the builders read.
 function makeMockApp(overrides: Partial<{
@@ -31,7 +22,7 @@ function makeMockApp(overrides: Partial<{
   paperCashBalance: number;
   activePaperPosition: Record<string, unknown> | null;
   openOrders: Record<string, unknown>[];
-  activeSlots: Record<string, unknown>[];
+  activeDurations: Record<string, unknown>[];
   paperHistory: Record<string, unknown>[];
   activePlan: Record<string, unknown> | null;
 }> = {}) {
@@ -52,7 +43,7 @@ function makeMockApp(overrides: Partial<{
       opened_at: 1753950000,
     },
     openOrders: [],
-    activeSlots: [],
+    activeDurations: [],
     paperHistory: [],
     activePlan: null,
   };
@@ -99,7 +90,7 @@ describe('buildPositionsTabExport', () => {
 
   it('populates slots data correctly when slots are present', () => {
     const app = makeMockApp({
-      activeSlots: [
+      activeDurations: [
         { slot_index: 1, entry_price: 63500, size: 0.025, allocated_usd: 1587.5, is_active: true },
         { slot_index: 2, entry_price: 64500, size: 0.025, allocated_usd: 1612.5, is_active: true },
       ],

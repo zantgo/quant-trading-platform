@@ -21,7 +21,7 @@
     // cards until the first real synthesis arrives.
     const rawRisk = $derived<RiskMatrix | null>(instance?.risk ?? null);
     const risk = $derived<RiskMatrix | null>(isAwaitingRiskMatrix(rawRisk) ? null : rawRisk);
-    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.micro1);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.[1]);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
     const opportunity = $derived((microSnap?.opportunity ?? null) as any);
     const decisionContext = $derived((microSnap?.decision_context ?? null) as Record<string, unknown> | null);

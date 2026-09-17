@@ -1,8 +1,8 @@
 import type { AppStore } from '../state.svelte';
-import type { IndicatorMap, TimeframeSlotKind, TimeframeTelemetry } from '../types';
+import type { IndicatorMap, TimeframeTelemetry } from '../types';
 import { getTerm } from './terms';
 
-export type ChartSlot = TimeframeSlotKind;
+export type ChartSlot = number;
 
 export interface ChartCoalescer {
     effect: () => void;

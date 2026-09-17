@@ -7,7 +7,7 @@
 // Deliberately NOT in the URL: overlays are chrome, not navigation.
 
 import { loadPref, savePref } from './prefs';
-import { TIMEFRAME_SLOT_KINDS, type InstanceState, type TimeframeSlotKind } from '../types';
+import { DURATIONS, type InstanceState } from '../types';
 
 /** Pair-level boolean flags (CANDLES/LINE mode + the four EMA pills). */
 export const OVERLAY_PAIR_FLAGS = [
@@ -33,7 +33,7 @@ export function saveChartOverlays(pairKey: string, inst: InstanceState): void {
     for (const f of OVERLAY_PAIR_FLAGS) {
         snapshot[f] = Boolean((inst as unknown as Record<string, unknown>)[f]);
     }
-    const rep = inst.terms.micro1 as unknown as Record<string, unknown>;
+    const rep = inst.terms[1] as unknown as Record<string, unknown>;
     for (const f of OVERLAY_TF_FLAGS) {
         snapshot[f] = Boolean(rep[f]);
     }
@@ -52,7 +52,7 @@ export function applyChartOverlays(pairKey: string, inst: InstanceState): void {
     }
     for (const f of OVERLAY_TF_FLAGS) {
         if (typeof snap[f] !== 'boolean') continue;
-        for (const slot of TIMEFRAME_SLOT_KINDS as readonly TimeframeSlotKind[]) {
+        for (const slot of DURATIONS as readonly number[]) {
             (inst.terms[slot] as unknown as Record<string, unknown>)[f] = snap[f];
         }
     }

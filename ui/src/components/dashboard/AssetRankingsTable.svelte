@@ -17,15 +17,7 @@
     import { formatRelativeTime } from '../../lib/relTime';
     import { resolveActiveRr, topQualifyingProfile, topSetupSummary } from '../../lib/decisionRank';
     import { normalizeViability } from '../../lib/viability';
-    import {
-        biasColor,
-        directionColor,
-        directionLabel,
-        formatRR,
-        rrColor,
-        scoreColor,
-        signalLabel,
-    } from '../../lib/dashboardColors';
+    import { biasColor, directionColor, directionLabel, formatRR, rrColor, scoreColor, signalLabel } from '../../lib/dashboardColors';
     import styles from './AssetRankingsTable.module.css';
 
     const app = useAppStore();
@@ -222,11 +214,11 @@
             const riskScore = risk?.overall_risk?.score ?? 0;
             const mtfScore = aln?.mtf_overall_score ?? 0;
             const mtfLabel = aln?.mtf_overall_label ?? 'NO_DATA';
-            const snap = inst.terms?.micro1?.latestSnapshot as { timestamp?: number } | null;
+            const snap = inst.terms?.[1]?.latestSnapshot as { timestamp?: number } | null;
             const ts = snap?.timestamp ?? null;
             out.push({
                 symbol: inst.symbol,
-                price: inst.terms?.micro1?.priceText ?? '--',
+                price: inst.terms?.[1]?.priceText ?? '--',
                 bias: analysis?.bias ?? 'Neutral',
                 signal,
                 direction,

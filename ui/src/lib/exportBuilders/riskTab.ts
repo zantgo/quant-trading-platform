@@ -9,20 +9,8 @@
 // therefore stripped from the export too — `summary_counts` carries the
 // per-level distribution for data consumers.
 
-import type {
-  RiskMatrix,
-  RiskDimension,
-  RiskLevel,
-  LiquidityFlow,
-  LiquidationClusterMatrix,
-} from '../../types';
-import {
-  buildPriceBlock,
-  buildHeaderBlock,
-  type MetaEnvelope,
-  type HeaderBlock,
-  type InstanceTermsLike,
-} from './shared';
+import type { RiskMatrix, RiskDimension, RiskLevel, LiquidityFlow, LiquidationClusterMatrix } from '../../types';
+import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 
 // ── Payload types ────────────────────────────────────────────────────────

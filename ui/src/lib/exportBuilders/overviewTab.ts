@@ -17,34 +17,13 @@
 // strings carried verbatim so the operator's mental model matches the
 // clipboard.
 
-import type {
-    AssetRank,
-    InstanceState,
-    OverviewMatrix,
-} from '../../types';
-import {
-    buildHeaderBlock,
-    type HeaderBlock,
-} from './shared';
+import type { AssetRank, InstanceState, OverviewMatrix } from '../../types';
+import { buildHeaderBlock, type HeaderBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { demoteBiasForCoverage } from '../layerHeader';
-import {
-    computeHeroState,
-    pickBestOpportunity,
-    collectActiveSetups,
-    aggregateRR,
-    aggregateConfidence,
-    aggregateRisk,
-    aggregateDirections,
-    aggregateSignalQuality,
-    type HeroState,
-} from '../tradeAggregates';
+import { computeHeroState, pickBestOpportunity, collectActiveSetups, aggregateRR, aggregateConfidence, aggregateRisk, aggregateDirections, aggregateSignalQuality, type HeroState } from '../tradeAggregates';
 import { computeMarketHealth } from '../marketHealth';
-import {
-    formatRewardRatio,
-    signalLabel,
-    directionLabel,
-} from '../dashboardColors';
+import { formatRewardRatio, signalLabel, directionLabel } from '../dashboardColors';
 import { formatRelativeTime } from '../relTime';
 import { resolveActiveRr, topSetupSummary } from '../decisionRank';
 
@@ -498,12 +477,12 @@ function buildAssetRankingRow(
     const riskScore = risk?.overall_risk?.score ?? 0;
     const mtfScore = aln?.mtf_overall_score ?? 0;
     const mtfLabel = aln?.mtf_overall_label ?? 'NO_DATA';
-    const snap = inst.terms?.micro1?.latestSnapshot as { timestamp?: number } | null;
+    const snap = inst.terms?.[1]?.latestSnapshot as { timestamp?: number } | null;
     const ts = snap?.timestamp ?? null;
 
     return {
         symbol: inst.symbol,
-        price_display: inst.terms?.micro1?.priceText ?? '--',
+        price_display: inst.terms?.[1]?.priceText ?? '--',
         bias: analysis?.bias ?? 'Neutral',
         signal,
         direction,
@@ -591,7 +570,7 @@ export interface InstanceStatusExportRow {
         short_pct: number | null;
     } | null;
     timeframes: Array<{
-        slot: string;
+        slot: number;
         secs: number;
         badge_label: string;
         badge_sublabel: string | undefined;

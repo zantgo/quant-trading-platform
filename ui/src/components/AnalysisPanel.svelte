@@ -3,7 +3,7 @@
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import { buildAnalysisTabExport } from '../lib/exportBuilders/analysisTab';
-    import { activeSlotKinds } from '../lib/terms';
+    import { activeDurations } from '../lib/terms';
     import { prettifyPhase, highlightKeywords as importedHighlightKeywords } from '../lib/prettifyPhase';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
@@ -48,7 +48,7 @@
             bias != null && bias !== 'Neutral' && score != null && Math.abs(score) <= 20;
         return { score, bias, agreement, tfs, bbwp, adx, signals, label, lifted };
     });
-    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.micro1);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.terms?.[1]);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
     const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
@@ -88,7 +88,7 @@
             headerSpec,
             terms: instance?.terms,
             // v11.2: the per-timeframe order array follows the ACTIVE ladder.
-            activeSlots: activeSlotKinds(instance),
+            activeDurations: activeDurations(instance),
         });
     }
 
@@ -212,23 +212,23 @@
     // Timeframe sorting helper for signal lists
     function timeframeRank(signal: string): number {
         const s = (signal || '').toUpperCase();
-        // Fixed 10-slot ladder order: MICRO1..LONGTERM2 (fastest → slowest).
-        const slotOrder = ['MICRO1','MICRO2','FAST1','FAST2','SLOW1','SLOW2','MACRO1','MACRO2','LONGTERM1','LONGTERM2'];
-        for (let i = 0; i < slotOrder.length; i++) {
-            if (s.includes(slotOrder[i])) return i;
+        // v11.9: canonical duration order (fastest -> slowest). Longest
+        // labels are probed first so "15S" can never match "5S".
+        const slotOrder: Array<[string, number]> = [
+            ['15S', 3], ['30S', 4], ['15M', 8], ['30M', 9], ['12H', 12],
+            ['1S', 0], ['3S', 1], ['5S', 2], ['1M', 5], ['3M', 6],
+            ['5M', 7], ['1H', 10], ['4H', 11], ['1D', 13],
+        ];
+        for (const [label, rank] of slotOrder) {
+            if (s.includes(label)) return rank;
         }
+        // Legacy family words (older recorded/deep-history signals).
         if (s.includes('MICRO')) return 0;
         if (s.includes('FAST')) return 2;
         if (s.includes('SLOW')) return 4;
         if (s.includes('MACRO')) return 6;
-        
-        // Fallback checks for explicit candle durations:
-        if (s.includes('1S') || s.includes('3S') || s.includes('5S') || s.includes('15S') || s.includes('30S') || s.includes('1M')) return 0;
-        if (s.includes('3M') || s.includes('5M')) return 1;
-        if (s.includes('15M') || s.includes('30M')) return 2;
-        if (s.includes('1H') || s.includes('4H') || s.includes('12H') || s.includes('1D') || s.includes('DAY')) return 3;
-        
-        return 4; // Default fallback rank for global/ambient signals
+        if (s.includes('DAY')) return 13;
+        return 99; // global/ambient signals sort last
     }
 
     // Unifies and sorts supporting + contradicting signals so slots always remain grouped sequentially.
@@ -294,9 +294,9 @@
         const t = text || '';
 
         let timeframe = 'GLOBAL';
-        // v11.4: numbered slot names first (longest match wins) so the
-        // card title shows MICRO1/FAST2/… not the bare family name.
-        const tfMatch = t.match(/\[?(MICRO1|MICRO2|FAST1|FAST2|SLOW1|SLOW2|MACRO1|MACRO2|LONGTERM1|LONGTERM2|MICRO|FAST|SLOW|MACRO|1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D)\]?/i);
+        // v11.9: duration labels ("1S"…"1D") — the card title shows the
+        // canonical duration, never a family name.
+        const tfMatch = t.match(/\[?(1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D)\]?/i);
         if (tfMatch) {
             timeframe = tfMatch[1].toUpperCase();
         }

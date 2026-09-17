@@ -88,7 +88,7 @@ describe('buildMetricsTabExport', () => {
       markPrice: 63390,
       headerSpec,
       terms: makeTerms({
-        micro1: {
+        1: {
           priceText: '63390.00',
           latestSnapshot: { timestamp: Math.floor(Date.now() / 1000) - 5, mid_price: 63390, prev_day_px: 63532.45 },
         },
@@ -171,7 +171,7 @@ describe('buildMetricsTabExport', () => {
   it('volume_profile current_position is a real label, not hardcoded true', () => {
     const vp: VolumeProfileSnapshot = {
       symbol: 'BTC-USDT',
-      timeframe_slot: 'MICRO',
+      timeframe_label: '1m',
       timeframe_secs: 60,
       poc_price: 63200,
       value_area_high: 63800,
@@ -441,7 +441,7 @@ it('legacy state fallback mirrors the screen (NO SIGNAL / AWAITING DATA / —)',
 it('micro_volume_profile + micro_cascade_alert mirror the anchors strip inputs', () => {
   const vp: VolumeProfileSnapshot = {
     symbol: 'BTC-USDT',
-    timeframe_slot: 'MICRO',
+    timeframe_label: '1m',
     timeframe_secs: 60,
     poc_price: 63200,
     value_area_high: 63800,

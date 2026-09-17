@@ -1,8 +1,7 @@
 <script lang="ts">
     import { useAppStore } from './state.svelte';
     import { createInstance } from './lib/api.svelte';
-    import { TIMEFRAME_SLOT_DURATION_SECS } from './types';
-    import { withActiveSlots } from './lib/terms';
+    import { tfLabel } from './types';
     import styles from './LaunchSetup.module.css';
 
     const app = useAppStore();
@@ -48,10 +47,10 @@
     // Settings). The wizard shows it read-only; the count is a workspace
     // Settings knob, not a picker.
     const ACTIVE_LADDER = $derived.by(() => {
-        const slots = withActiveSlots(app.settings.activeTimeframes);
+        const durations = app.settings.timeframes;
         return {
-            count: slots.length,
-            durations: slots.map((slot) => tfLabel(TIMEFRAME_SLOT_DURATION_SECS[slot])).join(' · '),
+            count: durations.length,
+            durations: durations.map((secs) => tfLabel(secs)).join(' · '),
         };
     });
     const ACTIVE_LADDER_TEXT = $derived(`Active ladder (${ACTIVE_LADDER.count}): ${ACTIVE_LADDER.durations}`);
@@ -153,11 +152,6 @@
         instances = instances.filter((_, i) => i !== index);
     }
 
-    function tfLabel(secs: number): string {
-        if (secs % 3600 === 0) return `${secs / 3600}h`;
-        if (secs % 60 === 0) return `${secs / 60}m`;
-        return `${secs}s`;
-    }
 
     async function readBackendError(res: Response, fallback: string): Promise<string> {
         try {

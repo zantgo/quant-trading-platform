@@ -64,7 +64,7 @@ function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
         exchange: 'Hyperliquid',
         isConnected: true,
         mode: 'observe',
-        activeSlots: ['micro1', 'fast1'],
+        activeDurations: [1, 5],
         terms: makeTerms(),
         historyLatestClose: '0',
         currentView: 'terminal',
@@ -192,7 +192,7 @@ describe('InstanceStatusTable — decision badge', () => {
 
 describe('InstanceStatusTable — expand / collapse', () => {
     it('expands to one sub-row per ACTIVE slot; collapse-all hides them again', async () => {
-        seed('BTC-USDT', makeInstance({ activeSlots: ['micro1', 'fast1'] }));
+        seed('BTC-USDT', makeInstance({ activeDurations: [1, 5] }));
         const { container } = renderTable();
         const table = screen.getByLabelText('Per-instance status');
         expect(table.querySelectorAll('tbody tr').length).toBe(1);
@@ -201,8 +201,8 @@ describe('InstanceStatusTable — expand / collapse', () => {
         await fireEvent.click(toggle);
         expect(table.querySelectorAll('tbody tr').length).toBe(1 + 2);
         const subText = table.textContent!;
-        expect(subText).toContain('MICRO1');
-        expect(subText).toContain('FAST1');
+        expect(subText).toContain('1S');
+        expect(subText).toContain('5S');
         expect(subText).toContain('1s');
         expect(subText).toContain('5s');
 
@@ -215,8 +215,8 @@ describe('InstanceStatusTable — expand / collapse', () => {
     });
 
     it('expand-all opens every instance row at once', async () => {
-        seed('BTC-USDT', makeInstance({ symbol: 'BTC', activeSlots: ['micro1'] }));
-        seed('ETH-USDT', makeInstance({ symbol: 'ETH', activeSlots: ['micro1', 'micro2', 'fast1'] }));
+        seed('BTC-USDT', makeInstance({ symbol: 'BTC', activeDurations: [1] }));
+        seed('ETH-USDT', makeInstance({ symbol: 'ETH', activeDurations: [1, 3, 5] }));
         renderTable();
         const table = screen.getByLabelText('Per-instance status');
         await fireEvent.click(screen.getByLabelText('Expand all rows'));

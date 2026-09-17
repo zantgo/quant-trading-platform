@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 //
-// syncInstanceIdsFromList — v11.2 `active_secs` mapping contract:
+// syncInstanceIdsFromList — v11.9 `active_secs` mapping contract:
 //   • each `/api/instances` entry's `active_secs: number[]` maps onto
-//     `InstanceState.activeSlots` via the inverted duration table,
-//   • a missing/empty `active_secs` leaves the store's all-10 default
+//     `InstanceState.activeDurations` (canonical ascending order),
+//   • a missing/empty `active_secs` leaves the store's full-pool default
 //     untouched (defensive no-op),
-//   • `/api/config`'s `active_timeframes` seeds the settings store.
+//   • `/api/config`'s `timeframes` seeds the settings store.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup } from '@testing-library/svelte';
 import { useAppStore } from '../state.svelte';
 import { syncInstanceIdsFromList, applyConfigToStore } from './api.svelte';
-import { TIMEFRAME_SLOT_KINDS } from '../types';
+import { DURATIONS } from '../types';
 
 function jsonResponse(body: unknown): Response {
     return {
@@ -30,8 +30,8 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('syncInstanceIdsFromList — active_secs → activeSlots', () => {
-    it('maps the fastest-N durations onto activeSlots in ladder order', async () => {
+describe('syncInstanceIdsFromList — active_secs → activeDurations', () => {
+    it('maps the ACTIVE durations onto activeDurations in ascending order', async () => {
         const app = useAppStore();
         app.initInstance('BTC');
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
@@ -40,29 +40,29 @@ describe('syncInstanceIdsFromList — active_secs → activeSlots', () => {
             ],
         })));
         await syncInstanceIdsFromList(app);
-        expect(app.instancesMap['BTC-USDT'].activeSlots).toEqual(TIMEFRAME_SLOT_KINDS.slice(0, 5));
+        expect(app.instancesMap['BTC-USDT'].activeDurations).toEqual(DURATIONS.slice(0, 5));
     });
 
-    it('keeps the all-10 default when the payload omits active_secs', async () => {
+    it('keeps the full-pool default when the payload omits active_secs', async () => {
         const app = useAppStore();
         app.initInstance('BTC');
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
             instances: [{ id: 'inst_1', pair: 'BTC-USDT', mode: 'observe' }],
         })));
         await syncInstanceIdsFromList(app);
-        expect(app.instancesMap['BTC-USDT'].activeSlots).toEqual([...TIMEFRAME_SLOT_KINDS]);
+        expect(app.instancesMap['BTC-USDT'].activeDurations).toEqual([...DURATIONS]);
     });
 });
 
-describe('applyConfigToStore — active_timeframes → settings store', () => {
-    it('seeds settings.activeTimeframes from the workspace payload', () => {
+describe('applyConfigToStore — timeframes → settings store', () => {
+    it('seeds settings.timeframes from the workspace payload (ascending, pool-filtered)', () => {
         const app = useAppStore();
         applyConfigToStore(app, {
             symbols: ['BTC'],
             instances: [],
-            active_timeframes: 7,
+            timeframes: [300, 1, 3600],
         });
-        expect(app.settings.activeTimeframes).toBe(7);
+        expect(app.settings.timeframes).toEqual([1, 300, 3600]);
     });
 
     it('falls back to the workspace sub-object shape and leaves the default when absent', () => {
@@ -70,13 +70,13 @@ describe('applyConfigToStore — active_timeframes → settings store', () => {
         applyConfigToStore(app, {
             symbols: ['BTC'],
             instances: [],
-            workspace: { active_timeframes: 3 },
+            workspace: { timeframes: [60, 900] },
         });
-        expect(app.settings.activeTimeframes).toBe(3);
+        expect(app.settings.timeframes).toEqual([60, 900]);
 
         const app2 = useAppStore();
-        app2.settings.activeTimeframes = 5;
+        app2.settings.timeframes = [1, 3];
         applyConfigToStore(app2, { symbols: ['BTC'], instances: [] });
-        expect(app2.settings.activeTimeframes).toBe(5);
+        expect(app2.settings.timeframes).toEqual([1, 3]);
     });
 });

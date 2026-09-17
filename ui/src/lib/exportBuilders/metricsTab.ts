@@ -14,32 +14,8 @@
 //     `liquidity_flow.largest_event_price/.side`,
 //     `cluster_matrix.leverage_assumptions`, `signals_total`
 
-import type {
-  TimeframeTelemetry,
-  IndicatorMeta,
-  IndicatorDto,
-  IndicatorSignal,
-  VolumeProfileSnapshot,
-  LiquidationClusterMatrix,
-  LiquidationCluster,
-  LiquidityFlow,
-  LiquiditySignal,
-  LiquidityDirection,
-  MarketContext,
-  IndicatorLifecycleStatus,
-  SignalDirection,
-  SignalStatus,
-} from '../../types';
-import {
-  buildPriceBlock,
-  buildHeaderBlock,
-  buildEmaBlock,
-  type MetaEnvelope,
-  type HeaderBlock,
-  type InstanceTermsLike,
-  type LiquidityPanelBlock,
-  type MetaEmaBlock,
-} from './shared';
+import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, IndicatorSignal, VolumeProfileSnapshot, LiquidationClusterMatrix, LiquidationCluster, LiquidityFlow, LiquiditySignal, LiquidityDirection, MarketContext, IndicatorLifecycleStatus, SignalDirection, SignalStatus } from '../../types';
+import { buildPriceBlock, buildHeaderBlock, buildEmaBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike, type LiquidityPanelBlock, type MetaEmaBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { GROUP_META } from '../groupMeta';
 import { fmtPrice, isSqueezeOn } from '../telemetry';

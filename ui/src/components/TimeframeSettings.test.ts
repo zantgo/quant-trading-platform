@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 //
-// TimeframeSettings — v11.2 active-timeframes knob + active-slot cards:
-//   • a compact "Active timeframes" numeric selector (1–10) at the top,
-//     seeded from the settings store,
-//   • the per-TF cards render only the instance's ACTIVE slots,
-//   • the existing Apply flow POSTs `active_timeframes` to /api/config
-//     alongside the per-slot indicator overrides (same save, no new path).
+// TimeframeSettings — v11.9 duration-keyed active toggles + per-duration
+// cards:
+//   • a "Active timeframes" toggle grid (one per supported duration, N / 14),
+//   • the per-duration cards render only the instance's ACTIVE durations,
+//   • the Apply flow POSTs `timeframes: [secs…]` to /api/config alongside
+//     the per-duration indicator overrides (same save, no new path).
 import { tick } from 'svelte';
 import { cleanup, render, fireEvent, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TimeframeSettings from './TimeframeSettings.svelte';
 import { useAppStore } from '../state.svelte';
-import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../types';
+import { DURATIONS, tfLabel } from '../types';
 import { makeTerms } from '../tests/makeTerms';
 
 const fetchCalls: Array<{ url: string; body: any }> = [];
@@ -33,8 +33,7 @@ beforeEach(() => {
     stubFetch();
     const app = useAppStore();
     for (const key of Object.keys(app.instancesMap)) delete app.instancesMap[key];
-    app.settings.activeTimeframes = 5;
-    app.settings.activeSlotsList = null;
+    app.settings.timeframes = [1, 3, 5, 15, 30];
 });
 
 afterEach(() => {
@@ -42,14 +41,14 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-function seedPair(activeSlots?: string[]) {
+function seedPair(activeDurations?: number[]) {
     const app = useAppStore();
     app.initInstance('BTC');
     const pair = app.instancesMap['BTC-USDT'];
     pair.instanceId = 'inst_test';
     pair.terms = makeTerms();
-    // Realistic default: the v11.2 fastest-5 ladder (what a default boot runs).
-    pair.activeSlots = (activeSlots ?? ['micro1', 'micro2', 'fast1', 'fast2', 'slow1']) as never;
+    // Realistic default: the fastest-5 ladder (subset of the 14 pool).
+    pair.activeDurations = activeDurations ?? [1, 3, 5, 15, 30];
     return pair;
 }
 
@@ -59,33 +58,31 @@ function renderTab(pair: ReturnType<typeof seedPair>) {
 
 describe('TimeframeSettings — Active timeframes toggles', () => {
     function toggleButtons(container: HTMLElement): HTMLButtonElement[] {
-        // Toggle buttons carry the slot label (MICRO1..LONGTERM2) + duration.
-        return Array.from(container.querySelectorAll('button')).filter((b) =>
-            ['Micro1','Micro2','Fast1','Fast2','Slow1','Slow2','Macro1','Macro2','Longterm1','Longterm2']
-                .some((lbl) => b.textContent?.includes(lbl)),
+        return Array.from(container.querySelectorAll('button')).filter(
+            (b) => b.getAttribute('aria-pressed') !== null,
         );
     }
 
-    it('renders 10 toggles, fastest-5 on by default', async () => {
+    it('renders 14 duration toggles, fastest-5 on by default', async () => {
         const pair = seedPair();
         const { container } = renderTab(pair);
         await tick();
         const toggles = toggleButtons(container);
-        expect(toggles.length).toBe(10);
+        expect(toggles.length).toBe(DURATIONS.length);
         const on = toggles.filter((b) => b.getAttribute('aria-pressed') === 'true');
         expect(on.length).toBe(5);
         expect(container.textContent).toContain('Active timeframes');
         expect(container.textContent).toContain('saving recharges running instances');
     });
 
-    it('toggling a slot on marks the save and posts active_slots to /api/config', async () => {
+    it('toggling a duration on marks the save and posts timeframes to /api/config', async () => {
         const pair = seedPair();
         const { container } = renderTab(pair);
         await tick();
-        const slow2 = toggleButtons(container).find((b) => b.textContent?.includes('Slow2'))!;
-        expect(slow2.getAttribute('aria-pressed')).toBe('false');
-        await fireEvent.click(slow2);
-        expect(slow2.getAttribute('aria-pressed')).toBe('true');
+        const oneMinute = toggleButtons(container).find((b) => b.textContent?.includes('1m'))!;
+        expect(oneMinute.getAttribute('aria-pressed')).toBe('false');
+        await fireEvent.click(oneMinute);
+        expect(oneMinute.getAttribute('aria-pressed')).toBe('true');
         const button = Array.from(container.querySelectorAll('button'))
             .find((b) => b.textContent?.includes('Apply Workspace Configuration'))!;
         expect(button).toBeTruthy();
@@ -94,47 +91,47 @@ describe('TimeframeSettings — Active timeframes toggles', () => {
             const cfgCall = fetchCalls.find((c) => c.url === '/api/config');
             expect(cfgCall).toBeTruthy();
             expect(cfgCall!.body).toEqual({
-                active_slots: ['micro1', 'micro2', 'fast1', 'fast2', 'slow1', 'slow2'],
+                timeframes: [1, 3, 5, 15, 30, 60],
             });
         });
-        // The per-slot instance-config save still runs through the SAME flow.
+        // The per-duration instance-config save still runs through the SAME flow.
         const instCall = fetchCalls.find((c) => c.url.includes('/api/instances/inst_test/config'));
         expect(instCall).toBeTruthy();
-        expect(Object.keys(instCall!.body)).toContain('micro1');
+        expect(Object.keys(instCall!.body)).toContain('60');
     });
 
     it('never allows deactivating the last active timeframe', async () => {
-        const pair = seedPair(['micro1']);
+        const pair = seedPair([1]);
         const { container } = renderTab(pair);
         await tick();
-        const micro1 = toggleButtons(container).find((b) => b.textContent?.includes('Micro1'))!;
-        expect(micro1.getAttribute('aria-pressed')).toBe('true');
-        await fireEvent.click(micro1);
+        const one = toggleButtons(container).find((b) => b.textContent?.includes('1s'))!;
+        expect(one.getAttribute('aria-pressed')).toBe('true');
+        await fireEvent.click(one);
         // Still on — the min-1 guard refused the toggle.
-        expect(micro1.getAttribute('aria-pressed')).toBe('true');
+        expect(one.getAttribute('aria-pressed')).toBe('true');
     });
 });
 
-describe('TimeframeSettings — active-slot cards', () => {
-    it('renders one card per ACTIVE slot (not the full 10)', async () => {
-        const pair = seedPair(['micro1', 'fast1', 'slow2']);
+describe('TimeframeSettings — active-duration cards', () => {
+    it('renders one card per ACTIVE duration (not the full pool)', async () => {
+        const pair = seedPair([1, 5, 60]);
         const { container } = renderTab(pair);
         await tick();
         const titles = Array.from(container.querySelectorAll('h3')).map((h) => h.textContent ?? '');
-        const expected = ['micro1', 'fast1', 'slow2'].map((s) => TIMEFRAME_SLOT_LABELS[s as typeof TIMEFRAME_SLOT_KINDS[number]]);
-        for (const label of expected) {
-            expect(titles.some((t) => t.includes(label))).toBe(true);
+        for (const slot of [1, 5, 60]) {
+            expect(titles.some((t) => t.includes(tfLabel(slot)))).toBe(true);
         }
-        expect(titles.some((t) => t.includes('Longterm2'))).toBe(false);
+        // The slowest pool duration (1d) is not active → no card for it.
+        expect(titles.some((t) => t.includes(tfLabel(86400)))).toBe(false);
     });
 
-    it('renders all 10 cards when every slot is active', async () => {
-        const pair = seedPair([...TIMEFRAME_SLOT_KINDS]);
+    it('renders all 14 cards when every duration is active', async () => {
+        const pair = seedPair([...DURATIONS]);
         const { container } = renderTab(pair);
         await tick();
         const titles = Array.from(container.querySelectorAll('h3')).map((h) => h.textContent ?? '');
-        for (const slot of TIMEFRAME_SLOT_KINDS) {
-            expect(titles.some((t) => t.includes(TIMEFRAME_SLOT_LABELS[slot]))).toBe(true);
+        for (const slot of DURATIONS) {
+            expect(titles.some((t) => t.includes(tfLabel(slot)))).toBe(true);
         }
     });
 });

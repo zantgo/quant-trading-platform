@@ -18,11 +18,11 @@ function seed(timestampSecs: number, oiRaw: number | null) {
     app.activeTab = 'BTC-USDT';
     if (!app.instancesMap['BTC-USDT']) app.initInstance('BTC');
     const entry = app.instancesMap['BTC-USDT'];
-    entry.terms.micro1.latestSnapshot = {
+    entry.terms[1].latestSnapshot = {
         timestamp: timestampSecs,
         mid_price: '65000',
     } as unknown as Record<string, unknown>;
-    entry.terms.micro1.indicators = {
+    entry.terms[1].indicators = {
         open_interest: { raw_value: oiRaw, normalized: 0.1, state_label: 'OI_RISING' },
         funding_rate: { raw_value: oiRaw, normalized: 0.1, state_label: 'FUNDING_POSITIVE' },
     } as never;
@@ -41,7 +41,7 @@ afterEach(() => {
 describe('DerivativeRibbon feed status', () => {
     it('fresh timestamp renders LIVE (seconds comparison)', () => {
         seed(Math.floor(Date.now() / 1000) - 5, 1500.0);
-        render(DerivativeRibbon, { props: { slot: 'micro1' } });
+        render(DerivativeRibbon, { props: { slot: 1 } });
         // OI badge carries the tri-state status chip; a fresh value must
         // NOT read "STALE".
         expect(screen.queryByText(/STALE/i)).toBeNull();
@@ -49,13 +49,13 @@ describe('DerivativeRibbon feed status', () => {
 
     it('stalled stream renders STALE once past the 30 s threshold', () => {
         seed(Math.floor(Date.now() / 1000) - 120, 1500.0);
-        render(DerivativeRibbon, { props: { slot: 'micro1' } });
+        render(DerivativeRibbon, { props: { slot: 1 } });
         expect(screen.getAllByText(/STALE/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it('no value received renders CONNECTING', () => {
         seed(Math.floor(Date.now() / 1000) - 5, null);
-        render(DerivativeRibbon, { props: { slot: 'micro1' } });
+        render(DerivativeRibbon, { props: { slot: 1 } });
         expect(screen.getAllByText(/CONNECTING/i).length).toBeGreaterThanOrEqual(1);
     });
 });

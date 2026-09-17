@@ -11,11 +11,7 @@
     // backdrop). The "Run Now" button is a one-click action.
     import { onMount } from 'svelte';
     import { useAppStore } from '../state.svelte';
-    import {
-        ALL_SNAPSHOT_TABS,
-        type SnapshotExportStatus,
-        type SnapshotExportTabId,
-    } from '../types';
+    import { ALL_SNAPSHOT_TABS, type SnapshotExportStatus, type SnapshotExportTabId } from '../types';
     import styles from './SnapshotSchedulerModal.module.css';
     import { formatRelativeTime } from '../lib/relTime';
 

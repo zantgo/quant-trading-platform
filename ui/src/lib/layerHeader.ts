@@ -14,19 +14,7 @@
 import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
 import { resolveEffectiveDirection } from './opportunityBars';
-import type {
-    AdvisoryMatrix,
-    AlignmentMatrix,
-    AnalysisMatrix,
-    DecisionContext,
-    GlobalBias,
-    MarketBias,
-    OpportunityMatrix,
-    OverviewMatrix,
-    RiskMatrix,
-    TimeframeSlotKind,
-    TimeframeTelemetry,
-} from '../types';
+import type { AdvisoryMatrix, AlignmentMatrix, AnalysisMatrix, DecisionContext, GlobalBias, MarketBias, OpportunityMatrix, OverviewMatrix, RiskMatrix, TimeframeTelemetry } from '../types';
 
 // ── Discriminated state ─────────────────────────────────────────────────
 //
@@ -220,7 +208,7 @@ export function tfAgeBars(tf: TimeframeTelemetry | null | undefined): number | n
  */
 export function tfStatusFrom(
     tf: TimeframeTelemetry | null | undefined,
-    wss: { sockets: Partial<Record<TimeframeSlotKind, WebSocket | null>> } | null | undefined,
+    wss: { sockets: Partial<Record<number, WebSocket | null>> } | null | undefined,
 ): 'live' | 'stale' | 'loading' | 'error' {
     // Read THIS tf's slot socket; with no tf yet, fall back to any open socket.
     const ws = tf
@@ -254,7 +242,7 @@ export interface TfBadgeInfo {
 
 export function metricsBadgeFor(
     tf: TimeframeTelemetry | null | undefined,
-    wss: { sockets: Partial<Record<TimeframeSlotKind, WebSocket | null>> } | null | undefined = null,
+    wss: { sockets: Partial<Record<number, WebSocket | null>> } | null | undefined = null,
 ): TfBadgeInfo {
     const ctx = tf?.context ?? null;
     const label = ctx?.overall_label ?? null;
@@ -291,7 +279,7 @@ export function metricsBadgeFor(
 // (shared with the Alignment tab's Timeframe Status table).
 export function buildL1MetricsHeader(
     tf: TimeframeTelemetry | null | undefined,
-    wss: { sockets: Partial<Record<TimeframeSlotKind, WebSocket | null>> } | null | undefined = null,
+    wss: { sockets: Partial<Record<number, WebSocket | null>> } | null | undefined = null,
 ): LayerHeaderSpec {
     const { badge, status } = metricsBadgeFor(tf, wss);
     const ctx = tf?.context ?? null;

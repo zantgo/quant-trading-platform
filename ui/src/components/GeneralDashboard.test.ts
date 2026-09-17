@@ -13,16 +13,7 @@ import { makeTerms } from '../tests/makeTerms';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import GeneralDashboard from './GeneralDashboard.svelte';
 import { useAppStore } from '../state.svelte';
-import type {
-    AdvisoryMatrix,
-    AnalysisMatrix,
-    DecisionContext,
-    InstanceState,
-    OpportunityMatrix,
-    OverviewMatrix,
-    RiskDimension,
-    RiskMatrix,
-} from '../types';
+import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, InstanceState, OpportunityMatrix, OverviewMatrix, RiskDimension, RiskMatrix } from '../types';
 
 function makeDanger(score: number, overrides: Partial<RiskDimension> = {}): RiskDimension {
     return {
@@ -159,7 +150,7 @@ function makeInstance(symbol: string, overrides: Partial<InstanceState> = {}): I
         symbol,
         exchange: 'Hyperliquid',
         isConnected: true,
-        terms: makeTerms({ micro1: { priceText: '63505' } as any }),
+        terms: makeTerms({ 1: { priceText: '63505' } as any }),
         historyLatestClose: '0',
         currentView: 'terminal',
         alignment: null,

@@ -1,8 +1,9 @@
 <!--
     TfStatusTable — per-timeframe health at a glance (v10.2).
 
-    One row per ACTIVE slot (v11.2 — the fastest N of the fixed ladder;
-    the table falls back to all 10 until the payload arrives) mirroring
+    One row per ACTIVE duration (v11.9 — the configured subset of the
+    duration pool; the table falls back to all 14 until the payload
+    arrives) mirroring
     the SAME badge the Metrics (L1) tab header shows for that TF —
     single-sourced through `metricsBadgeFor` (layerHeader.ts) so the two
     surfaces can never disagree — plus the same live/stale/loading/error
@@ -13,11 +14,11 @@
     Display-only: no export payload, no interaction, no state mutation.
 -->
 <script lang="ts">
-    import { TIMEFRAME_SLOT_LABELS, TIMEFRAME_SLOT_DURATION_SECS } from '../types';
-    import type { TimeframeSlotKind, TimeframeTelemetry } from '../types';
+    import { tfLabel } from '../types';
+    import type { TimeframeTelemetry } from '../types';
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
-    import { activeSlotKinds } from '../lib/terms';
+    import { activeDurations } from '../lib/terms';
     import { getBadgeTrail, badgeHistoryVersion, l1Key } from '../lib/badgeHistory.svelte';
     import BadgeTrail from './BadgeTrail.svelte';
     import { metricsBadgeFor } from '../lib/layerHeader';
@@ -52,20 +53,14 @@
         loading: headerStyles.statusLoading,
     };
 
-    function slotLabel(slot: TimeframeSlotKind): string {
-        return TIMEFRAME_SLOT_LABELS[slot].toUpperCase();
-    }
-
-    function durationLabel(secs: number): string {
-        if (secs % 3600 === 0) return `${secs / 3600}h`;
-        if (secs % 60 === 0) return `${secs / 60}m`;
-        return `${secs}s`;
+    function slotLabel(slotSecs: number): string {
+        return tfLabel(slotSecs).toUpperCase();
     }
 
     const trailVersion = $derived(badgeHistoryVersion.v);
     const rows = $derived.by(() => {
         void trailVersion;
-        return activeSlotKinds(instance).map((slot) => {
+        return activeDurations(instance).map((slot) => {
             const term: TimeframeTelemetry | undefined = instance?.terms?.[slot];
             const info = metricsBadgeFor(term ?? null, wssState);
             return { slot, badge: info.badge, status: info.status, trail: getBadgeTrail(l1Key(pairKey, slot)) };
@@ -98,7 +93,7 @@
             <tr class={styles.tfRow}>
                 <td class={styles.tfCell}>
                     <span class={styles.tfName}>{slotLabel(row.slot)}</span>
-                    <span class={styles.tfDuration}>· {durationLabel(TIMEFRAME_SLOT_DURATION_SECS[row.slot])}</span>
+                    <span class={styles.tfDuration}>· {tfLabel(row.slot)}</span>
                 </td>
                 <td class={styles.badgeCell}>
                     <div

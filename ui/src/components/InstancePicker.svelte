@@ -2,7 +2,7 @@
     import { onDestroy } from 'svelte';
     import { useAppStore } from '../state.svelte';
     import { buildEngineHash } from '../lib/router.svelte';
-    import { TIMEFRAME_SLOT_KINDS } from '../types';
+    import { DURATIONS } from '../types';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import styles from './InstancePicker.module.css';
 
@@ -102,18 +102,18 @@
     function priceFor(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
         if (!inst) return '--';
-        const tfs = TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms?.[slot]);
+        const tfs = DURATIONS.map((slot) => inst.terms?.[slot]);
         for (const tf of tfs) {
             const p = tf?.priceText;
             if (p && p !== '0' && p !== 'NaN' && parseFloat(p) > 0) return p;
         }
-        return inst.terms?.micro1?.priceText || '--';
+        return inst.terms?.[1]?.priceText || '--';
     }
 
     function changeStr(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
         if (!inst) return '';
-        const tfs = TIMEFRAME_SLOT_KINDS.map((slot) => inst.terms?.[slot]);
+        const tfs = DURATIONS.map((slot) => inst.terms?.[slot]);
         for (const tf of tfs) {
             const snap = tf?.latestSnapshot;
             if (!snap) continue;

@@ -17,16 +17,7 @@
 // orthogonal axes (gate vs bias vs environment), not redundant, so the bug
 // is perceptual: this helper merges them into a single coherent verdict.
 
-import type {
-    AdvisoryMatrix,
-    AnalysisMatrix,
-    DecisionContext,
-    MarketBias,
-    NeutralBracket,
-    OpportunityMatrix,
-    OpportunityProfile,
-    PriceRange,
-} from '../types';
+import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, MarketBias, NeutralBracket, OpportunityMatrix, OpportunityProfile, PriceRange } from '../types';
 import { normalizeViability } from './viability';
 
 export type DecisionAction = 'LONG' | 'SHORT' | 'HOLD';

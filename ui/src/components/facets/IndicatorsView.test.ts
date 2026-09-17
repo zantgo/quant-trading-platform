@@ -14,17 +14,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { cleanup, render } from '@testing-library/svelte';
 import IndicatorsView from './IndicatorsView.svelte';
-import type {
-    IndicatorDto,
-    IndicatorMeta,
-    IndicatorLifecycleMap,
-    TimeframeTelemetry,
-    TimeframeSlotKind,
-} from '../../types';
+import type { IndicatorDto, IndicatorMeta, IndicatorLifecycleMap, TimeframeTelemetry } from '../../types';
 
 function makeTf(overrides: Partial<TimeframeTelemetry> = {}): TimeframeTelemetry {
     return {
-        slot: 'micro' as TimeframeSlotKind,
+        slot: 1,
         symbol: 'BTC-USDT',
         exchange: 'Hyperliquid',
         barDurationSec: 60,

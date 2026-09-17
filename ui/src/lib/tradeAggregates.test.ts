@@ -1,17 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeTerms } from '../tests/makeTerms';
-import {
-    profileDirection,
-    profileRR,
-    collectActiveSetups,
-    computeHeroState,
-    pickBestOpportunity,
-    aggregateRR,
-    aggregateConfidence,
-    aggregateRisk,
-    aggregateDirections,
-    aggregateSignalQuality,
-} from './tradeAggregates';
+import { profileDirection, profileRR, collectActiveSetups, computeHeroState, pickBestOpportunity, aggregateRR, aggregateConfidence, aggregateRisk, aggregateDirections, aggregateSignalQuality } from './tradeAggregates';
 import type {
     InstanceState, OpportunityMatrix, OpportunityProfile, RiskMatrix,
 } from '../types';

@@ -19,15 +19,15 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import TerminalMonitor from './TerminalMonitor.svelte';
 import { useAppStore } from '../state.svelte';
-import { TIMEFRAME_SLOT_KINDS } from '../types';
+import { DURATIONS } from '../types';
 
 function seedInstance(): void {
     const app = useAppStore();
     if (!app.instancesMap['BTC-USDT']) app.initInstance('BTC');
     const entry = app.instancesMap['BTC-USDT'];
-    for (const slot of TIMEFRAME_SLOT_KINDS) entry.terms[slot].indicators = {};
+    for (const slot of DURATIONS) entry.terms[slot].indicators = {};
     // Provide minimal TF context so the LayerHeader headline renders.
-    for (const slot of TIMEFRAME_SLOT_KINDS) {
+    for (const slot of DURATIONS) {
         const tf = entry.terms[slot];
         tf.context = {
             trend: { score: 50, confidence: 50, label: 'NEUTRAL' },
@@ -56,7 +56,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('TerminalMonitor — sidebar order (v7.0-prod D7)', () => {
-    it('renders the rail in the order MTF · MICRO1..LONGTERM2 (fixed ladder)', () => {
+    it('renders the rail in canonical duration order (fastest -> slowest)', () => {
         seedInstance();
         const { container } = render(TerminalMonitor, { props: { pairKey: 'BTC-USDT' } });
         const rail = container.querySelector('aside, [class*="tfSidebar"]');
@@ -66,13 +66,13 @@ describe('TerminalMonitor — sidebar order (v7.0-prod D7)', () => {
         );
         // We just need the rail labels; the surrounding layout places
         // facet tabs AFTER the rail in the source order. Filter to the
-        // first 11 since the rail always has exactly 11 items (MTF + the
-        // fixed 10-slot ladder).
+        // first 15 since the rail always has exactly 15 items (MTF + the
+        // 14-duration pool).
         const sidebarLabels = buttons
-            .slice(0, 11)
+            .slice(0, 15)
             .map((b) => b.querySelector('span')?.textContent?.trim())
             .filter(Boolean);
-        expect(sidebarLabels).toEqual(['MTF', 'Micro1', 'Micro2', 'Fast1', 'Fast2', 'Slow1', 'Slow2', 'Macro1', 'Macro2', 'Longterm1', 'Longterm2']);
+        expect(sidebarLabels).toEqual(['MTF', '1s', '3s', '5s', '15s', '30s', '1m', '3m', '5m', '15m', '30m', '1h', '4h', '12h', '1d']);
     });
 });
 
@@ -116,25 +116,25 @@ describe('TerminalMonitor — cascade alert (M-3, v6.10.11)', () => {
 
     it('renders the alert from the SNAPSHOT-path liquidity with 1-decimal intensity', () => {
         const entry = seedWithRegistry();
-        entry.terms.micro1.latestSnapshot = {
+        entry.terms[1].latestSnapshot = {
             timestamp: Math.floor(Date.now() / 1000),
             liquidity: { cascade_state: 'SUSTAINED', cascade_intensity: 72.5 },
         } as any;
         render(TerminalMonitor, { props: { pairKey: 'BTC-USDT' } });
-        // 'Micro1' also appears in the MTF grid column header — the
+        // '1s' also appears in the MTF grid column header — the
         // rail button renders first in DOM order.
-        fireEvent.click(screen.getAllByText('Micro1')[0]);
+        fireEvent.click(screen.getAllByText('1s')[0]);
         // M-3: snapshot source + toFixed(1) — matches the RiskPanel.
         expect(screen.getByText(/CASCADE SUSTAINED · intensity 72\.5\/100/)).toBeTruthy();
     });
 
     it('does NOT render the alert from the tf-level liquidity (stale-prone source)', () => {
         const entry = seedWithRegistry();
-        entry.terms.micro1.liquidity = { cascade_state: 'SUSTAINED', cascade_intensity: 90 } as any;
+        entry.terms[1].liquidity = { cascade_state: 'SUSTAINED', cascade_intensity: 90 } as any;
         render(TerminalMonitor, { props: { pairKey: 'BTC-USDT' } });
-        // 'Micro1' also appears in the MTF grid column header — the
+        // '1s' also appears in the MTF grid column header — the
         // rail button renders first in DOM order.
-        fireEvent.click(screen.getAllByText('Micro1')[0]);
+        fireEvent.click(screen.getAllByText('1s')[0]);
         expect(screen.queryByText(/CASCADE/)).toBeNull();
     });
 });

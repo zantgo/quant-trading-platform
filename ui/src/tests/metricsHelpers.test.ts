@@ -4,33 +4,10 @@
 // in Phase A of the metrics-ia-rebuild.
 
 import { describe, it, expect } from 'vitest';
-import {
-    GROUP_ORDER,
-    GROUP_META,
-    groupMeta,
-    orderedGroups,
-} from '../lib/groupMeta';
-import {
-    parseDivergenceLabel,
-    deriveDivergenceFromPoints,
-    classifyDivergence,
-    divergenceLabel,
-    divergenceAccent,
-} from '../lib/divergence';
-import {
-    LEVEL_KIND_ORDER,
-    LEVEL_KIND_META,
-    classifyLevelKey,
-    parseLevelLabel,
-    levelKindMeta,
-    resolveLevelPriceText,
-} from '../lib/levelKind';
-import {
-    defaultFilters,
-    matchesQuery,
-    filterRegistry,
-    filterSignals,
-} from '../lib/filtering';
+import { GROUP_ORDER, GROUP_META, groupMeta, orderedGroups } from '../lib/groupMeta';
+import { parseDivergenceLabel, deriveDivergenceFromPoints, classifyDivergence, divergenceLabel, divergenceAccent } from '../lib/divergence';
+import { LEVEL_KIND_ORDER, LEVEL_KIND_META, classifyLevelKey, parseLevelLabel, levelKindMeta, resolveLevelPriceText } from '../lib/levelKind';
+import { defaultFilters, matchesQuery, filterRegistry, filterSignals } from '../lib/filtering';
 import { normColor, dirColor, dirClass, confPct, ageLabel } from '../lib/scoreStyles';
 import type {
     IndicatorMeta, IndicatorSignal,
