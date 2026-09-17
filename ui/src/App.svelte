@@ -125,7 +125,7 @@
     // $inspect('App.activeEngineTab', app.activeEngineTab);
     // $inspect('activePair', activePair);
     // $inspect('resilientActivePair', resilientActivePair);
-    const isHome = $derived(app.currentEngine === 'profile');
+    const isHome = $derived(app.currentEngine === 'market_monitor' && app.middleTab === 'overview');
     const topLabel = $derived(isHome ? 'TRADING PLATFORM' : engineLabel(app.currentEngine));
 
     // v7.2: mode-aware tab collapse. All instances created in one launch
@@ -191,7 +191,6 @@
     }
 
     function engineLabel(key: string): string {
-        if (key === 'exchange_settings') return 'EXCHANGE API KEYS';
         const map: Record<string, string> = {
             data_infra: 'DATA INFRASTRUCTURE', market_monitor: 'MARKET MONITOR',
             trade_automation: 'TRADE AUTOMATION', portfolio: 'PORTFOLIO MANAGEMENT',
@@ -300,21 +299,24 @@
             for (const sym of Object.keys(app.instancesMap)) {
                 connectWsForInstance(app, wssMap, sym);
             }
-            // v11.8: the observe-only build always opens on Market Monitor.
-            // If instances exist, the first one is selected so the workspace
-            // shows it immediately (waving-dots loader until its first
-            // snapshot arrives).
-            if (firstPairKey) {
-                const onMonitor = parseEngineHash(window.location.hash)?.engine === 'market_monitor';
-                const homeLike = !window.location.hash
-                    || window.location.hash.startsWith('#/engine/profile')
-                    || !window.location.hash.includes('instance/');
-                if (!onMonitor || homeLike) {
-                    app.enterInstance(firstPairKey);
-                    const target = buildEngineHash('market_monitor', 'workspace', 'instance', firstPairKey, 'view', 'terminal');
-                    history.replaceState(null, '', target);
-                    applyRoute(parseEngineHash(target), 'sync');
-                }
+            // v11.9 (N3): the system ALWAYS lands on the Market Monitor
+            // Overview after the welcome screen — any mode, any exchange,
+            // instances or not, recovered or fresh. True deep links
+            // (specific engine / instance / run) are still honored.
+            const rawHash = window.location.hash;
+            const bootRoute = parseEngineHash(rawHash);
+            const homeLike = !rawHash
+                || rawHash.startsWith('#/engine/profile')
+                || rawHash.startsWith('#/engine/exchange_settings')
+                || (bootRoute?.engine === 'market_monitor' && !bootRoute.instance);
+            if (homeLike) {
+                app.currentEngine = 'market_monitor';
+                app.middleTab = 'overview';
+                app.activeEngineTab = 'overview';
+                app.selectedInstance = null;
+                const target = buildEngineHash('market_monitor', 'overview');
+                history.replaceState(null, '', target);
+                applyRoute(parseEngineHash(target), 'sync');
             }
         } catch (e) { console.error('Failed to fetch config:', e); configReady = true; }
     }

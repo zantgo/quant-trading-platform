@@ -14,7 +14,7 @@
 
     let { isOpen, currentEngine, onclose, onnavigate, onquit }: Props = $props();
 
-    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'backtesting' | 'exchange_settings';
+    type EngineKey = 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'backtesting';
 
     const ENGINES_SIDEBAR: { key: EngineKey; label: string; divider?: boolean }[] = [
         { key: 'data_infra',        label: 'Data Infrastructure' },
@@ -23,7 +23,6 @@
         { key: 'trade_automation',  label: 'Trade Automation' },
         { key: 'portfolio',         label: 'Portfolio Management' },
         { key: 'performance',       label: 'Performance Analytics' },
-        { key: 'profile', label: 'Settings', divider: true },
     ];
 
     // v8/v11.7: mode-aware engine visibility. Observe is the
@@ -36,9 +35,9 @@
         // v11.7: observe-only build = market monitor — Backtesting is
         // hidden from the sidebar (direct #/engine/backtesting URLs and
         // headless CLI backtests remain functional).
-        observe: ['data_infra', 'market_monitor', 'profile'],
-        paper: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance', 'profile'],
-        live: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance', 'profile'],
+        observe: ['data_infra', 'market_monitor'],
+        paper: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance'],
+        live: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance'],
     };
 
     const app = useAppStore();
@@ -61,14 +60,12 @@
 
     function sidebarIconName(key: EngineKey): string {
         const map: Record<EngineKey, string> = {
-            profile: 'home',
             data_infra: 'database',
             market_monitor: 'trend',
             trade_automation: 'cycle',
             portfolio: 'dollar',
             performance: 'search',
             backtesting: 'flask',
-            exchange_settings: 'key',
         };
         return map[key] || 'home';
     }

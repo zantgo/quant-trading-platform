@@ -13,7 +13,7 @@
 //     selection); tae/pme/pae/bte serialize the shared `instance`
 //     selection; backtesting/performance serialize the loaded `run`.
 
-import { ENGINE_DEFAULT_TAB, type EngineKey } from './engineTabs';
+import { ENGINE_DEFAULT_TAB, ENGINE_TABS, type EngineKey } from './engineTabs';
 import { DURATIONS, tfLabel, type CurrentView } from '../types';
 
 /// Serialize the per-pair chart selection: the tf segment carries the
@@ -80,6 +80,10 @@ export function parseEngineHash(hash: string): RouteParams | null {
     if (segments.length < 2 || segments[0] !== 'engine') return null;
 
     const engine = segments[1] as EngineKeyRouter;
+    // v11.9: removed engines (`profile`, `exchange_settings`) and unknown
+    // keys resolve to null so the boot landing takes over instead of
+    // rendering an empty shell.
+    if (!(engine in ENGINE_TABS)) return null;
     const params: RouteParams = { engine };
     let i = 2;
 

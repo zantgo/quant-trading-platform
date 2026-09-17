@@ -6,29 +6,19 @@
 // on, so navigation, routing, and the store stay in sync.
 
 export type EngineKey =
-    | 'profile'
     | 'data_infra'
     | 'market_monitor'
     | 'trade_automation'
     | 'portfolio'
     | 'performance'
-    | 'backtesting'
-    | 'exchange_settings';
+    | 'backtesting';
 
 export interface EngineTab {
     key: string;
     label: string;
 }
 
-// v11.8: observe-only build — the Home dashboard is replaced by a single
-// dedicated Settings page (no engine navbar).
-export const PROFILE_TABS: EngineTab[] = [
-    { key: 'settings', label: 'Settings' },
-];
-
 export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
-    profile: PROFILE_TABS,
-    exchange_settings: PROFILE_TABS,
     // v7.3: DIE tabs follow the layer order — Overview (landing) → L1 raw
     // ingestion → L2 market data → L3 data quality → L4 distribution →
     // cross-cutting (clock contract) last. v10.1: Connection Settings
@@ -108,9 +98,7 @@ export const BTE_TABS_NO_INSTANCE: EngineTab[] = [
 ];
 
 export const ENGINE_DEFAULT_TAB: Record<EngineKey, string> = {
-    profile: 'settings',
-    exchange_settings: 'share',
-    data_infra: 'connectivity',
+    data_infra: 'overview',
     market_monitor: 'overview',
     trade_automation: 'overview',
     portfolio: 'overview',
@@ -161,11 +149,7 @@ export function tabsForMode(engine: EngineKey, mode: ExecutionMode | string | un
         const collapsed = OBSERVE_TABS[engine];
         if (collapsed) return collapsed;
     }
-    const tabs = ENGINE_TABS[engine] ?? [];
-    if ((engine === 'profile' || engine === 'exchange_settings') && mode !== 'live') {
-        return tabs.filter((t) => t.key !== 'exchange');
-    }
-    return tabs;
+    return ENGINE_TABS[engine] ?? [];
 }
 
 /** Resolves an arbitrary `middleTab` value to a known tab of the engine,
