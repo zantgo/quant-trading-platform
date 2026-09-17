@@ -22,16 +22,13 @@ beforeEach(() => {
 });
 
 describe('badgeHistory ring', () => {
-    it('keeps the literal last 5 samples, newest first', () => {
-        pushBadge('k', entry('A', 1));
-        pushBadge('k', entry('B', 2));
-        pushBadge('k', entry('C', 3));
-        pushBadge('k', entry('D', 4));
-        pushBadge('k', entry('E', 5));
-        pushBadge('k', entry('F', 6));
+    it('keeps the literal last 7 samples, newest first', () => {
+        for (const [i, label] of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].entries()) {
+            pushBadge('k', entry(label, i));
+        }
         const ring = getBadgeHistory('k');
         expect(ring.length).toBe(BADGE_HISTORY_CAP);
-        expect(ring.map((e) => e.label)).toEqual(['F', 'E', 'D', 'C', 'B']);
+        expect(ring.map((e) => e.label)).toEqual(['H', 'G', 'F', 'E', 'D', 'C', 'B']);
     });
 
     it('keeps repeats (literal sampling)', () => {

@@ -16,28 +16,17 @@
     import styles from './BadgeTrail.module.css';
 
     interface Props {
-        /** Full literal ring (index 0 = current) — positions 1..4 render. */
+        /** Full literal ring (index 0 = current) — positions 1..`max` render. */
         entries: BadgeHistoryEntry[];
+        /** How many past states to show (default 4; Alignment uses 6). */
+        max?: number;
     }
 
-    let { entries }: Props = $props();
+    let { entries, max = 4 }: Props = $props();
 
-    const ghosts = $derived(entries.slice(1, 5));
+    const ghosts = $derived(entries.slice(1, 1 + Math.max(0, Math.min(max, 6))));
     const now = $derived(Date.now());
 
-    function ageLabel(ts: number): string {
-        const secs = Math.max(0, Math.floor((now - ts) / 1000));
-        if (secs < 60) return `${secs}s ago`;
-        const mins = Math.floor(secs / 60);
-        if (mins < 60) return `${mins}m ago`;
-        const hours = Math.floor(mins / 60);
-        if (hours < 24) return `${hours}h ago`;
-        return `${Math.floor(hours / 24)}d ago`;
-    }
-
-    function utcLabel(ts: number): string {
-        return new Date(ts).toISOString().replace('T', ' ').slice(0, 8) + ' UTC';
-    }
 </script>
 
 {#if ghosts.length > 0}
@@ -45,7 +34,7 @@
         {#each ghosts as g, i (g.ts)}
             <span class={styles.sep} aria-hidden="true">▸</span><span
                 class="{styles.ghost} {styles[`ghost${i + 1}`]}"
-                title="{g.label} · {utcLabel(g.ts)} · {ageLabel(g.ts)}"
+                style="color: {g.color};"
             >{g.label}</span>
         {/each}
     </span>
