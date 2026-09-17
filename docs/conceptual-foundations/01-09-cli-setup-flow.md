@@ -1,6 +1,6 @@
 # CLI Launch Mode — Flow & Rationale
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators using `execution-daemon --mode cli` for terminal-only monitoring.
 
@@ -61,9 +61,9 @@ touching `config.toml`).
 ### 2.2 Default timeframe ladder
 
 There is no default-ladder choice anymore (v11.1): every instance runs the **fixed 10-slot
-ladder** — `WorkspaceConfig::tf_ladder_defaults()` returns `config_models::FIXED_TF_LADDER`
-(`micro1` 1 s, `micro2` 3 s, `fast1` 5 s, `fast2` 15 s, `slow1` 30 s, `slow2` 60 s,
-`macro1` 180 s, `macro2` 300 s, `longterm1` 900 s, `longterm2` 3600 s). The GUI Launch
+ladder** — the ACTIVE set comes from `[workspace].timeframes` (`config_models::SUPPORTED_DURATIONS` is the pool)
+(`1s` 1 s, `3s` 3 s, `5s` 5 s, `15s` 15 s, `30s` 30 s, `1m` 60 s,
+`3m` 180 s, `5m` 300 s, `15m` 900 s, `1h` 3600 s). The GUI Launch
 Setup wizard reads the same values from `GET /api/config` and **displays** the ladder —
 neither surface offers TF pickers or per-TF dropdowns anymore, so every surface agrees on
 the pipeline slots by construction.

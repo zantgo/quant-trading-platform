@@ -1,6 +1,6 @@
 # Snapshot Export — On-Disk JSON Schema
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 
 <!-- pascal-display-strings -->
@@ -31,9 +31,9 @@ interface SnapshotMetadata {
   tab: string;
   /// Pair-key, e.g. `"BTC-USDT"`.
   pair_key: string;
-  /// TF slot — from the snapshot's own `TimeframeSlot` (fixed ladder:
-  /// `micro1` … `longterm2`; `custom` for non-ladder durations).
-  timeframe_slot: string;
+  /// TF label — derived from the snapshot's own `timeframe_secs` (supported pool:
+  /// `1s` … `1h`; `custom` for non-ladder durations).
+  timeframe_label: string;
   /// TF in seconds — the snapshot's ACTUAL slot duration (the fixed
   /// ladder: 1/3/5/15/30/60/180/300/900/3600).
   timeframe_secs: number;
@@ -57,9 +57,9 @@ state.
 | Component | Convention | Example |
 |---|---|---|
 | `pair_key` | Same as the live `MarketSnapshot.symbol` field | `BTC-USDT` |
-| `timeframe_slot` | `micro1` … `longterm2` (fixed ladder) | `longterm1` |
+| `timeframe_label` | `1s` … `1d` (derived duration label) | `15m` |
 | `tab` | Canonical id (§3) | `alignment` |
-| Filename | `{sanitized_pair_key}.{slot}.{tab}.json` | `BTC_USDT.longterm1.alignment.json` |
+| Filename | `{sanitized_pair_key}.{slot}.{tab}.json` | `BTC_USDT.15m.alignment.json` |
 
 `sanitize` replaces every non-`[A-Za-z0-9]` character with `_`. Pair-keys always contain `-`, so
 the rename is the only sanitisation applied.
@@ -75,7 +75,7 @@ the `tabs` array of `SnapshotExportConfig`.
 | Tab id | Source matrix | Payload shape |
 |---|---|---|
 | `metrics` | `MarketSnapshot` itself (the full per-TF record) | The entire `MarketSnapshot` object — every per-TF field. Largest of the 9 payloads. |
-| `mtf` | Multi-timeframe wrapper | Small synthetic object joining the per-TF records: `{ slot, timeframe_secs, indicators, alignment, analysis, advisory, decision_context }`. `slot` is a string taken from the snapshot's `TimeframeSlot` (e.g. `"micro1"`); `timeframe_secs` is the snapshot's slot duration (fixed ladder 1–3600 s); `indicators` is the indicator **count** for that TF (`snap.indicators.len()` — the field is named `indicators`, not `indicators_count`). |
+| `mtf` | Multi-timeframe wrapper | Small synthetic object joining the per-TF records: `{ slot, timeframe_secs, indicators, alignment, analysis, advisory, decision_context }`. `slot` is the derived duration label (e.g. `"1s"`, via `duration_label`); `timeframe_secs` is the snapshot's duration identity (supported pool 1–86400 s); `indicators` is the indicator **count** for that TF (`snap.indicators.len()` — the field is named `indicators`, not `indicators_count`). |
 | `alignment` | `AlignmentMatrix` | The 10-dimension × score/state/confidence matrix + per-TF rows + consensus score. See [`../matrices/02-01-alignment-matrix.md`](../matrices/02-01-alignment-matrix.md). |
 | `opportunity` | `OpportunityMatrix` | The setup-quality + ranked opportunities + confluent levels. See [`../matrices/02-08-opportunity-matrix.md`](../matrices/02-08-opportunity-matrix.md). |
 | `risk` | `RiskMatrix` | The 8-dimension risk matrix + per-dimension confidences. See [`../matrices/02-11-risk-matrix.md`](../matrices/02-11-risk-matrix.md). |
@@ -100,7 +100,7 @@ tabs) writes 270 files. Two of them are:
     "timestamp_ms": 1755090605123,
     "tab": "alignment",
     "pair_key": "BTC-USDT",
-    "timeframe_slot": "longterm1",
+    "timeframe_label": "15m",
     "timeframe_secs": 900
   },
   "payload": {
@@ -133,7 +133,7 @@ tabs) writes 270 files. Two of them are:
     "timestamp_ms": 1755090605123,
     "tab": "recommendation",
     "pair_key": "ETH-USDT",
-    "timeframe_slot": "macro2",
+    "timeframe_label": "5m",
     "timeframe_secs": 300
   },
   "payload": {
@@ -173,7 +173,7 @@ for path in glob.iglob("snapshots/**/*.alignment.json", recursive=True):
     rows.append({
         "ts": d["snapshot_metadata"]["timestamp_ms"],
         "pair": d["snapshot_metadata"]["pair_key"],
-        "slot": d["snapshot_metadata"]["timeframe_slot"],
+        "slot": d["snapshot_metadata"]["timeframe_label"],
         "score": d["payload"]["mtf_overall_score"],
         "label": d["payload"]["mtf_overall_label"],
         "agreement_pct": d["payload"]["trend_agreement_pct"],
@@ -189,7 +189,7 @@ df = pl.DataFrame(rows).sort("ts")
 SELECT
     snapshot_metadata.timestamp_ms   AS ts,
     snapshot_metadata.pair_key      AS pair,
-    snapshot_metadata.timeframe_slot AS slot,
+    snapshot_metadata.timeframe_label AS slot,
     snapshot_metadata.tab           AS tab,
     payload                         AS payload_json
 FROM read_json_auto(

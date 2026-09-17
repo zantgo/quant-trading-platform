@@ -1,6 +1,6 @@
 # BTE Layer 1 — Candle Archive & Backfill
 
-**Version:** 11.8 (2026-09-16)
+**Version:** 11.9 (2026-09-17)
 **Engine:** Backtesting Engine
 **Tables:** `candle_archive`, `backfill_jobs`
 **Code:** `crates/database-storage/src/queries/archive.rs`,
@@ -78,12 +78,12 @@ Both forms:
   **≥ 1-minute** TF in the requested ladder (sub-minute TFs bypass
   exchange history — HFP-03; their archive coverage comes from the live
   path only). On the fixed 10-slot ladder (v11.1) the five sub-minute
-  slots `micro1`/`micro2`/`fast1`/`fast2`/`slow1` (1–30 s) are always
+  slots `1s`/`3s`/`5s`/`15s`/`30s` (1–30 s) are always
   skipped — they are live-only, warm state-only, and never REST-backfilled.
   The 60-second archive floor is unchanged by the active count (v11.2);
   at the default `active_timeframes = 5` the bound ladder is all
   sub-minute, so a bound backfill pages nothing — raise the count past
-  `slow2` to backfill.
+  `1m` to backfill.
 - Validate the Hyperliquid per-TF ceiling (see §2).
 - **Resumable** — the cursor starts just below the earliest archived
   candle, so covered spans cost zero requests.

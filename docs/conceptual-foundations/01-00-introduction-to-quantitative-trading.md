@@ -1,6 +1,6 @@
 # 01-00 — Introduction to Quantitative Trading
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 
 > **Audience.** This document is the formal theoretical foundation of the platform. It states, in standard institutional-quant terminology, the concepts that underpin every engine, layer, and matrix in this codebase. It is the first document a senior quant reviewer should read.
 >
@@ -362,7 +362,7 @@ The system's multi-feature taxonomy is structured as follows:
    The system computes **50 distinct technical indicators** across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, and Derivatives) [04-02-00-indicator-index.md]. Crucially, the platform converts these from flat scalars into multi-dimensional features by projecting each indicator across **8 Indicator Evaluation Axes** (Value, State, Direction, Strength, Market Regime, Confidence, Freshness, Quality) and extracting **12 SignalKind types** across **10 Signal Evaluation Axes** [01-01-ontology.md, 02-07-metrics-matrix.md].
 
 3. **Cross-Temporal Consensus Features (Layer 2 - Alignment Matrix):**
-   To resolve timeframe conflict, the system projects its primary features onto **10 distinct alignment dimensions** (Trend, Momentum, Volume, Volatility, Structure, Signal, Regime, Confidence, Liquidity, and Tradability), measuring cross-timeframe agreement across the fixed 10-slot ladder (`micro1`…`longterm2`, 1 s–1 h) [02-01-alignment-matrix.md, 03-02-03-mme-layer2-alignment.md].
+   To resolve timeframe conflict, the system projects its primary features onto **10 distinct alignment dimensions** (Trend, Momentum, Volume, Volatility, Structure, Signal, Regime, Confidence, Liquidity, and Tradability), measuring cross-timeframe agreement across the fixed 10-slot ladder (`1s`…`1h`, 1 s–1 h) [02-01-alignment-matrix.md, 03-02-03-mme-layer2-alignment.md].
 
 4. **Interpretive State Features (Layer 3 - Analysis Matrix):**
    The platform synthesizes these alignments into a categorical direction-neutral state, generating **6 qualitative assessment features** (Trend, Momentum, Structure, Volatility, Volume, and Quality) [02-02-analysis-matrix.md, 03-02-04-mme-layer3-analysis.md].

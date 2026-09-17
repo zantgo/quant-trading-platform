@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -151,10 +151,10 @@ A Market Instance represents one monitored entity at one specific venue.
 
 $$\text{Market Instance} = \text{(symbol, exchange)}$$
 
-A Market Instance is a container owning the ACTIVE TimeframePipelines — one per slot of the fixed ladder pool (`micro1`…`longterm2`, 1 s–1 h; v11.1 fixed the pool, v11.2 runs its fastest `[workspace].active_timeframes` slots, 1..=10 default 5) — plus trading state, safety manager, and config. The per-(symbol, timeframe) analytical unit is the TimeframePipeline, the smallest operational unit of the MME.
+A Market Instance is a container owning the ACTIVE TimeframePipelines — one per slot of the fixed ladder pool (`1s`…`1h`, 1 s–1 h; v11.1 fixed the pool, v11.2 runs its fastest `[workspace].active_timeframes` slots, 1..=10 default 5) — plus trading state, safety manager, and config. The per-(symbol, timeframe) analytical unit is the TimeframePipeline, the smallest operational unit of the MME.
 
 ### 3.7 Timeframe
-A Timeframe defines the temporal resolution used to analyze an entity. Timeframes are the fixed, ordered 10-slot ladder (`micro1`, `micro2`, `fast1`, `fast2`, `slow1`, `slow2`, `macro1`, `macro2`, `longterm1`, `longterm2` — 1 s → 1 h; not operator-configurable) that together produce multi-timeframe intelligence.
+A Timeframe defines the temporal resolution used to analyze an entity. Timeframes are the fixed, ordered 10-slot ladder (`1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `1h` — 1 s → 1 h; not operator-configurable) that together produce multi-timeframe intelligence.
 
 ### 3.8 Indicator
 An Indicator is a continuous quantitative measurement derived from market data. Rather than returning a single numeric value, an indicator is represented as a structured telemetry object projected across multiple **Indicator Evaluation Axes** to provide immediate mathematical and behavioral context.
@@ -200,7 +200,7 @@ An Evaluation Axis is a standardized analytical dimension used to contextualize 
 *   **Freshness:** The chronological distance (measured in elapsed intervals or candles) since the signal triggered (e.g., Just Triggered, 3 candles ago, Expired).
 *   **Confirmation:** The validation state of the event, indicating whether supporting conditions have validated the trigger (e.g., `Potential`, `Confirmed`, `Active`). `Potential` indicates the geometry is present but unconfirmed (secondary confluence only); `Confirmed` means the confirming condition has fired (full scoring weight); `Active` indicates a confirmed **stateful** signal persisting over subsequent bars and tracked via `age_bars`. Momentary kinds never enter `Active`.
 *   **Market Regime:** The macro regime context in which the signal occurred, determining its localized baseline reliability (e.g., `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`).
-*   **Multi-Timeframe Agreement:** A boolean matrix mapping horizontal consensus across the fixed ladder's time horizons (`micro1`…`longterm2`).
+*   **Multi-Timeframe Agreement:** A boolean matrix mapping horizontal consensus across the fixed ladder's time horizons (`1s`…`1h`).
 *   **Risk:** The localized threat classification associated with entering a trade on this specific trigger (e.g., Low, Medium, High).
 *   **Priority:** The structural execution urgency assigned to the event (e.g., Critical, High, Medium, Low).
 
@@ -469,7 +469,7 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
 *   **Responsibility:** Analyze relationships and measure agreement among multiple timeframes for a single symbol.
 *   **Output (Alignment Matrix):** Measures multi-timeframe directional and structural consensus.
 *   **Key Metrics:**
-    *   *Trend Alignment Score (0-100%):* Degree of agreement in trend direction across the ACTIVE ladder slots (the fastest `[workspace].active_timeframes` slots of the fixed `micro1`…`longterm2` pool, v11.2).
+    *   *Trend Alignment Score (0-100%):* Degree of agreement in trend direction across the ACTIVE ladder slots (the fastest `[workspace].active_timeframes` slots of the fixed `1s`…`1h` pool, v11.2).
     *   *Momentum Alignment Score (0-100%):* Concordance of momentum vectors.
     *   *Confluence Matrix:* Grid mapping structural overlap and localized signal intersection points across timeframes.
 
@@ -1094,7 +1094,7 @@ The conceptual model integrates all five engines, their respective layers, and t
 
 ## Appendix A — Formal Matrix Definitions
 
-This appendix is an illustrative serialization of the canonical scenario (seed: [02-01-alignment-matrix.md §6](../matrices/02-01-alignment-matrix.md)) for all matrices produced by the Market Monitoring Engine. Normative contracts live in `docs/matrices/02-*`. Field set verified by MANIFEST gate G13. All enum values serialize as `SCREAMING_SNAKE_CASE`. **Note (v11.1):** the worked scenario demonstrates the math on a 4-timeframe subset (`timeframes_present: 4` — a mid-warmup instance); production instances run the full fixed 10-slot ladder (`micro1`…`longterm2`), so the live field ranges 0–10. The chain numbers are unchanged.
+This appendix is an illustrative serialization of the canonical scenario (seed: [02-01-alignment-matrix.md §6](../matrices/02-01-alignment-matrix.md)) for all matrices produced by the Market Monitoring Engine. Normative contracts live in `docs/matrices/02-*`. Field set verified by MANIFEST gate G13. All enum values serialize as `SCREAMING_SNAKE_CASE`. **Note (v11.1):** the worked scenario demonstrates the math on a 4-timeframe subset (`timeframes_present: 4` — a mid-warmup instance); production instances run the full fixed 10-slot ladder (`1s`…`1h`), so the live field ranges 0–10. The chain numbers are unchanged.
 
 ---
 
@@ -1109,7 +1109,7 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
   "exchange": "Hyperliquid",
   "symbol": "BTC-USDT",
   "timeframe_secs": 180,
-  "timeframe_slot": "Fast",
+  "timeframe_label": "3m",
   "timestamp": 1752192000000,
   "is_completed": true,
   "pipeline_state": "Live",
@@ -1322,7 +1322,7 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
   "volume_score": 78.8,
   "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, expanding volatility, and strong volume participation. Favors trend continuation.",
   "rationale": "MTF overall score 40/100 → BULLISH. Majority of 4 timeframes agree (75%). 3 signals across multiple timeframes.",
-  "supporting_signals": ["fast180 (bullish): score +42, TRENDING regime, 3 signals"],
+  "supporting_signals": ["5s80 (bullish): score +42, TRENDING regime, 3 signals"],
   "contradicting_signals": [],
   "timeframes_considered": 4
 }
@@ -1722,7 +1722,7 @@ Divergence is handled as a **signal on the parent indicator**, not as a separate
 *   **Engine:** The largest independent functional block within the trading platform, representing an autonomous business domain.
 *   **Execution Policy:** A deterministic, user-configured trigger rule evaluated by the Trade Automation Engine to govern order dispatch.
 *   **Layer:** An isolated sequential step within an engine's processing pipeline that transforms data to a higher level of abstraction.
-*   **Market Instance:** The (symbol, exchange) container owning the ACTIVE fixed-ladder TimeframePipelines (the fastest `[workspace].active_timeframes` slots of the `micro1`…`longterm2` pool, v11.2); the per-(symbol, timeframe) analytical unit is a TimeframePipeline. Canonical glossary: [06-01-api-gateway-contract.md §1.0](../integration-and-api/06-01-api-gateway-contract.md).
+*   **Market Instance:** The (symbol, exchange) container owning the ACTIVE fixed-ladder TimeframePipelines (the fastest `[workspace].active_timeframes` slots of the `1s`…`1h` pool, v11.2); the per-(symbol, timeframe) analytical unit is a TimeframePipeline. Canonical glossary: [06-01-api-gateway-contract.md §1.0](../integration-and-api/06-01-api-gateway-contract.md).
 *   **Market Phase:** The active stage of an asset within its broader market cycle — 4 phases (`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`) plus the `UNKNOWN` empty-state sentinel.
 *   **Market Regime:** The underlying environmental behavior of an asset, defining the structural context (e.g., `EXPANSION`, `RANGE`).
 *   **Matrix:** The structured, immutable output produced by an analytical layer, serving as the interface contract between stages.

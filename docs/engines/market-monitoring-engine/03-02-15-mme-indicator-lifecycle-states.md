@@ -1,6 +1,6 @@
 # MME Indicator Lifecycle States
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Market Monitoring Engine (MME)
 **Owner:** market-analyzer + ui
@@ -9,7 +9,7 @@
 
 ## §1 Purpose
 
-The platform computes **52 indicators** across the 10 fixed-ladder timeframes (`micro1`…`longterm2`) per market instance. Before this document existed there was no canonical operational lifecycle for any of them: indicators were present in the `MarketSnapshot.indicators` map only when their calculator returned `Some(...)`; absence was indistinguishable from "not ready yet" vs. "calc returned None because of insufficient history" vs. "calc returned None because of a bug" vs. "disabled by the active set." The frontend papered over the gap with neutral defaults (`--`, `UNKNOWN`, `tangled`, `equilibrium`, `OFF`) so the user could not tell whether a row represented a real neutral reading or a missing reading.
+The platform computes **52 indicators** across the 10 fixed-ladder timeframes (`1s`…`1h`) per market instance. Before this document existed there was no canonical operational lifecycle for any of them: indicators were present in the `MarketSnapshot.indicators` map only when their calculator returned `Some(...)`; absence was indistinguishable from "not ready yet" vs. "calc returned None because of insufficient history" vs. "calc returned None because of a bug" vs. "disabled by the active set." The frontend papered over the gap with neutral defaults (`--`, `UNKNOWN`, `tangled`, `equilibrium`, `OFF`) so the user could not tell whether a row represented a real neutral reading or a missing reading.
 
 This document replaces that opacity with **four explicit lifecycle states per indicator per timeframe**, plus the metadata required to know which state is current and why. The lifecycle states are uniformly applied to **all 52 indicators** so the dashboard can show a single, predictable pattern.
 

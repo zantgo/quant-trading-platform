@@ -7,7 +7,7 @@
      PascalCase — they document the screen-facing *display* fields, not
      wire enums. Exempted from the G6 enum-casing lint via the marker. -->
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors **1:1 the data the panel renders** — the same numbers, the same prices, the same dynamic strings, the same words; only the presentation changes (the screen formats `63390` as `$63390`, the JSON carries the raw value). Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 
@@ -89,7 +89,7 @@ and by the panels' builder wiring:
 | `meta.current_price` | `pickInstanceLivePrice(activeInstance terms)` — the freshest live price within 30 s, else last known good | **Live tick value.** Two exports clicked at the same instant carry the same price; sequential exports naturally drift as the market moves — that is expected and is not an inconsistency. |
 | `meta.prev_day_price` / `price_change` / `price_change_direction` | `pickLatestCompletedSnapshot(terms)` — the newest **completed-candle** snapshot (shadow/live-tick frames drop `prev_day_px`) | Consistent across tabs: one canonical completed snapshot feeds all seven. |
 | `meta.timestamp` | The snapshot's Unix-seconds timestamp (`null` for MTF — no single TF) | Single-TF exports carry their active TF's snapshot ts; the L3–L6 tabs carry the newest snapshot's ts. |
-| `meta.timeframe_secs` | `0` for MTF (multi-TF sentinel); the active TF's `barDurationSec` otherwise | MTF also emits `meta.timeframes` — the **ACTIVE** ladder display labels in slot order (v11.2: the fastest N of the fixed 10-slot pool, `[workspace].active_timeframes` — e.g. N=5 → `["Micro1","Micro2","Fast1","Fast2","Slow1"]`; N=10 → the full `["Micro1","Micro2","Fast1","Fast2","Slow1","Slow2","Macro1","Macro2","Longterm1","Longterm2"]`, exactly `TIMEFRAME_SLOT_LABELS` order; renamed from the historical `timesframes` typo, 2026-08-17). |
+| `meta.timeframe_secs` | `0` for MTF (multi-TF sentinel); the active TF's `barDurationSec` otherwise | MTF also emits `meta.timeframes` — the **ACTIVE** ladder display labels in slot order (v11.2: the fastest N of the fixed 10-slot pool, `[workspace].active_timeframes` — e.g. N=5 → `["1s","3s","5s","15s","30s"]`; N=10 → the full `["1s","3s","5s","15s","30s","1m","3m","5m","15m","1h"]`, exactly `TIMEFRAME_SLOT_LABELS` order; renamed from the historical `timesframes` typo, 2026-08-17). |
 | `meta.datetime_utc` | `now` at click time | Each export is a fresh click-epoch; timestamps legitimately differ across sequential clicks. |
 | `meta.is_completed` | The snapshot's `is_completed` flag | Consistent per snapshot. |
 
@@ -302,7 +302,7 @@ Notes:
 Mirrors `MtfView.svelte` (N × N grid with per-row agreement — one column per
 ACTIVE ladder slot, v11.2). The meta block carries `timeframes` — the ACTIVE
 ladder display labels in slot order (the fastest N of the fixed 10-slot pool;
-e.g. N=5 → `["Micro1","Micro2","Fast1","Fast2","Slow1"]`; renamed from the
+e.g. N=5 → `["1s","3s","5s","15s","30s"]`; renamed from the
 historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
 10-slot ladder, v11.2 slices it to the active set) and `timeframe_secs: 0`
 (multi-TF sentinel).
@@ -310,7 +310,7 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
 ```json
 {
   "source_tab": "mtf",
-  "meta": { "timeframes": ["Micro1", "Micro2", "Fast1", "Fast2", "Slow1"] },
+  "meta": { "timeframes": ["1s", "3s", "5s", "15s", "30s"] },
   "header": { },
   "groups": [
     { "key": "Momentum", "label": "Momentum", "accent": "#a78bfa", "indicator_count": 2, "total_indicator_count": 2 }
@@ -322,16 +322,16 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
       "directional": true, "visible": true,
       "normalized_available": true, "confidence_pct": 70,
       "values": [
-        { "timeframe": "Micro1", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Micro2", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Fast1",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Fast2",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Slow1",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Slow2",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Macro1", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Macro2", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Longterm1", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
-        { "timeframe": "Longterm2", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false }
+        { "timeframe": "1s", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "3s", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "5s",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "15s",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "30s",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "1m",  "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "3m", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "5m", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "15m", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
+        { "timeframe": "1h", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false }
       ],
       "agreement": 0.31, "agreement_display": "+0.31", "agreement_label": "BULL"
     }
@@ -345,28 +345,28 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
     "signals": [
       { "kind": "Threshold",
         "per_timeframe": [
-          { "timeframe": "Micro1", "bull": 1, "bear": 0, "neutral": 0,
+          { "timeframe": "1s", "bull": 1, "bear": 0, "neutral": 0,
             "entries": [ { "display_name": "RSI (14)", "label": "OVERSOLD", "direction": "Bullish", "status": "Active", "strength": 0.5, "age_bars": 2 } ] },
-          { "timeframe": "Micro2", "bull": 1, "bear": 0, "neutral": 0, "entries": [] },
-          { "timeframe": "Fast1", "bull": 1, "bear": 0, "neutral": 0, "entries": [] },
-          { "timeframe": "Fast2", "bull": 0, "bear": 1, "neutral": 0, "entries": [] },
-          { "timeframe": "Slow1", "bull": 0, "bear": 1, "neutral": 0, "entries": [] },
-          { "timeframe": "Slow2", "bull": 0, "bear": 1, "neutral": 0, "entries": [] },
-          { "timeframe": "Macro1", "bull": 0, "bear": 0, "neutral": 1, "entries": [] },
-          { "timeframe": "Macro2", "bull": 0, "bear": 0, "neutral": 1, "entries": [] },
-          { "timeframe": "Longterm1", "bull": 0, "bear": 0, "neutral": 1, "entries": [] },
-          { "timeframe": "Longterm2", "bull": 0, "bear": 0, "neutral": 1, "entries": [] }
+          { "timeframe": "3s", "bull": 1, "bear": 0, "neutral": 0, "entries": [] },
+          { "timeframe": "5s", "bull": 1, "bear": 0, "neutral": 0, "entries": [] },
+          { "timeframe": "15s", "bull": 0, "bear": 1, "neutral": 0, "entries": [] },
+          { "timeframe": "30s", "bull": 0, "bear": 1, "neutral": 0, "entries": [] },
+          { "timeframe": "1m", "bull": 0, "bear": 1, "neutral": 0, "entries": [] },
+          { "timeframe": "3m", "bull": 0, "bear": 0, "neutral": 1, "entries": [] },
+          { "timeframe": "5m", "bull": 0, "bear": 0, "neutral": 1, "entries": [] },
+          { "timeframe": "15m", "bull": 0, "bear": 0, "neutral": 1, "entries": [] },
+          { "timeframe": "1h", "bull": 0, "bear": 0, "neutral": 1, "entries": [] }
         ],
         "totals": { "bull": 3, "bear": 3, "neutral": 4 } }
     ],
     "divergences": [
       { "key": "rsi", "display_name": "RSI (14)",
-        "per_timeframe": [ { "timeframe": "Micro1", "sub": "RegularBull", "strength": 0.7 }, { "timeframe": "Micro2", "sub": null, "strength": 0 } ],
+        "per_timeframe": [ { "timeframe": "1s", "sub": "RegularBull", "strength": 0.7 }, { "timeframe": "3s", "sub": null, "strength": 0 } ],
         "bull_count": 1, "bear_count": 0, "unknown_count": 0, "row_count": 1, "direction_label": "BULL" }
     ],
     "levels": [
       { "kind": "SupportResistance",
-        "per_timeframe": [ { "timeframe": "Micro1", "chips": [ { "name": "Support", "role": "support", "count": 1, "price_text": "$63,200" } ], "bull": 1, "bear": 0, "neutral": 0, "support": 1, "resistance": 0 } ] }
+        "per_timeframe": [ { "timeframe": "1s", "chips": [ { "name": "Support", "role": "support", "count": 1, "price_text": "$63,200" } ], "bull": 1, "bear": 0, "neutral": 0, "support": 1, "resistance": 0 } ] }
     ],
     "totals": { "signal_count": 4, "divergence_count": 1,
       "global_signal_lean": { "bull": 2, "bear": 2, "neutral": 0 },
@@ -374,7 +374,7 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
   },
   "timeframes": [
     {
-      "label": "Micro1", "duration_seconds": 1, "mark_price": 63390,
+      "label": "1s", "duration_seconds": 1, "mark_price": 63390,
       "timestamp": 1753950000, "pipeline_state": "LIVE", "is_completed": true,
       "context": null,
       "fibonacci_summary": { "present": true, "gp_top": 64050, "gp_bottom": 62600, "swing_direction": "BULL SWING", "status": "INSIDE GP (-8.97% from center)", "ext_1618": 65500, "ext_2618": 67200, "retracement_coefficients": { } },
@@ -397,13 +397,13 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
 Notes:
 - The `timeframes` array carries exactly **N entries** in ladder order — the
   ACTIVE slots of the fixed 10-slot pool (`[workspace].active_timeframes`,
-  1..=10, default 5; N=10 → `Micro1` 1 s … `Longterm2` 3600 s; v11.2) — one
+  1..=10, default 5; N=10 → `1s` 1 s … `1h` 3600 s; v11.2) — one
   per ACTIVE ladder slot. Each
   entry is projected from the store's per-slot `TimeframeTelemetry` record,
   which carries the authoritative `slot` identity the entries derive from:
 
   ```json
-  { "slot": "micro1", "barDurationSec": 1, "indicators": { } }
+  { "slot": "1s", "barDurationSec": 1, "indicators": { } }
   ```
 
 - Per-TF indicator rows carry the **same triple** as the single-TF Metrics
@@ -453,7 +453,7 @@ ACTIVE slot, each with `slot`, `secs`, `badge_label`, `badge_sublabel`
   "meta": { },
   "header": { },
   "timeframe_status": [
-    { "slot": "micro1", "secs": 1, "badge_label": "NEUTRAL", "badge_sublabel": "COMPRESSION", "pipeline_status": "live" }
+    { "slot": "1s", "secs": 1, "badge_label": "NEUTRAL", "badge_sublabel": "COMPRESSION", "pipeline_status": "live" }
   ],
   "hero": {
     "mtf_overall_score": 62.0, "mtf_overall_label": "STRONG_BULL_MTF",
@@ -475,7 +475,7 @@ ACTIVE slot, each with `slot`, `secs`, `badge_label`, `badge_sublabel`
     ]
   },
   "per_timeframe": [
-    { "timeframe": "MICRO1", "trend_score": 0.70, "trend_score_display": "0.70",
+    { "timeframe": "1S", "trend_score": 0.70, "trend_score_display": "0.70",
       "momentum_score": 0.60, "momentum_score_display": "0.60",
       "overall_score": 1.0, "overall_score_display": "1.0",
       "regime": "TRENDING", "active_signals": 5 }
@@ -701,14 +701,14 @@ Notes:
   },
   "signals": {
     "supporting": [
-      { "key": "rsi", "period": 14, "display_name": "RSI 14", "timeframe": "MICRO1",
+      { "key": "rsi", "period": 14, "display_name": "RSI 14", "timeframe": "1S",
         "score": 62, "score_display": "+62", "regime": "TRENDING",
         "signals_count": 3, "signals_count_display": "3",
-        "raw": "MICRO1 (bullish): rsi_14 score +62, TRENDING regime, 3 signals" }
+        "raw": "1S (bullish): rsi_14 score +62, TRENDING regime, 3 signals" }
     ],
     "contradicting": [ ],
     "list": [
-      { "key": "rsi", "period": 14, "display_name": "RSI 14", "timeframe": "MICRO1",
+      { "key": "rsi", "period": 14, "display_name": "RSI 14", "timeframe": "1S",
         "score": 62, "score_display": "+62", "regime": "TRENDING",
         "signals_count": 3, "signals_count_display": "3",
         "raw": "…", "bucket": "supporting" }
@@ -725,10 +725,10 @@ Notes:
     "volume_score": 78.8, "volume_score_display": "78.80"
   },
   "per_timeframe_alignment": [
-    { "name": "MICRO1", "active": true, "trend": 0.45, "trend_display": "+0.45",
+    { "name": "1S", "active": true, "trend": 0.45, "trend_display": "+0.45",
       "momentum": 0.3, "momentum_display": "+0.30",
       "overall": 1.0, "overall_display": "+1.0", "regime": "TRENDING" },
-    { "name": "LONGTERM2", "active": true, "trend": -0.1, "trend_display": "-0.10",
+    { "name": "1H", "active": true, "trend": -0.1, "trend_display": "-0.10",
       "momentum": -0.05, "momentum_display": "-0.05",
       "overall": -0.2, "overall_display": "-0.2", "regime": "RANGE" }
   ],

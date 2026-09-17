@@ -1,6 +1,6 @@
 # Liquidity Phase 0-4 — Architecture Spec
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
 
 ## Overview
@@ -23,7 +23,7 @@ of where the next cascade will come from. The user sees:
 | **0** | Mark price, OI, funding rate on every snapshot | Exchange WS (Hyperliquid activeAssetCtx / Bitget ticker+funding-rate) + REST polling fallback |
 | **1** | `LiquidityFlow` per candle (real liquidation events) | Exchange WS userFills (HL) / fill (Bitget) |
 | **2** | `LiquidationClusterMatrix` per-timeframe (one matrix per ACTIVE ladder slot — up to 10 per pair, v11.2; refreshed at each TF's candle cadence) | Deterministic estimator on (OI + funding + TF-specific price history) |
-| **3** | 11 `LiquiditySignalKind` signals per snapshot | Discrete rules on (micro1 TF's `flow` + micro1 TF's `cluster` + funding) |
+| **3** | 11 `LiquiditySignalKind` signals per snapshot | Discrete rules on (1s TF's `flow` + 1s TF's `cluster` + funding) |
 | **4** | Frontend `LiquidityPanel` (Flow / Cluster / Context) + per-TF chart overlays (`/ws` frame fields `liquidity` + `cluster` + `liquidity_signals` per snapshot; also `/api/history` returns `clusters`/`volume_profiles` maps) | WebSocket broadcast + REST history |
 
 ## Data flow (per-TF as of v6.4.2)
@@ -37,11 +37,11 @@ Exchange WS
     ├─ Mark/Funding/OI → latest_*_px RwLock
     │   └─ On candle close: attach to MarketSnapshot
     │
-    └─ Per-TF cluster refresh task (one per ACTIVE ladder slot — the fastest-N prefix `micro1`…, v11.2)
-        ├─ micro1/micro2/fast1/fast2/slow1: refresh at the slot's own sub-minute cadence
-        ├─ slow2/macro1/macro2: refresh at the slot's cadence
-        ├─ longterm1: refresh at the 900 s cadence
-        └─ longterm2: refresh at the 3600 s cadence
+    └─ Per-TF cluster refresh task (one per ACTIVE ladder slot — the fastest-N prefix `1s`…, v11.2)
+        ├─ 1s/3s/5s/15s/30s: refresh at the slot's own sub-minute cadence
+        ├─ 1m/3m/5m: refresh at the slot's cadence
+        ├─ 15m: refresh at the 900 s cadence
+        └─ 1h: refresh at the 3600 s cadence
         └─ read OI + funding + this TF's price history (200 candles) → estimate_clusters()
             └─ write to {slot}_cluster_matrix RwLock (10 separate handles)
                 └─ On this TF's candle close: attach to MarketSnapshot.cluster
@@ -60,7 +60,7 @@ WS broadcast payload
     │       (each TF carries its own `cluster` field)
     └─ sent as a single MarketSnapshot frame on /ws
 
-> **Per-TF cluster since v6.4.2.** `MarketSnapshot.cluster` is now **per-timeframe** — each WS frame carries the cluster matrix for the slot the client subscribed to. The chart at `slot=micro1` shows the micro-fast-magnet cluster; the chart at `slot=longterm2` shows the macro-slow-magnet cluster. The frontend primitives (`LiquidationHeatmapPrimitive`) read `tf.cluster` directly — no client-side fan-out required. Phase-3 cross-engine synthesis (L4 `LiquiditySqueeze`, L5 `cascade_risk`) continues to consume the **micro1** TF's cluster as the authoritative "fastest-magnet" signal, preserving the v6.4.x decision semantics.
+> **Per-TF cluster since v6.4.2.** `MarketSnapshot.cluster` is now **per-timeframe** — each WS frame carries the cluster matrix for the slot the client subscribed to. The chart at `slot=1s` shows the micro-fast-magnet cluster; the chart at `slot=1h` shows the macro-slow-magnet cluster. The frontend primitives (`LiquidationHeatmapPrimitive`) read `tf.cluster` directly — no client-side fan-out required. Phase-3 cross-engine synthesis (L4 `LiquiditySqueeze`, L5 `cascade_risk`) continues to consume the **1s** TF's cluster as the authoritative "fastest-magnet" signal, preserving the v6.4.x decision semantics.
 
 > **Top-level liquidity fields.** The three liquidity fields (`liquidity`, `cluster`, `liquidity_signals`) are siblings of `indicators` on the `MarketSnapshot` wire frame — not nested within `indicators`. The canonical contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); the underlying Rust type is in `crates/core-domain/src/models.rs`. Placement within `indicators` would have contradicted both the Metrics Matrix contract and the canonical wire-frame definition.
 ```

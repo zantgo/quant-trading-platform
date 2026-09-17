@@ -1,6 +1,6 @@
 # 03-02-14: MME Sub-Minute Timeframe Feasibility on Commodity Hardware
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 
@@ -11,7 +11,7 @@ with the candle cadence), and the platform documentation explicitly
 supporting sub-minute timeframes ([01-04-timeframe-model.md §1](../../conceptual-foundations/01-04-timeframe-model.md)),
 the user-facing question is: **is a normal PC sufficient to run the bot
 at sub-minute cadences** (the fixed ladder's five live-only sub-minute slots —
-`micro1` 1 s, `micro2` 3 s, `fast1` 5 s, `fast2` 15 s, `slow1` 30 s —
+`1s` 1 s, `3s` 3 s, `5s` 5 s, `15s` 15 s, `30s` 30 s —
 plus the per-TF cluster refresh running on each cadence)?
 
 ## Answer: yes

@@ -1,6 +1,6 @@
 # Overview Matrix Specification
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 7 — Overview Layer
@@ -20,7 +20,7 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.17, **Market
         + [Alignment Matrix per symbol]    (v6.10.3+ — cross-TF aggregate)
 ```
 
-L7 aggregates **all ACTIVE timeframe windows** per symbol (the fastest `[workspace].active_timeframes` slots of the `micro1`…`longterm2` pool, v11.2 — see the I-2 note below); per-window advisories feed the breadth/bias/opportunity/regime tallies, per-symbol scalars are the mean over the windows, and categorical per-asset fields are the mode (ties resolve to the fastest window). The Alignment Matrix inputs (v6.10.3+) are likewise sourced from each instance's `MarketSnapshot.alignment` and aggregated across all symbols (see §3.5 below). The legacy slow-tier-300s-only basis is retired.
+L7 aggregates **all ACTIVE timeframe windows** per symbol (the fastest `[workspace].active_timeframes` slots of the `1s`…`1h` pool, v11.2 — see the I-2 note below); per-window advisories feed the breadth/bias/opportunity/regime tallies, per-symbol scalars are the mean over the windows, and categorical per-asset fields are the mode (ties resolve to the fastest window). The Alignment Matrix inputs (v6.10.3+) are likewise sourced from each instance's `MarketSnapshot.alignment` and aggregated across all symbols (see §3.5 below). The legacy slow-tier-300s-only basis is retired.
 
 Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced by `compute_overview()`.
 
@@ -99,7 +99,7 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 > parity).
 
 > **L7 aggregation basis (v6.10.18 I-2; v11.1 fixed ladder).** The Overview aggregates ALL TEN
-> fixed-ladder timeframe windows per symbol (`micro1`…`longterm2`; the earlier
+> fixed-ladder timeframe windows per symbol (`1s`…`1h`; the earlier
 > 300s-slow-only
 > basis made the headline contradict every panel — e.g. HIGH_RISK next to
 > an avg-risk of 41). Per-window advisories feed the breadth/bias/

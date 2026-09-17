@@ -1,6 +1,6 @@
 # Snapshot Export Operator Manual
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators configuring the periodic JSON dump that feeds the offline data-science pipeline.
 
@@ -62,9 +62,9 @@ cargo run --bin execution-daemon -- --mode cli --save
 # Exchange (hyperliquid / bitget) [hyperliquid]: hyperliquid
 # Settlement currency forced to USDC for hyperliquid.
 # Instance #1 base symbol (blank = done) [BTC]: BTC
-#   Timeframes (fixed ladder, not editable): micro1 1s, micro2 3s, fast1 5s,
-#     fast2 15s, slow1 30s, slow2 60s, macro1 180s, macro2 300s,
-#     longterm1 900s, longterm2 3600s
+#   Timeframes (fixed ladder, not editable): 1s 1s, 3s 3s, 5s 5s,
+#     15s 15s, 30s 30s, 1m 60s, 3m 180s, 5m 300s,
+#     15m 900s, 1h 3600s
 # Instance #2 base symbol (blank = done):            ← Enter finishes
 # ── Summary ───────────────────────────────────────────────────────
 # 💾 Snapshot export ENABLED (--save) → ./snapshots
@@ -89,24 +89,24 @@ Every snapshot tick creates one subdirectory per UTC timestamp, with one JSON fi
 <output_path>/
   2026-08-13/
     14h30m05s/                          ← one tick (UTC timestamp)
-      BTC-USDT.micro1.alignment.json
-      BTC-USDT.micro1.analysis.json
-      BTC-USDT.micro1.advisory.json
-      BTC-USDT.micro1.decision.json
-      BTC-USDT.micro1.metrics.json
-      BTC-USDT.micro1.mtf.json
-      BTC-USDT.micro1.opportunity.json
-      BTC-USDT.micro1.recommendation.json
-      BTC-USDT.micro1.risk.json
-      BTC-USDT.micro2.alignment.json
+      BTC-USDT.1s.alignment.json
+      BTC-USDT.1s.analysis.json
+      BTC-USDT.1s.advisory.json
+      BTC-USDT.1s.decision.json
+      BTC-USDT.1s.metrics.json
+      BTC-USDT.1s.mtf.json
+      BTC-USDT.1s.opportunity.json
+      BTC-USDT.1s.recommendation.json
+      BTC-USDT.1s.risk.json
+      BTC-USDT.3s.alignment.json
       ...
-      BTC-USDT.fast1.alignment.json
+      BTC-USDT.5s.alignment.json
       ...
-      BTC-USDT.slow2.alignment.json
+      BTC-USDT.1m.alignment.json
       ...
-      BTC-USDT.longterm2.alignment.json
+      BTC-USDT.1h.alignment.json
       ...
-      ETH-USDT.micro1.alignment.json
+      ETH-USDT.1s.alignment.json
       ...
 ```
 
@@ -123,7 +123,7 @@ Each file is a JSON document with this top-level envelope:
     "timestamp_ms": 1755090605123,
     "tab": "alignment",
     "pair_key": "BTC-USDT",
-    "timeframe_slot": "slow",
+    "timeframe_label": "1m",
     "timeframe_secs": 900
   },
   "payload": { /* the AlignmentMatrix / AnalysisMatrix / etc. */ }
@@ -131,7 +131,7 @@ Each file is a JSON document with this top-level envelope:
 ```
 
 Data-science consumers can glob (`<output>/**/*.json`) and join on `snapshot_metadata.timestamp_ms`
-+ `pair_key` + `timeframe_slot` + `tab`.
++ `pair_key` + `timeframe_label` + `tab`.
 
 ---
 

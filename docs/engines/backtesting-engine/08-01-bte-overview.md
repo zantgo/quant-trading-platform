@@ -1,6 +1,6 @@
 # Backtesting Engine — Overview
 
-**Version:** 11.8 (2026-09-16)
+**Version:** 11.9 (2026-09-17)
 **Status:** Implemented (production-ready) — installer-style launcher, standalone multi-symbol runs, progress + cancel, CLI mode
 **Engine:** Backtesting Engine (BTE) — the sixth logical engine
 **Crate:** `crates/backtesting-engine`
@@ -48,7 +48,7 @@ Rules:
   filtered to the 60-second archive floor. At the default count of 5 (all
   sub-minute) that set is **empty** and the run is rejected
   `400 no_active_ladder` ("raise `[workspace].active_timeframes` past the
-  60 s slots to backtest"); raising the count past `slow2` (N ≥ 6) makes the
+  60 s slots to backtest"); raising the count past `1m` (N ≥ 6) makes the
   instance backtestable. A `timeframe_secs` outside the resolved set is
   rejected `400` naming the set. Standalone runs are unaffected (explicit
   ladder; archive-eligible values only).
@@ -122,9 +122,9 @@ execution-daemon --backtest --exchange hl|bitget --symbols BTC,ETH \
 ```
 
 `--tf` accepts 1..=10 strictly-ascending values from the standard tiers, all
-≥ 60 s (the archive floor; the sub-minute fixed slots `micro1`–`slow1` are
+≥ 60 s (the archive floor; the sub-minute fixed slots `1s`–`30s` are
 live-only and can never be backfilled). The default standalone ladder is
-`60,180,300,900,3600` (`slow2`…`longterm2`).
+`60,180,300,900,3600` (`1m`…`1h`).
 
 Terminal progress bar with Ctrl+C cancel; the final JSON line carries the
 run id; results persist to the same tables the GUI History/Study read. See

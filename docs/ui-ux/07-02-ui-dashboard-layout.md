@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -51,7 +51,7 @@ The Top Navbar is always rendered while the session is active. It uses a 4-colum
 
 | Cell | Content | Behavior |
 |------|---------|----------|
-| **Brand trigger** | Hamburger icon (3 horizontal bars, 16×16 SVG) + `TRADING PLATFORM` label + right-pointing chevron arrow. Shows engine label instead when on a non-Home engine. A mint `#64ffda` left-edge accent bar expands on hover (24 px). | Click toggles the Engines Sidebar (left drawer). `role="button" tabindex="0"`. |
+| **Brand trigger** | Hamburger icon (3 horizontal bars, 16×16 SVG) + `TRADING PLATFORM` label + right-pointing chevron arrow. Shows the engine label instead when not on the Market Monitor Overview landing. A mint `#64ffda` left-edge accent bar expands on hover (24 px). | Click toggles the Engines Sidebar (left drawer). `role="button" tabindex="0"`. |
 | **Exchange chip** | `{app.sessionExchange} · {app.sessionCurrency}` (e.g. `Hyperliquid · USDC`) | Read-only. Monospace font, dim text. |
 | **Spacer** | empty | flex-grow column. |
 | **Instances trigger** | When no instance is selected: `Instances` label + 2×2 grid icon. When an instance is selected: pair label + live price + 24 h change % | Click toggles the Instances Sidebar (right drawer). `role="button" tabindex="0"`. |
@@ -72,13 +72,12 @@ The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-s
 
 | Engine | Tabs (left-to-right) | Notes |
 |--------|---------------------|-------|
-| `profile` (Home) | *Navbar hidden entirely* (the `!isHome` guard). | |
-| `exchange_settings` (API Keys) | *Navbar hidden entirely* (`isSimplePage` guard — single full-page component, no tabs). | |
+| *(removed)* | v11.9 erased the standalone Settings page and the exchange-keys engine — there is no `profile`/`exchange_settings` engine anymore. Settings live in the **market_monitor** `Settings` tab (general settings with no instance, workspace settings with one). | |
 | `market_monitor` (Market) | `Workspace` (forced first) · `Overview` · `Settings` | |
 | `trade_automation` (Trading) | `Overview` · `Orders` · `Activity` · `Trade History` · `Settings` | |
 | `portfolio` (Portfolio) | `Overview` · `Positions` · `Exposure` · `Capital` · `Safety` · `Settings` | |
 | `performance` (Analytics) | `Overview` · `Trades` · `Strategy` · `Risk Metrics` · `Performance` · `Comparison` · `History` · `Methodology` · `Settings` | |
-| `data_infra` (Data Infra) | `Overview` · `Exchange Status` · `Connectivity` · `Market Data` · `NTP Clock Monitor` · `Data Quality` · `Distribution` · `Connection Settings` | |
+| `data_infra` (Data Infra) | `Overview` (**default landing, v11.9**) · `Exchange Status` · `Connectivity` · `Market Data` · `NTP Clock Monitor` · `Data Quality` · `Distribution` · `Connection Settings` | |
 
 v10.1: `data_infra` **does** carry a far-right **Connection Settings** tab (`[workspace.api_failover]` editor, moved from Profile in v10.1) — platform config is live-editable via `GET /api/system/platform-config`. The per-mode tab sets are defined in `ui/src/lib/engineTabs.ts` (single source of truth).
 
@@ -94,19 +93,24 @@ v10.1: `data_infra` **does** carry a far-right **Connection Settings** tab (`[wo
 ### 3.3 Content Dispatch
 
 ```svelte
-{#if app.currentEngine === 'profile'}
-    <GeneralSettings />
+{#if app.currentEngine === 'data_infra'}
+    <DataInfraDashboard section={section} />
 {:else if app.currentEngine === 'market_monitor'}
     {#if app.middleTab === 'workspace'}
         {#if app.selectedInstance && activePair}
             <!-- instance view, see §4 -->
         {:else}
-            <GeneralDashboard />
+            <InstancePicker />
         {/if}
     {:else if app.middleTab === 'overview'}
         <GeneralDashboard />
     {:else}
-        <WorkspaceSettings pair={activePair} tabKey={app.activeTab} />
+        {#if activePair}
+            <WorkspaceSettings pair={activePair} tabKey={app.activeTab} />
+        {:else}
+            <!-- v11.9 (N2): general settings when no instance is selected -->
+            <GeneralSettings sectionSwitch />
+        {/if}
     {/if}
 {:else if app.currentEngine === 'performance'}
     <PerformanceDashboard />
@@ -114,10 +118,13 @@ v10.1: `data_infra` **does** carry a far-right **Connection Settings** tab (`[wo
     <TradeAutomationDashboard />
 {:else if app.currentEngine === 'portfolio'}
     <PortfolioDashboard />
-{:else if app.currentEngine === 'exchange_settings'}
-        <ExchangeSettings />
-    {/if}
+{/if}
 ```
+
+> **Boot landing (v11.9, N3).** After the Welcome screen — launch, recovery, or cold boot — the
+> system always opens on the Market Monitor **Overview**, regardless of mode, exchange, or
+> whether instances exist. A true deep link (a hash naming a specific engine / instance / run)
+> is still honored. `data_infra` always defaults to its **Overview** tab (N1).
 
 ### 3.4 Watchlist Scanner (Market Monitor Overview)
 
@@ -215,9 +222,9 @@ It applies an additional CSS class `styles.rowSubTabs` on top of `styles.rowTabs
 
 The Alignment tab renders a **"Per-timeframe status" table** (`TfStatusTable.svelte`)
 directly under the layer header, above the summary card. One row per **ACTIVE**
-ladder slot (v11.2 — N rows, `[workspace].active_timeframes`; inactive slots are
-inert and have no status to show), in ladder order (`MICRO1` up, each with its
-duration label — `1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `1h`):
+duration (v11.9 — N rows, `[workspace].timeframes`; inactive durations are
+inert and have no status to show), in canonical order (`1S` up, each with its
+duration label — `1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `4h`, `12h`, `1d`):
 
 | Column | Content |
 |--------|---------|
@@ -423,7 +430,7 @@ Three new engine dashboards follow the same sub-sidebar pattern:
 | Risk Metrics | `'risk'` | Detailed risk analytics cards with gauge bars and interpretative labels |
 | Regime Map | `'regimes'` | Per-regime performance cards (trade count, WR, PF, avg R, P&L) with compatibility labels (Strong/Favorable/Marginal/Avoid). Optimization recommendations |
 | Trade Analytics | `'trades'` | Trade ledger table: Trade ID, Symbol, Direction, Hold time, Gross/Net P&L, ROI, MFE, MAE, Flat flag |
-| **Backtesting** | `'backtesting'` | The v8.2 launcher wizard (Environment → Instances with the displayed fixed 10-slot ladder + allocation % → Depth 1–365 → Run with progress bar + Cancel) → `POST /api/backtest/run` (async) + `GET /api/backtest/progress/:run_id` → Study Report with NHST verdict block (t, p, MC p, α = 0.05, edge), equity curve, trade log; results re-fetched via `GET /api/backtest/:id` |
+| **Backtesting** | `'backtesting'` | The v8.2 launcher wizard (Environment → Instances with the displayed archive ladder (≥ 60 s) + allocation % → Depth 1–365 → Run with progress bar + Cancel) → `POST /api/backtest/run` (async) + `GET /api/backtest/progress/:run_id` → Study Report with NHST verdict block (t, p, MC p, α = 0.05, edge), equity curve, trade log; results re-fetched via `GET /api/backtest/:id` |
 
 ### 7.3 Distinguishing Rules
 
@@ -485,11 +492,11 @@ The form is loaded once via `GET /api/config` on mount (`$effect`) and re-loaded
 
 ## 9. WorkspaceSettings Grid
 
-The instance-level settings page (`WorkspaceSettings.svelte`, mounted by `AppPageRouter` when `middleTab === 'settings'`; the editor component is `TimeframeSettings.svelte`) renders a left-rail + right-pane shell of timeframe cards — **one card per ACTIVE slot** (v11.2 — the fastest N of the fixed pool, `[workspace].active_timeframes`, 1..=10 default 5; inactive slots are inert and render no card).
+The instance-level settings surface (`WorkspaceSettings.svelte`, mounted by `AppPageRouter` when `middleTab === 'settings'` **with an instance selected**; the editor component is `TimeframeSettings.svelte`) renders a left-rail + right-pane shell of timeframe cards — **one card per ACTIVE duration** (v11.9 — the `[workspace].timeframes` set; inactive durations are inert and render no card). With no instance selected the same tab renders **General settings** instead (v11.9, N2: Fees & Leverage / Share Config; the standalone Settings page is erased).
 
-### 9.0 Active Timeframes Selector (v11.2)
+### 9.0 Active Timeframes Toggles (v11.9)
 
-A dedicated **"Active timeframes" card** (`.activeCountCard`) sits above the per-TF cards: an integer stepper (`min=1`, `max=10`, `activeCount` bound; validation rejects out-of-range values with "Active timeframes must be between 1 and 10.") and a hint line ("The fastest N slot(s) of the 10-slot ladder run; …"). The count rides the SAME Apply click and dirty-tracking flow as the per-slot indicator overrides, but POSTs to **`/api/config`** (body `{ active_timeframes: N }` — the endpoint that validates 1..=10 and **live-recharges running instances**), then mirrors the new ACTIVE ladder locally (`app.settings.activeTimeframes`, `pair.activeSlots = withActiveSlots(N)`) and forces a WS reconnect so the socket count matches the new ladder.
+A dedicated **"Active timeframes" card** (`.activeCountCard`) sits above the per-duration cards: a 14-button toggle grid (one per pool duration, `aria-pressed` state, the min-1 guard refuses to deactivate the final active duration) with the `"<n> / 14"` count and a hint line ("Toggle which timeframes run (at least one); saving recharges running instances."). The toggles ride the SAME Apply click and dirty-tracking flow as the per-duration indicator overrides, but POST to **`/api/config`** (body `{ timeframes: [secs…] }` — the endpoint validates 1..=14 unique pool members and **live-recharges running instances**), then mirror the new ACTIVE set locally (`app.settings.timeframes`, `pair.activeDurations`) and force a WS reconnect so the socket count matches.
 
 ### 9.1 Layout
 
@@ -513,7 +520,7 @@ A dedicated **"Active timeframes" card** (`.activeCountCard`) sits above the per
 
 Each `.term-card` contains:
 
-1. **Card title** (`.card-title`) — uppercase slot display name (e.g. `MICRO1`).
+1. **Card title** (`.card-title`) — uppercase slot display name (e.g. `1S`).
 2. **Fixed duration label** — the slot's ladder duration rendered read-only from `TIMEFRAME_SLOT_DURATION_SECS` (e.g. `1s`); since v11.1 the ladder is fixed, so there is **no** TF `<select>` and no `TIMEFRAME_OPTIONS` picker on the card (`TIMEFRAME_OPTIONS` survives in `ui/src/types.ts` only as an unused legacy constant).
 3. **Indicator inputs scroll** (`.indicator-inputs-scroll`) — `max-height: 520 px`, `overflow-y: auto`, contains a vertical list of `.input-row` entries.
 
@@ -550,10 +557,10 @@ Each input row is a label + numeric input pair (`flex; justify-content: space-be
 
 Two surgical upgrades landed alongside the v7.0-prod chrome refresh:
 
-1. **Left rail timeframes.** The `WorkspaceSettings` body uses a left-rail (`.tfShell-rail`, 180 px) + right-pane (`.tfShell-body`) layout, mirroring `TerminalMonitor`'s rail so the operator learns one selection pattern and uses it across the dashboard. The rail buttons read **MTF · MICRO1 · MICRO2 · FAST1 · FAST2 · SLOW1 · SLOW2 · MACRO1 · MACRO2 · LONGTERM1 · LONGTERM2** top-down (MTF sits in the rail *only* when synthesised as a per-pair override; since v11.2 the editing surface is the ACTIVE fastest-N prefix — the grid iterates `activeSlotKinds`; the 10 fixed-slot labels remain the pool vocabulary).
+1. **Left rail timeframes.** The `WorkspaceSettings` body uses a left-rail (`.tfShell-rail`, 180 px) + right-pane (`.tfShell-body`) layout, mirroring `TerminalMonitor`'s rail so the operator learns one selection pattern and uses it across the dashboard. The rail buttons read **MTF · 1S · 3S · 5S · 15S · 30S · 1M · 3M · 5M · 15M · 1H** top-down (MTF sits in the rail *only* when synthesised as a per-pair override; since v11.2 the editing surface is the ACTIVE fastest-N prefix — the grid iterates `activeSlotKinds`; the 10 fixed-slot labels remain the pool vocabulary).
 2. **Liquidation Heatmap leverage tiers card.** Each selected slot now hosts a `LiquidationHeatmapTierPicker` card — chips (`{tier}×`) with a per-chip remove, plus an integer stepper (`min=1`, `max=100`, integer-only — fractional inputs are rejected). The default seed is `[10]` (a single 10× chip). See `docs/operations-and-compliance/03-liq-heatmap-config.md` for the operator workflow and intensity-amplifier semantics (`clusterInHighlight`).
 
-Persisted per-TF as `tf.heatmapLeverageTiers: number[]` and round-tripped to the daemon config body as `heatmap_leverage_tiers` (one entry per fixed ladder slot — the POST body carries one `<slot>.indicators` section per slot: `micro1.indicators`, `micro2.indicators`, … `longterm2.indicators`; v11.1).
+Persisted per-TF as `tf.heatmapLeverageTiers: number[]` and round-tripped to the daemon config body as `heatmap_leverage_tiers` (one entry per fixed ladder slot — the POST body carries one `<slot>.indicators` section per slot: `1s.indicators`, `3s.indicators`, … `1h.indicators`; v11.1).
 
 ---
 
@@ -593,7 +600,7 @@ The shell uses the **Premium Dark Cockpit** aesthetic (see `brutalist-grid.modul
 |-------|---------|
 | `RiskCalculator.svelte` | Interactive risk sizing form: capital, risk %, entry/stop/target, dynamic ATR toggle → live `RiskCalculation` output. |
 | `CommissionCalculator.svelte` | Fee projection: dual-entry breakdown, viability check, break-even profit %. |
-| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (ticker + allocation % only; since v11.1 the ladder is **displayed**, not picked — no per-TF duration dropdowns and no `TIMEFRAME_OPTIONS` picker; since v11.2 the displayed ladder is the ACTIVE fastest-N prefix of the fixed 10-slot pool, derived from `[workspace].active_timeframes`) → Review → Launch. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
+| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (ticker + allocation % only; since v11.1 the ladder is **displayed**, not picked — no per-TF duration dropdowns and no `TIMEFRAME_OPTIONS` picker; since v11.9 the displayed ladder is the ACTIVE duration set from `[workspace].timeframes`) → Review → Launch. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
 | `QuitDialog.svelte` | Session termination confirmation modal (triggered from Engines Sidebar footer). Lives at `ui/src/QuitDialog.svelte` (top-level, not under `components/`). See [§14.1](#141-quitdialog). |
 
 ---
@@ -728,7 +735,7 @@ All navigation elements are semantic `<a>` tags with real `href` values, enablin
 |---------|---------------|
 | `#/engine/market_monitor/workspace` | Market engine, Workspace tab, no instance selected → GeneralDashboard |
 | `#/engine/market_monitor/workspace/instance/BTC-USDT/view/charts` | Market engine, Workspace tab, BTC-USDT instance, Charts sub-tab |
-| `#/engine/market_monitor/workspace/instance/BTC-USDT/view/terminal/tf/micro1` | Live BTC terminal pinned to the micro1 (1 s) chart |
+| `#/engine/market_monitor/workspace/instance/BTC-USDT/view/terminal/tf/1s` | Live BTC terminal pinned to the 1s (1 s) chart |
 | `#/engine/trade_automation/overview/instance/ETH-USDT` | Trade Automation engine, Overview tab, ETH-USDT selected |
 | `#/engine/backtesting/study/instance/BTC-USDT/run/12` | BTE Study Report for run #12 (re-fetched on reload/new tab) |
 | `#/engine/portfolio/overview` | Portfolio engine, Overview tab → PortfolioDashboard |

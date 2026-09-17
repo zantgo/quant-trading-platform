@@ -1,6 +1,6 @@
 # Metrics Matrix Specification
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 1 — Metrics Layer
@@ -60,7 +60,8 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `timeframe_secs` | `u64` | No | Candle duration in seconds (any positive integer; every instance runs the fixed 10-slot ladder 1 / 3 / 5 / 15 / 30 / 60 / 180 / 300 / 900 / 3600 s — see [01-04 §1](../conceptual-foundations/01-04-timeframe-model.md) and [03-02-16](../engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md)). |
 | `timestamp` | `u64` | No | Candle close time (Unix epoch, **seconds** — `start_time_ms / 1000`). |
 | `is_completed` | `bool` | Yes | `true` for a finalized candle; `false`/absent for a real-time "shadow" flicker snapshot. |
-| `timeframe_slot` | `TimeframeSlot` | Yes | Stable slot identity (`micro1`…`longterm2` snake_case on the wire; `custom` for non-ladder durations) stamped on every snapshot — the authoritative wire-side slot identifier (06-01 §3.1). |
+| `timeframe_secs` | `u64` | Yes | Duration identity in seconds (1..86400) stamped on every snapshot — the authoritative wire-side identity (06-01 §3.1). |
+| `timeframe_label` | `Option<String>` | Wire | Derived duration label (`1s`…`1d`) of the source timeframe, carried alongside `timeframe_secs` so clients never re-derive it. |
 | `pipeline_state` | `CandlePipelineState` | No | `Initializing`/`Loading`/`Live`/`Stale`/`Failed` (DCP-05: `Stale` = no completed candle for `candle_buffer.stale_threshold_secs`; `Failed` = 2× window). Documented in [03-01-06-die-candle-pipeline-states.md](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md). |
 | `indicator_lifecycle` | `map<string, IndicatorLifecycleStatus>` | No | Per-indicator lifecycle states (ILS-01..ILS-16) — see [03-02-15-mme-indicator-lifecycle-states.md](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md). |
 | `mid_price` | `Decimal` | No | Mid of best bid/ask at snapshot time — the **fresh order-book mid** `(best_bid + best_ask) / 2` when the book was updated within the grace window (AUDIT-V8-002; `grace_period_ms` = candle duration), else the candle close. No longer the candle volume/close blend. |

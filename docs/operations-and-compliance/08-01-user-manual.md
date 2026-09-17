@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -144,7 +144,7 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
    credentials inline (Hyperliquid: wallet address + private key; Bitget: API key + secret +
    passphrase) and stores them encrypted via `POST /api/keys`.
 3. **Instances** — add one or more symbols. There are no timeframe pickers (v11.1): every
-   instance runs the **fixed 10-slot ladder** (`micro1` 1 s … `longterm2` 3600 s) displayed
+   instance runs the **fixed 10-slot ladder** (`1s` 1 s … `1h` 3600 s) displayed
    as read-only chips, or skip and add them later from the
    workspace panel.
 4. **Review** — a summary table (mode, exchange, currency, capital/credential status,
@@ -155,7 +155,7 @@ Observe mode requires no capital and no credentials. The execution mode is chose
 **Going Live (v7.1, step by step).**
 
 1. **Set the master key** — start the daemon with `EXCHANGE_SECRET_KEY` set (a long random string). Without it, the engine refuses to store plaintext credentials (`503`).
-2. **Add your exchange credential** — in the Settings → Exchange API Keys panel (or `POST /api/keys`). Field guide:
+2. **Add your exchange credential** — in the Market Monitor **Settings** tab → General settings → Exchange Settings (live mode; the standalone Settings page was erased in v11.9) or `POST /api/keys`. Field guide:
    - **Hyperliquid:** `api_key` = your wallet address (`0x…`), `api_secret` = the wallet private key hex. No passphrase.
    - **Bitget:** `api_key`, `api_secret`, and the API `passphrase` (all three required; the passphrase is set when you create the API key on Bitget).
    Secrets are stored AES-256-GCM encrypted and are never echoed back.
@@ -164,7 +164,7 @@ Observe mode requires no capital and no credentials. The execution mode is chose
 5. **Monitoring:** fills are REST-polled (~1s); equity is fetched from the venue; the safety state and the executor's soft gate behave exactly as in paper mode.
 6. **Going back to paper:** edit `mode = "paper"` in `config.toml` and restart (the mode is fixed at launch — relaunch the session for a new mode). The ledger/positions continue on the same accounting.
 
-**Key rotation & backup.** `POST /api/keys/rotate` (or the Settings panel) re-encrypts every stored secret under a new master key without restarting. `GET /api/keys/backup?passphrase=…` (or the Settings panel) exports a passphrase-keyed encrypted backup — store it offline; restore by re-adding the keys.
+**Key rotation & backup.** `POST /api/keys/rotate` (or the General settings → Exchange Settings panel) re-encrypts every stored secret under a new master key without restarting. `GET /api/keys/backup?passphrase=…` (same panel) exports a passphrase-keyed encrypted backup — store it offline; restore by re-adding the keys.
 
 
 **Reading the Recommendation tab.** The Recommendation Matrix (`AdvisoryMatrix` + `DecisionContext`) is delivered per Market Instance on the WebSocket envelope (`/ws`). Open a Market Instance, switch to the **Recommendation** tab, and you will see —

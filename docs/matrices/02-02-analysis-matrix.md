@@ -1,6 +1,6 @@
 # Analysis Matrix Specification
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 3 — Analysis Layer
@@ -86,7 +86,7 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 
 > **Enum disambiguation.** `MarketRegime.ACCUMULATION/DISTRIBUTION` and `MarketPhase.ACCUMULATION/DISTRIBUTION` (§3.9) are different enums with different derivations; context determines which is meant. `MarketRegime` is a structural-regime classifier derived from ADX, BBWP, and score direction; `MarketPhase` is a Wyckoff-style market-cycle phase derived from volume trend, price trend, and structure slope.
 
-**Canonical decision tree** (priority 1 → 6; first match wins). Uses `score = mtf_overall_score ∈ [-100, 100]`, `adx` = the ADX indicator value on the instance's **decision-role slot** (L1 Metrics, `[0, 100]` — the first-wins representative map reads `strategy.ladder_roles.decision_tf` first (default `longterm2`, the slowest fixed slot) when roles are enabled, else the fastest completed slot), `bbwp` = the BBWP indicator's raw percentile output on the same decision-role slot (L1 Metrics, `[0, 100]`), and `regime_one_bar_ago = prior Assessment Layer regime`.
+**Canonical decision tree** (priority 1 → 6; first match wins). Uses `score = mtf_overall_score ∈ [-100, 100]`, `adx` = the ADX indicator value on the instance's **decision-role slot** (L1 Metrics, `[0, 100]` — the first-wins representative map reads `strategy.ladder_roles.decision_tf` first (default `1h`, the slowest fixed slot) when roles are enabled, else the fastest completed slot), `bbwp` = the BBWP indicator's raw percentile output on the same decision-role slot (L1 Metrics, `[0, 100]`), and `regime_one_bar_ago = prior Assessment Layer regime`.
 
 | Priority | Condition | Regime |
 |----------|-----------|--------|
@@ -227,7 +227,7 @@ The `rationale` and `market_interpretation` strings are generated deterministica
   "volume_score": 78.8,
   "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, expanding volatility, and strong volume participation. Favors trend continuation.",
   "rationale": "state_confidence = |40|/100 + 0.15 (agreement 75%) + 0.10 (3 cross-TF signals) = 0.65",
-  "supporting_signals": ["fast180 (bullish): score +42, TRENDING regime, 3 signals"],
+  "supporting_signals": ["5s80 (bullish): score +42, TRENDING regime, 3 signals"],
   "contradicting_signals": [],
   "timeframes_considered": 4
 }

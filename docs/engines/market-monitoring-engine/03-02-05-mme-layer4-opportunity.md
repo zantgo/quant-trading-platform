@@ -1,6 +1,6 @@
 # MME Layer 4 — Opportunity Layer
 
-**Version:** 11.8 (2026-09-16) — v11: quantity-first precondition defaults (trend 55, breakout 55/45, pullback 45, mean_rev 40, scalp struct 55, squeeze 0.25) + quality bands [75,60,45,25]. See docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — v11: quantity-first precondition defaults (trend 55, breakout 55/45, pullback 45, mean_rev 40, scalp struct 55, squeeze 0.25) + quality bands [75,60,45,25]. See docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 4 of 7

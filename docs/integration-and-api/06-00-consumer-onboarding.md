@@ -1,6 +1,6 @@
 # Consumer Onboarding Summary
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Single-page orientation for engineers integrating with the trading platform's data plane. Read this first; drill into the linked docs as needed.
 
@@ -39,7 +39,7 @@ ws.onmessage = (event) => {
 };
 ```
 
-Maintain **N parallel WebSocket connections** per instance (one per ACTIVE ladder slot — the fastest `[workspace].active_timeframes` (1..=10, default 5) slots of the fixed `micro1`…`longterm2` pool; v11.2; inactive slots emit no frames). Retry policy is canonical in [08-03 connection-resilience](../operations-and-compliance/08-03-connection-resilience.md): the engine WS adapter retries indefinitely (exponential backoff 1 s → 30 s ± 20 % jitter), REST calls cap at 30 attempts, and the frontend WS client caps at 30 attempts before showing an offline banner.
+Maintain **N parallel WebSocket connections** per instance (one per ACTIVE duration — `[workspace].timeframes`, any subset 1..=14 of the `1s`…`1d` pool, default the fastest eight; v11.9; inactive durations emit no frames). Retry policy is canonical in [08-03 connection-resilience](../operations-and-compliance/08-03-connection-resilience.md): the engine WS adapter retries indefinitely (exponential backoff 1 s → 30 s ± 20 % jitter), REST calls cap at 30 attempts, and the frontend WS client caps at 30 attempts before showing an offline banner.
 
 ### 2.3 Pull historical candles
 

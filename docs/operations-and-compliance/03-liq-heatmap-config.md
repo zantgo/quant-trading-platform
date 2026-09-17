@@ -1,6 +1,6 @@
 # Liquidation Heatmap — Leverage Tier Configuration
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 
 **Scope:** Operator workflow for the per-timeframe Liquidation Heatmap tier controls introduced in v7.0-prod (D5 default = 10×, range = [1, 100] integers).
 
@@ -52,7 +52,7 @@ The tier chip's remove button is keyboard accessible (`aria-label="Remove {t}x t
 
 - **UI side:** `tf.heatmapLeverageTiers: number[]` on `TimeframeTelemetry` (`ui/src/types.ts` ~line 681). Each TF slot has its own list.
 - **Default seed:** `[10]` (single chip). New pairs / freshly created instances start with this default.
-- **Save flow:** `WorkspaceSettings.svelte::applySettings()` posts a single body that includes `heatmap_leverage_tiers` inside each fixed ladder slot's indicators section — `micro1.indicators`, `micro2.indicators`, … `longterm2.indicators` (see `body` builder at `ui/src/components/WorkspaceSettings.svelte::buildIndicators`; v11.1 — one section per fixed ladder slot, no `*_term` groups).
+- **Save flow:** `WorkspaceSettings.svelte::applySettings()` posts a single body that includes `heatmap_leverage_tiers` inside each fixed ladder slot's indicators section — `1s.indicators`, `3s.indicators`, … `1h.indicators` (see `body` builder at `ui/src/components/WorkspaceSettings.svelte::buildIndicators`; v11.1 — one section per fixed ladder slot, no `*_term` groups).
 - **Hydrate flow:** `ui/src/lib/api.svelte.ts::advancedIndicators()` reads `ind.heatmap_leverage_tiers` and defensively filters to integers in [1, 100] before writing the array onto the live TF. Malformed entries fall back to `[10]`.
 
 ## 5. Save / refresh contract

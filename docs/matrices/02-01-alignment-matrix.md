@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer
@@ -56,7 +56,7 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `timeframe` | `string` | Stable slot label, e.g. `MICRO1` … `LONGTERM2` (the fixed 10-slot ladder). |
+| `timeframe` | `string` | Stable slot label, e.g. `1S` … `1H` (the fixed 10-slot ladder). |
 | `timeframe_secs` | `u64` | Duration in seconds. |
 | `trend_score` | `f64` | Local trend score `[-1, 1]`. |
 | `momentum_score` | `f64` | Local momentum score `[-1, 1]`. |
@@ -121,9 +121,9 @@ Each contributing timeframe is weighted by its duration, favouring higher timefr
 
 $$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0.2,\ 1.0\right)$$
 
-The divisor is the **slowest active** slot's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest slot always weights `1.0`; shorter slots scale down proportionally. With the full active count (v11.2 `active_timeframes = 10` — every slot of the fixed pool running) the slowest slot is `longterm2` (3600 s), so `divisor = 3600 s` and the proportional fallback's clamp floor (0.2) leaves `micro1`…`macro2` (1–300 s) at the 0.20 floor and `longterm1` at 0.25; at smaller active counts the divisor is the slowest ACTIVE slot (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)).
+The divisor is the **slowest active** slot's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest slot always weights `1.0`; shorter slots scale down proportionally. With the full active count (v11.2 `active_timeframes = 10` — every slot of the fixed pool running) the slowest slot is `1h` (3600 s), so `divisor = 3600 s` and the proportional fallback's clamp floor (0.2) leaves `1s`…`5m` (1–300 s) at the 0.20 floor and `15m` at 0.25; at smaller active counts the divisor is the slowest ACTIVE slot (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)).
 
-**Divisor rule:** `divisor = max({duration_seconds for slot in active_slots})`. On the fixed ladder with every slot ACTIVE (`active_timeframes = 10`): `divisor = 3600 s`; the default count (5) resolves it to `slow1` (30 s).
+**Divisor rule:** `divisor = max({duration_seconds for slot in active_slots})`. On the fixed ladder with every slot ACTIVE (`active_timeframes = 10`): `divisor = 3600 s`; the default count (5) resolves it to `30s` (30 s).
 
 The weighted consensus for a dimension is:
 
@@ -231,20 +231,20 @@ otherwise   → NEUTRAL_MTF
 
 ### 6.1 Worked per-TF decomposition (Volume & Volatility)
 
-The Volume (55.0) and Volatility (60.0) dimension scores above decompose into per-slot signed scores as follows (weights per §4.1 on the fixed 10-slot ladder — `micro1`…`macro2` 0.2 (clamp floor), `longterm1` 0.25, `longterm2` 1.0; Σw = 2.85):
+The Volume (55.0) and Volatility (60.0) dimension scores above decompose into per-slot signed scores as follows (weights per §4.1 on the fixed 10-slot ladder — `1s`…`5m` 0.2 (clamp floor), `15m` 0.25, `1h` 1.0; Σw = 2.85):
 
 | Slot | Weight `w` | Volume `s` | Volatility `s` |
 |-----------|-----------|-----------|----------------|
-| MICRO1 | 0.2 | +0.10 | +0.30 |
-| MICRO2 | 0.2 | +0.10 | +0.30 |
-| FAST1 | 0.2 | +0.10 | +0.15 |
-| FAST2 | 0.2 | +0.10 | +0.15 |
-| SLOW1 | 0.2 | +0.10 | +0.15 |
-| SLOW2 | 0.2 | +0.10 | +0.15 |
-| MACRO1 | 0.2 | +0.10 | +0.15 |
-| MACRO2 | 0.2 | +0.10 | 0.00 |
-| LONGTERM1 | 0.25 | +0.30 | +0.40 |
-| LONGTERM2 | 1.0 | +0.05 | +0.20 |
+| 1S | 0.2 | +0.10 | +0.30 |
+| 3S | 0.2 | +0.10 | +0.30 |
+| 5S | 0.2 | +0.10 | +0.15 |
+| 15S | 0.2 | +0.10 | +0.15 |
+| 30S | 0.2 | +0.10 | +0.15 |
+| 1M | 0.2 | +0.10 | +0.15 |
+| 3M | 0.2 | +0.10 | +0.15 |
+| 5M | 0.2 | +0.10 | 0.00 |
+| 15M | 0.25 | +0.30 | +0.40 |
+| 1H | 1.0 | +0.05 | +0.20 |
 
 - **Signed mean** `m = Σ w·s / Σw` (direction, §3.1): Volume `(0.2·0.80 + 0.25·0.30 + 1.0·0.05) / 2.85 = (0.160 + 0.075 + 0.050) / 2.85 = 0.285 / 2.85 = 0.10` → `mtf_volume_alignment = 0.10`; Volatility `(0.2·1.35 + 0.25·0.40 + 1.0·0.20) / 2.85 = (0.270 + 0.100 + 0.200) / 2.85 = 0.570 / 2.85 = 0.20` → `mtf_volatility_alignment = 0.20`. Both `|m| ≤ 0.3` → `Neutral`.
 - **Score & confidence** (§3.1 `from_signed`): `score = (m + 1) / 2 × 100`, `confidence = |m| × 100`. Volume → `(0.10 + 1) / 2 × 100 = 55.0`, confidence `10.0`; Volatility → `(0.20 + 1) / 2 × 100 = 60.0`, confidence `20.0`. Both states are `Neutral` (neither mean crosses `±0.3`).

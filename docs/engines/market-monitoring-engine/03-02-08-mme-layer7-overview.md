@@ -1,6 +1,6 @@
 # MME Layer 7 — Overview Layer
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved — feature status is tracked in [README §Feature Status](../../README.md).
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 7 of 7
@@ -33,7 +33,7 @@ $$\text{breadth\_pct} = \frac{\text{long\_count} - \text{short\_count}}{\text{to
 
 This drives `global_market_bias` (STRONG_BULLISH … MIXED), `market_breadth` (STRONG_POSITIVE … STRONG_NEGATIVE), and `market_synchronization` (HIGHLY_SYNCHRONIZED … HIGHLY_FRAGMENTED). Bands in [Overview Matrix §3](../../matrices/02-09-overview-matrix.md).
 
-L7 aggregates **all ACTIVE timeframe windows** per instance (the fastest `[workspace].active_timeframes` slots of the fixed `micro1`…`longterm2` pool — I-2, v6.10.18; v11.1 fixed the 10-slot ladder, v11.2 makes the count variable 1..=10); the legacy slow-tier-300s-only basis is retired. Per-window advisories feed the breadth / bias / opportunity / regime tallies; per-symbol scalars (confidence, overall risk) are the mean over the windows; categorical per-asset fields are the mode (ties resolve to the fastest window).
+L7 aggregates **all ACTIVE timeframe windows** per instance (the fastest `[workspace].active_timeframes` slots of the fixed `1s`…`1h` pool — I-2, v6.10.18; v11.1 fixed the 10-slot ladder, v11.2 makes the count variable 1..=10); the legacy slow-tier-300s-only basis is retired. Per-window advisories feed the breadth / bias / opportunity / regime tallies; per-symbol scalars (confidence, overall risk) are the mean over the windows; categorical per-asset fields are the mode (ties resolve to the fastest window).
 
 ---
 

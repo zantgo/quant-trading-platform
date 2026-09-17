@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -15,7 +15,7 @@ Serde casing on the wire is **per-enum**, split into two families. When document
 | Family | Rule | Enums |
 |--------|------|-------|
 | **PascalCase** (no `#[serde(rename_all)]`) | JSON values like `"StrongBullish"`, `"Healthy"`, `"TrendingBull"` | `AlignState`, `MarketBias`, `MarketRegime`, `TrendAssessment`, `MomentumAssessment`, `StructureAssessment`, `VolatilityAssessment`, `VolumeAssessment`, `MarketPhase`, `QualityLevel`, `SetupQuality`, `OpportunityType`, `TimeHorizon`-family (see note), `RiskLevel`, `RiskState`, `SignalKind`, `SignalDirection`, `SignalStatus`, `IndicatorLifecycleState`, `DirectionalGuidance`, `MarketStance`, `OpportunityClass`, `StrategyEnvironment`, `EntryGuidance`, `ExitGuidance`, `ProtectionStrategy`, `TargetStrategy` |
-| **SCREAMING_SNAKE_CASE** (has `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]`) | JSON values like `"TREND_RIDING"`, `"STRONG_BULLISH"` | `DirectionFamily`, `TradeViability`, `LevelSource`, `CandlePipelineState`, `GlobalBias`, `MarketBreadth`, `SyncLevel`, `HealthLevel`, `SequenceIntegrity`, `ReconstructionMethod`, all liquidity enums (`LiquiditySignalKind`, `LiquidationSide`, `ClusterKind`, `CascadeState`, `ClusterRefreshStatus`), `TimeframeSlot` (snake_case custom) |
+| **SCREAMING_SNAKE_CASE** (has `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]`) | JSON values like `"TREND_RIDING"`, `"STRONG_BULLISH"` | `DirectionFamily`, `TradeViability`, `LevelSource`, `CandlePipelineState`, `GlobalBias`, `MarketBreadth`, `SyncLevel`, `HealthLevel`, `SequenceIntegrity`, `ReconstructionMethod`, all liquidity enums (`LiquiditySignalKind`, `LiquidationSide`, `ClusterKind`, `CascadeState`, `ClusterRefreshStatus`) |
 | **Plain string / Debug-format** | Not serde enums at all | `time_horizon` (String, SCREAMING values), `AssetRank.bias` / `regime` (Rust `Debug`-format PascalCase), `mtf_overall_label` / `mtf_label` (literal `STRONG_BULL_MTF` … strings), `regime_distribution` / `opportunity_distribution` keys (custom key sets) |
 
 > **`TimeHorizon` note.** No `TimeHorizon` enum exists in the Rust code — `OpportunityMatrix.time_horizon` is a `String` carrying the SCREAMING values (`"SCALP"` / `"INTRADAY"` / `"SWING"` / `"POSITION"`).

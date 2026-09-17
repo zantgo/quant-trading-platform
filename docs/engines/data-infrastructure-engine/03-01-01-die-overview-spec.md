@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — Overview Specification
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document specifies the boundaries, responsibilities, layer structure, exchange adapters, performance targets, and connection-monitoring model of the Data Infrastructure Engine — the first engine in the platform's unidirectional cascade. The DIE ingests, normalizes, validates, and distributes exchange telemetry.
@@ -19,11 +19,11 @@ The DIE is the **sole ingress point** for external market data. It owns everythi
 
 | Term | Definition | Source |
 |------|------------|--------|
-| **Micro** | The family name for the fastest ladder slots (`micro1` 1 s / `micro2` 3 s). The base slot `micro1` (1 s) is the fastest of the ten fixed ladder slots (v11.1 — the ladder is fixed, not configurable). | [01-04-timeframe-model.md §1](../../conceptual-foundations/01-04-timeframe-model.md) |
-| **Sub-minute** | The duration class for any slot shorter than 60s — the five live-only slots `micro1` (1 s), `micro2` (3 s), `fast1` (5 s), `fast2` (15 s), `slow1` (30 s). | [08-04-candle-reconstruction.md](../../operations-and-compliance/08-04-candle-reconstruction.md) |
+| **Micro** | The family name for the fastest ladder slots (`1s` 1 s / `3s` 3 s). The base slot `1s` (1 s) is the fastest of the ten fixed ladder slots (v11.1 — the ladder is fixed, not configurable). | [01-04-timeframe-model.md §1](../../conceptual-foundations/01-04-timeframe-model.md) |
+| **Sub-minute** | The duration class for any slot shorter than 60s — the five live-only slots `1s` (1 s), `3s` (3 s), `5s` (5 s), `15s` (15 s), `30s` (30 s). | [08-04-candle-reconstruction.md](../../operations-and-compliance/08-04-candle-reconstruction.md) |
 | **<1m** | Shorthand for the sub-minute class. Identical meaning. | [08-04-candle-reconstruction.md](../../operations-and-compliance/08-04-candle-reconstruction.md) |
 
-The three terms refer to the same reconstruction ladder in different contexts: "micro" identifies the fastest slot family; "sub-minute" / "<1m" describes the duration class for triggering `ExponentialMovingAverage` or `LinearExtrapolation` reconstruction (see [08-04 §Two Strategies](../../operations-and-compliance/08-04-candle-reconstruction.md)). On the fixed 10-slot ladder (v11.1) the base slot `micro1` is 1 s — always sub-minute — and the five sub-minute slots are live-only (never REST-backfilled); the five archive-eligible slots (`slow2` 60 s … `longterm2` 3600 s) are ≥ 1 m and need no reconstruction-based synthesis. Only ACTIVE slots (v11.2 — the fastest `[workspace].active_timeframes` slots) have pipelines at all: candle reconstruction, pipelines, and bootstrap fetches exist exclusively for slots in the active set; inactive slots are inert (no task, no socket, no fetch).
+The three terms refer to the same reconstruction ladder in different contexts: "micro" identifies the fastest slot family; "sub-minute" / "<1m" describes the duration class for triggering `ExponentialMovingAverage` or `LinearExtrapolation` reconstruction (see [08-04 §Two Strategies](../../operations-and-compliance/08-04-candle-reconstruction.md)). On the fixed 10-slot ladder (v11.1) the base slot `1s` is 1 s — always sub-minute — and the five sub-minute slots are live-only (never REST-backfilled); the five archive-eligible slots (`1m` 60 s … `1h` 3600 s) are ≥ 1 m and need no reconstruction-based synthesis. Only ACTIVE slots (v11.2 — the fastest `[workspace].active_timeframes` slots) have pipelines at all: candle reconstruction, pipelines, and bootstrap fetches exist exclusively for slots in the active set; inactive slots are inert (no task, no socket, no fetch).
 
 ### 1.1 Responsibilities
 
