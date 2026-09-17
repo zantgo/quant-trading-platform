@@ -2444,12 +2444,9 @@ async fn async_main() {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as i64)
                 .unwrap_or(0);
-            let _ = database_storage::queries::sessions::interrupt_session(
-                &shutdown_pool,
-                sid,
-                ended,
-            )
-            .await;
+            let _ =
+                database_storage::queries::sessions::interrupt_session(&shutdown_pool, sid, ended)
+                    .await;
         }
         eprintln!("✅ Exiting cleanly");
         std::process::exit(0);
