@@ -2435,14 +2435,21 @@ async fn async_main() {
         }
         // Let cancellation propagate + the logger drain the telemetry queue.
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        // v10: close the session row (ended_at + status).
+        // v10/v11.8: a signal stop is an OPERATOR RESTART, not a finalize —
+        // mark the session row 'interrupted' so the next boot offers
+        // Recover / Discard. Only the in-app Quit button finalizes
+        // (status = 'closed' via quit_session).
         if let Some(sid) = shutdown_session {
             let ended = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as i64)
                 .unwrap_or(0);
-            let _ = database_storage::queries::sessions::close_session(&shutdown_pool, sid, ended)
-                .await;
+            let _ = database_storage::queries::sessions::interrupt_session(
+                &shutdown_pool,
+                sid,
+                ended,
+            )
+            .await;
         }
         eprintln!("✅ Exiting cleanly");
         std::process::exit(0);

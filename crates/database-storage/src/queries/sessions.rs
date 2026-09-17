@@ -163,3 +163,20 @@ pub async fn latest_interrupted_session(
     .fetch_optional(pool)
     .await
 }
+
+/// v11.8: mark the session interrupted (Ctrl+C / SIGINT / SIGTERM path).
+/// Unlike the Quit button (status = 'closed', workspace wiped), a signal
+/// stop is an operator restart: instances/settings are retained and the
+/// next boot offers Recover / Discard.
+pub async fn interrupt_session(
+    pool: &SqlitePool,
+    id: i64,
+    ended_at_ms: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE sessions SET ended_at_ms = ?2, status = 'interrupted' WHERE id = ?1")
+        .bind(id)
+        .bind(ended_at_ms)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
