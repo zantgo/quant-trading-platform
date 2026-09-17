@@ -1,6 +1,6 @@
 # DIE Historical Fetch Policy
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** network-adapters + portfolio-supervisor
@@ -95,7 +95,7 @@ merged    = dedup_by_start_time_ms(rest_rows ++ db_rows)   // newer DB wins on o
           = truncate_to(target_count)
 ```
 
-The DB query uses `(symbol, timeframe_secs)` as the key today (existing schema in `06-02`); once the `timeframe_slot` column migration from [03-01-06 §5](03-01-06-die-candle-pipeline-states.md) ships, the query joins on `(symbol, timeframe_slot, timeframe_secs)` to disambiguate same-duration slots across instances.
+The DB query uses `(symbol, timeframe_secs)` as the key (existing schema in `06-02`) — v11.9 made the duration the identity, so no slot column is needed.
 
 ## §6 Configuration schema
 

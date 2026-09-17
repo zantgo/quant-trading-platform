@@ -1,6 +1,6 @@
 # MME Layer 2 — Alignment Layer
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 2 of 7
@@ -11,7 +11,7 @@
 
 ## 1. Purpose
 
-The Alignment Layer answers *"do the timeframes agree?"*. It consumes the set of Metrics Matrices for a symbol — one per ACTIVE ladder slot (v11.2 — the fastest `[workspace].active_timeframes` slots, 1..=10 default 5, of the fixed `micro1`…`longterm2` pool) — and produces the 10-dimensional [Alignment Matrix](../../matrices/02-01-alignment-matrix.md).
+The Alignment Layer answers *"do the timeframes agree?"*. It consumes the set of Metrics Matrices for a symbol — one per ACTIVE ladder slot (v11.2 — the fastest `[workspace].active_timeframes` slots, 1..=10 default 5, of the fixed `1s`…`1h` pool) — and produces the 10-dimensional [Alignment Matrix](../../matrices/02-01-alignment-matrix.md).
 
 ```
 [Metrics Matrix × 10 timeframes] ──► ALIGNMENT LAYER (L2) ──► [Alignment Matrix]
@@ -41,7 +41,7 @@ Higher timeframes carry more weight in the consensus:
 
 $$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0.2,\ 1.0\right)$$
 
-The divisor is the **slowest active slot's duration** (see [Timeframe Model §4](../../conceptual-foundations/01-04-timeframe-model.md) and [Alignment Matrix §4.1](../../matrices/02-01-alignment-matrix.md)). The slowest active slot always weights `1.0`; shorter slots scale down proportionally. On the fixed 10-slot ladder the divisor is the slowest ACTIVE slot: `longterm2` (3600 s) at the full count (N = 10), `slow1` (30 s) at the default N = 5 (v11.2). At N = 10 the fallback leaves `micro1`…`macro2` (1–300 s) at the 0.2 clamp floor and `longterm1` (900 s) at `0.25`.
+The divisor is the **slowest active slot's duration** (see [Timeframe Model §4](../../conceptual-foundations/01-04-timeframe-model.md) and [Alignment Matrix §4.1](../../matrices/02-01-alignment-matrix.md)). The slowest active slot always weights `1.0`; shorter slots scale down proportionally. On the fixed 10-slot ladder the divisor is the slowest ACTIVE slot: `1h` (3600 s) at the full count (N = 10), `30s` (30 s) at the default N = 5 (v11.2). At N = 10 the fallback leaves `1s`…`5m` (1–300 s) at the 0.2 clamp floor and `15m` (900 s) at `0.25`.
 
 **Divisor rule.** `divisor = max({duration_seconds for slot in active_slots})` — the slowest active slot wins. On the fixed ladder with every slot ACTIVE (N = 10) this resolves to `divisor = 3600 s`; smaller active counts resolve it to the slowest ACTIVE slot (v11.2). The proportional fallback formula is retained only for hypothetical non-ladder pipeline sets.
 

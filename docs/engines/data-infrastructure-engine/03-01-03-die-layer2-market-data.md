@@ -1,6 +1,6 @@
 # DIE Layer 2 — Market Data Layer
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 2 of 4
@@ -85,7 +85,7 @@ $$\text{interval\_start} = \left\lfloor \frac{\text{timestamp\_ms}}{\text{durati
 
 For example, a 60 s candle for a trade at `123456 ms` aligns to `120000 ms`.
 
-**UTC boundary map** (closing instant of each candle, by tier): candle boundaries are *exact epoch-duration multiples of UTC*. `micro60` closes at `:00.000` of every minute (the next minute's start); `fast180` closes at `:03:00.000`, `:06:00.000`, `:09:00.000`, … (top of every third minute); `slow300` closes at `:05:00.000`, `:10:00.000`, `:15:00.000`, … (top of every fifth minute); `macro900` closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, `:45:00.000` of every hour. The aggregator formula `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` deterministically produces these boundaries, so candles always close on the integer epoch multiple, never at a `.999` sub-second offset.
+**UTC boundary map** (closing instant of each candle, by tier): candle boundaries are *exact epoch-duration multiples of UTC*. `micro60` closes at `:00.000` of every minute (the next minute's start); `5s80` closes at `:03:00.000`, `:06:00.000`, `:09:00.000`, … (top of every third minute); `slow300` closes at `:05:00.000`, `:10:00.000`, `:15:00.000`, … (top of every fifth minute); `macro900` closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, `:45:00.000` of every hour. The aggregator formula `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` deterministically produces these boundaries, so candles always close on the integer epoch multiple, never at a `.999` sub-second offset.
 
 **Clock-drift budget:** Local server system clocks execute continuous NTP polling to keep local time drift under $\le 50 \text{ microseconds}$ of UTC, ensuring locally computed indicator values match exchange historical benchmarks to the millisecond. Implemented in `crates/network-adapters/src/clock_monitor.rs` (spawned from `main.rs`; configured via the `[clock_monitor]` section of `config.toml`). See [Global Architecture §2.1](../../conceptual-foundations/01-02-global-architecture.md) and [Timeframe Model §3.1](../../conceptual-foundations/01-04-timeframe-model.md).
 
@@ -97,31 +97,31 @@ The `live` candle returned on every tick is the **shadow** value — the real-ti
 
 ## 4. Multi-Timeframe Aggregation
 
-The platform monitors the ACTIVE fixed-ladder timeframes per instance (the fastest `[workspace].active_timeframes` slots of the ten-slot pool, v11.2). The base slot (`micro1`, 1 s) is generated directly from ticks; the higher slots are rolled up.
+The platform monitors the ACTIVE fixed-ladder timeframes per instance (the fastest `[workspace].active_timeframes` slots of the ten-slot pool, v11.2). The base slot (`1s`, 1 s) is generated directly from ticks; the higher slots are rolled up.
 
 ### 4.1 Standard Timeframe Ladder (fixed — v11.1)
 
 | Slot | Duration | Source |
 |------|----------|--------|
-| `micro1` | 1 s | Direct from ticks (`CandleGenerator`). |
-| `micro2` | 3 s | Rollup / dedicated generator. |
-| `fast1` | 5 s | Rollup / dedicated generator. |
-| `fast2` | 15 s | Rollup / dedicated generator. |
-| `slow1` | 30 s | Rollup / dedicated generator. |
-| `slow2` | 60 s (1 m) | Rollup / dedicated generator. |
-| `macro1` | 180 s (3 m) | Rollup / dedicated generator. |
-| `macro2` | 300 s (5 m) | Rollup / dedicated generator. |
-| `longterm1` | 900 s (15 m) | Rollup / dedicated generator. |
-| `longterm2` | 3600 s (1 h) | Rollup / dedicated generator. |
+| `1s` | 1 s | Direct from ticks (`CandleGenerator`). |
+| `3s` | 3 s | Rollup / dedicated generator. |
+| `5s` | 5 s | Rollup / dedicated generator. |
+| `15s` | 15 s | Rollup / dedicated generator. |
+| `30s` | 30 s | Rollup / dedicated generator. |
+| `1m` | 60 s (1 m) | Rollup / dedicated generator. |
+| `3m` | 180 s (3 m) | Rollup / dedicated generator. |
+| `5m` | 300 s (5 m) | Rollup / dedicated generator. |
+| `15m` | 900 s (15 m) | Rollup / dedicated generator. |
+| `1h` | 3600 s (1 h) | Rollup / dedicated generator. |
 
-The ladder is **fixed** (`config_models::FIXED_TF_LADDER`) — the legacy `[slow_timeframe]` / `[macro_timeframe]` config keys are parsed but ignored (boot warning).
+The pool is **closed** (`core_domain::SUPPORTED_DURATIONS`) and the ACTIVE set is operator-chosen via `[workspace].timeframes` (v11.9) — legacy ladder keys are hard-rejected at load with a migration message.
 
 ### 4.2 Higher-Timeframe Aggregation
 
-The `CandleAggregator` (`crates/market-analyzer/src/candle_aggregator.rs`) rolls the base `micro1` candle stream into the higher fixed-ladder buckets (`micro2` … `longterm2`). The target durations are the fixed ladder constants — no longer read from `config.toml` (`[fast_timeframe.duration_seconds]` and friends are legacy, ignored since v11.1).
+The `CandleAggregator` (`crates/market-analyzer/src/candle_aggregator.rs`) rolls the base `1s` candle stream into the higher fixed-ladder buckets (`3s` … `1h`). The target durations are the fixed ladder constants — no longer read from `config.toml` (`[fast_timeframe.duration_seconds]` and friends are legacy, ignored since v11.1).
 
 ```
-micro1 close ──► process_base_candle() ──► (Option<micro2>, …, Option<longterm2>)
+1s close ──► process_base_candle() ──► (Option<3s>, …, Option<1h>)
              │
              ├─ update pending_<slot>: high=max, low=min, close=latest, volume+=, count+=
              └─ on interval rollover: emit completed <slot> candle, reset pending

@@ -1,6 +1,6 @@
 # 03-02-13: MME Volume Profile Layer (L2.6 — Volume Profile Distribution)
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layer:** L2.6 (Volume Profile Distribution)
@@ -41,7 +41,7 @@ populated only when the indicator has accumulated at least half its window).
 ```rust
 pub struct VolumeProfileSnapshot {
     pub symbol: String,
-    pub timeframe_slot: String,        // "micro" | "fast" | "slow" | "macro"
+    pub timeframe_label: String,       // "1s" … "1d" (derived duration label)
     pub timeframe_secs: u64,
     pub bins: Vec<VolumeProfileBin>,    // sorted ascending by price_low
     pub poc_price: f64,                 // midpoint of the highest-volume bin
@@ -175,7 +175,7 @@ matching TypeScript shape lives in `ui/src/types.ts`:
 ```ts
 export interface VolumeProfileSnapshot {
     symbol: string;
-    timeframe_slot: string;
+    timeframe_label: string;
     timeframe_secs: number;
     bins: VolumeProfileBin[];
     poc_price: number;

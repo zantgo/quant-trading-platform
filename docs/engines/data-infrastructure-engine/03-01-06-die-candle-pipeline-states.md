@@ -1,6 +1,6 @@
 # DIE Candle Pipeline State Machine
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** market-analyzer + portfolio-supervisor
@@ -98,8 +98,7 @@ CREATE TABLE IF NOT EXISTS candle_pipeline_state_events (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   instance_id    TEXT NOT NULL,
   symbol         TEXT NOT NULL,
-  timeframe_slot TEXT NOT NULL
-                 CHECK (timeframe_slot IN ('micro','fast','slow','macro')),
+  timeframe_secs INTEGER NOT NULL,  -- duration identity (v11.9)
   from_state     TEXT CHECK (from_state IS NULL OR
                  from_state IN ('INITIALIZING','LOADING','LIVE','STALE','FAILED')),
   to_state       TEXT NOT NULL
@@ -115,7 +114,7 @@ CREATE TABLE IF NOT EXISTS candle_pipeline_state_events (
   timestamp_ms   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pipeline_state_events_lookup
-  ON candle_pipeline_state_events(instance_id, timeframe_slot, timestamp_ms DESC);
+  ON candle_pipeline_state_events(instance_id, timeframe_secs, timestamp_ms DESC);
 ```
 
 Active-table count in `06-02 §3` changes **26 → 27**.

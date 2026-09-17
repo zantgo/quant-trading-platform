@@ -1,6 +1,6 @@
 # UI Chart Component Map
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Per-indicator mapping from registry key to frontend rendering location. Companion to [UI Overview](07-01-ui-overview-spec.md) and [Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -113,8 +113,8 @@ A generic pane is a single canvas shared by 2-4 oscillators or derivatives. The 
 |--------------|---------------|-------------|
 | Price mode | `CANDLES` / `LINE` | `pair.priceLineMode` |
 | EMA stack | `FAST` / `MED` / `SLOW` / `LONG` | `pair.showEma{Fast,Medium,Slow,Long}` |
-| Channel overlays | `VWAP` / `BOLLINGER` / `SUPERTREND` / `KELTNER` / `DONCHIAN` | `pair.terms.micro1.show{Vwap,Bb,Supertrend,Keltner,Donchian}` (synced across the ACTIVE TFs via `syncAll`, v11.2) |
-| Chart overlays (opt-in) | `LIQ HEATMAP` / `VOL PROFILE` | `pair.terms.micro1.show{LiqHeatmap,VolumeProfile}` (synced across the ACTIVE TFs via `syncAll`, v11.2; both default to `false`) |
+| Channel overlays | `VWAP` / `BOLLINGER` / `SUPERTREND` / `KELTNER` / `DONCHIAN` | `pair.terms.1s.show{Vwap,Bb,Supertrend,Keltner,Donchian}` (synced across the ACTIVE TFs via `syncAll`, v11.2) |
+| Chart overlays (opt-in) | `LIQ HEATMAP` / `VOL PROFILE` | `pair.terms.1s.show{LiqHeatmap,VolumeProfile}` (synced across the ACTIVE TFs via `syncAll`, v11.2; both default to `false`) |
 
 Toggles write directly to `TimeframeTelemetry` fields — they are runtime overlays, not config-level settings. The dedicated panes (§2) are NOT toggleable from this bar; each pane has its own visibility header on its own canvas.
 

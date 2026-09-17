@@ -1,6 +1,6 @@
 # 📐 Session Pivot Points
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction
@@ -54,7 +54,7 @@ Levels remain constant until the next session begins. The calculator accumulates
 ---
 
 ## 3. Multi-Timeframe Consistency
-Pivot Points are computed **independently on every ACTIVE fixed-ladder timeframe** (the fastest `[workspace].active_timeframes` slots of the `micro1` … `longterm2` pool, v11.2), but every timeframe references the **same UTC-daily session boundary**. This keeps the published levels identical across charts within a given day while still allowing each timeframe's session accumulation to warm independently.
+Pivot Points are computed **independently on every ACTIVE fixed-ladder timeframe** (the fastest `[workspace].active_timeframes` slots of the `1s` … `1h` pool, v11.2), but every timeframe references the **same UTC-daily session boundary**. This keeps the published levels identical across charts within a given day while still allowing each timeframe's session accumulation to warm independently.
 
 ---
 

@@ -1,6 +1,6 @@
 # TAE Layer ④ — Unified ExecutionEngine
 
-**Version:** 11.8 (2026-09-16) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
+**Version:** 11.9 (2026-09-17) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
 **Status:** Implemented (v11) — Hyperliquid + Bitget live backends, quantity-first execution model.
 **Previous:** 11.0 (2026-08-26) — v7 redesign + v7.1 Bitget.
 **Engine:** Trade Automation Engine (TAE)
@@ -115,16 +115,16 @@ Both are wired in `SetupPlan::effective()`; `arm_bracket` arms at the floored/ca
 
 ### 4b. Ladder Roles (v11 — TF-role separation)
 
-One strategy, ten fixed slots (pool), four roles. When the fastest slot is sub-hour the roles diverge, otherwise they collapse to legacy (all = fastest slot). The configured extremes resolve over the ACTIVE snapshots — the fastest `[workspace].active_timeframes` slots (v11.2): with the default N = 5, decision/stop fall back from `longterm2` to the slowest ACTIVE slot (`slow1`); at N = 1 all roles collapse onto `micro1`. See [03-03-08 §2](03-03-08-tae-ladder-roles.md).
+One strategy, ten fixed slots (pool), four roles. When the fastest slot is sub-hour the roles diverge, otherwise they collapse to legacy (all = fastest slot). The configured extremes resolve over the ACTIVE snapshots — the fastest `[workspace].active_timeframes` slots (v11.2): with the default N = 5, decision/stop fall back from `1h` to the slowest ACTIVE slot (`30s`); at N = 1 all roles collapse onto `1s`. See [03-03-08 §2](03-03-08-tae-ladder-roles.md).
 
-| Role | Default (`micro1 < 1h` — always true on the fixed ladder) | Feeds |
+| Role | Default (`1s < 1h` — always true on the fixed ladder) | Feeds |
 |------|------------------------|-------|
-| `decision_tf` | `longterm2` | L3 `bias`/`regime`/`market_quality`, L5 `overall_risk`/`market_stance`, `confidence_assessment` |
-| `entry_tf` | `micro1` | L4 zones + entry timing |
-| `stop_tf` | `longterm2` | SL floor |
-| `target_tf` | `micro1` | TP zone |
+| `decision_tf` | `1h` | L3 `bias`/`regime`/`market_quality`, L5 `overall_risk`/`market_stance`, `confidence_assessment` |
+| `entry_tf` | `1s` | L4 zones + entry timing |
+| `stop_tf` | `1h` | SL floor |
+| `target_tf` | `1s` | TP zone |
 
-Config: `[workspace.strategies.<name>.ladder_roles] enabled, decision_tf, entry_tf, stop_tf, target_tf` (schema-driven, `StrategyForm` renders enums; values are the fixed slot names `micro1`…`longterm2`). Live (`analyzer/mod.rs:3671`) and replay (`backtesting-engine/src/historical.rs:459`) pass the same role-selected snapshots → parity by construction.
+Config: `[workspace.strategies.<name>.ladder_roles] enabled, decision_tf, entry_tf, stop_tf, target_tf` (schema-driven, `StrategyForm` renders enums; values are the fixed slot names `1s`…`1h`). Live (`analyzer/mod.rs:3671`) and replay (`backtesting-engine/src/historical.rs:459`) pass the same role-selected snapshots → parity by construction.
 
 ---
 

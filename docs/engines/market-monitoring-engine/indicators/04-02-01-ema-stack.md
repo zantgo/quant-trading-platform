@@ -1,12 +1,12 @@
 # 📈 Exponential Moving Averages (EMA 10, 50, 100, 200) Protocol
 
-**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction
 Exponential Moving Averages (EMAs) are trend-following, lagging indicators that apply more weight to the most recent price data. Unlike Simple Moving Averages (SMAs), EMAs react more quickly to price changes, making them useful for identifying immediate momentum shifts while smoothing out short-term market noise.
 
-This strategy uses a structured, four-EMA-line stacking model to classify market structure, filter out low-probability entries, locate dynamic support and resistance, and trigger structural position invalidations. (The indicator is computed independently on every fixed ladder slot — `micro1`…`longterm2` —; "four" refers to the EMA lines within one slot's stack, not to timeframes.)
+This strategy uses a structured, four-EMA-line stacking model to classify market structure, filter out low-probability entries, locate dynamic support and resistance, and trigger structural position invalidations. (The indicator is computed independently on every fixed ladder slot — `1s`…`1h` —; "four" refers to the EMA lines within one slot's stack, not to timeframes.)
 
 ---
 
