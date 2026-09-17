@@ -104,9 +104,21 @@ pub fn compute_risk_metrics_from_curve_with_rf(
     let (var_95, es_95) = compute_var_es(&daily_returns);
     // v10.2 institutional extensions
     let cagr_pct = compute_cagr(&values, equity);
-    let ann_vol_pct = if daily_vol > 0.0 { Some(daily_vol * TRADING_DAYS_PER_YEAR.sqrt() * 100.0) } else { None };
-    let sterling = if avg_dd_pct > 0.0 { Some(annualized_return * 100.0 / avg_dd_pct) } else { None };
-    let burke = if ulcer > 0.0 { Some(annualized_return * 100.0 / ulcer) } else { None };
+    let ann_vol_pct = if daily_vol > 0.0 {
+        Some(daily_vol * TRADING_DAYS_PER_YEAR.sqrt() * 100.0)
+    } else {
+        None
+    };
+    let sterling = if avg_dd_pct > 0.0 {
+        Some(annualized_return * 100.0 / avg_dd_pct)
+    } else {
+        None
+    };
+    let burke = if ulcer > 0.0 {
+        Some(annualized_return * 100.0 / ulcer)
+    } else {
+        None
+    };
     let omega = compute_omega_ratio(&daily_returns);
     let gain_pain = compute_gain_to_pain_ratio(&daily_returns);
     let tail = compute_tail_ratio(&daily_returns);
@@ -339,7 +351,11 @@ fn compute_omega_ratio(returns: &[f64]) -> Option<f64> {
     let gains: f64 = returns.iter().filter(|&&r| r > 0.0).sum();
     let losses: f64 = returns.iter().filter(|&&r| r < 0.0).map(|r| r.abs()).sum();
     if losses == 0.0 {
-        return if gains > 0.0 { Some(f64::INFINITY) } else { None };
+        return if gains > 0.0 {
+            Some(f64::INFINITY)
+        } else {
+            None
+        };
     }
     Some(gains / losses)
 }
@@ -351,7 +367,11 @@ fn compute_gain_to_pain_ratio(returns: &[f64]) -> Option<f64> {
     let gains: f64 = returns.iter().filter(|&&r| r > 0.0).sum();
     let losses: f64 = returns.iter().filter(|&&r| r < 0.0).map(|r| r.abs()).sum();
     if losses == 0.0 {
-        return if gains > 0.0 { Some(f64::INFINITY) } else { None };
+        return if gains > 0.0 {
+            Some(f64::INFINITY)
+        } else {
+            None
+        };
     }
     Some(gains / losses)
 }

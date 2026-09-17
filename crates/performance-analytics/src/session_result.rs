@@ -8,10 +8,12 @@
 use serde::Serialize;
 use sqlx::SqlitePool;
 
-use core_domain::performance::{RiskAnalyticsRow, StrategyAnalyticsRow};
 use crate::risk_analytics::compute_risk_metrics_from_curve_with_rf;
-use crate::strategy_analytics::{AnalyticsParams, compare_direction_symmetry, compute_setup_analytics};
+use crate::strategy_analytics::{
+    compare_direction_symmetry, compute_setup_analytics, AnalyticsParams,
+};
 use core_domain::performance::TradeAnalyticsRecord;
+use core_domain::performance::{RiskAnalyticsRow, StrategyAnalyticsRow};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionTrade {
@@ -115,12 +117,14 @@ pub async fn compile_session_result(
     let (mode, exchange, currency, capital_opt, started_ms, ended_opt) = sess?;
     let portfolio_capital_usd = capital_opt.unwrap_or(workspace.portfolio_capital_usd);
     let from_secs = started_ms.div_euclid(1000);
-    let to_secs = ended_opt.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(started_ms)
-    }).div_euclid(1000);
+    let to_secs = ended_opt
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(started_ms)
+        })
+        .div_euclid(1000);
 
     // ── trades for this session (session_id filter, fallback to all if nulls)
     let rows: Vec<(String, i64, i64, f64, f64, f64, f64, f64, f64, String)> =
@@ -151,12 +155,28 @@ pub async fn compile_session_result(
     let trade_rows = if rows.is_empty() { rows_fallback } else { rows };
 
     let mut trades: Vec<SessionTrade> = Vec::new();
-    for (symbol, entry_ms, exit_ms, entry_price, exit_price, size, pnl, roi_pct, commission_fees, trigger_source) in &trade_rows {
+    for (
+        symbol,
+        entry_ms,
+        exit_ms,
+        entry_price,
+        exit_price,
+        size,
+        pnl,
+        roi_pct,
+        commission_fees,
+        trigger_source,
+    ) in &trade_rows
+    {
         let hold_secs = (exit_ms - entry_ms).div_euclid(1000).max(0);
         let ts_close_secs = exit_ms.div_euclid(1000);
         let ts_entry_secs = entry_ms.div_euclid(1000);
         // r multiple = roi / 1% (1R = 1% per backtest convention)
-        let r_multiple = if roi_pct.is_finite() { roi_pct / 1.0 } else { 0.0 };
+        let r_multiple = if roi_pct.is_finite() {
+            roi_pct / 1.0
+        } else {
+            0.0
+        };
         trades.push(SessionTrade {
             ts_close_secs,
             timestamp: ts_close_secs,
@@ -205,44 +225,81 @@ pub async fn compile_session_result(
     let losses: Vec<&SessionTrade> = trades.iter().filter(|t| t.pnl < 0.0).collect();
     let win_count = wins.len() as u32;
     let loss_count = losses.len() as u32;
-    let win_rate = if total > 0 { win_count as f64 / total as f64 * 100.0 } else { 0.0 };
+    let win_rate = if total > 0 {
+        win_count as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    };
     let gross_profit: f64 = wins.iter().map(|t| t.pnl).sum();
     let gross_loss: f64 = losses.iter().map(|t| t.pnl.abs()).sum();
     let profit_factor = if gross_loss > 0.0 {
         let v = gross_profit / gross_loss;
-        if v.is_finite() { Some(v) } else { None }
-    } else if gross_profit > 0.0 { None } else { Some(0.0) };
-    let avg_profit = if win_count > 0 { gross_profit / win_count as f64 } else { 0.0 };
-    let avg_loss = if loss_count > 0 { gross_loss / loss_count as f64 } else { 0.0 };
-    let avg_win_loss_ratio = if avg_loss > 0.0 { avg_profit / avg_loss } else { 0.0 };
-    let avg_roi_pct = if total > 0 { trades.iter().map(|t| t.roi_pct).sum::<f64>() / total as f64 } else { 0.0 };
-    let avg_hold_secs = if total > 0 { trades.iter().map(|t| t.hold_secs as f64).sum::<f64>() / total as f64 } else { 0.0 };
+        if v.is_finite() {
+            Some(v)
+        } else {
+            None
+        }
+    } else if gross_profit > 0.0 {
+        None
+    } else {
+        Some(0.0)
+    };
+    let avg_profit = if win_count > 0 {
+        gross_profit / win_count as f64
+    } else {
+        0.0
+    };
+    let avg_loss = if loss_count > 0 {
+        gross_loss / loss_count as f64
+    } else {
+        0.0
+    };
+    let avg_win_loss_ratio = if avg_loss > 0.0 {
+        avg_profit / avg_loss
+    } else {
+        0.0
+    };
+    let avg_roi_pct = if total > 0 {
+        trades.iter().map(|t| t.roi_pct).sum::<f64>() / total as f64
+    } else {
+        0.0
+    };
+    let avg_hold_secs = if total > 0 {
+        trades.iter().map(|t| t.hold_secs as f64).sum::<f64>() / total as f64
+    } else {
+        0.0
+    };
     let expectancy = if total > 0 {
         let wr = win_count as f64 / total as f64;
         wr * avg_profit - (1.0 - wr) * avg_loss
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     // Build TradeAnalyticsRecords for NHST + symmetry (reusing backtest path)
-    let records: Vec<TradeAnalyticsRecord> = trades.iter().map(|t| TradeAnalyticsRecord {
-        trade_id: format!("{}-{}", t.symbol, t.ts_close_secs),
-        symbol: t.symbol.clone(),
-        direction: t.direction.clone(),
-        entry_timestamp: t.ts_entry_secs * 1000,
-        exit_timestamp: t.ts_close_secs * 1000,
-        hold_time_seconds: t.hold_secs as u64,
-        entry_price: t.entry_price,
-        exit_price: t.exit_price,
-        size: t.size,
-        gross_pnl: t.pnl,
-        net_pnl: t.pnl,
-        roi_pct: t.roi_pct,
-        execution_slippage: t.slippage_bps,
-        mfe: t.mfe_pct,
-        mae: t.mae_pct,
-        trigger_source: t.exit_reason.clone(),
-        exit_reason: t.exit_reason.clone(),
-        flat_trade: t.pnl.abs() < 1e-10,
-    }).collect();
+    let records: Vec<TradeAnalyticsRecord> = trades
+        .iter()
+        .map(|t| TradeAnalyticsRecord {
+            trade_id: format!("{}-{}", t.symbol, t.ts_close_secs),
+            symbol: t.symbol.clone(),
+            direction: t.direction.clone(),
+            entry_timestamp: t.ts_entry_secs * 1000,
+            exit_timestamp: t.ts_close_secs * 1000,
+            hold_time_seconds: t.hold_secs as u64,
+            entry_price: t.entry_price,
+            exit_price: t.exit_price,
+            size: t.size,
+            gross_pnl: t.pnl,
+            net_pnl: t.pnl,
+            roi_pct: t.roi_pct,
+            execution_slippage: t.slippage_bps,
+            mfe: t.mfe_pct,
+            mae: t.mae_pct,
+            trigger_source: t.exit_reason.clone(),
+            exit_reason: t.exit_reason.clone(),
+            flat_trade: t.pnl.abs() < 1e-10,
+        })
+        .collect();
     let strategy = workspace.default_strategy().unwrap_or_default();
     let params = AnalyticsParams::from_strategy(&strategy.pae);
     let refs: Vec<&TradeAnalyticsRecord> = records.iter().collect();
@@ -299,8 +356,14 @@ pub async fn compile_session_result(
             .into_iter()
             .map(|(ts, v): (i64, f64)| (ts, v))
             .collect();
-            if !global.is_empty() { global } else { vec![] }
-        } else { rows }
+            if !global.is_empty() {
+                global
+            } else {
+                vec![]
+            }
+        } else {
+            rows
+        }
     };
     let all_zero = !equity_curve.is_empty() && equity_curve.iter().all(|(_, v)| *v == 0.0);
     if (equity_curve.is_empty() || all_zero) && !trades.is_empty() {
@@ -318,10 +381,14 @@ pub async fn compile_session_result(
         equity_curve = vec![(started_ms, portfolio_capital_usd)];
     }
 
-    let equity_curve_secs: Vec<(i64, f64)> = equity_curve.iter().map(|(ms, v)| (ms / 1000, *v)).collect();
+    let equity_curve_secs: Vec<(i64, f64)> =
+        equity_curve.iter().map(|(ms, v)| (ms / 1000, *v)).collect();
 
     // risk metrics over equity curve
-    let rf_pct = workspace.default_strategy().map(|s| s.pae.risk_math.risk_free_rate_pct).unwrap_or(0.0);
+    let rf_pct = workspace
+        .default_strategy()
+        .map(|s| s.pae.risk_math.risk_free_rate_pct)
+        .unwrap_or(0.0);
     let risk = compute_risk_metrics_from_curve_with_rf(&equity_curve, rf_pct);
     let max_dd = risk.maximum_drawdown_pct;
 
@@ -340,7 +407,9 @@ pub async fn compile_session_result(
     // symbols distinct
     let symbols: Vec<String> = {
         let mut set = std::collections::HashSet::new();
-        for t in &trades { set.insert(t.symbol.clone()); }
+        for t in &trades {
+            set.insert(t.symbol.clone());
+        }
         let mut v: Vec<String> = set.into_iter().collect();
         v.sort();
         v
@@ -383,8 +452,15 @@ pub async fn compile_session_result(
             from_secs,
             to_secs,
             timeframe_secs,
-            strategy_id: workspace.default_strategy().map(|s| s.name).unwrap_or_else(|_| "default".to_string()),
-            symbols: if symbols.is_empty() { vec!["BTC-USDT".to_string()] } else { symbols },
+            strategy_id: workspace
+                .default_strategy()
+                .map(|s| s.name)
+                .unwrap_or_else(|_| "default".to_string()),
+            symbols: if symbols.is_empty() {
+                vec!["BTC-USDT".to_string()]
+            } else {
+                symbols
+            },
         },
         summary,
         stats,
@@ -398,5 +474,8 @@ pub async fn compile_session_result(
 
 pub async fn fetch_session_trades(pool: &SqlitePool, session_id: i64) -> Vec<SessionTrade> {
     let dummy_ws = config_models::WorkspaceConfig::default();
-    compile_session_result(pool, session_id, &dummy_ws).await.map(|r| r.trades).unwrap_or_default()
+    compile_session_result(pool, session_id, &dummy_ws)
+        .await
+        .map(|r| r.trades)
+        .unwrap_or_default()
 }
