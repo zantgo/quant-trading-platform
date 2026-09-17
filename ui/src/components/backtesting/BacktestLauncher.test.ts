@@ -32,6 +32,7 @@ function mockFetchImpl() {
                     { symbol: 'BTC-USDC', timeframe_secs: 180, candle_count: 100000, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 900000, coverage_pct: 100 },
                     { symbol: 'BTC-USDC', timeframe_secs: 300, candle_count: 60000, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 1500000, coverage_pct: 100 },
                     { symbol: 'BTC-USDC', timeframe_secs: 900, candle_count: 20000, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 4500000, coverage_pct: 100 },
+                    { symbol: 'BTC-USDC', timeframe_secs: 3600, candle_count: 5000, earliest_secs: 1740000000, latest_secs: 1760000000, covered_span_secs: 20000000, max_lookback_secs: 15552000, max_depth_secs: 18000000, coverage_pct: 100 },
                 ],
                 backfill_jobs: [],
             }));
@@ -126,7 +127,7 @@ describe('BacktestLauncher wizard (v8.2)', () => {
         await waitFor(() => expect(screen.getAllByText('Historical Data').length).toBeGreaterThanOrEqual(1));
     });
 
-    it('G33 — no per-slot timeframe pickers; the fixed 10-slot ladder is displayed', async () => {
+    it('G33 — no per-slot timeframe pickers; the fixed archive ladder is displayed', async () => {
         renderLauncher();
         await goToInstancesStep();
         // v8 fixed ladder: there is no TF choice — the per-slot <select>
@@ -137,9 +138,10 @@ describe('BacktestLauncher wizard (v8.2)', () => {
         );
         expect(tfSelects.length).toBe(0);
 
-        // The canonical fixed ladder is displayed instead (1s..1h).
+        // The canonical ARCHIVE ladder is displayed instead (1m..1h —
+        // sub-minute slots are live-only under the 60 s archive floor).
         const { container } = { container: document.body };
-        expect(container.textContent).toContain('1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m · 15m · 1h');
+        expect(container.textContent).toContain('1m · 3m · 5m · 15m · 1h');
     });
 
     it('G30 — Σ allocations > 100 % blocks the run', async () => {
@@ -193,7 +195,7 @@ describe('BacktestLauncher wizard (v8.2)', () => {
         expect(body.exchange).toBe('Hyperliquid');
         expect(body.symbols[0]).toEqual({
             symbol: 'BTC-USDC',
-            timeframes: [1, 3, 5, 15, 30, 60, 180, 300, 900, 3600],
+            timeframes: [60, 180, 300, 900, 3600],
             allocation_pct: 10,
         });
         expect(body.mode).toBe('historical');
