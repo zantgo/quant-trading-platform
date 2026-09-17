@@ -6,7 +6,7 @@ import { activeSlotKinds } from './terms';
 import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
 import { emitCandleDebug } from './candleDebug';
 import {
-    pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY,
+    pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY, getBadgeHistory,
 } from './badgeHistory.svelte';
 import {
     buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader,
@@ -506,15 +506,25 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
                     opportunity: pair.opportunity,
                     analysis: pair.analysis,
                 });
-                pushBadge(layerKey('l6', symbol), (() => {
-                    const b = buildL6DecisionHeader({
-                        rank,
-                        decisionContext: pair.decisionContext,
-                        advisory: pair.advisory,
-                    }).badge;
-                    return { label: b.label, color: b.color, ts: now };
-                })());
-                notifyBadgeChanged();
+                const l6Badge = buildL6DecisionHeader({
+                    rank,
+                    decisionContext: pair.decisionContext,
+                    advisory: pair.advisory,
+                }).badge;
+                // v11.8 flip-capture: verdict flips between candle
+                // completions must not be missed — any matrix frame whose
+                // rank.top differs from the last sampled top records the
+                // transition immediately (in addition to the candle
+                // heartbeat below, which keeps timestamps fresh).
+                const lastL6 = getBadgeHistory(layerKey('l6', symbol))[0];
+                if (!lastL6 || lastL6.label !== l6Badge.label) {
+                    pushBadge(layerKey('l6', symbol), {
+                        label: l6Badge.label,
+                        color: l6Badge.color,
+                        ts: now,
+                    });
+                    notifyBadgeChanged();
+                }
             }
         }
     }
