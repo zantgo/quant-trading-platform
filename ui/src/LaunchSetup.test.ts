@@ -246,6 +246,14 @@ describe('Launch Setup — launch orchestration', () => {
 
         // Review shows the ACTIVE ladder.
         expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
+
+        // v11.9 (N3): landing is ALWAYS the Market Monitor Overview — the
+        // staged instance is not auto-selected.
+        const app = useAppStore();
+        expect(app.currentEngine).toBe('market_monitor');
+        expect(app.middleTab).toBe('overview');
+        expect(app.activeEngineTab).toBe('overview');
+        expect(app.selectedInstance).toBeNull();
     });
 
     it('review marks the ladder as ACTIVE (count + durations, no picker)', async () => {

@@ -145,7 +145,7 @@ export class AppStore {
 
     // ─── Grid cockpit navigation state ────────────────────────────────
     isManageModalOpen = $state(false);
-    currentEngine = $state<'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings' | 'backtesting'>('profile');
+    currentEngine = $state<'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'backtesting'>('market_monitor');
     middleTab = $state<string>('overview');
     activeEngineTab = $state<'overview' | 'instance'>('overview');
     selectedInstance = $state<string | null>(null);
@@ -175,7 +175,7 @@ export class AppStore {
         return v;
     }
 
-    selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings' | 'backtesting') {
+    selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'backtesting') {
         this.markNavOrigin('user');
         this.currentEngine = engine;
         this.middleTab = ENGINE_DEFAULT_TAB[engine];
@@ -632,7 +632,10 @@ export class AppStore {
 
     constructor() {
         this.session.onSessionActivated = () => {
-            this.currentEngine = 'profile';
+            // v11.9 (N3): every activation (launch / recovery) lands on the
+            // Market Monitor Overview.
+            this.currentEngine = 'market_monitor';
+            this.middleTab = 'overview';
             this.activeEngineTab = 'overview';
             this.selectedInstance = null;
         };

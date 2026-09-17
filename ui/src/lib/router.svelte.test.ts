@@ -94,13 +94,6 @@ describe('buildEngineHash / parseEngineHash round-trip', () => {
         expect(parsed).toEqual({ engine: 'backtesting', middleTab: 'run' });
     });
 
-    it('omits middleTab when engine is exchange_settings (canonical URL)', () => {
-        const hash = buildEngineHash('exchange_settings', undefined, undefined, undefined);
-        expect(hash).toBe('#/engine/exchange_settings');
-        const parsed = parseEngineHash(hash);
-        expect(parsed).toEqual({ engine: 'exchange_settings' });
-    });
-
     it('handles a URL with engine + view but no middleTab (legacy / direct-link)', () => {
         // The user can hand-edit a URL like `#/engine/market_monitor/instance/BTC-USDT/view/monitor`
         // (skipping middleTab) — the parser must still surface the
@@ -235,12 +228,15 @@ describe('currentHashFor — per-engine serialization', () => {
         expect(currentHashFor(app)).toBe('#/engine/backtesting/overview/instance/BTC-USDT/run/42');
     });
 
-    it('keeps profile / DIE / exchange hashes flat', () => {
+    it('DIE defaults to Overview, not Connectivity (v11.9 N1)', () => {
         const app = createAppStore();
         app.selectEngine('data_infra');
-        expect(currentHashFor(app)).toBe('#/engine/data_infra/connectivity');
-        app.selectEngine('profile');
-        expect(currentHashFor(app)).toBe('#/engine/profile/settings');
+        expect(currentHashFor(app)).toBe('#/engine/data_infra/overview');
+    });
+
+    it('removed engines (profile / exchange_settings) parse to null', () => {
+        expect(parseEngineHash('#/engine/profile/settings')).toBeNull();
+        expect(parseEngineHash('#/engine/exchange_settings')).toBeNull();
     });
 });
 

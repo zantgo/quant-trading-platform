@@ -7,16 +7,22 @@
     import SettingsSaveButton, { type SettingsSaveState } from './SettingsSaveButton.svelte';
     import ConfigSourceChip from './ConfigSourceChip.svelte';
     import { costProjection } from '../lib/costProjection';
-    import { PROFILE_TABS } from '../lib/engineTabs';
 
     const app = useAppStore();
 
     // v11.8: optional section override — the dedicated Settings page hosts
     // this component without an engine navbar, so it pins the section.
-    let { sectionOverride = null }: { sectionOverride?: 'fee' | 'share' | null } = $props();
+    let { sectionOverride = null, sectionSwitch = false }: {
+        sectionOverride?: 'fee' | 'share' | null;
+        /// v11.9: MME Settings (no instance) hosts this component without
+        /// an engine navbar — render the Fees & Leverage / Share Config
+        /// switch inline.
+        sectionSwitch?: boolean;
+    } = $props();
+    let pickedSection = $state<'fee' | 'share' | null>(null);
 
     // Section pages are driven by the engine navbar (profile /
-    // exchange_settings tab rows). v10.1: the Exchange (credentials)
+    // settings tab rows). v10.1: the Exchange (credentials)
     // section only exists in live mode; the old Settings section moved
     // to DIE → Connection Settings. Fallback = 'fee'.
     const sessionMode = $derived(
@@ -25,12 +31,14 @@
             : 'paper',
     );
     let section = $derived(
-        sectionOverride
-            ? sectionOverride
-            : ['fee', 'exchange', 'share'].includes(app.middleTab)
-                && (app.middleTab !== 'exchange' || sessionMode === 'live')
-                ? app.middleTab
-                : 'fee',
+        pickedSection
+            ? pickedSection
+            : sectionOverride
+                ? sectionOverride
+                : ['fee', 'exchange', 'share'].includes(app.middleTab)
+                    && (app.middleTab !== 'exchange' || sessionMode === 'live')
+                    ? app.middleTab
+                    : 'fee',
     );
 
     const sectionTitles: Record<string, string> = {
@@ -39,9 +47,7 @@
         share: 'Share Configuration',
     };
 
-    const sectionTabLabel = $derived(
-        PROFILE_TABS.find((t) => t.key === section)?.label ?? 'Settings',
-    );
+    const sectionTabLabel = 'SETTINGS';
 
     // ─── Fees & Leverage editor — the single source for economics ────────
     interface FeesCfg { maker_fee_pct?: number; taker_fee_pct?: number; funding_rate_8h?: number }
@@ -195,6 +201,18 @@
                 <h2 class={engine.title}>{sectionTitles[section]}</h2>
             </div>
             <div class={engine.headerRight}>
+                {#if sectionSwitch}
+                    <button
+                        type="button"
+                        class={section === 'fee' ? engine.btnPrimary : engine.btn}
+                        onclick={() => (pickedSection = 'fee')}
+                    >Fees &amp; Leverage</button>
+                    <button
+                        type="button"
+                        class={section === 'share' ? engine.btnPrimary : engine.btn}
+                        onclick={() => (pickedSection = 'share')}
+                    >Share Config</button>
+                {/if}
                 <span class={engine.tabLabel}>{sectionTabLabel}</span>
                 {#if section === 'fee'}
                     <SettingsSaveButton state={feeSaveState} onsave={saveFee} />

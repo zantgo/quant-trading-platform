@@ -13,6 +13,18 @@ describe('TEST-UI: Global State Runes', () => {
         app.entryPriceVal = '';
     });
 
+    it('session activation lands on Market Monitor Overview (v11.9 N3)', () => {
+        // Recovery / launch both route through `onSessionActivated`.
+        app.currentEngine = 'data_infra';
+        app.middleTab = 'distribution';
+        app.selectedInstance = 'BTC-USDT';
+        app.session.onSessionActivated?.();
+        expect(app.currentEngine).toBe('market_monitor');
+        expect(app.middleTab).toBe('overview');
+        expect(app.activeEngineTab).toBe('overview');
+        expect(app.selectedInstance).toBeNull();
+    });
+
     it('should initialize with default states', () => {
         expect(app.analysisPhase).toBe('idle');
         expect(app.currentPosition).toBe('None');

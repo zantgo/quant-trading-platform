@@ -220,16 +220,12 @@
                 app.initInstance(draft.base, exchange, created.instanceId);
             }
 
-            // 4. Land on the workspace with the first instance selected.
-            const firstKey = instances.length > 0 ? app.pairKeyFor(instances[0].base) : null;
-            if (firstKey) {
-                app.enterInstance(firstKey);
-            } else {
-                app.currentEngine = 'market_monitor';
-                app.middleTab = 'overview';
-                app.activeEngineTab = 'overview';
-                app.selectedInstance = null;
-            }
+            // 4. v11.9 (N3): always land on the Market Monitor Overview,
+            // regardless of the staged instances.
+            app.currentEngine = 'market_monitor';
+            app.middleTab = 'overview';
+            app.activeEngineTab = 'overview';
+            app.selectedInstance = null;
         } catch (e: any) {
             error = e?.message || 'Launch failed.';
         }

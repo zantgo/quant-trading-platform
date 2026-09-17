@@ -83,7 +83,7 @@ describe('resolveEngineTabForMode (v7.3)', () => {
     });
 
     it('stale middleTab values fall back to the engine default', () => {
-        expect(resolveEngineTabForMode('data_infra', 'bogus', 'observe')).toBe('connectivity');
+        expect(resolveEngineTabForMode('data_infra', 'bogus', 'observe')).toBe('overview');
         expect(resolveEngineTabForMode('trade_automation', 'bogus', 'paper')).toBe('overview');
     });
 });

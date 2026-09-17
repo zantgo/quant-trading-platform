@@ -33,12 +33,14 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('AppEngineSidebar — observe-only visibility (v11.7)', () => {
-    it('observe shows DIE + MME + Home and hides Backtesting', async () => {
+    it('observe shows DIE + MME and hides Backtesting (no Settings entry, v11.9)', async () => {
         renderSidebar();
         await tick();
         expect(screen.getByText('Data Infrastructure')).toBeTruthy();
         expect(screen.getByText('Market Monitor')).toBeTruthy();
-        expect(screen.getByText('Settings')).toBeTruthy();
+        // v11.9 (N2): the standalone Settings page entry is erased —
+        // settings live in the Market Monitor's Settings tab.
+        expect(screen.queryByText('Settings')).toBeNull();
         expect(screen.queryByText('Backtesting')).toBeNull();
         expect(screen.queryByText(/WIP/)).toBeNull();
     });

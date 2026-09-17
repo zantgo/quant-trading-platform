@@ -15,10 +15,8 @@
     import AnalysisPanel from '../AnalysisPanel.svelte';
     import RecommendationPanel from '../RecommendationPanel.svelte';
     import GeneralDashboard from '../GeneralDashboard.svelte';
-    import NoInstanceState from '../NoInstanceState.svelte';
     import InstancePicker from '../InstancePicker.svelte';
     import GeneralSettings from '../GeneralSettings.svelte';
-    import SettingsPage from '../SettingsPage.svelte';
     import DataInfraDashboard from '../DataInfraDashboard.svelte';
     import PerformanceDashboard from '../PerformanceDashboard.svelte';
     import TradeAutomationDashboard from '../TradeAutomationDashboard.svelte';
@@ -77,13 +75,7 @@
 </script>
 
 <main class={styles.contentArea}>
-    {#if currentEngine === 'profile'}
-        {#key app.activeTab}
-            <SettingsPage />
-        {/key}
-    {:else if currentEngine === 'exchange_settings'}
-        <GeneralSettings />
-    {:else if currentEngine === 'data_infra'}
+    {#if currentEngine === 'data_infra'}
         <DataInfraDashboard section={section} />
     {:else if currentEngine === 'market_monitor'}
         {#if middleTab === 'workspace'}
@@ -120,7 +112,7 @@
             {#if activePair}
                 <WorkspaceSettings pair={activePair} tabKey={activeTab} />
             {:else}
-                <NoInstanceState engine="market_monitor" />
+                <GeneralSettings sectionSwitch />
             {/if}
         {/if}
     {:else if currentEngine === 'performance'}
