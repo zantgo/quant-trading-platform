@@ -229,7 +229,7 @@ export interface MarketSnapshot {
     risk?: RiskMatrix | null;
     advisory?: AdvisoryMatrix | null;
     open_interest?: number | string | null;
-    oi_delta_1h?: number | string | null;
+    oi_delta_pct?: number | string | null;
     mark_price?: number | string | null;
     index_price?: number | string | null;
     mark_index_spread_pct?: number | null;

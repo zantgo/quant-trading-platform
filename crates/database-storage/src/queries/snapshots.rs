@@ -483,6 +483,7 @@ pub async fn query_latest_snapshot(
             });
 
         MarketSnapshot {
+            oi_delta_window_secs: None,
             timeframe_label: Some(core_domain::duration_label(timeframe_secs)),
             exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
             timeframe_secs,
@@ -499,7 +500,7 @@ pub async fn query_latest_snapshot(
             ask_size: None,
             funding_rate: None,
             open_interest: None,
-            oi_delta_1h: None,
+            oi_delta_pct: None,
             mark_price: None,
             index_price: None,
             mark_index_spread_pct: None,

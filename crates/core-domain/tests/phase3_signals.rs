@@ -100,7 +100,7 @@ fn multiple_signals_can_coexist() {
     let input = SignalInput {
         flow: Some(&flow),
         funding_rate: -0.001, // extreme negative (shorts getting paid)
-        oi_delta_1h_pct: 3.0, // OI up sharply
+        oi_delta_pct: 3.0,    // OI up sharply
         funding_extreme_pct: 0.0005,
         oi_funding_divergence_pct: 2.0,
         ..Default::default()

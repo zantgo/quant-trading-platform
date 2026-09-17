@@ -1,6 +1,6 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
-**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)
@@ -65,15 +65,15 @@ the strict L4 / L5 orthogonality invariant.
   history` (all shared at ActivePair level except `history` which is
   read from the per-TF pipeline).
 
-**Refresh cadence (since v6.4.2):** Each TF's cluster refresh task runs
-at the TF's `timeframe_secs` cadence (matches every other MME
+**Refresh cadence (v11.10):** Each ACTIVE duration's cluster refresh task runs at its decoupled wall-clock cadence (`config_models::liquidity_profile::refresh_cadence_secs` — 1s→1s … 1d→300s) when `cluster_refresh_secs = 0`; a non-zero value overrides all durations. (Previously the task rode the TF's candle cadence.)
 indicator/signal — sub-second TFs refresh at sub-second intervals).
 First fire is immediate at spawn (no 5-min delay). Operator override:
 `config.toml [liquidity] cluster_refresh_secs > 0` clamps to ≥ 1 s.
 
-> **TTL is fixed at 5 minutes regardless of cadence.** Independent of the
-> per-TF refresh cadence above, every `LiquidationClusterMatrix` carries
-> `valid_until_ms = generated_at_ms + 5 × 60 × 1000` (a hardcoded 5-minute
+> **TTL is config-driven regardless of cadence.** Independent of the
+> per-duration refresh cadence above, every `LiquidationClusterMatrix` carries
+> `valid_until_ms = generated_at_ms + ttl_secs × 1000`
+> (`strategy.l2_5.estimation.ttl_secs`, default 300 s — NOT hardcoded)
 > TTL, `crates/core-domain/src/liquidity/mod.rs`) — a sub-5-minute TF that
 > refreshes its cluster more often does **not** shorten the TTL, and a
 > slow TF that refreshes less often never emits a longer-lived matrix.

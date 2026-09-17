@@ -4,6 +4,18 @@
 
 ------
 
+## v11.10 (2026-09-17) — Per-Duration L2.5 Liquidity Tuning
+
+**The liquidity extension (L2.5) stops treating every timeframe identically: the estimator geometry, the cluster-refresh cadence, and the OI-delta window are now resolved PER DURATION via `config_models::liquidity_profile` (tier provenance mirrors `duration_profile` — scalping durations run finer bins, tighter magnet distances, faster bound decay and shorter OI windows). The `oi_delta_1h` wire field is renamed `oi_delta_pct` and the snapshot surfaces `oi_delta_window_secs`.**
+
+- **Geometry profile**: `liquidity_profile::for_duration(secs, &l2_5, &l1_5)` scales `swing_lookback`, `bin_size_pct`, `peak_halfwidth_divisor`, `bound_decay`, `magnet_activation_distance_pct` and `price_anchor_pct` by a per-duration factor (0.5 at 1s → 3.0 at 1d; the 3 m anchor preserves the operator base verbatim). Constants across durations: leverage buckets + weights, funding_extreme_pct, funding_penalty, oi_adequacy_anchor_usd, signal thresholds, ttl_secs, swing_window_bars.
+- **Wiring**: `ClusterOverrides::for_duration` freezes one geometry row per ACTIVE duration at spawn (the percent→fraction `price_anchor_pct` conversion is preserved); `compute_cluster_for_tf` consumes the row.
+- **Refresh cadence (decoupled)**: `refresh_cadence_secs` — 1s→1s, 3s→2s, 5s→2s, 15s→5s, 30s→5s, 1m→10s, 3m→15s, 5m→15s, 15m→30s, 30m→60s, 1h→60s, 4h→120s, 12h→240s, 1d→300s — replaces the ride-the-candle-cadence default; a non-zero `cluster_refresh_secs` still overrides. TTL stays config-driven (`ttl_secs`, default 300 s) — the "hardcoded 5 minutes" docs claim is fixed.
+- **OI window per duration**: `oi_delta_window_secs` — 1s→60s, 3s→120s, 5s→300s, 15s→600s, 30s→900s, 1m→1800s, ≥3m→3600s — replaces the fixed `OI_DELTA_WINDOW_SECS = 3600` (constant removed); each TF's deque prunes and anchors at its own window. Wire: `MarketSnapshot.oi_delta_pct` (renamed from `oi_delta_1h`) + `oi_delta_window_secs` surfaced; `SignalInput.oi_delta_1h_pct` → `oi_delta_pct`.
+- **Docs**: 02-13 (cadence decoupling, config-driven TTL, `Distant` never emitted), 03-02-11, 04-02-45 (window wired), 03-02-13, 01-05; corpus re-stamped to 11.10.
+
+------
+
 ## v11.9 (2026-09-17) — Duration-Keyed Timeframes (Named Slots Erased) + Unified Settings & Boot Landing
 
 **A timeframe IS its duration in seconds. The named-slot world (the slot enum, the fixed positional ladder registries) is erased from code, docs, and tests; the pool becomes 14 real durations (1 s, 3 s, 5 s, 15 s, 30 s, 1 m, 3 m, 5 m, 15 m, 30 m, 1 h, 4 h, 12 h, 1 d), the ACTIVE set is `[workspace].timeframes: Vec<u64>` (any subset 1..=14, default the fastest eight), and the Market Monitor Settings tab becomes the single settings surface (general settings with no instance, workspace settings with one). Boot / launch / recovery always land on the Market Monitor Overview, and Data Infrastructure always opens on Overview.**

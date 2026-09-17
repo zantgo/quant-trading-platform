@@ -1,6 +1,6 @@
 # PME Layer 3 — Capital Layer
 
-**Version:** 11.9 (2026-09-17) — v7: PME is informational; this layer's math is unchanged.
+**Version:** 11.10 (2026-09-17) — v7: PME is informational; this layer's math is unchanged.
 **Status:** Specified — implemented (pure math); v7 surface wiring in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 3 of 4

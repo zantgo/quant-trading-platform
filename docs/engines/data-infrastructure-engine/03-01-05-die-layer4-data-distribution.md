@@ -1,6 +1,6 @@
 # DIE Layer 4 — Data Distribution Layer
 
-**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 4 of 4

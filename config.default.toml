@@ -215,7 +215,9 @@ enabled = true
 mark_price_poll_ms = 60000
 event_retention_days = 90
 bucket_retention_days = 7
-cluster_refresh_secs = 300
+# 0 = decoupled per-duration cadence (v11.10: 1s→1s … 1d→300s); a non-zero
+# value overrides every duration.
+cluster_refresh_secs = 0
 maintenance_margin_rate = 0.005
 cascade_detected_zscore = 2.5
 cascade_sustained_events = 3

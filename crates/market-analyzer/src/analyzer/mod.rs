@@ -3267,7 +3267,9 @@ async fn synthesize_completed_candle(
     // `funding_history` Arc locks, which the bootstrap
     // path pre-seeds from historical snapshots and live
     // WS events keep mutating. `candle_close_sec` is the
-    // window anchor for the 3600 s OI delta.
+    // window anchor for the per-duration OI delta.
+    let oi_delta_window_secs =
+        config_models::liquidity_profile::oi_delta_window_secs(timeframe_secs);
     let deriv = read_derivative_snapshot_state(
         latest_oi,
         latest_funding,
@@ -3275,6 +3277,7 @@ async fn synthesize_completed_candle(
         latest_index_px,
         oi_history,
         funding_history,
+        oi_delta_window_secs,
         candle_close_sec,
     )
     .await;
@@ -3379,7 +3382,8 @@ async fn synthesize_completed_candle(
         },
         funding_rate: fund_f.and_then(Decimal::from_f64_retain),
         open_interest: oi_f.and_then(Decimal::from_f64_retain),
-        oi_delta_1h: oi_delta_f.and_then(Decimal::from_f64_retain),
+        oi_delta_pct: oi_delta_f.and_then(Decimal::from_f64_retain),
+        oi_delta_window_secs: Some(oi_delta_window_secs),
         mark_price: *latest_mark_px.read().await,
         index_price: *latest_index_px.read().await,
         mark_index_spread_pct: spread_pct,
@@ -3524,7 +3528,7 @@ async fn synthesize_completed_candle(
             flow: Some(&liquidity_flow),
             cluster: cluster_guard.as_ref(),
             funding_rate: fund_f.unwrap_or(0.0),
-            oi_delta_1h_pct: oi_delta_f
+            oi_delta_pct: oi_delta_f
                 .map(|d| {
                     if oi_f.unwrap_or(1.0).max(1.0).abs() > 1e-9 {
                         d / oi_f.unwrap_or(1.0).max(1.0) * 100.0
@@ -3744,7 +3748,8 @@ async fn synthesize_completed_candle(
         },
         funding_rate: fund_f.and_then(Decimal::from_f64_retain),
         open_interest: oi_f.and_then(Decimal::from_f64_retain),
-        oi_delta_1h: oi_delta_f.and_then(Decimal::from_f64_retain),
+        oi_delta_pct: oi_delta_f.and_then(Decimal::from_f64_retain),
+        oi_delta_window_secs: Some(oi_delta_window_secs),
         mark_price: *latest_mark_px.read().await,
         index_price: *latest_index_px.read().await,
         mark_index_spread_pct: spread_pct,
@@ -3880,8 +3885,6 @@ struct DerivativeSnapshot {
 /// True 1-hour window in seconds for the OI delta (AUDIT-AIU-051). The
 /// previous implementation capped the deque at 60 *samples*, so at a 15 s TF
 /// the "1h" delta was really 15 minutes, and at a 5 m TF it was 5 hours.
-pub const OI_DELTA_WINDOW_SECS: u64 = 3600;
-
 async fn read_derivative_snapshot_state(
     latest_oi: &Arc<RwLock<Option<Decimal>>>,
     latest_funding: &Arc<RwLock<Option<Decimal>>>,
@@ -3889,6 +3892,7 @@ async fn read_derivative_snapshot_state(
     latest_index_px: &Arc<RwLock<Option<Decimal>>>,
     oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
     funding_history: &Arc<RwLock<VecDeque<f64>>>,
+    oi_delta_window_secs: u64, // v11.10: per-duration window
     now_secs: u64,
 ) -> DerivativeSnapshot {
     let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
@@ -3900,14 +3904,14 @@ async fn read_derivative_snapshot_state(
         _ => None,
     };
     // AUDIT-AIU-051: OI history is now `(timestamp_secs, value)` and the
-    // window is a TRUE 3600 s time window — samples older than one hour are
-    // pruned before the delta is computed, and each TF evaluates the window
-    // against its own candle cadence (per-TF deque clone).
+    // window is a TRUE time window — v11.10 resolves it per duration
+    // (`liquidity_profile::oi_delta_window_secs`); each TF owns a deque
+    // clone pruned and anchored at its own window.
     let (oi_delta_f, prev_oi_delta_f) = match oi_f {
         Some(cur) => {
             let mut hist = oi_history.write().await;
             hist.push_back((now_secs, cur));
-            let cutoff = now_secs.saturating_sub(OI_DELTA_WINDOW_SECS);
+            let cutoff = now_secs.saturating_sub(oi_delta_window_secs);
             while hist.front().map(|(t, _)| *t < cutoff).unwrap_or(false) {
                 hist.pop_front();
             }
@@ -4884,7 +4888,8 @@ pub(super) fn build_completed_snapshot_from_readings(
         ask_size: None,
         funding_rate: None,
         open_interest: None,
-        oi_delta_1h: None,
+        oi_delta_pct: None,
+        oi_delta_window_secs: None,
         mark_price: None,
         index_price: None,
         mark_index_spread_pct: None,
@@ -5171,7 +5176,8 @@ fn broadcast_live_snapshot(
         ask_size: ob_ask_size,
         funding_rate: None,
         open_interest: None,
-        oi_delta_1h: None,
+        oi_delta_pct: None,
+        oi_delta_window_secs: None,
         mark_price: None,
         index_price: None,
         mark_index_spread_pct: None,
