@@ -8,9 +8,9 @@ use network_adapters::clock_monitor::{
 fn config_defaults_are_correct() {
     let cfg = ClockMonitorConfig::default();
     assert_eq!(cfg.poll_interval, Duration::from_secs(30));
-    // AUDIT-V9 B9: default drift budget is 50 µs (matches AGENTS.md /
-    // docs/operations-and-compliance/08-06-clock-monitor.md).
-    assert_eq!(cfg.threshold, Duration::from_micros(50));
+    // 10 ms matches config.toml / config-models default_clock_monitor_threshold_micros
+    // (prior 50µs bare default was never used in production and made unit tests 200× stricter).
+    assert_eq!(cfg.threshold, Duration::from_micros(10_000));
     assert_eq!(cfg.breach_action, BreachAction::Warn);
 }
 

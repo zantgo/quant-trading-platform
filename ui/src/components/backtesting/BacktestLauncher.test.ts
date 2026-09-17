@@ -171,7 +171,8 @@ describe('BacktestLauncher wizard (v8.2)', () => {
 
     it('G31 — the Run step posts, polls progress phases, completes, and cancels', async () => {
         let completedId: number | null = null;
-        renderLauncher({ onCompleted: (id: number) => { completedId = id; } });
+        // warmupBars 10 → burnIn 1d, so clamped depth 3 satisfies warmup (4d needed for 300 would be impossible with HL 1m max 3d)
+        renderLauncher({ onCompleted: (id: number) => { completedId = id; }, warmupBars: 10 });
         await goToInstancesStep();
         const ticker = screen.getByPlaceholderText('BTC') as HTMLInputElement;
         fireEvent.input(ticker, { target: { value: 'BTC' } });
@@ -201,7 +202,7 @@ describe('BacktestLauncher wizard (v8.2)', () => {
     });
 
     it('G31b — the cancel button POSTs the cancel endpoint', async () => {
-        renderLauncher();
+        renderLauncher({ warmupBars: 10 });
         await goToInstancesStep();
         const ticker = screen.getByPlaceholderText('BTC') as HTMLInputElement;
         fireEvent.input(ticker, { target: { value: 'BTC' } });

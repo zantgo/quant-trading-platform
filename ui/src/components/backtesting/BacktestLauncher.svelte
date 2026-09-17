@@ -77,6 +77,17 @@
         }
     });
 
+    // Clamp initial and ceiling-driven depth: if the smallest TF's max (e.g.
+    // Hyperliquid 1m → 3d) is below the current depth, auto-shrink instead of
+    // leaving the wizard in a permanently blocked state. This handles the
+    // mount-time 180→3 livelock that the prop-change effect above misses.
+    $effect(() => {
+        if (depthDays > sliderMax) {
+            depthDays = sliderMax;
+            depthInput = String(sliderMax);
+        }
+    });
+
     // Run state (step 4).
     let runState = $state<{
         status: string;

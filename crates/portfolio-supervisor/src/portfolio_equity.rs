@@ -74,7 +74,10 @@ pub async fn purge_equity_history(pool: &SqlitePool, older_than_ms: i64) {
     }
 }
 
-async fn write_snapshot(pool: &SqlitePool, engine: Option<&crate::execution::engine::ExecutionEngine>) {
+async fn write_snapshot(
+    pool: &SqlitePool,
+    engine: Option<&crate::execution::engine::ExecutionEngine>,
+) {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

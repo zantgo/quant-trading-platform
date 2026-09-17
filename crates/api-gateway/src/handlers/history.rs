@@ -104,7 +104,8 @@ pub async fn serve_history(
                 .await;
                 if !db_candles.is_empty() {
                     use std::collections::BTreeMap;
-                    let mut map: BTreeMap<u64, core_domain::models::MarketSnapshot> = BTreeMap::new();
+                    let mut map: BTreeMap<u64, core_domain::models::MarketSnapshot> =
+                        BTreeMap::new();
                     for snap in snap_hist.drain(..) {
                         map.insert(snap.timestamp, snap);
                     }
@@ -127,7 +128,8 @@ pub async fn serve_history(
                         };
                         map.entry(snap.timestamp).or_insert(snap);
                     }
-                    let mut merged: Vec<core_domain::models::MarketSnapshot> = map.into_values().collect();
+                    let mut merged: Vec<core_domain::models::MarketSnapshot> =
+                        map.into_values().collect();
                     // Keep most recent `limit`.
                     if merged.len() > limit {
                         merged = merged.split_off(merged.len() - limit);

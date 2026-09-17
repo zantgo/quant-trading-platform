@@ -1,4 +1,4 @@
-# Trading Platform Dashboard
+# Quant Trading Platform
 
 > **High-performance market telemetry monitor for Hyperliquid and Bitget, built in Rust.**
 
