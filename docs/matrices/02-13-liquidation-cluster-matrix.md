@@ -1,6 +1,6 @@
 # 02-13: LiquidationClusterMatrix — Estimated Heatmap (Phase 2)
 
-**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 
 **Producer:** MME L2.5 (cluster estimation task, one task per TF at the TF's own candle cadence)
 **Consumer:** MME L4 (Opportunity) — LiquiditySqueeze preconditions; MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision); UI — inline cluster panel on the Charts tab (07-02 §4.3)

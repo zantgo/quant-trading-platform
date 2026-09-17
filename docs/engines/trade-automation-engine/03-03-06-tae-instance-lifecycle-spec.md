@@ -1,6 +1,6 @@
 # Instance Lifecycle (v7)
 
-**Version:** 11.7 (2026-09-16) — v7: Gate-0 / stance / veto references removed; lifecycle now drives the Setup Executor directly.
+**Version:** 11.8 (2026-09-16) — v7: Gate-0 / stance / veto references removed; lifecycle now drives the Setup Executor directly.
 **Status:** Specified — implemented (registry + lifecycle manager + automation conditions); v7 wiring in progress.
 **Engine:** Trade Automation Engine (TAE)
 **Owner:** portfolio-supervisor + execution-daemon

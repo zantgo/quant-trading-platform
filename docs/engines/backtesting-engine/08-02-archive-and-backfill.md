@@ -1,6 +1,6 @@
 # BTE Layer 1 — Candle Archive & Backfill
 
-**Version:** 11.7 (2026-09-16)
+**Version:** 11.8 (2026-09-16)
 **Engine:** Backtesting Engine
 **Tables:** `candle_archive`, `backfill_jobs`
 **Code:** `crates/database-storage/src/queries/archive.rs`,

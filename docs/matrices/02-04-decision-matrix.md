@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 11.7 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.8 (2026-09-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
