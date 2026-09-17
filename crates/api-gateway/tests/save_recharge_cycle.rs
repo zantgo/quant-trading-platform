@@ -373,6 +373,55 @@ async fn post_instance_config_by_uuid_recharges_in_memory_state_inner() {
 }
 
 #[test]
+fn post_reload_resolves_uuid_and_validates_duration() {
+    let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let cfg_path = isolate_config();
+    run_on_big_stack("reload_tf", || {
+        post_reload_resolves_uuid_and_validates_duration_inner()
+    });
+    let _ = std::fs::remove_file(&cfg_path);
+}
+
+async fn post_reload_resolves_uuid_and_validates_duration_inner() {
+    // No recharge is exercised here (that path bootstraps history and is
+    // covered by the live probe + the save-cycle test) — this regression
+    // locks the v11.9 UUID resolution and the duration validation order.
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let state = setup_app_with_instance().await;
+        let addr = serve_for(state).await;
+        let client = reqwest::Client::new();
+
+        // Valid UUID + unknown duration → the DURATION error (which proves
+        // the UUID resolved before validation).
+        let res = client
+            .post(format!(
+                "http://{addr}/api/instances/{INSTANCE_ID}/reload?tf=7"
+            ))
+            .send()
+            .await
+            .expect("reload request");
+        assert_eq!(res.status(), axum::http::StatusCode::BAD_REQUEST);
+        let body = res.text().await.unwrap();
+        assert!(
+            body.contains("Unknown duration '7s'"),
+            "expected the duration error after UUID resolution; got: {body}"
+        );
+
+        // Unknown UUID → 404 (not a duration error).
+        let res = client
+            .post(format!(
+                "http://{addr}/api/instances/inst_does_not_exist/reload?tf=60"
+            ))
+            .send()
+            .await
+            .expect("reload request");
+        assert_eq!(res.status(), axum::http::StatusCode::NOT_FOUND);
+    })
+    .await
+    .expect("reload probe exceeded 20 s budget");
+}
+
+#[test]
 fn post_instance_config_by_pairkey_is_rejected_with_404() {
     let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     run_on_big_stack("save_recharge_404", || {

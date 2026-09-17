@@ -274,12 +274,6 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub indicators: IndicatorsConfig,
     #[serde(default)]
-    pub fast_timeframe: FastTimeframeConfig,
-    #[serde(default)]
-    pub slow_timeframe: SlowTimeframeConfig,
-    #[serde(default)]
-    pub macro_timeframe: SlowTimeframeConfig,
-    #[serde(default)]
     pub fibonacci: FibonacciConfig,
     #[serde(default)]
     pub pivots: PivotsConfig,
@@ -370,9 +364,6 @@ impl Default for WorkspaceConfig {
             candles: CandlesConfig::default(),
             timeframes: default_timeframes(),
             indicators: IndicatorsConfig::default(),
-            fast_timeframe: FastTimeframeConfig::default(),
-            slow_timeframe: SlowTimeframeConfig::default(),
-            macro_timeframe: SlowTimeframeConfig::default(),
             fibonacci: FibonacciConfig::default(),
             pivots: PivotsConfig::default(),
             safety: SafetyConfig::default(),
@@ -1517,8 +1508,6 @@ indicators = { rsi_period = 14 }
         // 14-duration supported pool regardless of the (now ignored)
         // workspace slow/macro keys.
         let mut ws = WorkspaceConfig::default();
-        ws.slow_timeframe.duration_seconds = 300;
-        ws.macro_timeframe.duration_seconds = 900;
         assert_eq!(ws.tf_ladder_defaults(), SUPPORTED_DURATIONS.to_vec());
         assert_eq!(
             SUPPORTED_DURATIONS,

@@ -133,6 +133,21 @@ async fn test_config_endpoint_returns_ok() {
         "/api/config should return success, got {}",
         response.status()
     );
+    // v11.9: the ACTIVE duration set is serialized at the top level (the
+    // UI settings surface reads it) and legacy ladder keys are gone.
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["timeframes"].is_array(),
+        "GET /api/config must carry `timeframes`, got: {}",
+        json
+    );
+    assert!(json.get("slow_timeframe").is_none());
+    assert!(json.get("macro_timeframe").is_none());
+    assert!(json.get("active_timeframes").is_none());
+    assert!(json.get("active_slots").is_none());
 }
 
 #[tokio::test]

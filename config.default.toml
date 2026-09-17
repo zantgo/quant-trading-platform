@@ -94,18 +94,6 @@ duration_seconds = 60
 [candle_buffer]
 size = 500
 
-[workspace.fast_timeframe]
-enabled = true
-duration_seconds = 180
-
-[workspace.slow_timeframe]
-enabled = true
-duration_seconds = 300
-
-[workspace.macro_timeframe]
-enabled = true
-duration_seconds = 900
-
 [workspace.indicators]
 ema_fast = 10
 ema_medium = 50

@@ -712,26 +712,6 @@ fn default_pattern_slope_tolerance() -> f64 {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SlowTimeframeConfig {
-    #[serde(default = "default_enabled_true")]
-    pub enabled: bool,
-    pub duration_seconds: u64,
-}
-
-fn default_enabled_true() -> bool {
-    true
-}
-
-impl Default for SlowTimeframeConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            duration_seconds: 300,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LeverageConfig {
     #[serde(default = "default_cross_leverage")]
     pub cross_leverage: u32,
@@ -1691,11 +1671,6 @@ mod tests {
         assert_eq!(cfg.cross_leverage, 20);
     }
 }
-
-/// Type alias for the FAST timeframe configuration block. Structurally
-/// identical to `SlowTimeframeConfig` (enabled flag + duration + analysis
-/// limit) — the two are differentiated only by convention.
-pub type FastTimeframeConfig = SlowTimeframeConfig;
 
 /// v7 setup-executor configuration (minimal TAE) is defined above; below is
 /// the PAE significance-treatment configuration.
