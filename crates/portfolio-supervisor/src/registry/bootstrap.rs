@@ -290,15 +290,78 @@ pub async fn fetch_and_warm_bootstrap(
 
     // Fetch all 10 ladder slots concurrently (one join arm per slot).
     let (r0, r1, r2, r3, r4, r5, r6, r7, r8, r9) = tokio::join!(
-        collect_slot_candles(input, 0, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
-        collect_slot_candles(input, 1, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
-        collect_slot_candles(input, 2, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
-        collect_slot_candles(input, 3, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
-        collect_slot_candles(input, 4, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
-        collect_slot_candles(input, 5, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
-        collect_slot_candles(input, 6, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
-        collect_slot_candles(input, 7, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
-        collect_slot_candles(input, 8, is_bitget, exchange_raw.clone(), product_type.clone(), now_ms),
+        collect_slot_candles(
+            input,
+            0,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
+        collect_slot_candles(
+            input,
+            1,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
+        collect_slot_candles(
+            input,
+            2,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
+        collect_slot_candles(
+            input,
+            3,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
+        collect_slot_candles(
+            input,
+            4,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
+        collect_slot_candles(
+            input,
+            5,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
+        collect_slot_candles(
+            input,
+            6,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
+        collect_slot_candles(
+            input,
+            7,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
+        collect_slot_candles(
+            input,
+            8,
+            is_bitget,
+            exchange_raw.clone(),
+            product_type.clone(),
+            now_ms
+        ),
         collect_slot_candles(input, 9, is_bitget, exchange_raw, product_type, now_ms),
     );
     let slot_results: [Result<(Vec<NormalizedCandle>, u64, u64), String>; 10] =

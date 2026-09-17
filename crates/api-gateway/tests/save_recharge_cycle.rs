@@ -199,7 +199,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         snapshot_tx,
         cancel,
         active_indices: (0..10).collect(),
-});
+    });
 
     let buffers: [TimeframeBuffers; 10] = pair
         .all()
@@ -265,9 +265,9 @@ async fn setup_app_with_instance() -> Arc<AppState> {
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
         session_id: Arc::new(tokio::sync::RwLock::new(None)),
-interrupted_session: Arc::new(RwLock::new(None)),
-boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        interrupted_session: Arc::new(RwLock::new(None)),
+        boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })
@@ -331,10 +331,9 @@ static CONFIG_FILE_LOCK: Mutex<()> = Mutex::new(());
 #[test]
 fn post_instance_config_by_uuid_recharges_in_memory_state() {
     let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    run_on_big_stack(
-        "save_recharge_uuid",
-        || post_instance_config_by_uuid_recharges_in_memory_state_inner(),
-    );
+    run_on_big_stack("save_recharge_uuid", || {
+        post_instance_config_by_uuid_recharges_in_memory_state_inner()
+    });
 }
 
 async fn post_instance_config_by_uuid_recharges_in_memory_state_inner() {
@@ -391,10 +390,9 @@ async fn post_instance_config_by_uuid_recharges_in_memory_state_inner() {
 #[test]
 fn post_instance_config_by_pairkey_is_rejected_with_404() {
     let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    run_on_big_stack(
-        "save_recharge_404",
-        || post_instance_config_by_pairkey_is_rejected_with_404_inner(),
-    );
+    run_on_big_stack("save_recharge_404", || {
+        post_instance_config_by_pairkey_is_rejected_with_404_inner()
+    });
 }
 
 async fn post_instance_config_by_pairkey_is_rejected_with_404_inner() {
@@ -421,10 +419,9 @@ async fn post_instance_config_by_pairkey_is_rejected_with_404_inner() {
 #[test]
 fn post_instance_config_uses_session_quote_in_default_pair_key() {
     let _serial = CONFIG_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    run_on_big_stack(
-        "save_recharge_quote",
-        || post_instance_config_uses_session_quote_in_default_pair_key_inner(),
-    );
+    run_on_big_stack("save_recharge_quote", || {
+        post_instance_config_uses_session_quote_in_default_pair_key_inner()
+    });
 }
 
 async fn post_instance_config_uses_session_quote_in_default_pair_key_inner() {

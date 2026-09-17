@@ -118,7 +118,7 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         active_indices: (0..10).collect(),
-});
+    });
 
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
     let buffers: [TimeframeBuffers; 10] = active_pair
@@ -182,9 +182,9 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
         session_id: Arc::new(tokio::sync::RwLock::new(None)),
-interrupted_session: Arc::new(RwLock::new(None)),
-boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        interrupted_session: Arc::new(RwLock::new(None)),
+        boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
@@ -219,8 +219,7 @@ async fn pipeline_for_slot_dispatches_by_slot_not_duration() {
     let rxs: Vec<_> = FIXED_TF_SLOTS
         .iter()
         .map(|slot| {
-            pair
-                .subscribe_broadcast_by_slot(*slot)
+            pair.subscribe_broadcast_by_slot(*slot)
                 .unwrap_or_else(|| panic!("slot {slot:?} must expose a broadcast channel"))
         })
         .collect();
@@ -402,6 +401,12 @@ async fn timeframe_slot_round_trips_through_wire_payload() {
     assert_eq!(TimeframeSlot::parse_from_secs(60), TimeframeSlot::Slow2);
     assert_eq!(TimeframeSlot::parse_from_secs(180), TimeframeSlot::Macro1);
     assert_eq!(TimeframeSlot::parse_from_secs(300), TimeframeSlot::Macro2);
-    assert_eq!(TimeframeSlot::parse_from_secs(900), TimeframeSlot::Longterm1);
-    assert_eq!(TimeframeSlot::parse_from_secs(3600), TimeframeSlot::Longterm2);
+    assert_eq!(
+        TimeframeSlot::parse_from_secs(900),
+        TimeframeSlot::Longterm1
+    );
+    assert_eq!(
+        TimeframeSlot::parse_from_secs(3600),
+        TimeframeSlot::Longterm2
+    );
 }

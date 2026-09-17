@@ -57,9 +57,9 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
         session_id: Arc::new(tokio::sync::RwLock::new(None)),
-interrupted_session: Arc::new(RwLock::new(None)),
-boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        interrupted_session: Arc::new(RwLock::new(None)),
+        boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
@@ -169,37 +169,36 @@ async fn test_websocket_stream_with_active_pair() {
     let snap_hist = Arc::new(RwLock::new(
         std::collections::VecDeque::<MarketSnapshot>::new(),
     ));
-    let make_pipe = |slot: TimeframeSlot,
-                     secs: u64,
-                     tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
-        slot,
-        history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-        broadcast_tx: tx,
-        latest_snapshot: Arc::new(RwLock::new(None)),
-        snapshot_history: snap_hist.clone(),
-        timeframe_secs: secs,
-        timeframe_label: "Test",
-        divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-        sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
-        fibonacci: FibonacciConfig::default(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        active_set: Default::default(),
-        cluster_matrix: Arc::new(RwLock::new(None)),
-        cluster_status: Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-        )),
-        pipeline_state: Arc::new(RwLock::new(
-            core_domain::models::CandlePipelineState::Initializing,
-        )),
-        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        advisory: Arc::new(RwLock::new(None)),
-        tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
-        buffer_size: 500,
-        stale_threshold_secs: 300,
-    };
+    let make_pipe =
+        |slot: TimeframeSlot, secs: u64, tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
+            slot,
+            history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
+            broadcast_tx: tx,
+            latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
+            timeframe_secs: secs,
+            timeframe_label: "Test",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
+            fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            advisory: Arc::new(RwLock::new(None)),
+            tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
+        };
     let throwaway = || broadcast::channel::<MarketSnapshot>(10).0;
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
@@ -224,7 +223,7 @@ async fn test_websocket_stream_with_active_pair() {
         snapshot_tx,
         cancel,
         active_indices: (0..10).collect(),
-});
+    });
 
     let buffers: [TimeframeBuffers; 10] = pair
         .all()
@@ -283,9 +282,9 @@ async fn test_websocket_stream_with_active_pair() {
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
         session_id: Arc::new(tokio::sync::RwLock::new(None)),
-interrupted_session: Arc::new(RwLock::new(None)),
-boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        interrupted_session: Arc::new(RwLock::new(None)),
+        boot_spawn_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        boot_session_recovered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         allowed_origins: api_gateway::default_allowed_origins("127.0.0.1", 3000),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });

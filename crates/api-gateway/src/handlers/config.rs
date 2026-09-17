@@ -105,8 +105,16 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
     }
     if let Some(set) = &payload.active_slots {
         const VALID: &[&str] = &[
-            "micro1", "micro2", "fast1", "fast2", "slow1", "slow2", "macro1", "macro2",
-            "longterm1", "longterm2",
+            "micro1",
+            "micro2",
+            "fast1",
+            "fast2",
+            "slow1",
+            "slow2",
+            "macro1",
+            "macro2",
+            "longterm1",
+            "longterm2",
         ];
         if set.is_empty() || set.len() > 10 {
             return Some("active_slots must contain 1–10 slot names".into());

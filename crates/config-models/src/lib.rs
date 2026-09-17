@@ -18,7 +18,15 @@ pub const FIXED_TF_LADDER: [u64; 10] = [1, 3, 5, 15, 30, 60, 180, 300, 900, 3600
 
 /// Canonical slot names for `FIXED_TF_LADDER`, positionally aligned with it.
 pub const FIXED_TF_NAMES: [&str; 10] = [
-    "micro1", "micro2", "fast1", "fast2", "slow1", "slow2", "macro1", "macro2", "longterm1",
+    "micro1",
+    "micro2",
+    "fast1",
+    "fast2",
+    "slow1",
+    "slow2",
+    "macro1",
+    "macro2",
+    "longterm1",
     "longterm2",
 ];
 
@@ -445,8 +453,7 @@ impl WorkspaceConfig {
     /// fastest → slowest. Empty/None → fastest-N (clamped 1..=10).
     pub fn active_slot_names(&self) -> Vec<&'static str> {
         if let Some(set) = &self.active_slots {
-            let wanted: std::collections::HashSet<&str> =
-                set.iter().map(|s| s.as_str()).collect();
+            let wanted: std::collections::HashSet<&str> = set.iter().map(|s| s.as_str()).collect();
             let resolved: Vec<&'static str> = FIXED_TF_NAMES
                 .iter()
                 .copied()
@@ -759,7 +766,10 @@ fn recover_corrupt_config(path: &Path, corrupt_raw: &str) -> Result<()> {
                 .unwrap_or(0)
         ));
         if std::fs::write(&quarantine, corrupt_raw).is_ok() {
-            eprintln!("[config] corrupt copy quarantined as {}", quarantine.display());
+            eprintln!(
+                "[config] corrupt copy quarantined as {}",
+                quarantine.display()
+            );
         }
     }
     let bak = path.with_extension("toml.bak");
@@ -824,9 +834,11 @@ fn read_recovered() -> Result<(String, &'static str)> {
 pub fn load_platform() -> Result<PlatformConfig> {
     assert_no_legacy_files()?;
     let (raw, _src) = read_config_raw()?;
-    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e: toml::de::Error| {
-        ConfigError::Parse { path: config_path(), source: e }
-    })?;
+    let on_disk: OnDiskConfig =
+        toml::from_str(&raw).map_err(|e: toml::de::Error| ConfigError::Parse {
+            path: config_path(),
+            source: e,
+        })?;
     let (platform, _workspace) = on_disk.split();
     validate_platform(&platform)?;
     Ok(platform)
@@ -836,9 +848,11 @@ pub fn load_platform() -> Result<PlatformConfig> {
 pub fn load_workspace() -> Result<WorkspaceConfig> {
     assert_no_legacy_files()?;
     let (raw, _src) = read_config_raw()?;
-    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e: toml::de::Error| {
-        ConfigError::Parse { path: config_path(), source: e }
-    })?;
+    let on_disk: OnDiskConfig =
+        toml::from_str(&raw).map_err(|e: toml::de::Error| ConfigError::Parse {
+            path: config_path(),
+            source: e,
+        })?;
     validate_workspace(&on_disk.workspace)?;
     let mut ws = on_disk.workspace;
     ws.ensure_default_strategy();
@@ -850,9 +864,11 @@ pub fn load_workspace() -> Result<WorkspaceConfig> {
 pub fn load() -> Result<(PlatformConfig, WorkspaceConfig)> {
     assert_no_legacy_files()?;
     let (raw, _src) = read_config_raw()?;
-    let on_disk: OnDiskConfig = toml::from_str(&raw).map_err(|e: toml::de::Error| {
-        ConfigError::Parse { path: config_path(), source: e }
-    })?;
+    let on_disk: OnDiskConfig =
+        toml::from_str(&raw).map_err(|e: toml::de::Error| ConfigError::Parse {
+            path: config_path(),
+            source: e,
+        })?;
     validate_workspace(&on_disk.workspace)?;
     Ok(on_disk.split())
 }
@@ -1036,9 +1052,7 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
             }
             if !seen.insert(name.as_str()) {
                 return Err(ConfigError::InvalidNumeric {
-                    detail: format!(
-                        "[workspace].active_slots: duplicate slot name '{name}'"
-                    ),
+                    detail: format!("[workspace].active_slots: duplicate slot name '{name}'"),
                 });
             }
         }
@@ -1075,8 +1089,14 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
             let legacy_secs = [
                 ("micro_term", Some(inst.micro_term.candles.duration_seconds)),
                 ("fast_term", Some(inst.fast_term.candles.duration_seconds)),
-                ("slow_term", inst.slow_term.as_ref().map(|t| t.candles.duration_seconds)),
-                ("macro_term", inst.macro_term.as_ref().map(|t| t.candles.duration_seconds)),
+                (
+                    "slow_term",
+                    inst.slow_term.as_ref().map(|t| t.candles.duration_seconds),
+                ),
+                (
+                    "macro_term",
+                    inst.macro_term.as_ref().map(|t| t.candles.duration_seconds),
+                ),
             ];
             let present: Vec<&str> = legacy_secs
                 .iter()
@@ -1323,7 +1343,10 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
     // leftover `.tmp` (harmless) and a `.bak` one revision behind.
     let bak = path.with_extension("toml.bak");
     if std::fs::copy(&path, &bak).is_err() {
-        eprintln!("[config] warning: could not refresh {} (continuing)", bak.display());
+        eprintln!(
+            "[config] warning: could not refresh {} (continuing)",
+            bak.display()
+        );
     }
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, &serialized).map_err(|e| ConfigError::Io {
@@ -1485,7 +1508,10 @@ indicators = { rsi_period = 14 }
         // .bak restore → factory template restore, corrupt copy quarantined.
         let dir = std::env::temp_dir().join(format!(
             "qtp_cfg_recovery_{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let cfg = dir.join("config.toml");
@@ -1495,7 +1521,11 @@ indicators = { rsi_period = 14 }
 
         // (1) corrupt file + valid .bak → recovered from the .bak.
         std::fs::write(&cfg, "not [valid toml").unwrap();
-        let template_src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config.default.toml")).unwrap();
+        let template_src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../config.default.toml"
+        ))
+        .unwrap();
         std::fs::write(&bak, &template_src).unwrap();
         let ws = load_workspace().unwrap();
         assert_eq!(ws.active_timeframes, DEFAULT_ACTIVE_TIMEFRAMES);
@@ -1521,7 +1551,10 @@ indicators = { rsi_period = 14 }
         let mut ws = WorkspaceConfig::default();
         assert_eq!(ws.active_timeframes, DEFAULT_ACTIVE_TIMEFRAMES);
         assert_eq!(ws.active_ladder(), vec![1, 3, 5, 15, 30]);
-        assert_eq!(ws.active_slot_names(), vec!["micro1", "micro2", "fast1", "fast2", "slow1"]);
+        assert_eq!(
+            ws.active_slot_names(),
+            vec!["micro1", "micro2", "fast1", "fast2", "slow1"]
+        );
         ws.active_timeframes = 1;
         assert_eq!(ws.active_ladder(), vec![1]);
         ws.active_timeframes = 10;

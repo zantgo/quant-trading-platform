@@ -126,15 +126,16 @@ async fn read_slot_status(
     pair: &Arc<portfolio_supervisor::instance::Instance>,
     slot: core_domain::models::TimeframeSlot,
 ) -> Result<ClusterStatusSnapshot, (StatusCode, String)> {
-    let pipe = pair
-        .active_pair
-        .pipeline_for_slot(slot)
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("slot '{}' not configured for {}", slot.as_str(), pair.pair_key()),
-            )
-        })?;
+    let pipe = pair.active_pair.pipeline_for_slot(slot).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!(
+                "slot '{}' not configured for {}",
+                slot.as_str(),
+                pair.pair_key()
+            ),
+        )
+    })?;
     let guard = pipe.cluster_status.read().await;
     // Derive `Stale` on the fly: a successful refresh whose TTL has
     // elapsed indicates the refresh task has crashed or stalled. The

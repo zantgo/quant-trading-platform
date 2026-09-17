@@ -327,7 +327,9 @@ impl AppState {
         // Activate with the persisted defaults (same state POST /session/init sets).
         *self.session.exchange.write().await = Some(exchange);
         *self.session.base_currency.write().await = Some(currency);
-        self.session.set_session_defaults(Some(mode.clone()), capital).await;
+        self.session
+            .set_session_defaults(Some(mode.clone()), capital)
+            .await;
         self.session
             .active
             .store(true, std::sync::atomic::Ordering::Relaxed);
