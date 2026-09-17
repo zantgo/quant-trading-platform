@@ -1,10 +1,10 @@
 # 02-13: LiquidationClusterMatrix — Estimated Heatmap (Phase 2)
 
-**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 
-**Producer:** MME L2.5 (cluster estimation task, one task per TF at the TF's own candle cadence)
+**Producer:** MME L2.5 (cluster estimation task, one task per ACTIVE duration at its decoupled wall-clock cadence — v11.10, see §Refresh cadence)
 **Consumer:** MME L4 (Opportunity) — LiquiditySqueeze preconditions; MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision); UI — inline cluster panel on the Charts tab (07-02 §4.3)
-**Per-bar:** NO (refreshed at each TF's candle cadence; the matrix carries a fixed 5-minute `valid_until_ms` TTL)
+**Per-bar:** NO (refreshed at the duration's decoupled cadence; the matrix carries a config-driven `valid_until_ms` TTL — `strategy.l2_5.estimation.ttl_secs`, default 300 s)
 **Snapshot field:** `MarketSnapshot.cluster: Option<LiquidationClusterMatrix>`
 
 The LiquidationClusterMatrix carries the **estimated liquidation
@@ -39,7 +39,7 @@ peak-detected to identify clusters.
 
 ## Refresh cadence
 
-Synchronized with the TF's own candle cadence by default (`cluster_refresh_secs = 0`); a non-zero `cluster_refresh_secs` overrides to a fixed interval. This is because the
+**Decoupled per-duration cadence (v11.10).** With `cluster_refresh_secs = 0` (the config default) each ACTIVE duration refreshes at its own fixed wall-clock cadence from `config_models::liquidity_profile::refresh_cadence_secs` (1s→1s, 3s→2s, 5s→2s, 15s→5s, 30s→5s, 1m→10s, 3m→15s, 5m→15s, 15m→30s, 30m→60s, 1h→60s, 4h→120s, 12h→240s, 1d→300s) — no longer riding the TF's candle cadence. A non-zero `cluster_refresh_secs` still overrides every duration. The TTL is config-driven (`ttl_secs`, default 300 s) and independent of the cadence. This is because the
 underlying inputs (OI, funding, price) change slowly; faster refresh
 wastes CPU. The matrix carries a `valid_until_ms` timestamp the
 frontend can display.
@@ -101,7 +101,7 @@ pub struct LiquidationCluster {
     pub notional_usd: f64,
     pub dominant_leverage: u32,
     pub distance_from_mid_pct: f64,
-    pub cluster_kind: ClusterKind,                 // AboveCurrentPrice / BelowCurrentPrice / AtCurrentPrice / Distant
+    pub cluster_kind: ClusterKind,                 // AboveCurrentPrice / BelowCurrentPrice / AtCurrentPrice (Distant is declared but never emitted — clusters are always price-adjacent)
     pub magnet_strength: f64,                     // 0..100, weighted by notional × inverse distance
 }
 

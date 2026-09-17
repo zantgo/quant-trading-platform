@@ -1,16 +1,16 @@
 # OI Delta (1-Hour Rolling)
 
-**Version:** 11.9 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## Fundamental Mechanism
 
-OI Delta measures the **rate of change** of Open Interest over a rolling window (default 1 hour). Unlike raw OI (a static level), OI Delta captures the *direction and velocity* of capital flow — the first derivative of open interest.
+OI Delta measures the **rate of change** of Open Interest over a rolling per-duration window (v11.10 — `liquidity_profile::oi_delta_window_secs`: 1s→60s, 3s→120s, 5s→300s, 15s→600s, 30s→900s, 1m→1800s, ≥3m→3600s; the historical fixed 1-hour window remains for the 3 m-and-above durations). Unlike raw OI (a static level), OI Delta captures the *direction and velocity* of capital flow — the first derivative of open interest.
 
 Computed from the `OpenInterest` tracker (`crates/market-analyzer/src/indicators/open_interest.rs`):
 
 ```
-delta = current_oi - oi_1hour_ago
+delta = current_oi - oi_at_window_anchor
 ```
 
 The delta is normalized to `[-1, 1]` via:
@@ -44,7 +44,7 @@ direction: positive delta → Bullish (>0.1), negative → Bearish (<-0.1), else
 
 ## Configuration
 
-`oi_delta_window` — the lookback window in seconds for the 1-hour delta calculation (**documented as configurable; the key is NOT wired** — the runtime hardcodes `OI_DELTA_WINDOW_SECS = 3600` in `analyzer/mod.rs`).
+**v11.10: the window is WIRED per duration** — `liquidity_profile::oi_delta_window_secs(timeframe_secs)` resolves each snapshot's window (60 s … 3600 s); the wire carries `oi_delta_pct` + `oi_delta_window_secs` so consumers see the anchor. The old `OI_DELTA_WINDOW_SECS = 3600` constant is gone.
 
 ---
 

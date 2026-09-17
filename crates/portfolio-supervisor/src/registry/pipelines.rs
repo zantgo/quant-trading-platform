@@ -990,8 +990,14 @@ async fn spawn_tasks(
             // observed price action. PRI-07: the cadence adapts to the slot's
             // CONFIGURED duration — nothing is hardcoded to 60/180/300/900.
             let configured = liquidity_config.cluster_refresh_secs;
+            // v11.10: decoupled per-duration refresh cadence. `0` (the
+            // config default) resolves to the canonical table — sub-minute
+            // durations refresh every few seconds, long horizons every few
+            // minutes — instead of riding the TF's own candle cadence. A
+            // nonzero `[workspace.liquidity].cluster_refresh_secs` still
+            // overrides for every duration.
             let cadence_secs = if configured == 0 {
-                tf_secs.max(1)
+                config_models::liquidity_profile::refresh_cadence_secs(tf_secs)
             } else {
                 configured.max(1)
             };
@@ -1005,8 +1011,10 @@ async fn spawn_tasks(
             let active_pair_clone = active_pair.clone();
             let refresh_config = liquidity_config.clone();
             // v9: strategy-derived estimator overrides (L2.5 + per-TF
-            // leverage). Frozen per spawned task.
-            let cluster_overrides = ClusterOverrides::from_strategy(&strategy);
+            // leverage), frozen per spawned task. v11.10: the estimator
+            // geometry is scaled per duration via `liquidity_profile` —
+            // every ACTIVE duration gets its own frozen row.
+            let cluster_overrides = ClusterOverrides::for_duration(&strategy, tf_key);
             let cancel_for_refresh = cancel.clone();
             let exchange_for_refresh = exchange_choice;
             let slot_label = slot_label.clone();
@@ -1227,6 +1235,9 @@ impl std::fmt::Display for ClusterRefreshError {
 #[derive(Debug, Clone)]
 pub struct ClusterOverrides {
     pub estimation: core_domain::liquidity::ClusterEstimationParams,
+    /// v11.10: per-duration OI-delta window (replaces the fixed 1-hour
+    /// constant in the analyzer's snapshot build).
+    pub oi_delta_window_secs: u64,
     pub oi_split: core_domain::liquidity::ClusterOiSplitParams,
     pub confidence: core_domain::liquidity::ClusterConfidenceParams,
     pub funding_mod_shift: f64,
@@ -1239,6 +1250,7 @@ impl Default for ClusterOverrides {
     fn default() -> Self {
         Self {
             estimation: core_domain::liquidity::ClusterEstimationParams::default(),
+            oi_delta_window_secs: 3600,
             oi_split: core_domain::liquidity::ClusterOiSplitParams::default(),
             confidence: core_domain::liquidity::ClusterConfidenceParams::default(),
             funding_mod_shift: 0.05,
@@ -1273,7 +1285,29 @@ impl ClusterOverrides {
             },
             funding_mod_shift: l2_5.funding_modulation.shift,
             per_tf_leverage: Some(strategy.l1_5.per_tf_leverage.clone()),
+            oi_delta_window_secs: 3600,
         }
+    }
+}
+
+impl ClusterOverrides {
+    /// v11.10: per-duration geometry — the strategy's `l2_5`/`l1_5` base
+    /// scaled by the `liquidity_profile` row for `tf_secs` (fast durations
+    /// run finer bins, tighter magnet/anchor distances and faster bound
+    /// decay; see `config_models::liquidity_profile`). The percent→fraction
+    /// conversion of `price_anchor_pct` is preserved exactly as in
+    /// [`Self::from_strategy`].
+    pub fn for_duration(strategy: &config_models::StrategyConfig, tf_secs: u64) -> Self {
+        let mut this = Self::from_strategy(strategy);
+        let g =
+            config_models::liquidity_profile::for_duration(tf_secs, &strategy.l2_5, &strategy.l1_5);
+        this.estimation.swing_lookback = g.swing_lookback;
+        this.estimation.bin_size_pct = g.bin_size_pct;
+        this.estimation.peak_halfwidth_divisor = g.peak_halfwidth_divisor;
+        this.estimation.bound_decay = g.bound_decay;
+        this.oi_split.price_anchor_pct = g.price_anchor_pct / 100.0;
+        this.oi_delta_window_secs = g.oi_delta_window_secs;
+        this
     }
 }
 

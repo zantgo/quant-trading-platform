@@ -2045,7 +2045,7 @@ pub struct SignalInput<'a> {
     pub flow: Option<&'a LiquidityFlow>,
     pub cluster: Option<&'a LiquidationClusterMatrix>,
     pub funding_rate: f64,
-    pub oi_delta_1h_pct: f64,
+    pub oi_delta_pct: f64,
     /// Avg book depth ratio (bid_depth / ask_depth) over recent window.
     /// None if not available.
     pub book_depth_ratio: Option<f64>,
@@ -2140,7 +2140,7 @@ impl<'a> Default for SignalInput<'a> {
             flow: None,
             cluster: None,
             funding_rate: 0.0,
-            oi_delta_1h_pct: 0.0,
+            oi_delta_pct: 0.0,
             book_depth_ratio: None,
             funding_extreme_pct: 0.0005,
             oi_funding_divergence_pct: 2.0,
@@ -2258,18 +2258,18 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
 
     // 3. OI-funding divergence: OI rising sharply while funding goes
     //    the other way, or vice versa.
-    if input.oi_delta_1h_pct.abs() > input.oi_funding_divergence_pct {
-        let div_dir = if input.oi_delta_1h_pct > 0.0 && input.funding_rate < 0.0 {
+    if input.oi_delta_pct.abs() > input.oi_funding_divergence_pct {
+        let div_dir = if input.oi_delta_pct > 0.0 && input.funding_rate < 0.0 {
             // OI up, funding negative → shorts loading.
             LiquidityDirection::Bearish
-        } else if input.oi_delta_1h_pct < 0.0 && input.funding_rate > 0.0 {
+        } else if input.oi_delta_pct < 0.0 && input.funding_rate > 0.0 {
             // OI down, funding positive → longs closing.
             LiquidityDirection::Bullish
         } else {
             LiquidityDirection::Neutral
         };
         if !matches!(div_dir, LiquidityDirection::Neutral) {
-            let strength = (input.oi_delta_1h_pct.abs()).min(100.0);
+            let strength = (input.oi_delta_pct.abs()).min(100.0);
             out.push(LiquiditySignal {
                 kind: LiquiditySignalKind::OIFundingDivergence,
                 direction: div_dir,
@@ -2277,7 +2277,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                 confidence: input.signal_confidences.oi_funding_divergence,
                 evidence: vec![format!(
                     "OI Δ1h = {:.2}%, funding = {:.4}%",
-                    input.oi_delta_1h_pct,
+                    input.oi_delta_pct,
                     input.funding_rate * 100.0
                 )],
             });
@@ -2437,8 +2437,8 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
     // snapshot. 04-02-44 has been reconciled to match 04-02-47.
     let price_bullish = input.price_bias > 0.3;
     let price_bearish = input.price_bias < -0.3;
-    let oi_increasing = input.oi_delta_1h_pct > 0.3;
-    let oi_decreasing = input.oi_delta_1h_pct < -0.3;
+    let oi_increasing = input.oi_delta_pct > 0.3;
+    let oi_decreasing = input.oi_delta_pct < -0.3;
     if (price_bullish && oi_decreasing) || (price_bearish && oi_increasing) {
         let dir = if price_bullish && oi_decreasing {
             LiquidityDirection::Bullish
@@ -2452,7 +2452,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
             confidence: input.signal_confidences.oi_price_divergence,
             evidence: vec![format!(
                 "OI Δ1h = {:.2}%, price bias = {:.2}",
-                input.oi_delta_1h_pct, input.price_bias
+                input.oi_delta_pct, input.price_bias
             )],
         });
     }
@@ -2559,7 +2559,7 @@ mod signal_tests {
     fn oi_funding_divergence_oi_up_funding_down_bearish() {
         let input = SignalInput {
             funding_rate: -0.0001,
-            oi_delta_1h_pct: 5.0, // OI up
+            oi_delta_pct: 5.0, // OI up
             oi_funding_divergence_pct: 2.0,
             ..Default::default()
         };
@@ -2575,7 +2575,7 @@ mod signal_tests {
     fn oi_funding_divergence_oi_down_funding_up_bullish() {
         let input = SignalInput {
             funding_rate: 0.0001,
-            oi_delta_1h_pct: -3.0, // OI down
+            oi_delta_pct: -3.0, // OI down
             oi_funding_divergence_pct: 2.0,
             ..Default::default()
         };
@@ -2705,7 +2705,7 @@ mod signal_tests {
         // Price up (+0.5), OI falling (−0.5%) → Bullish.
         let input = SignalInput {
             price_bias: 0.5,
-            oi_delta_1h_pct: -0.5,
+            oi_delta_pct: -0.5,
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
@@ -2718,7 +2718,7 @@ mod signal_tests {
         // Price down (−0.5), OI rising (+0.5%) → Bearish.
         let input = SignalInput {
             price_bias: -0.5,
-            oi_delta_1h_pct: 0.5,
+            oi_delta_pct: 0.5,
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
@@ -2731,7 +2731,7 @@ mod signal_tests {
         // Aligned (price up + OI up) → no signal.
         let input = SignalInput {
             price_bias: 0.5,
-            oi_delta_1h_pct: 0.5,
+            oi_delta_pct: 0.5,
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);

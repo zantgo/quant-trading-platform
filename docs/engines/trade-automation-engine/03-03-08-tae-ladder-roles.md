@@ -1,6 +1,6 @@
 # TAE Ladder Roles — TF-Role Separation for Short-TF Execution
 
-**Version:** 11.9 (2026-09-17) — execution model v11: TF-role separation.
+**Version:** 11.10 (2026-09-17) — execution model v11: TF-role separation.
 **Status:** Implemented.
 **Engine:** Trade Automation Engine (TAE) + Market Monitoring Engine (MME) synthesis.
 **Depends on:** [03-02-01 MME Overview](../market-monitoring-engine/03-02-01-mme-overview-spec.md), [03-03-03 Execution](03-03-03-tae-layer2-execution.md), [01-04 Timeframe Model](../../conceptual-foundations/01-04-timeframe-model.md).

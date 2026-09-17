@@ -244,7 +244,12 @@ pub struct MarketSnapshot {
 
     /// 1-hour Open Interest delta.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oi_delta_1h: Option<Decimal>,
+    /// v11.10: per-duration OI-delta over the duration's own window
+    /// (renamed from the fixed 1-hour `oi_delta_pct`).
+    pub oi_delta_pct: Option<Decimal>,
+    /// v11.10: the window (seconds) the `oi_delta_pct` anchor used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oi_delta_window_secs: Option<u64>,
 
     /// Mark price (perpetual mark for margin + liquidation price computation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
