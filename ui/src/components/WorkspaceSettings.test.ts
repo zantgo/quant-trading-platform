@@ -35,7 +35,7 @@ function seedPair(activeSlots: string[] = ['micro1', 'micro2', 'fast1', 'fast2',
 }
 
 function crudChips(container: HTMLElement): HTMLButtonElement[] {
-    return Array.from(container.querySelectorAll('button[aria-pressed]')).filter((b) =>
+    return (Array.from(container.querySelectorAll('button[aria-pressed]')) as HTMLButtonElement[]).filter((b) =>
         ['Micro1','Micro2','Fast1','Fast2','Slow1','Slow2','Macro1','Macro2','Longterm1','Longterm2']
             .some((lbl) => b.textContent?.includes(lbl)),
     );
