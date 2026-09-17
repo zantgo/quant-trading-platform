@@ -20,12 +20,10 @@ export interface EngineTab {
     label: string;
 }
 
+// v11.8: observe-only build — the Home dashboard is replaced by a single
+// dedicated Settings page (no engine navbar).
 export const PROFILE_TABS: EngineTab[] = [
-    { key: 'account', label: 'Account' },
-    { key: 'strategies', label: 'Strategies' },
-    { key: 'fee', label: 'Fees & Leverage' },
-    { key: 'exchange', label: 'Exchange' },
-    { key: 'share', label: 'Share Config' },
+    { key: 'settings', label: 'Settings' },
 ];
 
 export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
@@ -110,7 +108,7 @@ export const BTE_TABS_NO_INSTANCE: EngineTab[] = [
 ];
 
 export const ENGINE_DEFAULT_TAB: Record<EngineKey, string> = {
-    profile: 'account',
+    profile: 'settings',
     exchange_settings: 'share',
     data_infra: 'connectivity',
     market_monitor: 'overview',

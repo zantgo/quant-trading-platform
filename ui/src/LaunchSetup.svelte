@@ -62,7 +62,7 @@
             verb: 'Monitor',
             badge: 'Market monitor',
             description:
-                'This build runs observe-only: monitor markets, indicators and signals without executing trades. Trading modes are disabled for now.',
+                'Monitor markets, indicators and signals without executing trades.',
         },
         paper: {
             title: 'Simulate',

@@ -18,8 +18,7 @@
     import NoInstanceState from '../NoInstanceState.svelte';
     import InstancePicker from '../InstancePicker.svelte';
     import GeneralSettings from '../GeneralSettings.svelte';
-    import AccountProfile from '../AccountProfile.svelte';
-    import StrategiesHome from '../StrategiesHome.svelte';
+    import SettingsPage from '../SettingsPage.svelte';
     import DataInfraDashboard from '../DataInfraDashboard.svelte';
     import PerformanceDashboard from '../PerformanceDashboard.svelte';
     import TradeAutomationDashboard from '../TradeAutomationDashboard.svelte';
@@ -78,18 +77,26 @@
 </script>
 
 <main class={styles.contentArea}>
-    {#if currentEngine === 'profile' && middleTab === 'account'}
-        <AccountProfile />
-    {:else if currentEngine === 'profile' && middleTab === 'strategies'}
-        <StrategiesHome />
-    {:else if currentEngine === 'profile' || currentEngine === 'exchange_settings'}
+    {#if currentEngine === 'profile'}
+        {#key app.activeTab}
+            <SettingsPage />
+        {/key}
+    {:else if currentEngine === 'exchange_settings'}
         <GeneralSettings />
     {:else if currentEngine === 'data_infra'}
         <DataInfraDashboard section={section} />
     {:else if currentEngine === 'market_monitor'}
         {#if middleTab === 'workspace'}
             {#if selectedInstance && activePair}
-                {#if activePair.currentView === 'terminal'}
+                {@const instanceReady = Object.values(activePair.terms).some(
+                    (t) => t?.latestSnapshot != null,
+                )}
+                {#if !instanceReady}
+                    <div class={styles.instanceLoader} aria-label="Loading instance">
+                        <span class={styles.wavingDots}><span class={styles.wavingDot}></span><span class={styles.wavingDot}></span><span class={styles.wavingDot}></span></span>
+                        <span class={styles.loaderText}>Loading {activePair.symbol} — waiting for the first snapshot…</span>
+                    </div>
+                {:else if activePair.currentView === 'terminal'}
                     <LiveTerminal pairKey={activeTab} />
                 {:else if activePair.currentView === 'monitor'}
                     <TerminalMonitor pairKey={activeTab} wssState={activeWss} />

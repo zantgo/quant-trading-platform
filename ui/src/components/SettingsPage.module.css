@@ -1,0 +1,84 @@
+/* SettingsPage — dedicated observe-only Settings surface (v11.8).
+ * Same brutalist tokens as the engine dashboards, but standalone:
+ * no engine navbar, no tab strip — only settings containers. */
+
+.page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 18px 22px 32px;
+    min-height: 100%;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.section {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 14px 16px 18px;
+}
+
+.sectionHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.sectionLabel {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.sectionPair {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    font-family: var(--mono, monospace);
+}
+
+.sectionSwitch {
+    display: flex;
+    gap: 6px;
+}
+
+.switchOn,
+.switchOff {
+    padding: 5px 12px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.55);
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.switchOn {
+    border-color: #3b82f6;
+    color: #60a5fa;
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.switchOff:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.75);
+}

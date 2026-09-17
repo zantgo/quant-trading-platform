@@ -1208,3 +1208,22 @@
 }
 
 .confirmDangerBtn.red:hover { opacity: 0.85; }
+
+/* v11.8 — full-view instance loader (MME workspace while the first
+ * snapshot has not arrived). Reuses the standard waving-dots pattern. */
+.instanceLoader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 80px 20px;
+    min-height: 60vh;
+}
+
+.loaderText {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.55);
+    font-family: var(--mono, monospace);
+}
