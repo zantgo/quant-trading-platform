@@ -228,3 +228,63 @@
     .tf-shell-layout { flex-direction: column; }
     .tf-shell-rail { width: 100%; flex-direction: row; flex-wrap: wrap; border-right: none; }
 }
+
+/* v11.8 — dedicated Liquidation Heatmap container (below Indicators). */
+.heatmapBlock {
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.heatmapBlock:last-child {
+    border-bottom: none;
+}
+
+/* v11.8 — Timeframes CRUD chips (presence = activation). */
+.tfCrudGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.tfCrudChip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    font-family: var(--mono, monospace);
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.tfCrudChip:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.tfCrudChip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.tfCrudChipOn {
+    border-color: #22c55e;
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.08);
+}
+
+.tfCrudLabel {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.tfCrudSecs {
+    font-size: 9px;
+    opacity: 0.7;
+}
