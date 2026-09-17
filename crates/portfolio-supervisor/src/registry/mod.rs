@@ -156,7 +156,15 @@ pub async fn add_instance(
     // TOML compatibility and intentionally IGNORED (no per-TF overrides).
     let ws_indicators = config_guard.indicators.clone();
     let ladder_cfgs: [TimeframeConfig; 10] = std::array::from_fn(|i| {
-        TimeframeConfig::new(config_models::FIXED_TF_LADDER[i], ws_indicators.clone())
+        // v11.8: per-duration profile baseline — the matrix values for this
+        // duration override the workspace-level defaults.
+        TimeframeConfig::new(
+            config_models::FIXED_TF_LADDER[i],
+            config_models::duration_profile::overlay(
+                &ws_indicators,
+                config_models::FIXED_TF_LADDER[i],
+            ),
+        )
     });
     let ladder_secs: [u64; 10] = config_models::FIXED_TF_LADDER;
     // v11.4: the ACTIVE SET — arbitrary subset of the pool (explicit
@@ -665,7 +673,15 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     // from the workspace-level defaults.
     let ws_indicators = config_guard.indicators.clone();
     let ladder_cfgs: [TimeframeConfig; 10] = std::array::from_fn(|i| {
-        TimeframeConfig::new(config_models::FIXED_TF_LADDER[i], ws_indicators.clone())
+        // v11.8: per-duration profile baseline — the matrix values for this
+        // duration override the workspace-level defaults.
+        TimeframeConfig::new(
+            config_models::FIXED_TF_LADDER[i],
+            config_models::duration_profile::overlay(
+                &ws_indicators,
+                config_models::FIXED_TF_LADDER[i],
+            ),
+        )
     });
     let ladder_secs: [u64; 10] = config_models::FIXED_TF_LADDER;
     // v11.4: the ACTIVE SET — arbitrary subset of the pool (explicit
