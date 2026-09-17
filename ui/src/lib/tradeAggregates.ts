@@ -14,15 +14,7 @@
 //   STAND ASIDE  — no qualifying profile across all instances OR every
 //                   instance's `trade_readiness === 'STAND_ASIDE'`.
 
-import type {
-    AdvisoryMatrix,
-    DecisionContext,
-    InstanceState,
-    MarketBias,
-    OpportunityMatrix,
-    OpportunityProfile,
-    TradeViability,
-} from '../types';
+import type { AdvisoryMatrix, DecisionContext, InstanceState, MarketBias, OpportunityMatrix, OpportunityProfile, TradeViability } from '../types';
 import { normalizeViability } from './viability';
 import { selectProfileSide, resolveActiveRr } from './decisionRank';
 

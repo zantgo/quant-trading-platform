@@ -15,7 +15,7 @@
 //         the whisper footnote render only with real data.
 
 import { tick } from 'svelte';
-import { TIMEFRAME_SLOT_KINDS } from '../types';
+import { DURATIONS } from '../types';
 import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import AlignmentPanel from './AlignmentPanel.svelte';
@@ -51,7 +51,7 @@ function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatri
     mtf_overall_score: 62,
     mtf_overall_label: 'STRONG_BULL_MTF',
     timeframe_alignments: [
-      { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
+      { timeframe: '1M', timeframe_secs: 60, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
     ],
     signal_cross_tf_count: 2,
     trend_agreement_pct: 82,
@@ -255,7 +255,7 @@ describe('AlignmentPanel — Timeframe Status table (v10.2)', () => {
     // v11.4: the fixture pair runs the full ladder (all-10 default).
     const app = useAppStore();
     const pair = app.instancesMap['BTC-USDT'];
-    if (pair) pair.activeSlots = [...TIMEFRAME_SLOT_KINDS];
+    if (pair) pair.activeDurations = [...DURATIONS];
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
     await tick();
     // The collapse bar carries the label; the table renders expanded (default).
@@ -265,8 +265,8 @@ describe('AlignmentPanel — Timeframe Status table (v10.2)', () => {
     const table = screen.getByRole('table');
     // One row per ACTIVE slot (10 for the full ladder), each a LayerHeader badge.
     const rows = table.querySelectorAll('tbody tr');
-    expect(rows.length).toBe(10);
-    expect(table.querySelectorAll(`.${headerStyles.badge}`).length).toBe(10);
+    expect(rows.length).toBe(14);
+    expect(table.querySelectorAll(`.${headerStyles.badge}`).length).toBe(14);
     // Order: directly after the </LayerHeader>, before the SUMMARY card.
     const headerRoot = document.querySelector(`.${headerStyles.layerHeader}`)!;
     const card = screen.getByLabelText('SUMMARY');
@@ -276,19 +276,19 @@ describe('AlignmentPanel — Timeframe Status table (v10.2)', () => {
 });
 
 describe('AlignmentPanel — Per-Timeframe gauge grid (v7.4, moved from the Analysis tab)', () => {
-  it('renders the ring-gauge grid in MICRO1..LONGTERM2 ladder order', () => {
+  it('renders the ring-gauge grid in canonical duration order', () => {
     seed(makeAlignment({
       timeframe_alignments: [
-        { timeframe: 'MACRO1', timeframe_secs: 180, trend_score: 0.4, momentum_score: 0.3, overall_score: 0.5, regime: 'RANGE', active_signals: 2, price: 63390 },
-        { timeframe: 'MICRO1', timeframe_secs: 1, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
+        { timeframe: '3M', timeframe_secs: 180, trend_score: 0.4, momentum_score: 0.3, overall_score: 0.5, regime: 'RANGE', active_signals: 2, price: 63390 },
+        { timeframe: '1S', timeframe_secs: 1, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
       ],
     }));
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
     const cards = Array.from(document.querySelectorAll(`.${styles.tfSquare}`));
     // All ten ladder slots render (inactive ones show placeholders).
-    expect(cards.length).toBe(10);
-    expect(cards.map((c) => c.textContent?.match(/MICRO1|MICRO2|FAST1|FAST2|SLOW1|SLOW2|MACRO1|MACRO2|LONGTERM1|LONGTERM2/)?.[0])).toEqual([
-      'MICRO1', 'MICRO2', 'FAST1', 'FAST2', 'SLOW1', 'SLOW2', 'MACRO1', 'MACRO2', 'LONGTERM1', 'LONGTERM2',
+    expect(cards.length).toBe(14);
+    expect(cards.map((c) => c.textContent?.match(/1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D/)?.[0])).toEqual([
+      '1S', '3S', '5S', '15S', '30S', '1M', '3M', '5M', '15M', '30M', '1H', '4H', '12H', '1D',
     ]);
     // Active cards carry the ring gauge, the stat rows, and the regime badge.
     expect(cards[0].querySelector(`.${styles.tfGaugeProgress}`)).toBeTruthy();
@@ -301,7 +301,7 @@ describe('AlignmentPanel — Per-Timeframe gauge grid (v7.4, moved from the Anal
     expect(cards[0].textContent).toContain('5 signals');
     // Inactive slots render the offline placeholder, not fabricated data.
     expect(cards[1].textContent).toContain('OFFLINE');
-    expect(cards[6].textContent).toContain('MACRO1');
+    expect(cards[6].textContent).toContain('3M');
     expect(cards[6].textContent).toContain('+0.40');
   });
 

@@ -137,8 +137,8 @@ describe('Launch Setup — instances step', () => {
         expect(selects.length).toBe(0);
 
         // v11.2: the ACTIVE ladder is displayed instead — the fastest N
-        // slots of the fixed pool (default N = 5).
-        expect(container.textContent).toContain('Active ladder (5): 1s · 3s · 5s · 15s · 30s');
+        // durations of the pool (default fastest 8).
+        expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
     });
 
     it('adds and removes staged instances (active ladder shown per instance)', async () => {
@@ -152,7 +152,7 @@ describe('Launch Setup — instances step', () => {
         // Normalized to uppercase and shown with the quote + the ACTIVE
         // ladder label.
         expect(container.textContent).toContain('BTC');
-        expect(container.textContent).toContain('Active ladder (5): 1s · 3s · 5s · 15s · 30s');
+        expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
 
         // Duplicate rejection.
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
@@ -245,14 +245,14 @@ describe('Launch Setup — launch orchestration', () => {
         expect(configCall).toBeUndefined();
 
         // Review shows the ACTIVE ladder.
-        expect(container.textContent).toContain('Active ladder (5): 1s · 3s · 5s · 15s · 30s');
+        expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
     });
 
     it('review marks the ladder as ACTIVE (count + durations, no picker)', async () => {
         const { container } = await render(LaunchSetup);
         await goToReview(container);
         expect(container.textContent).toContain('Timeframes');
-        expect(container.textContent).toContain('Active ladder (5)');
+        expect(container.textContent).toContain('Active ladder (8)');
     });
 
     it('surfaces a backend error from session init', async () => {

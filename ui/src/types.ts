@@ -197,10 +197,10 @@ export interface MetricsConfig {
  * fields are optional because some only populate on completed candles.
  */
 export interface MarketSnapshot {
-    /** Wire slot key (`micro1`..`longterm2`, or `custom-<id>`).
-     *  The WS handler stamps it on every frame; the frontend dispatcher
-     *  reads it via the raw envelope before applying. */
-    timeframe_slot?: string | null;
+    /** v11.9: wire duration label ("1s".."1d"). The WS handler stamps it
+     *  on every frame; the frontend dispatcher reads it via the raw
+     *  envelope before applying. */
+    timeframe_label?: string | null;
     exchange?: string | null;
     symbol: string;
     timeframe_secs: number;
@@ -771,48 +771,47 @@ export function emptyIndicator(): IndicatorDto {
     return { raw_value: 0, normalized: 0, state_label: 'UNKNOWN', values: null };
 }
 
-/// Stable slot identity. The FIXED 10-slot ladder is positional
-/// (fastest → slowest): micro1, micro2, fast1, fast2, slow1, slow2,
-/// macro1, macro2, longterm1, longterm2. Slot identity travels on the
-/// wire as `timeframe_slot` and is stamped by the analyzer onto every
-/// snapshot. Consumers that need to bind a chart to a column should key
-/// by slot, never by duration.
-export type TimeframeSlotKind =
-    | 'micro1' | 'micro2'
-    | 'fast1' | 'fast2'
-    | 'slow1' | 'slow2'
-    | 'macro1' | 'macro2'
-    | 'longterm1' | 'longterm2';
-
-export const TIMEFRAME_SLOT_KINDS: readonly TimeframeSlotKind[] = [
-    'micro1', 'micro2', 'fast1', 'fast2', 'slow1', 'slow2',
-    'macro1', 'macro2', 'longterm1', 'longterm2',
+/// v11.9: duration-keyed timeframe identity. A timeframe IS its duration
+/// in seconds — there are no named slots. The supported pool is the
+/// closed 14-duration set below; activation is any subset of 1..=14
+/// durations. The derived label ("1s".."1d") travels on the wire as
+/// `timeframe_label` and is stamped by the analyzer onto every snapshot.
+export const DURATIONS: readonly number[] = [
+    1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400, 43200, 86400,
 ] as const;
 
-export function isTimeframeSlotKind(s: unknown): s is TimeframeSlotKind {
-    return typeof s === 'string' && (TIMEFRAME_SLOT_KINDS as readonly string[]).includes(s);
+/// Canonical display label for a supported duration ("1s".."1d").
+/// Durations outside the pool resolve to "<secs>s".
+export function tfLabel(secs: number): string {
+    switch (secs) {
+        case 1: return '1s';
+        case 3: return '3s';
+        case 5: return '5s';
+        case 15: return '15s';
+        case 30: return '30s';
+        case 60: return '1m';
+        case 180: return '3m';
+        case 300: return '5m';
+        case 900: return '15m';
+        case 1800: return '30m';
+        case 3600: return '1h';
+        case 14400: return '4h';
+        case 43200: return '12h';
+        case 86400: return '1d';
+        default: return `${secs}s`;
+    }
 }
 
-/// Fixed ladder durations (seconds), fastest → slowest. Every instance
-/// runs exactly these 10 pipelines.
-export const TIMEFRAME_SLOT_DURATION_SECS: Record<TimeframeSlotKind, number> = {
-    micro1: 1, micro2: 3, fast1: 5, fast2: 15,
-    slow1: 30, slow2: 60, macro1: 180, macro2: 300,
-    longterm1: 900, longterm2: 3600,
-};
-
-/// Display labels (Title-case) for the 10 slots, in ladder order.
-export const TIMEFRAME_SLOT_LABELS: Record<TimeframeSlotKind, string> = {
-    micro1: 'Micro1', micro2: 'Micro2', fast1: 'Fast1', fast2: 'Fast2',
-    slow1: 'Slow1', slow2: 'Slow2', macro1: 'Macro1', macro2: 'Macro2',
-    longterm1: 'Longterm1', longterm2: 'Longterm2',
-};
+/// True when `secs` is a member of the supported pool.
+export function isSupportedDuration(secs: number): boolean {
+    return (DURATIONS as readonly number[]).includes(secs);
+}
 
 export interface TimeframeTelemetry {
-    /// Authoritative slot identity (`micro1`..`longterm2`). A
-    /// `TimeframeTelemetry` lives on a known slot — never derive slot from
-    /// `barDurationSec`.
-    slot: TimeframeSlotKind;
+    /// v11.9: authoritative duration identity in seconds (a member of
+    /// `DURATIONS`). The duration IS the slot; the label is derived via
+    /// `tfLabel(secs)`.
+    slot: number;
     symbol: string;
     exchange: string;
     barDurationSec: number;
@@ -964,19 +963,18 @@ export interface InstanceState {
     /// launch. Populated from `GET /api/instances` via
     /// `syncInstanceIdsFromList`. Drives mode-aware tabs + banners.
     mode?: 'observe' | 'paper' | 'live';
-    /// Per-slot telemetry, keyed by the fixed 10-slot ladder identity
-    /// (`micro1`..`longterm2`). Every instance runs exactly 10 pipelines.
-    /// NOTE (v11.2): the RECORD stays TOTAL (10 entries) but only the
-    /// ACTIVE slots ever populate — inactive entries stay at their
-    /// initial placeholder. Walk `activeSlotKinds(pair)`, not the keys.
-    terms: Record<TimeframeSlotKind, TimeframeTelemetry>;
-    /// v11.2 — the ACTIVE ladder: the fastest N slot kinds of the fixed
-    /// 10-slot pool (`[workspace].active_timeframes`, 1..=10, default 5),
-    /// mirrored from `InstanceSummary.active_secs` on `GET /api/instances`.
-    /// Slots beyond N are INERT: no snapshots, no WS sockets. `undefined`
-    /// until the payload arrives — consumers fall back to all 10 via
-    /// `activeSlotKinds(pair)` (lib/terms.ts).
-    activeSlots?: TimeframeSlotKind[];
+    /// v11.9 — per-duration telemetry, keyed by the duration in seconds.
+    /// The RECORD covers ALL 14 supported durations (total), but only the
+    /// ACTIVE durations ever populate. Walk `activeDurations(pair)`, not
+    /// the keys.
+    terms: Record<number, TimeframeTelemetry>;
+    /// v11.9 — the ACTIVE ladder: the configured subset of the supported
+    /// duration pool, mirrored from `InstanceSummary.active_secs` on
+    /// `GET /api/instances`. Durations beyond the set are INERT: no
+    /// snapshots, no WS sockets. `undefined` until the payload arrives —
+    /// consumers fall back to all 14 via `activeDurations(pair)`
+    /// (lib/terms.ts).
+    activeDurations?: number[];
     historyLatestClose: string;
     currentView: CurrentView;
     alignment: AlignmentMatrix | null;
@@ -994,7 +992,7 @@ export interface InstanceState {
      *  setup profiles. Only the completed-candle WS frame carries this
      *  payload (`broadcast_live_snapshot` zeroes it for performance), so
      *  it is mirrored at the pair level by `applySnapshotToTimeframe`
-     *  rather than read from `terms.micro1.latestSnapshot` (which gets
+     *  rather than read from `terms[1].latestSnapshot` (which gets
      *  overwritten by shadow ticks). */
     opportunity: OpportunityMatrix | null;
     /// Last candle-close timestamp (epoch seconds) whose WS frame was
@@ -1011,7 +1009,7 @@ export interface InstanceState {
     /// starving every slower slot's matrix frames forever — the sub-minute
     /// matrix deadlock. `-Infinity` = "no matrix frame accepted for this
     /// slot yet".
-    lastMatrixTimestampBySlot: Partial<Record<TimeframeSlotKind, number>>;
+    lastMatrixTimestampBySlot: Partial<Record<number, number>>;
     /// Last closed-candle close price across any slot that produced a
     /// completed frame. Powers geometry consumers (OpportunitiesPanel,
     /// RecommendationPanel) that need a stable mark price which doesn't
@@ -1029,11 +1027,10 @@ export interface InstanceState {
     showEmaMedium: boolean;
     showEmaSlow: boolean;
     showEmaLong: boolean;
-    /** LiveTerminal active timeframe (one of the 10 fixed slots) — persisted per-instance
-     *  so sub-minute selection survives Charts↔Metrics tab switches and engine
-     *  view unmounts (previously `activeTf` was local `$state('micro1')` and
-     *  reset on every LiveTerminal remount, hiding the chosen sub-minute TF). */
-    activeTf?: TimeframeSlotKind;
+    /** LiveTerminal active timeframe (one of the ACTIVE durations, in
+     *  seconds) — persisted per-instance so sub-minute selection survives
+     *  Charts↔Metrics tab switches and engine view unmounts. */
+    activeTf?: number;
 }
 
 export interface ScaleInPortion {
@@ -1217,7 +1214,8 @@ export interface VolumeProfileBin {
 
 export interface VolumeProfileSnapshot {
     symbol: string;
-    timeframe_slot: string;
+    /// v11.9: derived duration label ("1s".."1d").
+    timeframe_label: string;
     timeframe_secs: number;
     bins: VolumeProfileBin[];
     poc_price: number;

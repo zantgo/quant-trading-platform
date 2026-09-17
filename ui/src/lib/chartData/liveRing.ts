@@ -12,15 +12,15 @@ const HIST_MAX = 1000;
 const liveHistory = new Map<string, IndicatorFlatHistory>();
 const liveCandles = new Map<string, CandleOHLCV[]>();
 
-function keyFor(pairKey: string, timeframe: number, slot?: string): string {
+function keyFor(pairKey: string, timeframe: number, slot?: number | string): string {
     return `${pairKey}@${slot ?? '?'}@${timeframe}`;
 }
 
-export function getLiveHistory(pairKey: string, timeframe: number, slot?: string): IndicatorFlatHistory | null {
+export function getLiveHistory(pairKey: string, timeframe: number, slot?: number | string): IndicatorFlatHistory | null {
     return liveHistory.get(keyFor(pairKey, timeframe, slot)) ?? null;
 }
 
-export function getLiveCandles(pairKey: string, timeframe: number, slot?: string): CandleOHLCV[] | null {
+export function getLiveCandles(pairKey: string, timeframe: number, slot?: number | string): CandleOHLCV[] | null {
     return liveCandles.get(keyFor(pairKey, timeframe, slot)) ?? null;
 }
 
@@ -29,7 +29,7 @@ export function clearLive(): void {
     liveCandles.clear();
 }
 
-export function purgeLive(pairKey: string, timeframe: number, slot?: string): void {
+export function purgeLive(pairKey: string, timeframe: number, slot?: number | string): void {
     const k = keyFor(pairKey, timeframe, slot);
     liveHistory.delete(k);
     liveCandles.delete(k);
@@ -40,7 +40,7 @@ export function purgeLive(pairKey: string, timeframe: number, slot?: string): vo
 export function ingestLive(
     pairKey: string,
     timeframe: number,
-    slot: string | undefined,
+    slot: number | string | undefined,
     snapshot: Record<string, unknown>,
 ): void {
     if (!pairKey || !timeframe) return;
@@ -140,7 +140,7 @@ export function ingestLive(
 export function appendLiveCandle(
     pairKey: string,
     timeframe: number,
-    slot: string | undefined,
+    slot: number | string | undefined,
     candle: CandleOHLCV,
 ): void {
     if (!pairKey || !timeframe || !candle || candle.reconstructed) return;

@@ -11,6 +11,7 @@
 // Sub-minute timeframes (1 s, 3 s, 5 s, 15 s, 30 s) are first-class. The
 // fetch passes `timeframe_secs` verbatim; no minute-rounding floor.
 
+import { tfLabel } from '../types';
 import type { Time } from 'lightweight-charts';
 import * as HistoricalStore from './chartData/historicalStore';
 import * as LiveRing from './chartData/liveRing';
@@ -68,11 +69,14 @@ const historyData = new Map<string, IndicatorFlatHistory>();
 export function fetchIndicatorHistoryOnce(
     pairKey: string,
     timeframe: number,
-    slot?: string,
+    slot?: number | string,
     force: boolean = false,
 ): Promise<IndicatorFlatHistory | null> {
     if (!pairKey || !timeframe) return Promise.resolve(null);
-    const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
+    // v11.9: numeric slots are duration secs — the wire param is the
+    // derived label.
+    const slotParam0 = typeof slot === 'number' ? tfLabel(slot) : slot;
+    const key = `${pairKey}@${slotParam0 ?? '?'}@${timeframe}`;
 
     // ── Third-structure dispatch: <60 live-only vs >=60 durable ──
     // <60: liveRing authoritative, fetch is best-effort (empty expected) and preserves live tail
@@ -86,7 +90,7 @@ export function fetchIndicatorHistoryOnce(
         }
         const promise = (async (): Promise<IndicatorFlatHistory | null> => {
             try {
-                const slotParam = slot ? `&slot=${encodeURIComponent(slot)}` : '';
+                const slotParam = slotParam0 ? `&slot=${encodeURIComponent(slotParam0)}` : '';
                 const res = await fetch(
                     `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000${slotParam}`,
                 );
@@ -223,7 +227,7 @@ export function clearHistoryCache(): void {
     LiveRing.clearLive();
 }
 
-export function purgeCacheForKey(pairKey: string, timeframe: number, slot?: string): void {
+export function purgeCacheForKey(pairKey: string, timeframe: number, slot?: number | string): void {
     const k = `${pairKey}@${slot ?? '?'}@${timeframe}`;
     cache.delete(k);
     historyData.delete(k);
@@ -240,7 +244,7 @@ export function purgeCacheForKey(pairKey: string, timeframe: number, slot?: stri
 export function ingestLiveSnapshot(
     pairKey: string,
     timeframe: number,
-    slot: string | undefined,
+    slot: number | string | undefined,
     snapshot: Record<string, unknown>,
 ): void {
     // Third-structure: LiveRing is primary live store. Delegate and keep facade in sync for <60 only.
@@ -279,7 +283,7 @@ export function ingestLiveSnapshot(
 }
 
 /// Test hook: read resolved history (for unit tests).
-export function getResolvedHistory(pairKey: string, timeframe: number, slot?: string): IndicatorFlatHistory | null {
+export function getResolvedHistory(pairKey: string, timeframe: number, slot?: number | string): IndicatorFlatHistory | null {
     const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
     if (timeframe < 60) {
         return LiveRing.getLiveHistory(pairKey, timeframe, slot) ?? historyData.get(key) ?? null;
@@ -322,11 +326,11 @@ export type CandleOHLCV = {
 
 const candleCache = new Map<string, CandleOHLCV[]>();
 
-function candleCacheKey(pairKey: string, timeframe: number, slot?: string): string {
+function candleCacheKey(pairKey: string, timeframe: number, slot?: number | string): string {
     return `${pairKey}@${slot ?? '?'}@${timeframe}`;
 }
 
-export function getCachedCandles(pairKey: string, timeframe: number, slot?: string): CandleOHLCV[] | null {
+export function getCachedCandles(pairKey: string, timeframe: number, slot?: number | string): CandleOHLCV[] | null {
     // Slot-aware lookup with duration-only fallback so a single cold miss
     // after the migration still finds the previous duration-only entry once.
     const slotKey = candleCacheKey(pairKey, timeframe, slot);
@@ -344,7 +348,7 @@ export function getCachedCandles(pairKey: string, timeframe: number, slot?: stri
     return null;
 }
 
-export function setCachedCandles(pairKey: string, timeframe: number, candles: CandleOHLCV[], slot?: string): void {
+export function setCachedCandles(pairKey: string, timeframe: number, candles: CandleOHLCV[], slot?: number | string): void {
     // Defence in depth: never cache synthetic candles even if the caller
     // forgot to filter. The backend may serve a future reconstruction path
     // that we don't yet know about; this guard keeps the cache pure.
@@ -356,7 +360,7 @@ export function setCachedCandles(pairKey: string, timeframe: number, candles: Ca
 /// live-accumulated candles (especially sub-minute where `setCachedCandles`
 /// was only called on cold bootstrap). Called from `websocket.svelte.ts`
 /// on every completed candle; dedups by `time`, caps at 1000, keeps sorted.
-export function appendLiveCandle(pairKey: string, timeframe: number, slot: string | undefined, candle: CandleOHLCV): void {
+export function appendLiveCandle(pairKey: string, timeframe: number, slot: number | string | undefined, candle: CandleOHLCV): void {
     // Delegate to LiveRing as primary for third-structure isolation
     LiveRing.appendLiveCandle(pairKey, timeframe, slot, candle);
     // For >=60, durable candleCache is historical only — do not pollute with live
@@ -384,7 +388,7 @@ export function appendLiveCandle(pairKey: string, timeframe: number, slot: strin
     candleCache.set(key, existing);
 }
 
-export function purgeCandleCacheForKey(pairKey: string, timeframe: number, slot?: string): void {
+export function purgeCandleCacheForKey(pairKey: string, timeframe: number, slot?: number | string): void {
     candleCache.delete(candleCacheKey(pairKey, timeframe, slot));
     LiveRing.purgeLive(pairKey, timeframe, slot);
 }
@@ -419,7 +423,7 @@ export function clearCandleCache(): void {
 /// can replace the prefix but keep any tail timestamps newer than the
 /// server's last time (those are live candles not yet in snapshot_history
 /// due to race). Used if we ever trigger a background refresh.
-export function mergeHistoryRefresh(pairKey: string, timeframe: number, slot: string | undefined, serverHist: IndicatorFlatHistory): void {
+export function mergeHistoryRefresh(pairKey: string, timeframe: number, slot: number | string | undefined, serverHist: IndicatorFlatHistory): void {
     const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
     const live = historyData.get(key);
     if (!live || !serverHist || serverHist.times.length === 0) {

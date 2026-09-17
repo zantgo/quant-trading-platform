@@ -2,9 +2,9 @@
     import { untrack } from 'svelte';
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
-    import type { InstanceState, TimeframeSlotKind, TimeframeTelemetry } from '../types';
-    import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS, TIMEFRAME_SLOT_DURATION_SECS } from '../types';
-    import { activeSlotKinds } from '../lib/terms';
+    import type { InstanceState, TimeframeTelemetry } from '../types';
+    import { DURATIONS, tfLabel } from '../types';
+    import { activeDurations } from '../lib/terms';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
@@ -160,32 +160,31 @@
         };
     }
 
-    function fieldId(term: string, label: string): string {
+    function fieldId(term: number, label: string): string {
         const slug = label.toLowerCase().replace(/%/g, 'pct').replace(/[:\s]+/g, '-').replace(/[^a-z0-9-]/g, '');
         return `tf-${term}-${slug}`;
     }
 
-    let tfDraft = $state<Record<TimeframeSlotKind, TermDraft>>(
-        Object.fromEntries(TIMEFRAME_SLOT_KINDS.map((slot) => [slot, defaultTermDraft()])) as Record<TimeframeSlotKind, TermDraft>
+    let tfDraft = $state<Record<number, TermDraft>>(
+        Object.fromEntries(DURATIONS.map((slot) => [slot, defaultTermDraft()])) as Record<number, TermDraft>
     );
 
     // v7.0-prod (D5 default = 10×): left-rail selector + per-TF config pane.
-    // v8: the rail lists the fixed 10-slot ladder — durations are not editable.
-    // v11.2: the rail (and every draft read/apply/save walk) lists only the
-    // instance's ACTIVE slots — the fastest N of the fixed pool; inactive
-    // slots are inert and cannot be configured.
-    type TfSlot = TimeframeSlotKind;
-    let selectedSlot = $state<TfSlot>('micro1');
+    // v11.9: the rail (and every draft read/apply/save walk) lists only the
+    // instance's ACTIVE durations — inactive durations are inert and cannot
+    // be configured.
+    type TfSlot = number;
+    let selectedSlot = $state<TfSlot>(1);
 
-    const slotOrder = $derived<TfSlot[]>(activeSlotKinds(pair));
+    const slotOrder = $derived<TfSlot[]>(activeDurations(pair));
 
     /// Keep the configured pane on an ACTIVE slot when the ladder narrows
     /// (e.g. after a settings save reduced the active count).
     const paneSlot = $derived<TfSlot>(
-        slotOrder.includes(selectedSlot) ? selectedSlot : (slotOrder[0] ?? 'micro1'),
+        slotOrder.includes(selectedSlot) ? selectedSlot : (slotOrder[0] ?? 1),
     );
     const slotTitles: Record<TfSlot, string> = Object.fromEntries(
-        TIMEFRAME_SLOT_KINDS.map((slot) => [slot, TIMEFRAME_SLOT_LABELS[slot]]),
+        DURATIONS.map((slot) => [slot, tfLabel(slot)]),
     ) as Record<TfSlot, string>;
 
     function durationSuffixOf(sec: number): string {
@@ -195,7 +194,7 @@
     }
 
     function slotSecsLabel(slot: TfSlot): string {
-        return durationSuffixOf(TIMEFRAME_SLOT_DURATION_SECS[slot]);
+        return durationSuffixOf((slot));
     }
 
     // ─── Visual overlay toggles (grouped for the trader) ────────────────
@@ -283,12 +282,12 @@
     $effect(() => {
         if (!pair) return;
         for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
-            (draft.visuals as any)[f] = (pair.terms.micro1 as any)[f];
+            (draft.visuals as any)[f] = (pair.terms[1] as any)[f];
         }
         draft.automation.enabled = pair.automationEnabled;
         draft.automation.intervalValue = pair.automationIntervalValue;
         draft.automation.intervalUnit = pair.automationIntervalUnit as 'seconds' | 'minutes' | 'hours';
-        for (const slot of activeSlotKinds(pair)) {
+        for (const slot of activeDurations(pair)) {
             const tf = pair.terms[slot];
             if (tf) tfDraft[slot] = readTermFromTelemetry(tf);
         }
@@ -302,7 +301,7 @@
             exchange: pair.exchange,
             visuals: draft.visuals,
             automation: draft.automation,
-            tf: Object.fromEntries(activeSlotKinds(pair).map((slot) => [slot, tfDraft[slot]])),
+            tf: Object.fromEntries(activeDurations(pair).map((slot) => [slot, tfDraft[slot]])),
             activation,
         });
     }
@@ -356,12 +355,12 @@
         });
     }
 
-    /// v11.8: timeframe CRUD — presence in `activeSlots` IS activation.
+    /// v11.8: timeframe CRUD — presence in `activeDurations` IS activation.
     /// Persists via /api/config (workspace knob) and locally to the pair.
-    async function toggleTfSlot(slot: TimeframeSlotKind): Promise<void> {
-        const current: TimeframeSlotKind[] = pair.activeSlots ?? [...TIMEFRAME_SLOT_KINDS];
+    async function toggleTfSlot(slot: number): Promise<void> {
+        const current: number[] = pair.activeDurations ?? [...DURATIONS];
         if (current.length === 0) return;
-        let next: TimeframeSlotKind[];
+        let next: number[];
         if (current.includes(slot)) {
             if (current.length <= 1) return; // at least one must stay
             next = current.filter((s) => s !== slot);
@@ -369,19 +368,19 @@
             next = [...current, slot];
         }
         // Canonical ladder order.
-        next = TIMEFRAME_SLOT_KINDS.filter((s) => next.includes(s)); // canonical order
+        next = DURATIONS.filter((s) => next.includes(s)); // canonical order
         if (next.length === 0) return;
         const res = await fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ active_slots: next }),
+            body: JSON.stringify({ timeframes: next }),
         });
         if (!res.ok) {
             const txt = await res.text().catch(() => '');
             identityError = txt || `Active timeframes save failed (${res.status})`;
             return;
         }
-        pair.activeSlots = next;
+        pair.activeDurations = next;
         app.bumpWsVersion();
         clearHistoryCache();
         clearCandleCache();
@@ -398,7 +397,7 @@
             identity: { symbol: pair.symbol, exchange: pair.exchange },
             visuals: draft.visuals,
             automation: { ...draft.automation, interval_seconds: calculatedAutomationInterval },
-            timeframes: Object.fromEntries(activeSlotKinds(pair).map((slot) => [slot, tfDraft[slot]])),
+            timeframes: Object.fromEntries(activeDurations(pair).map((slot) => [slot, tfDraft[slot]])),
             activation,
         });
     }
@@ -413,7 +412,7 @@
         let targetTabKey = tabKey;
         let target = pair;
 
-        for (const slot of activeSlotKinds(target)) {
+        for (const slot of activeDurations(target)) {
             applyVisualsToTerm(target.terms[slot] as unknown as Record<string, any>, vis);
         }
 
@@ -424,7 +423,7 @@
         saveState = 'saving';
         try {
             const body: Record<string, unknown> = {};
-            for (const slot of activeSlotKinds(target)) {
+            for (const slot of activeDurations(target)) {
                 body[slot] = { indicators: buildIndicators(tfDraft[slot]) };
             }
             body.automation = { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval };
@@ -450,7 +449,7 @@
                     const headerId = res.headers.get('x-instance-id');
                     if (headerId) target.instanceId = headerId;
                 }
-                for (const slot of activeSlotKinds(target)) {
+                for (const slot of activeDurations(target)) {
                     const tf = target.terms[slot];
                     if (tf) applyTermToTelemetry(tfDraft[slot], tf);
                 }
@@ -475,7 +474,7 @@
 </script>
 
 <div class="{styles.settingsWorkspaceTab} animate-fade">
-    {#snippet indicatorInputs(p: string, t: TermDraft)}
+    {#snippet indicatorInputs(p: number, t: TermDraft)}
         <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'EMA Instant')}>EMA Instant</label><input class={engine.fieldInput} id={fieldId(p, 'EMA Instant')} type="number" bind:value={t.emaFast} /></div>
         <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'EMA Fast')}>EMA Fast</label><input class={engine.fieldInput} id={fieldId(p, 'EMA Fast')} type="number" bind:value={t.emaMedium} /></div>
         <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'EMA Medium')}>EMA Medium</label><input class={engine.fieldInput} id={fieldId(p, 'EMA Medium')} type="number" bind:value={t.emaSlow} /></div>
@@ -561,27 +560,25 @@
         <div class={engine.card}>
             <div class={engine.cardHead}>
                 <h3 class={engine.cardTitle}>Timeframes</h3>
-                <ConfigSourceChip source="[workspace].active_slots" apply="LIVE" />
+                <ConfigSourceChip source="[workspace].timeframes" apply="LIVE" />
             </div>
             <p class={engine.infoLine}>
-                A timeframe runs when it is present in the set — add or remove slots below
-                (1–10, at least one must stay). Saving recharges the instance.
+                A timeframe runs when its duration is in the set — toggle the 14 supported
+                durations below (at least one must stay). Saving recharges running instances.
             </p>
             <div class={styles.tfCrudGrid}>
-                {#each TIMEFRAME_SLOT_KINDS as slot (slot)}
-                    {@const on = (pair.activeSlots ?? []).includes(slot)}
+                {#each DURATIONS as slot (slot)}
+                    {@const on = (pair.activeDurations ?? []).includes(slot)}
                     <button
                         type="button"
                         class="{styles.tfCrudChip} {on ? styles.tfCrudChipOn : ''}"
                         aria-pressed={on}
-                        disabled={on && (pair.activeSlots?.length ?? 0) <= 1}
+                        disabled={on && (pair.activeDurations?.length ?? 0) <= 1}
                         title={on ? 'Deactivate' : 'Activate'}
                         onclick={() => toggleTfSlot(slot)}
                     >
-                        <span class={styles.tfCrudLabel}>{TIMEFRAME_SLOT_LABELS[slot]}</span>
-                        <span class={styles.tfCrudSecs}>{TIMEFRAME_SLOT_DURATION_SECS[slot] >= 60
-                            ? `${TIMEFRAME_SLOT_DURATION_SECS[slot] / 60}m`
-                            : `${TIMEFRAME_SLOT_DURATION_SECS[slot]}s`}</span>
+                        <span class={styles.tfCrudLabel}>{tfLabel(slot)}</span>
+                        <span class={styles.tfCrudSecs}>{slot}s</span>
                     </button>
                 {/each}
             </div>

@@ -13,20 +13,8 @@
 // and `BottomTable.handleCopyJson` both route through these builders.
 
 import type { AppStore } from '../../state.svelte';
-import type {
-  AccountBlock,
-  CountsBlock,
-  LegacyMetaEnvelope,
-  SourceTab,
-} from './shared';
-import {
-  buildAccountBlock,
-  buildCountsBlock,
-  buildMeta,
-  fmtPnl,
-  fmtTimeHM,
-  parseMarkPrice,
-} from './shared';
+import type { AccountBlock, CountsBlock, LegacyMetaEnvelope, SourceTab } from './shared';
+import { buildAccountBlock, buildCountsBlock, buildMeta, fmtPnl, fmtTimeHM, parseMarkPrice } from './shared';
 import { calcLiqPrice } from '../telemetry';
 
 // ── Per-tab payload types ───────────────────────────────────────────────
@@ -213,7 +201,7 @@ function buildPositionBlock(app: AppStore, markPrice: number): PositionBlock | n
 }
 
 function buildSlotsBlock(app: AppStore, markPrice: number): SlotBlock[] {
-  const slots = app.activeSlots ?? [];
+  const slots = app.activeDurations ?? [];
   const direction = app.paperDirection;
   return slots.map((raw) => {
     const s = raw as Record<string, unknown>;

@@ -17,10 +17,7 @@
 // The actual canvas rendering is verified manually via `./manage.sh run`.
 
 import { describe, it, expect, vi } from 'vitest';
-import type {
-    LiquidationCluster,
-    LiquidationClusterMatrix,
-} from '../types';
+import type { LiquidationCluster, LiquidationClusterMatrix } from '../types';
 import { isClusterStale } from './liquidationHeatmap';
 
 function makeCluster(overrides: Partial<LiquidationCluster> = {}): LiquidationCluster {

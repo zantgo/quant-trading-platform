@@ -1,21 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-    biasColor,
-    riskDangerColor,
-    qualityColor,
-    directionColor,
-    directionLabel,
-    signalLabel,
-    signalQualityBucket,
-    rrColor,
-    scoreColor,
-    formatRR,
-    asciiBar,
-    DIRECTION_COLORS,
-    directionColorFor,
-    directionBackgroundFor,
-    type DirectionMode,
-} from './dashboardColors';
+import { biasColor, riskDangerColor, qualityColor, directionColor, directionLabel, signalLabel, signalQualityBucket, rrColor, scoreColor, formatRR, asciiBar, DIRECTION_COLORS, directionColorFor, directionBackgroundFor, type DirectionMode } from './dashboardColors';
 
 describe('biasColor', () => {
     it('StrongBullish -> good green', () => {

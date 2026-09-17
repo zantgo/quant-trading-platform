@@ -5,15 +5,7 @@
 // export body, chart overlay) must read the same record via these helpers.
 
 import { describe, expect, it } from 'vitest';
-import {
-    distFromPrice,
-    readEmaValues,
-    emaSpreadPct,
-    buildEmaRibbonView,
-    buildEmaRibbonCellView,
-    fmtPctSigned,
-    EMA_ROLES,
-} from './telemetry';
+import { distFromPrice, readEmaValues, emaSpreadPct, buildEmaRibbonView, buildEmaRibbonCellView, fmtPctSigned, EMA_ROLES } from './telemetry';
 
 describe('distFromPrice', () => {
     it('returns positive when price is above the EMA', () => {

@@ -16,10 +16,7 @@
     import ExportDataButton from './ExportDataButton.svelte';
     import { buildEngineExport } from '../lib/engineExport';
     import { isExecutionMode, type ExecutionMode } from '../lib/modePresentation';
-    import type {
-        StrategyAnalyticsRow, RiskAnalyticsRow, PerformanceMatrixRow,
-        OptimizationReport, TradeAnalyticsRecord,
-    } from '../types/analytics';
+    import type { StrategyAnalyticsRow, RiskAnalyticsRow, PerformanceMatrixRow, OptimizationReport, TradeAnalyticsRecord } from '../types/analytics';
     import OverviewTab from './performance/OverviewTab.svelte';
     import TradesTab from './performance/TradesTab.svelte';
     import StrategyTab from './performance/StrategyTab.svelte';

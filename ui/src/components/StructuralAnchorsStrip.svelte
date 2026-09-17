@@ -14,16 +14,7 @@
     //   - activeTf.cluster         : LiquidationClusterMatrix (top 3 per side)
     //   - activeTf.liquidity       : LiquidityFlow (latest bar long/short liqs)
 
-    import type {
-        ContextDimension,
-        LiquidationCluster,
-        LiquidationClusterMatrix,
-        LiquidityFlow,
-        MarketContext,
-        VolumeProfileBin,
-        VolumeProfileSnapshot,
-        TimeframeTelemetry,
-    } from '../types';
+    import type { ContextDimension, LiquidationCluster, LiquidationClusterMatrix, LiquidityFlow, MarketContext, VolumeProfileBin, VolumeProfileSnapshot, TimeframeTelemetry } from '../types';
     import { formatTimeframeLabel } from '../lib/telemetry';
     import { fibStatusString, vpPositionLabel } from '../lib/structuralStrings';
     import LiquidityPanel from './LiquidityPanel.svelte';
@@ -53,7 +44,7 @@
     /** Active TF label for the embedded LiquidityPanel (e.g. "MICRO 1m"). */
     const liqTfLabel = $derived(
         tf
-            ? `${tf.slot.toUpperCase()} ${formatTimeframeLabel(tf.barDurationSec)}`
+            ? `${formatTimeframeLabel(tf.barDurationSec)}`
             : 'NO DATA'
     );
 

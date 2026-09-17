@@ -347,7 +347,7 @@
     // Live mid for the would-be position card (observe radar).
     function liveMid(): number | null {
         const pair = app.instancesMap[automation?.symbol ?? ''];
-        const snap = pair?.terms?.micro1?.latestSnapshot as (Record<string, unknown> & { mid_price?: string | number }) | undefined;
+        const snap = pair?.terms?.[1]?.latestSnapshot as (Record<string, unknown> & { mid_price?: string | number }) | undefined;
         if (!snap) return null;
         const v = Number(snap.mid_price);
         return isFinite(v) && v > 0 ? v : null;

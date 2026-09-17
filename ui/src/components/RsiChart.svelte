@@ -7,17 +7,12 @@
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { makeChartCoalescer } from '../lib/chartCoalesce';
-    import {
-        fetchIndicatorHistoryOnce,
-        pairsFromHistory,
-        lastHistoricalTime,
-        type IndicatorFlatHistory,
-    } from '../lib/indicatorHistory';
+    import { fetchIndicatorHistoryOnce, pairsFromHistory, lastHistoricalTime, type IndicatorFlatHistory } from '../lib/indicatorHistory';
     import { getTerm } from '../lib/terms';
-    import type { TimeframeSlotKind } from '../types';
+    
 
     const app = useAppStore();
-    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: TimeframeSlotKind; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
+    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(getTerm(pair, slot));
     const timeframe = $derived(tf?.barDurationSec ?? 60);

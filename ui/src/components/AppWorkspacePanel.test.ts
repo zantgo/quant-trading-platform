@@ -41,7 +41,7 @@ function seedInstance(pairKey: string) {
     const entry = app.instancesMap[pairKey];
     if (entry) {
         entry.instanceId = `inst_${base.toLowerCase()}`;
-        entry.terms.micro1.priceText = '50000.00';
+        entry.terms[1].priceText = '50000.00';
     }
 }
 

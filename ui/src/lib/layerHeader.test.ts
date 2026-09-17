@@ -16,21 +16,7 @@
 // component consumes.
 
 import { describe, it, expect } from 'vitest';
-import {
-    buildL1MetricsHeader,
-    buildL1MtfHeader,
-    metricsBadgeFor,
-    buildL2AlignmentHeader,
-    buildL3AnalysisHeader,
-    buildL4OpportunityHeader,
-    buildL5RiskHeader,
-    buildL6DecisionHeader,
-    buildL7OverviewHeader,
-    chip,
-    emptyBadge,
-    hexToRgba,
-    type LayerHeaderSpec,
-} from './layerHeader';
+import { buildL1MetricsHeader, buildL1MtfHeader, metricsBadgeFor, buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader, buildL5RiskHeader, buildL6DecisionHeader, buildL7OverviewHeader, chip, emptyBadge, hexToRgba, type LayerHeaderSpec } from './layerHeader';
 import { DASHBOARD_COLORS, biasColor, riskDangerColor, scoreColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
 import type {
@@ -65,7 +51,7 @@ function ctx(overrides: Partial<MarketContext> = {}): MarketContext {
 
 function tfStub(context: MarketContext | null) {
     return {
-        slot: 'micro1',
+        slot: 1,
         context,
         indicators: {},
         isCompleted: context != null,
@@ -310,7 +296,7 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
         // The node test env has no global WebSocket — polyfill the two
         // constants tfStatusFrom reads.
         (globalThis as any).WebSocket = { OPEN: 1, CLOSED: 3 };
-        const closedWs = { sockets: { micro1: { readyState: 3 /* CLOSED */ } as WebSocket } };
+        const closedWs = { sockets: { 1: { readyState: 3 /* CLOSED */ } as WebSocket } };
         expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL' })), closedWs).status).toBe('error');
         const stale = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
         stale.pipelineState = 'STALE';
@@ -359,7 +345,7 @@ describe('metricsBadgeFor (single-source L1 badge)', () => {
 
     it('status flows through tfStatusFrom (M-4 semantics)', () => {
         (globalThis as any).WebSocket = { OPEN: 1, CLOSED: 3 };
-        const closedWs = { sockets: { micro1: { readyState: 3 /* CLOSED */ } as WebSocket } };
+        const closedWs = { sockets: { 1: { readyState: 3 /* CLOSED */ } as WebSocket } };
         expect(metricsBadgeFor(tfStub(ctx({ overall_label: 'STRONG_BULL' })), closedWs).status).toBe('error');
         const stale = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
         stale.pipelineState = 'STALE';

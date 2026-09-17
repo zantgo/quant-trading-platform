@@ -4,24 +4,8 @@
 // gate-aware headline, and the symmetric Long/Short setup derivation.
 
 import { describe, it, expect } from 'vitest';
-import {
-    computeDecisionRank,
-    computeSymmetricSetups,
-    selectProfileSide,
-    profileZones,
-    aggregateZones,
-    topSetupSummary,
-    profileSummary,
-    resolveActiveRr,
-    geometricRrFromZones,
-    buildVerdictSentence,
-} from './decisionRank';
-import type {
-    AdvisoryMatrix,
-    AnalysisMatrix,
-    DecisionContext,
-    OpportunityMatrix,
-} from '../types';
+import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, aggregateZones, topSetupSummary, profileSummary, resolveActiveRr, geometricRrFromZones, buildVerdictSentence } from './decisionRank';
+import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, OpportunityMatrix } from '../types';
 
 function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
     return {

@@ -131,7 +131,7 @@ export function notifyBadgeChanged(): void {
 // L2..L6      : `l2:<pairKey>` … `l6:<pairKey>` (per instance)
 // L7 Overview : `l7:global`
 
-export function l1Key(pairKey: string, slot: string): string {
+export function l1Key(pairKey: string, slot: number | string): string {
     return `l1:${pairKey}:${slot}`;
 }
 

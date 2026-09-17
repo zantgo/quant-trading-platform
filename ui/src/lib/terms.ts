@@ -1,56 +1,56 @@
-// Per-slot telemetry accessor for the fixed 10-slot ladder.
+// Per-duration telemetry accessor for the duration-keyed ladder (v11.9).
 //
-// Every `InstanceState` carries `terms: Record<TimeframeSlotKind, TimeframeTelemetry>`
-// (`micro1`..`longterm2`). Chart components bind one column each via
-// `slot: TimeframeSlotKind` and resolve their telemetry through this helper —
-// never by duration and never via 4-way ternary chains.
-import type { InstanceState, TimeframeSlotKind, TimeframeTelemetry } from '../types';
-import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_DURATION_SECS } from '../types';
+// Every `InstanceState` carries `terms: Record<number, TimeframeTelemetry>`
+// keyed by the duration in seconds (a member of `DURATIONS`). Chart
+// components bind one duration each via `slot: number` and resolve their
+// telemetry through this helper — the duration IS the slot identity and
+// the label is derived via `tfLabel(secs)`.
+import type { InstanceState, TimeframeTelemetry } from '../types';
+import { DURATIONS } from '../types';
 
 export function getTerm(
     pair: InstanceState | null | undefined,
-    slot: TimeframeSlotKind,
+    slotSecs: number,
 ): TimeframeTelemetry | undefined {
-    return pair?.terms?.[slot];
+    return pair?.terms?.[slotSecs];
 }
 
 /**
- * The ACTIVE slots of an instance's ladder, in canonical order
- * (fastest → slowest). v11.2: only the fastest N slots of the fixed
- * 10-slot pool run (`[workspace].active_timeframes`, 1..=10, default 5);
- * the backend publishes `active_secs` on `GET /api/instances` and the
- * store mirrors it as `InstanceState.activeSlots`. Slots beyond N are
- * INERT — they never emit snapshots and their WS sockets are never
- * served — so every "walk the ladder" loop must iterate this helper
- * instead of `TIMEFRAME_SLOT_KINDS`. Falls back to the full 10-slot
- * ladder until the payload arrives (or on malformed/empty data).
+ * The ACTIVE durations of an instance's ladder, in canonical order
+ * (fastest → slowest). v11.9: the active set is an arbitrary subset of
+ * the 14-duration pool (`[workspace].timeframes`); the backend publishes
+ * `active_secs` on `GET /api/instances` and the store mirrors it as
+ * `InstanceState.activeDurations`. Inactive durations are INERT — they
+ * never emit snapshots and their WS sockets are never served — so every
+ * "walk the ladder" loop must iterate this helper instead of `DURATIONS`.
+ * Falls back to the full 14-duration pool until the payload arrives (or
+ * on malformed/empty data).
  */
-export function activeSlotKinds(
+export function activeDurations(
     pair: InstanceState | null | undefined,
-): TimeframeSlotKind[] {
-    const active = pair?.activeSlots;
-    if (!Array.isArray(active) || active.length === 0) return [...TIMEFRAME_SLOT_KINDS];
+): number[] {
+    const active = pair?.activeDurations;
+    if (!Array.isArray(active) || active.length === 0) return [...DURATIONS];
     const set = new Set(active);
-    return TIMEFRAME_SLOT_KINDS.filter((slot) => set.has(slot));
+    return DURATIONS.filter((secs) => set.has(secs));
 }
 
 /**
- * Map wire `active_secs` durations back to slot kinds via the inverted
- * `TIMEFRAME_SLOT_DURATION_SECS` table. Durations outside the fixed pool
- * are dropped and duplicates collapse; the result is re-ordered to the
- * canonical ladder order regardless of the wire order.
+ * Heal a wire `active_secs` list: keep supported durations only,
+ * duplicates collapse, and the result is re-ordered to the canonical
+ * ascending (fastest → slowest) order regardless of the wire order.
  */
-export function slotsFromSecs(secs: readonly number[]): TimeframeSlotKind[] {
+export function durationsFromSecs(secs: readonly number[]): number[] {
     const wanted = new Set(secs);
-    return TIMEFRAME_SLOT_KINDS.filter((slot) => wanted.has(TIMEFRAME_SLOT_DURATION_SECS[slot]));
+    return DURATIONS.filter((d) => wanted.has(d));
 }
 
 /**
- * The fastest N slots of the fixed pool — the derivation behind the
- * `[workspace].active_timeframes` Settings knob. Counts are clamped into
- * 1..=10 exactly like the backend (`clamp(1, 10)`).
+ * The fastest N durations of the supported pool — the derivation behind
+ * count-style knobs. Counts are clamped into 1..=14 exactly like the
+ * backend.
  */
-export function withActiveSlots(count: number): TimeframeSlotKind[] {
-    const n = Math.min(Math.max(Math.trunc(count) || 1, 1), TIMEFRAME_SLOT_KINDS.length);
-    return TIMEFRAME_SLOT_KINDS.slice(0, n);
+export function withActiveDurations(count: number): number[] {
+    const n = Math.min(Math.max(Math.trunc(count) || 1, 1), DURATIONS.length);
+    return DURATIONS.slice(0, n);
 }

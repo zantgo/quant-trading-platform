@@ -16,7 +16,7 @@
 // 3. **Stage 3 — Dashes:** only when no slot has ever received a real
 //    price, fall back to `'--'`.
 
-import { TIMEFRAME_SLOT_KINDS } from '../types';
+import { DURATIONS } from '../types';
 
 /// Loose type for any object that carries a `priceText` and an optional
 /// `latestSnapshot`. We deliberately accept a broader shape than
@@ -28,22 +28,11 @@ export interface PricePickLike {
 }
 
 export interface PricePickPairLike {
-    /// Per-slot telemetry record keyed by the fixed 10-slot ladder
-    /// (`micro1`..`longterm2`). Partial so the full production
-    /// `Record<TimeframeSlotKind, TimeframeTelemetry>` and loose test
+    /// Per-duration telemetry record keyed by duration seconds
+    /// (`1`..`86400`). Partial so the full production
+    /// `Record<number, TimeframeTelemetry>` and loose test
     /// fixtures both flow through.
-    terms?: {
-        micro1?: PricePickLike | null;
-        micro2?: PricePickLike | null;
-        fast1?: PricePickLike | null;
-        fast2?: PricePickLike | null;
-        slow1?: PricePickLike | null;
-        slow2?: PricePickLike | null;
-        macro1?: PricePickLike | null;
-        macro2?: PricePickLike | null;
-        longterm1?: PricePickLike | null;
-        longterm2?: PricePickLike | null;
-    } | null;
+    terms?: Record<number, PricePickLike | null | undefined> | null;
 }
 
 const STALENESS_WINDOW_MS = 30_000;
@@ -63,7 +52,7 @@ function timestampOf(snap: PricePickLike['latestSnapshot']): number {
 }
 
 export function pickInstanceLivePrice(pair: PricePickPairLike, nowMs: number): string {
-    const slots: Array<PricePickLike | null | undefined> = TIMEFRAME_SLOT_KINDS.map(
+    const slots: Array<PricePickLike | null | undefined> = DURATIONS.map(
         (slot) => pair.terms?.[slot],
     );
 

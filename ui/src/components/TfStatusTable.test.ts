@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // TfStatusTable — v10.2 per-timeframe health-at-a-glance contract:
-//   • exactly one row per fixed-ladder slot, in MICRO1..LONGTERM2 order
+//   • exactly one row per supported duration, in ascending (1s..1d) order
 //   • the Status badge is the SAME badge the Metrics (L1) tab header
 //     shows for that TF — single-sourced through `metricsBadgeFor`
 //     (label prettified, colour via `biasColor`, regime sublabel rule)
@@ -15,7 +15,7 @@ import TfStatusTable from './TfStatusTable.svelte';
 import headerStyles from './LayerHeader.module.css';
 import { useAppStore } from '../state.svelte';
 import { biasColor } from '../lib/dashboardColors';
-import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../types';
+import { tfLabel, DURATIONS } from '../types';
 import type { WsState } from '../lib/websocket.svelte';
 import { makeTerms } from '../tests/makeTerms';
 
@@ -44,49 +44,49 @@ function renderTable(overrides: Parameters<typeof seedTerms>[0] = {}, wssState?:
 }
 
 describe('TfStatusTable — ladder rows', () => {
-    it('renders exactly one row per slot in MICRO1..LONGTERM2 ladder order', () => {
+    it('renders exactly one row per duration in ascending pool order', () => {
         renderTable();
         const table = screen.getByRole('table');
         const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
-        expect(bodyRows.length).toBe(TIMEFRAME_SLOT_KINDS.length);
-        const labels = TIMEFRAME_SLOT_KINDS.map((slot) => TIMEFRAME_SLOT_LABELS[slot].toUpperCase());
+        expect(bodyRows.length).toBe(DURATIONS.length);
+        const labels = DURATIONS.map((secs) => tfLabel(secs).toUpperCase());
         bodyRows.forEach((row, i) => {
             expect(row.textContent).toContain(labels[i]);
         });
     });
 
-    it('each Timeframe cell shows the slot label + duration (e.g. MICRO1 · 1s)', () => {
+    it('each Timeframe cell shows the derived duration label (e.g. 1S · 1s)', () => {
         renderTable();
         const table = screen.getByRole('table');
         const first = table.querySelector('tbody tr')!.textContent!;
-        expect(first).toContain('MICRO1');
+        expect(first).toContain('1S');
         expect(first).toContain('1s');
-        const last = table.querySelectorAll('tbody tr')[9].textContent!;
-        expect(last).toContain('LONGTERM2');
-        expect(last).toContain('1h');
+        const last = table.querySelectorAll('tbody tr')[DURATIONS.length - 1].textContent!;
+        expect(last).toContain('1D');
+        expect(last).toContain('1d');
     });
 
-    it('v11.2: renders only the ACTIVE slots when the instance narrows its ladder', () => {
+    it('renders only the ACTIVE durations when the instance narrows its ladder', () => {
         seedTerms();
         const app = useAppStore();
-        app.instancesMap['BTC-USDT'].activeSlots = ['micro1', 'slow1', 'longterm2'] as never;
+        app.instancesMap['BTC-USDT'].activeDurations = [1, 30, 3600];
         render(TfStatusTable, { props: { pairKey: 'BTC-USDT' } });
         const table = screen.getByRole('table');
         const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
         expect(bodyRows.length).toBe(3);
-        expect(bodyRows[0].textContent).toContain('MICRO1');
-        expect(bodyRows[1].textContent).toContain('SLOW1');
-        expect(bodyRows[2].textContent).toContain('LONGTERM2');
-        // Inactive slots must not appear at all.
-        expect(table.textContent).not.toContain('MICRO2');
-        expect(table.textContent).not.toContain('MACRO1');
+        expect(bodyRows[0].textContent).toContain('1S');
+        expect(bodyRows[1].textContent).toContain('30S');
+        expect(bodyRows[2].textContent).toContain('1H');
+        // Inactive durations must not appear at all.
+        expect(table.textContent).not.toContain('3S');
+        expect(table.textContent).not.toContain('5M');
     });
 });
 
 describe('TfStatusTable — badge mirrors the Metrics-tab header badge', () => {
     it('a TF with overall_label STRONG_BULL shows the prettified label in the biasColor colour', () => {
         renderTable({
-            micro1: { context: { overall_label: 'STRONG_BULL', regime: 'TRENDING', overall_score: 80 } as any },
+            1: { context: { overall_label: 'STRONG_BULL', regime: 'TRENDING', overall_score: 80 } as any },
         });
         const table = screen.getByRole('table');
         const row = table.querySelectorAll('tbody tr')[0];
@@ -108,7 +108,7 @@ describe('TfStatusTable — badge mirrors the Metrics-tab header badge', () => {
         renderTable(); // every slot is an emptyTerm (no context)
         const table = screen.getByRole('table');
         const badges = table.querySelectorAll(`tbody .${headerStyles.badge}`);
-        expect(badges.length).toBe(TIMEFRAME_SLOT_KINDS.length);
+        expect(badges.length).toBe(DURATIONS.length);
         for (const b of badges) {
             expect(b.className).toContain(headerStyles.badgeEmpty);
             expect(b.textContent).toContain('\u2014');
@@ -120,11 +120,11 @@ describe('TfStatusTable — badge mirrors the Metrics-tab header badge', () => {
 
     it('every badge reuses the exact LayerHeader badge markup classes', () => {
         renderTable({
-            micro2: { context: { overall_label: 'WEAK_BEAR', regime: 'CONTRACTION', overall_score: 30 } as any },
+            3: { context: { overall_label: 'WEAK_BEAR', regime: 'CONTRACTION', overall_score: 30 } as any },
         });
         const table = screen.getByRole('table');
         const badges = table.querySelectorAll(`.${headerStyles.badge}`);
-        expect(badges.length).toBe(TIMEFRAME_SLOT_KINDS.length);
+        expect(badges.length).toBe(DURATIONS.length);
         // The sublabel rule survives the transplant: WEAK_BEAR + CONTRACTION
         // (not implied) renders the regime sublabel after the divider.
         expect(badges[1].textContent).toContain('WEAK BEAR');

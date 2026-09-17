@@ -6,7 +6,7 @@
     // archive depth (1–365 days) — there are no date range pickers. The
     // launcher is standalone: it works with no running instance (preseeded
     // from a bound instance when one is selected).
-    import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_DURATION_SECS } from '../../types';
+    import { DURATIONS } from '../../types';
     import styles from './BacktestLauncher.module.css';
 
     interface BoundInfo {
@@ -35,7 +35,7 @@
     // 60 s archive floor — the backend rejects sub-minute standalone
     // ladders) and their depth ceilings are 0 days, which previously
     // zeroed the slider and blocked the wizard.
-    const FIXED_LADDER_SECS: number[] = TIMEFRAME_SLOT_KINDS.map((slot) => TIMEFRAME_SLOT_DURATION_SECS[slot]);
+    const FIXED_LADDER_SECS: number[] = [...DURATIONS];
     const BACKTEST_LADDER_SECS: number[] = FIXED_LADDER_SECS.filter((tf) => tf >= 60);
     const FIXED_LADDER_LABEL = BACKTEST_LADDER_SECS.map((s) => tfLabel(s)).join(' · ');
 

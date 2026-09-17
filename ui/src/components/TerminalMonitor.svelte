@@ -16,12 +16,9 @@
     // every indicator and every signal, unfiltered, by construction.
 
     import { useAppStore } from '../state.svelte';
-    import type {
-        IndicatorMeta, IndicatorSignal, TimeframeSlotKind, TimeframeTelemetry,
-        SignalKind, MarketContext,
-    } from '../types';
-    import { TIMEFRAME_SLOT_LABELS } from '../types';
-    import { activeSlotKinds } from '../lib/terms';
+    import type { IndicatorMeta, IndicatorSignal, TimeframeTelemetry, SignalKind, MarketContext } from '../types';
+    import { tfLabel } from '../types';
+    import { activeDurations } from '../lib/terms';
     import type { WsState } from '../lib/websocket.svelte';
     import GroupConfluenceGrid from './GroupConfluenceGrid.svelte';
     import StructuralAnchorsStrip from './StructuralAnchorsStrip.svelte';
@@ -46,7 +43,7 @@
     const pair = $derived(app.instancesMap[pairKey]);
     const registry = $derived<IndicatorMeta[]>((app.indicatorRegistry ?? []) as IndicatorMeta[]);
 
-    type TfLabel = 'Mtf' | TimeframeSlotKind;
+    type TfLabel = 'Mtf' | number;
     let activeTf = $state<TfLabel>('Mtf');
 
     // Phase 9: single source of truth — the backend's pipeline registry
@@ -55,15 +52,15 @@
     // boot interstice when the pair hasn't been streamed yet.
     //
     // v7.0-prod (D7): the sidebar order is `MTF` first, then the instance's
-    // ACTIVE ladder (v11.2 — the fastest N slots of the fixed pool; inactive
-    // slots never stream, so the rail must not offer them).
-    const TIMEFRAMES = $derived.by((): { key: TfLabel; label: string; tfKey: string; secs: number | null }[] => {
+    // ACTIVE ladder (v11.9 — the configured subset of the duration pool;
+    // inactive durations never stream, so the rail must not offer them).
+    const TIMEFRAMES = $derived.by((): { key: TfLabel; label: string; tfKey: number; secs: number | null }[] => {
         const p = pair;
         return [
-            { key: 'Mtf', label: 'MTF', tfKey: '', secs: null },
-            ...activeSlotKinds(p).map((slot) => ({
+            { key: 'Mtf', label: 'MTF', tfKey: -1, secs: null },
+            ...activeDurations(p).map((slot) => ({
                 key: slot as TfLabel,
-                label: TIMEFRAME_SLOT_LABELS[slot],
+                label: tfLabel(slot),
                 tfKey: slot,
                 secs: p?.terms?.[slot]?.barDurationSec ?? null,
             })),
@@ -72,7 +69,7 @@
 
     const activeTfEntry = $derived(
         activeTf === 'Mtf'
-            ? { key: 'Mtf' as TfLabel, label: 'MTF', tfKey: '', secs: null }
+            ? { key: 'Mtf' as TfLabel, label: 'MTF', tfKey: -1, secs: null }
             : TIMEFRAMES.find((t) => t.key === activeTf && t.key !== 'Mtf')!
     );
     // v11.5: L1 badge history trail for the selected single TF.
@@ -86,7 +83,7 @@
     const activeTfObj = $derived<TimeframeTelemetry | undefined>(
         activeTf === 'Mtf'
             ? undefined
-            : (pair?.terms?.[activeTfEntry.tfKey as TimeframeSlotKind] as TimeframeTelemetry | undefined)
+            : (pair?.terms?.[activeTfEntry.tfKey] as TimeframeTelemetry | undefined)
     );
 
     // ── Facet state ───────────────────────────────────────────────────
@@ -165,13 +162,13 @@
             tf: activeTfObj,
             registry,
             volumeProfile: (activeTfObj as any)?.volumeProfile ?? null,
-            microVolumeProfile: pair?.terms?.micro1?.volumeProfile ?? null,
+            microVolumeProfile: pair?.terms?.[1]?.volumeProfile ?? null,
             liquidity: (activeTfObj as any)?.liquidity ?? null,
             // M-3 (v6.10.11): the export's `micro_cascade_alert` mirrors
             // the Tier-1 cascade banner — both must read the SNAPSHOT-path
             // liquidity (the tf-level field retains stale values across
             // shadow ticks; the RiskPanel documents the same source rule).
-            microLiquidity: ((pair?.terms?.micro1?.latestSnapshot as Record<string, unknown> | undefined)?.liquidity as import('../types').LiquidityFlow | null | undefined) ?? null,
+            microLiquidity: ((pair?.terms?.[1]?.latestSnapshot as Record<string, unknown> | undefined)?.liquidity as import('../types').LiquidityFlow | null | undefined) ?? null,
             cluster: (activeTfObj as any)?.cluster ?? null,
             liquiditySignals: (activeTfObj as any)?.liquiditySignals ?? [],
             // `pairKey` is the FULL exchange-symbol (e.g. BTC-USDC) — never
@@ -205,8 +202,8 @@
             terms: pair.terms,
             registry,
             // v11.2: the MTF payload walks the ACTIVE ladder only.
-            activeSlots: activeSlotKinds(pair),
-            markPrice: parseFloat(pair.terms.micro1?.priceText ?? '') || 0,
+            activeDurations: activeDurations(pair),
+            markPrice: parseFloat(pair.terms[1]?.priceText ?? '') || 0,
             tfSecs: activeTfEntry?.secs ?? null,
             timestamp: snapshotTs,
             headerSpec,
@@ -235,7 +232,7 @@
 <div class={styles.monitor}>
     <div class={styles.tfSidebar}>
         <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>
-        <!-- v7.0-prod (D7): MTF first, then the fixed ladder MICRO1..LONGTERM2.
+        <!-- v7.0-prod (D7): MTF first, then the duration ladder (fastest → slowest).
              The MTF entry is part of TIMEFRAMES itself (sentinel with
              empty tfKey + secs=null); the body switches to MtfView when
              activeTf === 'Mtf'. -->
@@ -276,7 +273,7 @@
                     <MtfView
                         terms={pair.terms}
                         registry={registry}
-                        activeSlots={activeSlotKinds(pair)}
+                        activeDurations={activeDurations(pair)}
                     />
                 </div>
             {:else if activeTfObj}
@@ -297,7 +294,7 @@
                      format, and reference the Structural Anchors Liquidity
                      tile — the old "click for Liquidity facet" navigated to
                      a facet that no longer exists. -->
-                {@const microFlow = (pair?.terms?.micro1?.latestSnapshot as Record<string, unknown> | undefined)?.liquidity as import('../types').LiquidityFlow | null | undefined ?? null}
+                {@const microFlow = (pair?.terms?.[1]?.latestSnapshot as Record<string, unknown> | undefined)?.liquidity as import('../types').LiquidityFlow | null | undefined ?? null}
                 {#if microFlow && (microFlow.cascade_state === 'SUSTAINED' || microFlow.cascade_state === 'DETECTED')}
                     <div
                         class="{styles.cascadeAlert} {microFlow.cascade_state === 'SUSTAINED' ? styles.cascadeAlertSustained : styles.cascadeAlertDetected}"
@@ -313,7 +310,7 @@
                 <!-- ROW 3 — Structural Anchors Strip -->
                 <StructuralAnchorsStrip
                     tf={activeTfObj}
-                    microTf={pair?.terms?.micro1}
+                    microTf={pair?.terms?.[1]}
                     markPrice={parseFloat(activeTfObj.priceText ?? '') || 0}
                     context={context ?? null}
                 />

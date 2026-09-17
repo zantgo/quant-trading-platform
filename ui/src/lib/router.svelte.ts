@@ -14,7 +14,24 @@
 //     selection; backtesting/performance serialize the loaded `run`.
 
 import { ENGINE_DEFAULT_TAB, type EngineKey } from './engineTabs';
-import { isTimeframeSlotKind, type CurrentView, type TimeframeSlotKind } from '../types';
+import { DURATIONS, tfLabel, type CurrentView } from '../types';
+
+/// Serialize the per-pair chart selection: the tf segment carries the
+/// derived duration label ("1m", "15s", …).
+function tfToParam(secs: number): string {
+    return tfLabel(secs);
+}
+
+/// Resolve a tf URL segment (label or raw seconds) to the duration secs.
+/// Returns undefined for unknown values.
+function tfFromParam(raw: string): number | undefined {
+    for (const d of DURATIONS) {
+        if (tfLabel(d).toLowerCase() === raw.toLowerCase()) return d;
+    }
+    const n = Number(raw);
+    if (Number.isFinite(n) && DURATIONS.includes(n)) return n;
+    return undefined;
+}
 
 type EngineKeyRouter = EngineKey;
 
@@ -33,7 +50,7 @@ export interface HashStateSource {
     currentEngine: string;
     middleTab: string;
     selectedInstance: string | null;
-    instancesMap: Record<string, { currentView?: CurrentView; activeTf?: TimeframeSlotKind }>;
+    instancesMap: Record<string, { currentView?: CurrentView; activeTf?: number }>;
     bteRunId: number | null;
     paeSelectedRunId: number | null;
 }
@@ -102,10 +119,10 @@ export function currentHashFor(app: HashStateSource): string {
     const engine = app.currentEngine as EngineKeyRouter;
     // Market Monitor owns the richest serialization: the selected pair,
     // its sub-view (except the `terminal` default) and its per-pair
-    // chart timeframe (except the `micro1` default).
+    // chart timeframe (except the 1s default).
     if (engine === 'market_monitor') {
         const pair = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
-        const tf = pair?.activeTf && pair.activeTf !== 'micro1' ? pair.activeTf : undefined;
+        const tf = pair?.activeTf && pair.activeTf !== 1 ? tfToParam(pair.activeTf) : undefined;
         return buildEngineHash(
             engine,
             app.middleTab,
@@ -170,7 +187,7 @@ export interface RouteApplicator {
     selectedInstance: string | null;
     activeTab: string;
     activeEngineTab: string;
-    instancesMap: Record<string, { currentView?: CurrentView; activeTf?: TimeframeSlotKind }>;
+    instancesMap: Record<string, { currentView?: CurrentView; activeTf?: number }>;
     loadBteRun(id: number): Promise<void>;
     loadPaeRun(id: number): Promise<void>;
 }
@@ -203,8 +220,9 @@ export function applyRouteToStore(
                 app.activeTab = params.instance;
                 app.activeEngineTab = 'instance';
                 pair.currentView = (params.view as CurrentView) ?? 'terminal';
-                if (params.tf && isTimeframeSlotKind(params.tf)) {
-                    pair.activeTf = params.tf;
+                const tfSecs = params.tf ? tfFromParam(params.tf) : undefined;
+                if (tfSecs !== undefined) {
+                    pair.activeTf = tfSecs;
                 }
             }
             // Unknown pair → ignore the segment gracefully (keep the

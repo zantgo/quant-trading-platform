@@ -6,12 +6,7 @@
     // The form initializes from the EFFECTIVE (base-merged) strategy the
     // API returns and saves the full effective snapshot.
     import { onMount } from 'svelte';
-    import {
-        fetchStrategies,
-        fetchStrategyJson,
-        saveStrategy,
-        type StrategySummary,
-    } from '../lib/api.svelte';
+    import { fetchStrategies, fetchStrategyJson, saveStrategy, type StrategySummary } from '../lib/api.svelte';
     import styles from './StrategyEditorPanel.module.css';
     import engine from '../styles/engine-dashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';

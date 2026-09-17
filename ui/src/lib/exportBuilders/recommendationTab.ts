@@ -4,30 +4,9 @@
 // filter_state, single current_price, structured header chrome) and the
 // new R:R availability helper (replaces `rr: null` with `{available, value, reason}`).
 
-import type {
-  AdvisoryMatrix,
-  AnalysisMatrix,
-  DecisionContext,
-  OpportunityMatrix,
-  RiskDimension,
-} from '../../types';
-import {
-  computeDecisionRank,
-  resolveActiveRr,
-  riskAdjRrExplanation,
-  topSetupSummary,
-  entryDangerLevel,
-  buildVerdictSentence,
-  type AlternateSetupInfo,
-} from '../../lib/decisionRank';
-import {
-  buildPriceBlock,
-  buildHeaderBlock,
-  buildRrBlock,
-  type MetaEnvelope,
-  type HeaderBlock,
-  type RrBlock,
-} from './shared';
+import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, OpportunityMatrix, RiskDimension } from '../../types';
+import { computeDecisionRank, resolveActiveRr, riskAdjRrExplanation, topSetupSummary, entryDangerLevel, buildVerdictSentence, type AlternateSetupInfo } from '../../lib/decisionRank';
+import { buildPriceBlock, buildHeaderBlock, buildRrBlock, type MetaEnvelope, type HeaderBlock, type RrBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { emptyProjection, type ProjectionState } from '../projection';
 

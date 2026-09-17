@@ -2,13 +2,7 @@
     // StrategyListPanel (v9) — the strategy registry cards (Profile →
     // Strategies). Full CRUD + JSON export/import (CLI-compatible format).
     import { onMount } from 'svelte';
-    import {
-        cloneStrategy,
-        deleteStrategy,
-        fetchStrategies,
-        saveStrategy,
-        type StrategySummary,
-    } from '../lib/api.svelte';
+    import { cloneStrategy, deleteStrategy, fetchStrategies, saveStrategy, type StrategySummary } from '../lib/api.svelte';
     import styles from './StrategyListPanel.module.css';
     import engine from '../styles/engine-dashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';

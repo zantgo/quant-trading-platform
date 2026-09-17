@@ -6,33 +6,9 @@
 // (directional bars, no-clear strip, hold scenario note, viability).
 
 import { normalizeViability } from '../viability';
-import type {
-  OpportunityMatrix,
-  OpportunityProfile,
-  AnalysisMatrix,
-  AdvisoryMatrix,
-  DecisionContext,
-  MarketBias,
-} from '../../types';
-import {
-  computeDecisionRank,
-  profileSummary,
-  resolveActiveRr,
-  selectProfileSide,
-  sideBracketSummary,
-  topQualifyingProfile,
-  neutralBracketSummary,
-  type SideBracketSummary,
-  type NeutralBracketSummary,
-} from '../../lib/decisionRank';
-import {
-  buildPriceBlock,
-  buildHeaderBlock,
-  buildRrBlock,
-  type MetaEnvelope,
-  type HeaderBlock,
-  type InstanceTermsLike,
-} from './shared';
+import type { OpportunityMatrix, OpportunityProfile, AnalysisMatrix, AdvisoryMatrix, DecisionContext, MarketBias } from '../../types';
+import { computeDecisionRank, profileSummary, resolveActiveRr, selectProfileSide, sideBracketSummary, topQualifyingProfile, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../../lib/decisionRank';
+import { buildPriceBlock, buildHeaderBlock, buildRrBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { computeOpportunityBars, rankSectionsByCount } from '../../lib/opportunityBars';
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';

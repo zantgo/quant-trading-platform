@@ -4,7 +4,7 @@
 //
 // Bind contract: `RecommendationPanel` reads the L6 DecisionContext
 // mirror field `pair.decisionContext` first, with a fallback to
-// `terms.micro1.latestSnapshot.decision_context`. It must also read the
+// `terms[1].latestSnapshot.decision_context`. It must also read the
 // L4 mirror `pair.opportunity` (not the snapshot path) to avoid the
 // shadow-tick wipe that previously blanked the Trade Setups and the
 // per-profile Recommendation cards between candle closes.
@@ -18,13 +18,7 @@ import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import RecommendationPanel from './RecommendationPanel.svelte';
 import { useAppStore } from '../state.svelte';
-import type {
-    AdvisoryMatrix,
-    AnalysisMatrix,
-    DecisionContext,
-    OpportunityMatrix,
-    RiskDimension,
-} from '../types';
+import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, OpportunityMatrix, RiskDimension } from '../types';
 
 function makeDanger(score: number, overrides: Partial<RiskDimension> = {}): RiskDimension {
     return {
@@ -193,7 +187,7 @@ function seedPair(pairKey: string) {
     const [base] = pairKey.split('-');
     if (!app.instancesMap[pairKey]) app.initInstance(base);
     const entry = app.instancesMap[pairKey];
-    entry.terms.micro1.priceText = '63505';
+    entry.terms[1].priceText = '63505';
     entry.advisory = makeAdvisory();
     entry.decisionContext = makeDecisionContext();
     entry.opportunity = makeOpportunity();
@@ -517,7 +511,7 @@ describe('RecommendationPanel — Top Setup card', () => {
 
 describe('RecommendationPanel — bind contract', () => {
     // The recent mirror fix moved the read source from
-    // `terms.micro1.latestSnapshot.decision_context` to `pair.decisionContext`.
+    // `terms[1].latestSnapshot.decision_context` to `pair.decisionContext`.
     // The Recommendation tab must read from the mirror — not from the
     // shadow-wiped snapshot — so the headline R:R stays visible between
     // candle closes.
@@ -526,12 +520,12 @@ describe('RecommendationPanel — bind contract', () => {
         const [base] = 'BTC-USDT'.split('-');
         if (!app.instancesMap['BTC-USDT']) app.initInstance(base);
         const entry = app.instancesMap['BTC-USDT'];
-        entry.terms.micro1.priceText = '63505';
+        entry.terms[1].priceText = '63505';
         // Mirror has the real value: danger score 31
         entry.decisionContext = makeDecisionContext({ entry_danger: makeDanger(31) });
         // Snapshot path deliberately carries a different value to expose
         // any regression back to the snapshot read.
-        entry.terms.micro1.latestSnapshot = {
+        entry.terms[1].latestSnapshot = {
             timestamp: 1_700_000_000,
             decision_context: makeDecisionContext({ entry_danger: makeDanger(75) }),
         } as unknown as Record<string, unknown>;

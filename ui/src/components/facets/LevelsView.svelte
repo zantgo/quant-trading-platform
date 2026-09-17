@@ -22,15 +22,8 @@
     // or `$lo — $hi` range) via `resolveLevelPriceText`, so the user never
     // sees a qualitative-only label.
 
-    import type {
-        IndicatorMeta, IndicatorSignal, TimeframeTelemetry,
-        VolumeProfileSnapshot, LiquidationClusterMatrix, LiquidationCluster,
-    } from '../../types';
-    import {
-        LEVEL_KIND_ORDER, LEVEL_KIND_META,
-        classifyLevelKey, parseLevelLabel, resolveLevelPriceText,
-        type LevelKind,
-    } from '../../lib/levelKind';
+    import type { IndicatorMeta, IndicatorSignal, TimeframeTelemetry, VolumeProfileSnapshot, LiquidationClusterMatrix, LiquidationCluster } from '../../types';
+    import { LEVEL_KIND_ORDER, LEVEL_KIND_META, classifyLevelKey, parseLevelLabel, resolveLevelPriceText, type LevelKind } from '../../lib/levelKind';
     import { confPct, dirColor, ageLabel } from '../../lib/scoreStyles';
     import { formatTimeframeLabel } from '../../lib/telemetry';
     import { fibStatusString, vpPositionLabel } from '../../lib/structuralStrings';

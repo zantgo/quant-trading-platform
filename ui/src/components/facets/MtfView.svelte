@@ -2,7 +2,7 @@
     // MtfView — Facet #6 of the redesigned Metrics view.
     //
     // Cross-timeframe comparison: lists every enabled indicator with its
-    // normalized value across the 10 fixed-ladder timeframes (Micro1..Longterm2)
+    // normalized value across the ACTIVE duration ladder (fastest → slowest)
     // and a per-row agreement ratio (bullish / bearish / mixed). Helps the
     // trader see at a glance which indicators agree across timeframes and
     // which diverge — a key signal of regime change.
@@ -14,7 +14,7 @@
     //
     // v6.13: the freeform cross-TF signals list is replaced by three stacked
     // 10-TF-column tables in the same visual language as the indicator grid
-    // (each with its own Micro1..Longterm2 header row):
+    // (each with its own duration header row):
     //   SIGNALS      — 12 signal kinds × per-TF active-signal counts
     //   DIVERGENCES  — divergence-capable indicators × strongest sub-type per TF
     //   LEVELS       — 9 level kinds × per-TF LevelTest-signal counts
@@ -37,41 +37,33 @@
     //     the TOTAL column adds a directional ▲ / ▼ split plus a
     //     support-vs-resistance split.
 
-    import type {
-        IndicatorMeta, IndicatorSignal, SignalKind, TimeframeSlotKind, TimeframeTelemetry,
-    } from '../../types';
-    import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../../types';    import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
+    import type { IndicatorMeta, IndicatorSignal, SignalKind, TimeframeTelemetry } from '../../types';
+    import { DURATIONS, tfLabel } from '../../types';
+    import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
     import { normColor, ageLabel } from '../../lib/scoreStyles';
-    import {
-        classifyDivergence, divergenceLabel, divergenceAccent,
-        type DivergenceSubKind,
-    } from '../../lib/divergence';
-    import {
-        LEVEL_KIND_ORDER, LEVEL_KIND_META, classifyLevelKey,
-        parseLevelLabel, resolveLevelPriceText,
-        type LevelKind,
-    } from '../../lib/levelKind';
+    import { classifyDivergence, divergenceLabel, divergenceAccent, type DivergenceSubKind } from '../../lib/divergence';
+    import { LEVEL_KIND_ORDER, LEVEL_KIND_META, classifyLevelKey, parseLevelLabel, resolveLevelPriceText, type LevelKind } from '../../lib/levelKind';
     import styles from './MtfView.module.css';
 
     interface Props {
-        terms: Record<TimeframeSlotKind, TimeframeTelemetry>;
+        terms: Record<number, TimeframeTelemetry>;
         registry: IndicatorMeta[];
         /** v11.2 — the ACTIVE slot ladder (fastest N of the fixed pool).
          *  The grid renders one column per ACTIVE slot; absent → all 10. */
-        activeSlots?: TimeframeSlotKind[];
+        activeDurations?: number[];
     }
 
-    let { terms, registry, activeSlots }: Props = $props();
+    let { terms, registry, activeDurations }: Props = $props();
 
-    interface TimeframeSlot {
+    interface MtfColumn {
         label: string;
         tf: TimeframeTelemetry;
         secs: number;
     }
 
-    const SLOTS = $derived<TimeframeSlot[]>(
-        (activeSlots && activeSlots.length > 0 ? activeSlots : [...TIMEFRAME_SLOT_KINDS]).map((slot) => ({
-            label: TIMEFRAME_SLOT_LABELS[slot].toUpperCase(),
+    const SLOTS = $derived<MtfColumn[]>(
+        (activeDurations && activeDurations.length > 0 ? activeDurations : [...DURATIONS]).map((slot) => ({
+            label: tfLabel(slot).toUpperCase(),
             tf: terms[slot],
             secs: terms[slot].barDurationSec,
         }))
@@ -532,7 +524,7 @@
         <div class={styles.placeholder}>No indicators in the registry yet. Awaiting indicator registry…</div>
     {:else}
         {#if !(collapsed['indicators'] ?? false)}
-            <!-- ── TF summary bar (Micro1..Longterm2) — sits above
+            <!-- ── TF summary bar (fastest → slowest) — sits above
                  the Indicators heading so the column header is the first thing
                  a reader sees, then the grid below it. -->
             <div class={styles.summary} style="--tf-count: {SLOTS.length}">

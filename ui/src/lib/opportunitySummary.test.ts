@@ -4,12 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { OpportunityMatrix } from '../types';
-import {
-    buildOpportunitySummary,
-    highlightOpportunitySummary,
-    opportunityProseLabel,
-    OPPORTUNITY_SUMMARY_LABEL,
-} from './opportunitySummary';
+import { buildOpportunitySummary, highlightOpportunitySummary, opportunityProseLabel, OPPORTUNITY_SUMMARY_LABEL } from './opportunitySummary';
 
 function opp(overrides: Partial<OpportunityMatrix> = {}): OpportunityMatrix {
     return {

@@ -48,8 +48,7 @@
     import { getBadgeTrail, badgeHistoryVersion, L7_KEY } from '../lib/badgeHistory.svelte';
     import BadgeTrail from './BadgeTrail.svelte';
     import { buildL6DecisionHeader, metricsBadgeFor } from '../lib/layerHeader';
-    import { activeSlotKinds } from '../lib/terms';
-    import { TIMEFRAME_SLOT_DURATION_SECS } from '../types';
+    import { activeDurations } from '../lib/terms';
     import { buildOverviewTabExport } from '../lib/exportBuilders/overviewTab';
 
     interface Props {
@@ -135,11 +134,11 @@
                         hold_pct: Math.round(rank.hold.probability),
                         short_pct: Math.round(rank.short.probability),
                     },
-                timeframes: activeSlotKinds(inst).map((slot) => {
+                timeframes: activeDurations(inst).map((slot) => {
                     const info = metricsBadgeFor(inst.terms?.[slot] ?? null, wss);
                     return {
                         slot,
-                        secs: TIMEFRAME_SLOT_DURATION_SECS[slot],
+                        secs: slot,
                         badge_label: info.badge.label,
                         badge_sublabel: info.badge.sublabel,
                         pipeline_status: info.status,

@@ -14,9 +14,9 @@
     // column with the price chart when that pane is pinned.
     import { useAppStore } from '../state.svelte';
     import styles from './LiveTerminal.module.css';
-    import type { TimeframeSlotKind, TimeframeTelemetry } from '../types';
-    import { TIMEFRAME_SLOT_LABELS } from '../types';
-    import { activeSlotKinds } from '../lib/terms';
+    import type { TimeframeTelemetry } from '../types';
+    import { tfLabel } from '../types';
+    import { activeDurations } from '../lib/terms';
     import ChartToggles from './ChartToggles.svelte';
     import PriceChart from './PriceChart.svelte';
     import VolumeChart from './VolumeChart.svelte';
@@ -56,12 +56,12 @@
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
 
-    type TfKey = TimeframeSlotKind;
+    type TfKey = number;
     type TfLabel = string;
     // Persist active timeframe per-instance (survives LiveTerminal unmount on
-    // Charts↔Metrics tab switches). Previously `$state('micro1')` reset on every
+    // Charts↔Metrics tab switches). Previously a local `$state` reset on every
     // mount, hiding the sub-minute selection.
-    let activeTf = $derived((app.instancesMap[pairKey]?.activeTf as TfKey | undefined) ?? 'micro1' as TfKey);
+    let activeTf = $derived((app.instancesMap[pairKey]?.activeTf as TfKey | undefined) ?? 1 as TfKey);
     // Routed through the store mutator so a TF change pushes a history
     // entry (Phase 2 navigation policy) — `app.setActiveTf` marks the
     // nav origin 'user'.
@@ -69,7 +69,7 @@
         app.setActiveTf(pairKey, k);
     }
 
-    let expandedTf = $state<string | null>(null);
+    let expandedTf = $state<number | null>(null);
     let expandedColumnEl = $state<HTMLDivElement | null>(null);
 
     function handleExpandedKeydown(e: KeyboardEvent) {
@@ -85,7 +85,7 @@
     });
 
     /// Format the `(suffix)` portion of a column header. Always pairs with the
-    /// positional slot label (MICRO1..LONGTERM2) from the column's slot.
+    /// duration label (fastest → slowest) from the column's duration.
     function durationSuffix(sec: number): string {
         if (sec >= 86400) return `${sec / 86400}d`;
         if (sec >= 3600) return `${sec / 3600}h`;
@@ -95,17 +95,17 @@
 
     /// Column label = positional slot name + the duration suffix. The name
     /// is derived from `tf.slot`, never from duration bands, so the ten
-    /// columns always read MICRO1..LONGTERM2 left-to-right in ladder order.
+    /// columns always read fastest → slowest in canonical order.
     function termLabel(name: TfLabel, tf: TimeframeTelemetry): string {
         return `${name} (${durationSuffix(tf.barDurationSec)})`;
     }
 
-    function toggleExpand(key: string) {
+    function toggleExpand(key: number) {
         expandedTf = expandedTf === key ? null : key;
     }
 
-    function handleChartDblClick(chartType: string, slot: string, _timeframe: number) {
-        app.openFullscreenChart(chartType, slot as TimeframeSlotKind, pairKey);
+    function handleChartDblClick(chartType: string, slot: number, _timeframe: number) {
+        app.openFullscreenChart(chartType, slot, pairKey);
     }
 
     function chartKey(t: TimeframeTelemetry, chartType: string): string {
@@ -213,15 +213,15 @@
         CONTEXT_GROUP,
     ];
 
-    /// Sidebar entries for the instance's ACTIVE slots (v11.2 — the
-    /// fastest N of the fixed ladder; inactive slots never stream).
-    /// Derived so a settings save (which narrows/widens `activeSlots`)
+    /// Sidebar entries for the instance's ACTIVE durations (ascending;
+    /// inactive durations never stream).
+    /// Derived so a settings save (which narrows/widens `activeDurations`)
     /// re-renders the rail without a remount.
     const TERMS = $derived.by(() => {
         const pairState = app.instancesMap[pairKey];
-        return activeSlotKinds(pairState).map((slot) => ({
+        return activeDurations(pairState).map((slot) => ({
             key: slot as TfKey,
-            label: TIMEFRAME_SLOT_LABELS[slot].toUpperCase() as TfLabel,
+            label: tfLabel(slot).toUpperCase() as TfLabel,
             secsFn: (p: any) => p.terms[slot].barDurationSec,
         }));
     });
@@ -231,7 +231,7 @@
     }
 
     function activeLabelFor(k: TfKey): TfLabel {
-        return TIMEFRAME_SLOT_LABELS[k].toUpperCase();
+        return tfLabel(k).toUpperCase();
     }
 
     function takeColumnScreenshot() {

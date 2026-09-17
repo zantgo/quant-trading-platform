@@ -1,11 +1,5 @@
-import type {
-    DashboardStats, TradeLedgerRecord, TradeJournalRecord,
-    SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow, UserTrade,
-} from '../types';
-import type {
-    StrategyAnalyticsRow, RiskAnalyticsRow, PerformanceMatrixRow,
-    OptimizationReport, TradeAnalyticsRecord,
-} from '../types/analytics';
+import type { DashboardStats, TradeLedgerRecord, TradeJournalRecord, SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow, UserTrade } from '../types';
+import type { StrategyAnalyticsRow, RiskAnalyticsRow, PerformanceMatrixRow, OptimizationReport, TradeAnalyticsRecord } from '../types/analytics';
 
 export class AnalyticsStore {
     dashboardStats = $state<DashboardStats | null>(null);

@@ -16,10 +16,10 @@
     import { iRaw, iNorm, fmt, fmtPrice } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { getTerm } from '../lib/terms';
-    import type { TimeframeSlotKind } from '../types';
+    
 
     const app = useAppStore();
-    let { slot }: { slot: TimeframeSlotKind } = $props();
+    let { slot }: { slot: number } = $props();
 
     const pair = $derived(app.instancesMap[app.activeTab] ?? null);
     const tf = $derived(getTerm(pair, slot));

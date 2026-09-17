@@ -16,23 +16,11 @@
     import styles from './styles/brutalist-grid.module.css';
     import { fetchConfigFromServer, applyConfigToStore, syncInstanceIdsFromList, postInstanceLifecycle } from './lib/api.svelte';
     import { pickInstanceLivePrice } from './lib/livePrice';
-    import {
-        connectWsForInstance, disconnectWsForInstance, shouldReconnect,
-        type WsState,
-    } from './lib/websocket.svelte';
+    import { connectWsForInstance, disconnectWsForInstance, shouldReconnect, type WsState } from './lib/websocket.svelte';
     import { buildEngineHash, parseEngineHash, currentHashFor, applyRouteToStore, writeHash } from './lib/router.svelte';
     import { loadPref, savePref } from './lib/prefs';
-    import {
-        applyResilientCache,
-        type PairCacheEntry,
-    } from './lib/resilientActivePair';
-    import {
-        ENGINE_TABS,
-        BTE_TABS_NO_INSTANCE,
-        tabsForMode,
-        type EngineKey,
-        type ExecutionMode,
-    } from './lib/engineTabs';
+    import { applyResilientCache, type PairCacheEntry } from './lib/resilientActivePair';
+    import { ENGINE_TABS, BTE_TABS_NO_INSTANCE, tabsForMode, type EngineKey, type ExecutionMode } from './lib/engineTabs';
     import { isExecutionMode } from './lib/modePresentation';
     import { MODE_LABEL } from './lib/modePresentation';
 
@@ -182,7 +170,7 @@
 
     const change24h = $derived.by<number | null>(() => {
         if (!resilientActivePair) return null;
-        const snap = resilientActivePair.terms.micro1.latestSnapshot || resilientActivePair.terms.micro2.latestSnapshot;
+        const snap = resilientActivePair.terms[1].latestSnapshot || resilientActivePair.terms[3].latestSnapshot;
         if (!snap) return null;
 
         const priceStr = pickInstanceLivePrice({ terms: resilientActivePair.terms }, Date.now());

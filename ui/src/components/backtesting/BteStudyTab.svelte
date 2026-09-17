@@ -6,9 +6,7 @@ import styles from '../../styles/engine-dashboard.module.css';
 import KpiStrip from '../KpiStrip.svelte';
 import ExportDataButton from '../ExportDataButton.svelte';
 import { fmtNum, fmtSigned } from '../../lib/format';
-import {
-        linePath, areaPath, rollingWinRate, pnlHistogram, drawdownSeries,
-    } from '../../lib/studyCharts';
+import { linePath, areaPath, rollingWinRate, pnlHistogram, drawdownSeries } from '../../lib/studyCharts';
 import type { BteResult } from '../../types';
 
     interface Props {

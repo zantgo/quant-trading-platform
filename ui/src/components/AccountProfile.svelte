@@ -8,14 +8,7 @@
     // differs (editable vs read-only).
     import { onMount } from 'svelte';
     import { useAppStore } from '../state.svelte';
-    import {
-        fetchAccountSummary,
-        fetchStrategies,
-        postAccountCapital,
-        postAccountReset,
-        type AccountSummary,
-        type StrategySummary,
-    } from '../lib/api.svelte';
+    import { fetchAccountSummary, fetchStrategies, postAccountCapital, postAccountReset, type AccountSummary, type StrategySummary } from '../lib/api.svelte';
     import styles from './AccountProfile.module.css';
     import engine from '../styles/engine-dashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';

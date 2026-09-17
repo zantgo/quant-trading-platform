@@ -30,7 +30,7 @@
 
     const tfLabel = $derived(
         tf
-            ? `${tf.slot.toUpperCase()} ${formatTimeframeLabel(tf.barDurationSec)}`
+            ? `${formatTimeframeLabel(tf.barDurationSec)}`
             : 'NO DATA'
     );
 </script>

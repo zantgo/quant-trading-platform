@@ -16,8 +16,8 @@ import type { AppStore } from '../../state.svelte';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { pickInstanceLivePrice } from '../livePrice';
 import { buildEmaRibbonView } from '../telemetry';
-import type { TimeframeSlotKind } from '../../types';
-import { TIMEFRAME_SLOT_KINDS } from '../../types';
+
+import { DURATIONS } from '../../types';
 
 // ── Source-tab discriminator ──────────────────────────────────────────────
 
@@ -224,7 +224,7 @@ export interface InstanceTermLike {
   barDurationSec?: number | null;
 }
 
-/// Per-slot terms keyed by the fixed 10-slot ladder (`micro1`..`longterm2`).
+/// Per-duration terms keyed by duration seconds (`1`..`86400`).
 /// Loose/partial so test fixtures and the production store both flow through.
 export interface InstanceTermsLike {
   [slot: string]: InstanceTermLike | undefined;
@@ -236,7 +236,7 @@ export function buildPriceBlock(args: {
   terms?: InstanceTermsLike;
   /** v11.2 — the ACTIVE slot ladder; snapshot/live-price picking walks
    *  only these slots (inactive slots never carry data). Absent → all 10. */
-  activeSlots?: TimeframeSlotKind[];
+  activeDurations?: number[];
   fallbackMarkPrice?: number | string | null;
   tfSecs?: number | null;
   timestamp?: number | null;
@@ -245,11 +245,11 @@ export function buildPriceBlock(args: {
 }): { meta: MetaEnvelope } {
   const now = args.nowMs ?? Date.now();
   // v11.2: inactive slots never carry data — walk only the ACTIVE ladder
-  // (absent/empty → the full 10-slot pool, matching `activeSlotKinds`).
-  const activeSlots = args.activeSlots && args.activeSlots.length > 0
-    ? args.activeSlots
-    : TIMEFRAME_SLOT_KINDS;
-  const snap = pickLatestSnapshot(args.terms, activeSlots);
+  // (absent/empty → the full 10-slot pool, matching `activeDurations`).
+  const activeDurations = args.activeDurations && args.activeDurations.length > 0
+    ? args.activeDurations
+    : DURATIONS;
+  const snap = pickLatestSnapshot(args.terms, activeDurations);
   const liveStr = pickInstanceLivePrice(args.terms ?? {}, now);
   const liveNum = parseFloat(liveStr);
   const snapMark = parseFloat(String((snap as { mid_price?: number } | null)?.mid_price ?? ''));
@@ -287,10 +287,10 @@ export function buildPriceBlock(args: {
 
 function pickLatestSnapshot(
   terms: InstanceTermsLike | undefined,
-  activeSlots?: readonly TimeframeSlotKind[],
+  activeDurations?: readonly number[],
 ): Record<string, unknown> | null {
   if (!terms) return null;
-  const slots = (activeSlots ?? TIMEFRAME_SLOT_KINDS).map((slot) => terms[slot]);
+  const slots = (activeDurations ?? DURATIONS).map((slot) => terms[slot]);
   let best: Record<string, unknown> | null = null;
   let bestTs = -Infinity;
   for (const slot of slots) {
@@ -313,10 +313,10 @@ function pickLatestSnapshot(
  */
 function pickLatestCompletedSnapshot(
   terms: InstanceTermsLike | undefined,
-  activeSlots?: readonly TimeframeSlotKind[],
+  activeDurations?: readonly number[],
 ): Record<string, unknown> | null {
   if (!terms) return null;
-  const slots = (activeSlots ?? TIMEFRAME_SLOT_KINDS).map((slot) => terms[slot]);
+  const slots = (activeDurations ?? DURATIONS).map((slot) => terms[slot]);
   let best: Record<string, unknown> | null = null;
   let bestTs = -Infinity;
   for (const slot of slots) {

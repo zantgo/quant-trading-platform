@@ -1,12 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { calcLiqPrice, getDecimalCount } from '../lib/telemetry';
-    import {
-        buildPositionsTabExport,
-        buildOrdersTabExport,
-        buildHistoryTabExport,
-        buildPlanTabExport,
-    } from '../lib/exportBuilders/chartsTab';
+    import { buildPositionsTabExport, buildOrdersTabExport, buildHistoryTabExport, buildPlanTabExport } from '../lib/exportBuilders/chartsTab';
     import styles from './BottomTable.module.css';
 
     const app = useAppStore();
@@ -48,7 +43,7 @@
     }
 
     function slotBlock(slotIndex: number): string {
-        const slot = app.activeSlots.find((s) => (s as { slot_index: number }).slot_index === slotIndex);
+        const slot = app.activeDurations.find((s) => (s as { slot_index: number }).slot_index === slotIndex);
         return slot && (slot as { is_active: boolean }).is_active ? '■' : '□';
     }
 
@@ -372,7 +367,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {#each app.activeSlots as slot, idx ((slot as { slot_index: number }).slot_index)}
+                    {#each app.activeDurations as slot, idx ((slot as { slot_index: number }).slot_index)}
                         <tr>
                             <td class={styles.marketCell}>#{(slot as { slot_index: number }).slot_index}</td>
                             <td class={styles.numRight}>${fmtPx((slot as { entry_price: number }).entry_price)}</td>

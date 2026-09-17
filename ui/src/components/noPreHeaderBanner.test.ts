@@ -18,15 +18,7 @@ import AnalysisPanel from './AnalysisPanel.svelte';
 import RiskPanel from './RiskPanel.svelte';
 import RecommendationPanel from './RecommendationPanel.svelte';
 import { useAppStore } from '../state.svelte';
-import type {
-    AlignmentMatrix,
-    AnalysisMatrix,
-    DecisionContext,
-    InstanceState,
-    OpportunityMatrix,
-    RiskDimension,
-    RiskMatrix,
-} from '../types';
+import type { AlignmentMatrix, AnalysisMatrix, DecisionContext, InstanceState, OpportunityMatrix, RiskDimension, RiskMatrix } from '../types';
 
 function makeDanger(score: number, overrides: Partial<RiskDimension> = {}): RiskDimension {
     return {

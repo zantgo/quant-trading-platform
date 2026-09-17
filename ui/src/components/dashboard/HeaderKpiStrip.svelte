@@ -4,13 +4,7 @@
     //   Valid Trades, Best Opportunity, Risk to Reward Ratio, Market Bias,
     //   Avg Risk, Coverage.
     import { useAppStore } from '../../state.svelte';
-    import {
-        aggregateRR,
-        aggregateConfidence,
-        aggregateRisk,
-        collectActiveSetups,
-        pickBestOpportunity,
-    } from '../../lib/tradeAggregates';
+    import { aggregateRR, aggregateConfidence, aggregateRisk, collectActiveSetups, pickBestOpportunity } from '../../lib/tradeAggregates';
     import { biasColor, rrColor, scoreColor, formatRewardRatio } from '../../lib/dashboardColors';
     import { demoteBiasForCoverage } from '../../lib/layerHeader';
     import styles from './HeaderKpiStrip.module.css';

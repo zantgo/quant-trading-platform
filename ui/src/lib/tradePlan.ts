@@ -10,15 +10,7 @@
 // Tools like `applyPlanToConsole()` pre-fill the BottomConsole bracket
 // creator for manual confirmation.
 
-import type {
-    AdvisoryMatrix,
-    AnalysisMatrix,
-    ConfluentLevel,
-    DecisionContext,
-    MarketContext,
-    OpportunityMatrix,
-    TimeframeTelemetry,
-} from '../types';
+import type { AdvisoryMatrix, AnalysisMatrix, ConfluentLevel, DecisionContext, MarketContext, OpportunityMatrix, TimeframeTelemetry } from '../types';
 import { resolveActiveRr } from './decisionRank';
 
 export type SourceTag = 'FIB' | 'VP' | 'PP' | 'SR' | 'LIQ' | 'ATR' | 'NONE';

@@ -1,7 +1,4 @@
-import type {
-    DecisionProfile, DecisionScore, RiskProfile, RiskCalculation,
-    FeeTableRow, CommissionProjection,
-} from '../types';
+import type { DecisionProfile, DecisionScore, RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection } from '../types';
 
 export class ProfileStore {
     activeDecisionProfileId = $state(1);

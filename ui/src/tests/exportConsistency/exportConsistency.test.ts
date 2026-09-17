@@ -25,17 +25,8 @@ import RecommendationPanel from '../../components/RecommendationPanel.svelte';
 import TerminalMonitor from '../../components/TerminalMonitor.svelte';
 import GeneralDashboard from '../../components/GeneralDashboard.svelte';
 import { useAppStore } from '../../state.svelte';
-import {
-  PAIR,
-  seedRichInstance,
-} from './fixtures';
-import {
-  clickButtonByText,
-  expectInDomAndJson,
-  expectJsonNumberRenderedAsDom,
-  renderPanelAndExport,
-  stripTags,
-} from './helpers';
+import { PAIR, seedRichInstance } from './fixtures';
+import { clickButtonByText, expectInDomAndJson, expectJsonNumberRenderedAsDom, renderPanelAndExport, stripTags } from './helpers';
 
 function norm(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
@@ -54,8 +45,8 @@ async function renderTerminalAndExportMicro(tabClick: string[] = []): Promise<{
     configurable: true,
   });
   const { container } = render(TerminalMonitor, { props: { pairKey: PAIR } });
-  // Click Micro on the timeframe rail, then any facet tabs.
-  for (const label of ['Micro', ...tabClick]) {
+  // Click the 1s duration on the timeframe rail, then any facet tabs.
+  for (const label of ['1s', ...tabClick]) {
     await clickButtonByText(container, label);
   }
   const exportBtn = Array.from(container.querySelectorAll('button')).find((b) =>
@@ -86,8 +77,8 @@ describe('export consistency — Alignment tab', () => {
     expectJsonNumberRenderedAsDom(c, '+31', 30.5);
     expect(c.dom).toContain('82%');
     expect(c.payload.hero.trend_agreement_pct).toBe(82);
-    expect(c.dom).toContain('10 TF');
-    expect(c.jsonText).toContain('10 TF');
+    expect(c.dom).toContain('14 TF');
+    expect(c.jsonText).toContain('14 TF');
 
     // Consensus hero (v6.10.20 C): the dial verdict renders as a bold
     // header + grey sub-label — the export's `label_display` mirrors the
@@ -116,7 +107,7 @@ describe('export consistency — Alignment tab', () => {
     expectInDomAndJson(c, '-0.20');
 
     // Per-timeframe cards.
-    expectInDomAndJson(c, 'MICRO');
+    expectInDomAndJson(c, '1S');
     expect(c.dom).toContain('5 signals');
     expect(c.payload.per_timeframe[0].active_signals).toBe(5);
     expectInDomAndJson(c, '0.45');
@@ -132,7 +123,7 @@ describe('export consistency — Alignment tab', () => {
     // Interpretation — real label (STRONG BULL) and full screen sentence.
     const interpretation = stripTags(c.payload.interpretation);
     expect(interpretation).toContain('strong directional consensus');
-    expect(interpretation).toContain('82% agreement across 10 timeframes');
+    expect(interpretation).toContain('82% agreement across 14 timeframes');
     expect(interpretation).toContain('classified as WEAK BULL');
     expect(interpretation).toContain('2 cross-timeframe signal votes reinforce the current bias.');
     expect(c.dom).toContain(interpretation);
@@ -318,12 +309,12 @@ describe('export consistency — Opportunities tab', () => {
     expect(p.market_position.bias).toBe('Bullish');
     expect(c.jsonText).toContain('Bullish');
     expect(p.market_position.regime).toBe('TrendingBull');
-    expect(p.environment.timeframes_considered_display).toBe('10 Timeframes considered');
+    expect(p.environment.timeframes_considered_display).toBe('14 Timeframes considered');
     // The environment pills moved into the L4 header chip rail — the chip
     // renders label + value ('Timeframes: 10/10') instead of the old
     // bottom-section sentence.
     expect(c.dom).toContain('Timeframes:');
-    expect(c.dom).toContain('10 TF');
+    expect(c.dom).toContain('14 TF');
     expect(p.environment.confidence_pct).toBe(72);
     expect(c.dom).toContain('Confidence: 72%');
   });
@@ -435,7 +426,7 @@ describe('export consistency — Analysis tab', () => {
 
     // Decomposed signals — same rows as the screen grid squares.
     expect(p.signals.list).toHaveLength(3);
-    expect(p.signals.list.map((s: { timeframe: string }) => s.timeframe)).toEqual(['MICRO1', 'FAST1', 'MACRO1']);
+    expect(p.signals.list.map((s: { timeframe: string }) => s.timeframe)).toEqual(['1S', '5S', '3M']);
     const micro = p.signals.list[0];
     expect(micro.bucket).toBe('supporting');
     expect(micro.score).toBe(62);
@@ -466,7 +457,7 @@ describe('export consistency — Analysis tab', () => {
     // Per-timeframe alignment — the on-screen gauge grid moved to the
     // Alignment tab (v7.4); the export keeps the raw per-TF payload, so
     // these are JSON-only assertions now.
-    expect(p.per_timeframe_alignment).toHaveLength(10);
+    expect(p.per_timeframe_alignment).toHaveLength(14);
     const microTf = p.per_timeframe_alignment[0];
     expect(microTf.active).toBe(true);
     expect(microTf.trend_display).toBe('+0.45');
@@ -485,7 +476,7 @@ describe('export consistency — Analysis tab', () => {
     // misleading "31 / 100" percentage.
     expect(c.dom).toContain('+31');
     expect(c.dom).toContain('(Bullish)');
-    expect(c.dom).toContain('10 timeframes aligned');
+    expect(c.dom).toContain('14 timeframes aligned');
     expectJsonNumberRenderedAsDom(c, '83.3%', 83.3);
     expectJsonNumberRenderedAsDom(c, '33.0', 33.0);
 
@@ -843,7 +834,7 @@ describe('export consistency — Metrics tab (non-Micro active TF)', () => {
     // volume profile (its refresh cadence is micro-anchored) and the
     // Tier-1 cascade banner reads the micro flow — both must be exported
     // even though the active TF carries neither.
-    const c = await renderTerminalAndExportMicro(['Fast']);
+    const c = await renderTerminalAndExportMicro(['5s']);
     const p = c.payload;
     expect(p.source_tab).toBe('metrics');
 
@@ -881,7 +872,7 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     // MTF sentinel: no single timeframe — timeframe_secs is 0 and the
     // actual TF list is carried in meta.timeframes.
     expect(p.meta.timeframe_secs).toBe(0);
-    expect(p.meta.timeframes).toEqual(['Micro1', 'Micro2', 'Fast1', 'Fast2', 'Slow1', 'Slow2', 'Macro1', 'Macro2', 'Longterm1', 'Longterm2']);
+    expect(p.meta.timeframes).toEqual(['1s', '3s', '5s', '15s', '30s', '1m', '3m', '5m', '15m', '30m', '1h', '4h', '12h', '1d']);
 
     // Registry display names on both surfaces.
     expect(p.indicators.some((r: { display_name: string }) => r.display_name === 'RSI (14)')).toBe(true);
@@ -889,8 +880,8 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
 
     // Per-TF normalized values + agreement.
     const rsi = p.indicators.find((r: { key: string }) => r.key === 'rsi');
-    expect(rsi.values).toHaveLength(10);
-    expect(rsi.values[0].timeframe).toBe('Micro1');
+    expect(rsi.values).toHaveLength(14);
+    expect(rsi.values[0].timeframe).toBe('1s');
     expect(rsi.values[0].normalized_display).toBe('+0.31');
     expect(c.dom).toContain('+0.31');
     expect(rsi.agreement_label).toBe('BULL');
@@ -904,7 +895,7 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     // Per-TF indicator rows carry the same triple as the single-TF export:
     // raw / raw_display / state_display / state (humanized, matching the
     // screen AND the Metrics tab).
-    const micro = p.timeframes.find((t: { label: string }) => t.label === 'Micro1')!;
+    const micro = p.timeframes.find((t: { label: string }) => t.label === '1s')!;
     const rsiMicro = micro.indicators.find((i: { key: string }) => i.key === 'rsi');
     expect(rsiMicro.raw).toBe(63.5);
     expect(rsiMicro.raw_display).toBe('63.50');
@@ -928,7 +919,7 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     expect(Object.keys(p.signals_by_kind).sort()).toEqual([...canonicalKeys].sort());
     // The fixture's micro TF carries a divergence + level-test signal —
     // they must surface in the MTF aggregates.
-    const microTf = p.timeframes.find((t: { label: string }) => t.label === 'Micro1')!;
+    const microTf = p.timeframes.find((t: { label: string }) => t.label === '1s')!;
     const microHasDiv = microTf.indicators.some((i: any) =>
       i.signals.some((s: any) => s.kind === 'DIV'));
     const microHasLv = microTf.indicators.some((i: any) =>

@@ -7,10 +7,7 @@
 //   • trail view = positions 1..4 (position 0 is the live badge).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-    pushBadge, getBadgeHistory, getBadgeTrail, clearBadgeHistory,
-    BADGE_HISTORY_CAP,
-} from './badgeHistory.svelte';
+import { pushBadge, getBadgeHistory, getBadgeTrail, clearBadgeHistory, BADGE_HISTORY_CAP } from './badgeHistory.svelte';
 
 function entry(label: string, ts: number) {
     return { label, color: '#22c55e', ts };

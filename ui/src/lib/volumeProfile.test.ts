@@ -24,7 +24,7 @@ function makeSnapshot(bins: VolumeProfileBin[]): VolumeProfileSnapshot {
     const total = bins.reduce((acc, b) => acc + b.volume, 0);
     return {
         symbol: 'BTC-USDT',
-        timeframe_slot: 'micro',
+        timeframe_label: '1m',
         timeframe_secs: 60,
         bins,
         poc_price: bins.length > 0 ? (bins[0].price_low + bins[0].price_high) / 2 : 0,

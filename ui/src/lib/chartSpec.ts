@@ -6,11 +6,7 @@
 import type { Time } from 'lightweight-charts';
 import type { IndicatorMap } from '../types';
 import type { IndicatorFlatHistory } from './indicatorHistory';
-import {
-    historyValue,
-    lastHistoricalTime,
-    pairsFromHistory,
-} from './indicatorHistory';
+import { historyValue, lastHistoricalTime, pairsFromHistory } from './indicatorHistory';
 
 /// One series descriptor inside a chart.
 ///

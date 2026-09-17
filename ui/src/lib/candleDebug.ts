@@ -2,7 +2,7 @@
  * Browser console debug dump for candle + indicator-overlay verification.
  *
  * Fires on **every completed candle** (is_completed === true) for any
- * (instance, slot). Payload aggregates **all** instances × 10 slots,
+ * (instance, duration). Payload aggregates **all** instances × ACTIVE durations,
  * including background timeframes, so a single log line gives a full
  * cross-section of warmup + rolling buffer state.
  *
@@ -16,7 +16,7 @@
  * One `console.log` per completed candle: `[CANDLE_DEBUG] <json>`
  */
 import type { AppStore } from '../state.svelte';
-import { activeSlotKinds } from './terms';
+import { activeDurations } from './terms';
 import { getResolvedHistory } from './indicatorHistory';
 
 declare global {
@@ -49,7 +49,7 @@ export interface CandleDebugOverlayDump {
 }
 
 export interface CandleDebugTimeframe {
-    slot: import('../types').TimeframeSlotKind;
+    slot: number;
     timeframe_secs: number;
     barDurationSec: number;
     pipelineState: string | undefined;
@@ -101,7 +101,7 @@ export interface CandleDebugPayload {
     emittedAt: string; // ISO
     trigger: {
         pairKey: string;
-        slot: string;
+        slot: number;
         timeframe_secs: number;
         timestamp: number | null;
         close: number | null;
@@ -133,7 +133,7 @@ function toNum(v: unknown): number | null {
  */
 export function buildCandleDebugPayload(
     app: AppStore,
-    trigger: { pairKey: string; slot: string; timeframe_secs: number; snapshot: Record<string, unknown> },
+    trigger: { pairKey: string; slot: number; timeframe_secs: number; snapshot: Record<string, unknown> },
 ): CandleDebugPayload {
     const instances: CandleDebugInstance[] = [];
     let globalMax = 0;
@@ -143,11 +143,11 @@ export function buildCandleDebugPayload(
     let allLte1000 = true;
 
     for (const [pairKey, inst] of Object.entries(app.instancesMap)) {
-        // v11.2: walk the ACTIVE ladder only — inactive slots never stream
+        // v11.9: walk the ACTIVE ladder only — inactive durations never stream
         // and would only add all-empty noise to the dump.
-        const slots = activeSlotKinds(inst);
+        const slots = activeDurations(inst);
         const tfs: CandleDebugTimeframe[] = slots.map((slot) => {
-            const tf = (inst as { terms?: Record<string, import('../types').TimeframeTelemetry> }).terms?.[slot];
+            const tf = (inst as { terms?: Record<number, import('../types').TimeframeTelemetry> }).terms?.[slot];
             const barDurationSec = tf?.barDurationSec ?? 0;
             const hist = getResolvedHistory(pairKey, barDurationSec, slot);
             const candles: CandleDebugTimeframe['candles'] = [];
@@ -301,7 +301,7 @@ export function buildCandleDebugPayload(
  * Emit the debug payload to the browser console as a single JSON line.
  * Call this on every `is_completed === true` frame.
  */
-export function emitCandleDebug(app: AppStore, trigger: { pairKey: string; slot: string; timeframe_secs: number; snapshot: Record<string, unknown> }): void {
+export function emitCandleDebug(app: AppStore, trigger: { pairKey: string; slot: number; timeframe_secs: number; snapshot: Record<string, unknown> }): void {
     if (!isDebugEnabled()) return;
     try {
         const payload = buildCandleDebugPayload(app, trigger);

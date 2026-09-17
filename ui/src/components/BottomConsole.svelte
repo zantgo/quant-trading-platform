@@ -1,12 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { calcLiqPrice, getDecimalCount } from '../lib/telemetry';
-    import {
-        buildPositionsTabExport,
-        buildOrdersTabExport,
-        buildHistoryTabExport,
-        buildPlanTabExport,
-    } from '../lib/exportBuilders/chartsTab';
+    import { buildPositionsTabExport, buildOrdersTabExport, buildHistoryTabExport, buildPlanTabExport } from '../lib/exportBuilders/chartsTab';
     import styles from './BottomTable.module.css';
 
     const app = useAppStore();

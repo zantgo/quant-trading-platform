@@ -5,19 +5,9 @@
 // signal_lean_hero block, sign-prefixed display strings, and indicator
 // key/period separation.
 
-import type {
-  AnalysisMatrix,
-  AlignmentMatrix,
-  TimeframeSlotKind,
-} from '../../types';
-import { TIMEFRAME_SLOT_KINDS, TIMEFRAME_SLOT_LABELS } from '../../types';
-import {
-  buildPriceBlock,
-  buildHeaderBlock,
-  type MetaEnvelope,
-  type HeaderBlock,
-  type InstanceTermsLike,
-} from './shared';
+import type { AnalysisMatrix, AlignmentMatrix } from '../../types';
+import { DURATIONS, tfLabel } from '../../types';
+import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { prettifyPhase, highlightKeywords } from '../prettifyPhase';
 import { computeAnalysisLean } from '../analysisLean';
@@ -169,26 +159,24 @@ function signedStr(n: number, decimals: number): string {
 /** Timeframe sort rank — mirrors `AnalysisPanel.svelte::timeframeRank`. */
 function timeframeRank(signal: string): number {
   const s = (signal || '').toUpperCase();
-  // Fixed 10-slot ladder order: MICRO1..LONGTERM2 (fastest → slowest).
-  const slotOrder = ['MICRO1','MICRO2','FAST1','FAST2','SLOW1','SLOW2','MACRO1','MACRO2','LONGTERM1','LONGTERM2'];
-  for (let i = 0; i < slotOrder.length; i++) {
-      if (s.includes(slotOrder[i])) return i;
+  // v11.9 duration-keyed ladder order: derived duration labels, fastest →
+  // slowest. Longer labels (15M) must match before their prefixes (1M/5M).
+  const DURATION_ORDER = ['1S','3S','5S','15S','30S','1M','3M','5M','15M','30M','1H','4H','12H','1D'];
+  for (let i = 0; i < DURATION_ORDER.length; i++) {
+      if (new RegExp(`(^|[^0-9A-Z])${DURATION_ORDER[i]}([^0-9A-Z]|$)`).test(s)) return i;
   }
   if (s.includes('MICRO')) return 0;
   if (s.includes('FAST')) return 2;
   if (s.includes('SLOW')) return 4;
   if (s.includes('MACRO')) return 6;
-  if (s.includes('1S') || s.includes('3S') || s.includes('5S') || s.includes('15S') || s.includes('30S') || s.includes('1M')) return 0;
-  if (s.includes('3M') || s.includes('5M')) return 1;
-  if (s.includes('15M') || s.includes('30M')) return 2;
-  if (s.includes('1H') || s.includes('4H') || s.includes('12H') || s.includes('1D') || s.includes('DAY')) return 3;
+  if (s.includes('DAY')) return 3;
   return 4;
 }
 
 function decomposeSignal(raw: string): DecomposedSignal {
   const t = raw || '';
   let timeframe = 'GLOBAL';
-  const tfMatch = t.match(/\[?(MICRO1|MICRO2|FAST1|FAST2|SLOW1|SLOW2|MACRO1|MACRO2|LONGTERM1|LONGTERM2|MICRO|FAST|SLOW|MACRO|1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D)\]?/i);
+  const tfMatch = t.match(/\[?(1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D|MICRO|FAST|SLOW|MACRO)\]?/i);
   if (tfMatch) timeframe = tfMatch[1].toUpperCase();
   let score: number | null = null;
   const scoreMatch = t.match(/score\s+([+\-]?\d+)/i);
@@ -344,10 +332,10 @@ function buildQualitativeBlock(analysis: AnalysisMatrix | null): QualitativeAsse
 
 function buildPerTimeframeBlock(
   alignment: AlignmentMatrix | null,
-  activeSlots?: readonly TimeframeSlotKind[],
+  activeDurations?: readonly number[],
 ): PerTimeframeAlignmentRow[] {
-  const slots = activeSlots && activeSlots.length > 0 ? activeSlots : [...TIMEFRAME_SLOT_KINDS];
-  const order = slots.map((slot) => TIMEFRAME_SLOT_LABELS[slot].toUpperCase());
+  const slots = activeDurations && activeDurations.length > 0 ? activeDurations : [...DURATIONS];
+  const order = slots.map((slot) => tfLabel(slot).toUpperCase());
   const alignments = alignment?.timeframe_alignments ?? [];
   return order.map((slot) => {
     const found = alignments.find((a) => a.timeframe.toUpperCase() === slot);
@@ -396,7 +384,7 @@ export interface AnalysisTabInputs {
   terms?: InstanceTermsLike;
   /** v11.2 — the ACTIVE slot ladder; the per-timeframe order array and
    *  the price-block snapshot walk follow it. Absent → all 10. */
-  activeSlots?: TimeframeSlotKind[];
+  activeDurations?: number[];
   headerSpec: LayerHeaderSpec;
 }
 
@@ -404,14 +392,14 @@ export interface AnalysisTabInputs {
  * Build the Analysis tab export payload. Mirrors `AnalysisPanel.svelte` 1:1.
  */
 export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
-  const activeSlots = args.activeSlots && args.activeSlots.length > 0
-    ? args.activeSlots
-    : [...TIMEFRAME_SLOT_KINDS];
+  const activeDurations = args.activeDurations && args.activeDurations.length > 0
+    ? args.activeDurations
+    : [...DURATIONS];
   const { meta } = buildPriceBlock({
     symbol: args.symbol,
     exchange: args.exchange,
     terms: args.terms,
-    activeSlots,
+    activeDurations,
     fallbackMarkPrice: args.markPrice,
     tfSecs: args.tfSecs,
     timestamp: args.timestamp,
@@ -429,7 +417,7 @@ export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
     signal_lean_hero: buildSignalLeanHero(analysis),
     signals: buildSignalsBlock(analysis),
     qualitative_assessment: buildQualitativeBlock(analysis),
-    per_timeframe_alignment: buildPerTimeframeBlock(args.alignment, activeSlots),
+    per_timeframe_alignment: buildPerTimeframeBlock(args.alignment, activeDurations),
     interpretation: analysis?.market_interpretation ?? '',
     // Screen renders the interpretation with keyword bolding; mirror
     // the marked-up HTML in `interpretation_display` for export parity.

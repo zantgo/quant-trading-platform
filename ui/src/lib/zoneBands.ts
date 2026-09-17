@@ -1,12 +1,4 @@
-import type {
-    IChartApi,
-    ISeriesApi,
-    ISeriesPrimitiveBase,
-    SeriesAttachedParameter,
-    IPrimitivePaneView,
-    IPrimitivePaneRenderer,
-    Time,
-} from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, ISeriesPrimitiveBase, SeriesAttachedParameter, IPrimitivePaneView, IPrimitivePaneRenderer, Time } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { OpportunityMatrix, ConfluentLevel } from '../types';
 

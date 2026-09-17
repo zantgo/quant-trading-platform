@@ -1,27 +1,8 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
-    import {
-        createInstance,
-        deleteInstanceById,
-        waitForAdvisory,
-    } from '../lib/api.svelte';
-    import {
-        connectWsForInstance,
-        type WsState,
-    } from '../lib/websocket.svelte';
-    import {
-        clampWaitMinutes,
-        decide,
-        detectBackendErrorKind,
-        parseSymbols,
-        reasonFor,
-        reasonLabel,
-        summarize,
-        WAIT_WINDOW_DEFAULT,
-        WAIT_WINDOW_MAX,
-        WAIT_WINDOW_MIN,
-        type PairOutcome,
-    } from '../lib/watchlistScanner';
+    import { createInstance, deleteInstanceById, waitForAdvisory } from '../lib/api.svelte';
+    import { connectWsForInstance, type WsState } from '../lib/websocket.svelte';
+    import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from '../lib/watchlistScanner';
     import styles from './WatchlistScannerModal.module.css';
     import brutalistStyles from '../styles/brutalist-grid.module.css';
 

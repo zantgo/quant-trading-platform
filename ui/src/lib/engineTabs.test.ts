@@ -4,9 +4,7 @@
 // set: `[Overview] → [L1..Ln layers] → [Settings last]`, Settings ALWAYS
 // present in every mode, and every mode set ≥ 3 tabs.
 import { describe, expect, it } from 'vitest';
-import {
-    ENGINE_TABS, tabsForMode, resolveEngineTabForMode,
-} from './engineTabs';
+import { ENGINE_TABS, tabsForMode, resolveEngineTabForMode } from './engineTabs';
 
 function keys(engine: Parameters<typeof tabsForMode>[0], mode?: string): string[] {
     return tabsForMode(engine, mode).map((t) => t.key);
