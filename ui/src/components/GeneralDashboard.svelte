@@ -190,6 +190,21 @@
 
                 <div class={styles.scanRow}>
                     <ScanStatusStrip />
+                    {#if headerSpec.meta.length > 0}
+                        <!-- v11.11: Instances / Sys Risk / Sync join the scan
+                             pills as uniform rounded pills in the same row. -->
+                        <div class={styles.metaList}>
+                            {#each headerSpec.meta as chip (chip.label)}
+                                <div class={styles.metaChip} title={chip.title}>
+                                    <span class={styles.metaChipLabel}>{chip.label}:</span>
+                                    <span
+                                        class="{styles.metaChipValue} {chipCls[chip.state]}"
+                                        style={chip.state === 'valid' ? `color: ${chip.color};` : ''}
+                                    >{chip.value}</span>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
                 </div>
 
                 <div class={styles.badgeRow}>
@@ -208,19 +223,6 @@
                         {/if}
                     </span>
                     <BadgeTrail entries={l7Trail} />
-                    {#if headerSpec.meta.length > 0}
-                        <div class={styles.metaList}>
-                            {#each headerSpec.meta as chip (chip.label)}
-                                <div class={styles.metaChip} title={chip.title}>
-                                    <span class={styles.metaChipLabel}>{chip.label}:</span>
-                                    <span
-                                        class="{styles.metaChipValue} {chipCls[chip.state]}"
-                                        style={chip.state === 'valid' ? `color: ${chip.color};` : ''}
-                                    >{chip.value}</span>
-                                </div>
-                            {/each}
-                        </div>
-                    {/if}
                 </div>
             </div>
 

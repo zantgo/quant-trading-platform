@@ -89,44 +89,8 @@
 }
 
 /* v11.4 — collapsible header bar (click anywhere; default expanded). */
-.collapseBar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    margin-bottom: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.02);
-    cursor: pointer;
-    user-select: none;
-}
 
-.collapseBar:hover {
-    border-color: rgba(255, 255, 255, 0.2);
-}
 
-.collapseChevron {
-    font-size: 9px;
-    color: rgba(255, 255, 255, 0.5);
-    transition: transform 0.15s ease;
-}
 
-.collapseChevronOpen {
-    transform: rotate(90deg);
-}
 
-.collapseTitle {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.6);
-}
 
-.collapseHint {
-    margin-left: auto;
-    font-size: 9px;
-    color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
-}

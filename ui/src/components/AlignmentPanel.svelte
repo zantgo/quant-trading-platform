@@ -307,11 +307,6 @@
         {/snippet}
     </LayerHeader>
 
-    <!-- v10.2: Timeframe Status table — one row per ladder slot mirroring
-         the SAME per-TF badge the Metrics tab header shows (single-sourced
-         through `metricsBadgeFor`), so all 10 timeframes' health is
-         scannable at a glance. -->
-    <TfStatusTable pairKey={pairKey} wssState={wssState} />
 
     <!-- ── ALIGNMENT SUMMARY (v7.0): the interpretation prose moved from
          the bottom of the panel into the head-badge zone. Gray premium
@@ -417,6 +412,15 @@
             TIMEFRAME MISALIGNMENT — time horizons are not working together
         </div>
     {/if}
+
+    <!-- ── Timeframe Status (v11.11): own titled section, ALWAYS expanded,
+         below Metrics and above Score — one row per ACTIVE duration
+         mirroring the SAME per-TF badge the Metrics tab header shows
+         (single-sourced through `metricsBadgeFor`). -->
+    <div class={styles.section}>
+        <div class={styles.sectionTitle}>Timeframe Status</div>
+        <TfStatusTable pairKey={pairKey} wssState={wssState} />
+    </div>
 
     <!-- ── Score (weight chips) ── -->
     <div class={styles.section}>

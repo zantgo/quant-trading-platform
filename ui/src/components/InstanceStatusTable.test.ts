@@ -14,6 +14,7 @@ import { cleanup, render, fireEvent, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import InstanceStatusTable from './InstanceStatusTable.svelte';
 import headerStyles from './LayerHeader.module.css';
+import styles from './InstanceStatusTable.module.css';
 import { useAppStore } from '../state.svelte';
 import { computeDecisionRank } from '../lib/decisionRank';
 import type {
@@ -205,6 +206,11 @@ describe('InstanceStatusTable — expand / collapse', () => {
         expect(subText).toContain('5S');
         expect(subText).toContain('1s');
         expect(subText).toContain('5s');
+
+        // v11.11 badge hierarchy: the symbol decision badge is LARGE, the
+        // per-timeframe badges are SMALL.
+        expect(table.querySelector(`.${styles.decisionBadgeLg}`)).toBeTruthy();
+        expect(table.querySelectorAll(`.${styles.tfBadgeSm}`).length).toBe(2);
 
         // The single expanded row makes `allExpanded` true → the toolbar
         // button now offers collapse; click it and everything folds.

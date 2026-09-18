@@ -35,10 +35,6 @@
     const app = useAppStore();
     const instance = $derived(app.instancesMap[pairKey]);
 
-    // v11.4: the table collapses behind a click-anywhere header bar.
-    // Default EXPANDED — it is the tab's headline feature.
-    let collapsed = $state(false);
-
     const badgeCls: Record<string, string> = {
         valid: headerStyles.badgeValid,
         neutral: headerStyles.badgeNeutral,
@@ -68,19 +64,8 @@
     });
 </script>
 
-<div class={styles.collapseBar}
-    role="button"
-    tabindex="0"
-    aria-expanded={!collapsed}
-    aria-label="Per-timeframe status"
-    onclick={() => (collapsed = !collapsed)}
-    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); collapsed = !collapsed; } }}
->
-    <span class="{styles.collapseChevron} {collapsed ? '' : styles.collapseChevronOpen}" aria-hidden="true">▶</span>
-    <span class={styles.collapseTitle}>Timeframe Status</span>
-    <span class={styles.collapseHint}>{collapsed ? 'Show' : 'Hide'}</span>
-</div>
-{#if !collapsed}
+<!-- v11.11: always expanded — the collapse bar was removed; the section
+     title lives in AlignmentPanel. -->
 <table class={styles.tfStatusTable}>
     <thead>
         <tr>
@@ -116,4 +101,3 @@
         {/each}
     </tbody>
 </table>
-{/if}

@@ -230,8 +230,7 @@
                         disabled={!sessionReady}
                     ></textarea>
                     <div class={styles.inputHelp}>
-                        Paste a space-separated list of base symbols. Duplicates are ignored. Up to 10 characters per symbol.
-                        are ignored. Up to 10 characters per symbol.
+                        Paste a space-separated list of base symbols. Duplicates are ignored. Max 10 characters per symbol.
                     </div>
                     <div class={styles.inputWaitRow}>
                         <label class={styles.inputWaitLabel} for="watchlist-wait">

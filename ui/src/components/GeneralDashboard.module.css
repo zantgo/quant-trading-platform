@@ -143,9 +143,9 @@
 .metaChip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: 4px;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
     font-size: 11px;
     font-family: var(--mono, 'SF Mono', monospace);
     background: rgba(255, 255, 255, 0.03);
