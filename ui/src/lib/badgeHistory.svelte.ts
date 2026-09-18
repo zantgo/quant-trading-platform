@@ -135,7 +135,7 @@ export function l1Key(pairKey: string, slot: number | string): string {
     return `l1:${pairKey}:${slot}`;
 }
 
-export function layerKey(layer: 'l2' | 'l3' | 'l4' | 'l5' | 'l6', pairKey: string): string {
+export function layerKey(layer: 'l2' | 'l3' | 'l4' | 'l5' | 'l6' | 'mtf', pairKey: string): string {
     return `${layer}:${pairKey}`;
 }
 

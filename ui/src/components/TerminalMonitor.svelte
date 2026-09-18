@@ -30,7 +30,7 @@
     import MtfView from './facets/MtfView.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL1MetricsHeader, buildL1MtfHeader, type LayerHeaderSpec } from '../lib/layerHeader';
-    import { getBadgeTrail, badgeHistoryVersion, l1Key } from '../lib/badgeHistory.svelte';
+    import { getBadgeTrail, badgeHistoryVersion, l1Key, layerKey } from '../lib/badgeHistory.svelte';
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
@@ -76,7 +76,9 @@
     const l1Trail = $derived.by(() => {
         void badgeHistoryVersion.v;
         void activeTf;
-        if (activeTf === 'Mtf' || !pairKey) return undefined;
+        if (!pairKey) return undefined;
+        // v11.11: the MTF header renders the cross-TF verdict trail.
+        if (activeTf === 'Mtf') return getBadgeTrail(layerKey('mtf', pairKey));
         return getBadgeTrail(l1Key(pairKey, activeTf));
     });
 
