@@ -41,7 +41,7 @@ export function saveChartOverlays(pairKey: string, inst: InstanceState): void {
 }
 
 /** Apply the saved overlay flags onto a freshly created instance
- *  (pair-level flags + every fixed-ladder slot). Unknown / malformed
+ *  (pair-level flags + every ACTIVE duration). Unknown / malformed
  *  entries are skipped so a partial snapshot can't corrupt defaults. */
 export function applyChartOverlays(pairKey: string, inst: InstanceState): void {
     const snap = loadPref<OverlaySnapshot | null>(`chartOverlays.${pairKey}`, null);

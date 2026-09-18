@@ -2,7 +2,7 @@
 // Test for the LIQ HEATMAP and VOL PROFILE toggle pills in ChartToggles.svelte.
 //
 // Verifies that toggling a flag on the TF state object propagates correctly
-// across all 10 timeframes (since the toggle is sync-all, like VWAP/Bollinger).
+// across all ACTIVE durations (since the toggle is sync-all, like VWAP/Bollinger).
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { DURATIONS } from '../types';

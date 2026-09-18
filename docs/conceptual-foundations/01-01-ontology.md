@@ -151,7 +151,7 @@ A Market Instance represents one monitored entity at one specific venue.
 
 $$\text{Market Instance} = \text{(symbol, exchange)}$$
 
-A Market Instance is a container owning the ACTIVE TimeframePipelines — one per slot of the fixed ladder pool (`1s`…`1h`, 1 s–1 h; v11.1 fixed the pool, v11.2 runs its fastest `[workspace].active_timeframes` slots, 1..=10 default 5) — plus trading state, safety manager, and config. The per-(symbol, timeframe) analytical unit is the TimeframePipeline, the smallest operational unit of the MME.
+A Market Instance is a container owning the ACTIVE TimeframePipelines — one per slot of the fixed ladder pool (`1s`…`1h`, 1 s–1 h; v11.1 fixed the pool, v11.9 runs the ACTIVE `[workspace].timeframes` durations) — plus trading state, safety manager, and config. The per-(symbol, timeframe) analytical unit is the TimeframePipeline, the smallest operational unit of the MME.
 
 ### 3.7 Timeframe
 A Timeframe defines the temporal resolution used to analyze an entity. Timeframes are the fixed, ordered 10-slot ladder (`1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `1h` — 1 s → 1 h; not operator-configurable) that together produce multi-timeframe intelligence.
@@ -469,7 +469,7 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
 *   **Responsibility:** Analyze relationships and measure agreement among multiple timeframes for a single symbol.
 *   **Output (Alignment Matrix):** Measures multi-timeframe directional and structural consensus.
 *   **Key Metrics:**
-    *   *Trend Alignment Score (0-100%):* Degree of agreement in trend direction across the ACTIVE ladder slots (the fastest `[workspace].active_timeframes` slots of the fixed `1s`…`1h` pool, v11.2).
+    *   *Trend Alignment Score (0-100%):* Degree of agreement in trend direction across the ACTIVE ladder slots (the ACTIVE durations (`[workspace].timeframes`, any subset of the `1s`…`1d` pool, v11.9)).
     *   *Momentum Alignment Score (0-100%):* Concordance of momentum vectors.
     *   *Confluence Matrix:* Grid mapping structural overlap and localized signal intersection points across timeframes.
 
@@ -1094,7 +1094,7 @@ The conceptual model integrates all five engines, their respective layers, and t
 
 ## Appendix A — Formal Matrix Definitions
 
-This appendix is an illustrative serialization of the canonical scenario (seed: [02-01-alignment-matrix.md §6](../matrices/02-01-alignment-matrix.md)) for all matrices produced by the Market Monitoring Engine. Normative contracts live in `docs/matrices/02-*`. Field set verified by MANIFEST gate G13. All enum values serialize as `SCREAMING_SNAKE_CASE`. **Note (v11.1):** the worked scenario demonstrates the math on a 4-timeframe subset (`timeframes_present: 4` — a mid-warmup instance); production instances run the full fixed 10-slot ladder (`1s`…`1h`), so the live field ranges 0–10. The chain numbers are unchanged.
+This appendix is an illustrative serialization of the canonical scenario (seed: [02-01-alignment-matrix.md §6](../matrices/02-01-alignment-matrix.md)) for all matrices produced by the Market Monitoring Engine. Normative contracts live in `docs/matrices/02-*`. Field set verified by MANIFEST gate G13. All enum values serialize as `SCREAMING_SNAKE_CASE`. **Note (v11.1):** the worked scenario demonstrates the math on a 4-timeframe subset (`timeframes_present: 4` — a mid-warmup instance); production instances run the full 14-duration pool (`1s`…`1h`), so the live field ranges 0–10. The chain numbers are unchanged.
 
 ---
 
@@ -1722,7 +1722,7 @@ Divergence is handled as a **signal on the parent indicator**, not as a separate
 *   **Engine:** The largest independent functional block within the trading platform, representing an autonomous business domain.
 *   **Execution Policy:** A deterministic, user-configured trigger rule evaluated by the Trade Automation Engine to govern order dispatch.
 *   **Layer:** An isolated sequential step within an engine's processing pipeline that transforms data to a higher level of abstraction.
-*   **Market Instance:** The (symbol, exchange) container owning the ACTIVE fixed-ladder TimeframePipelines (the fastest `[workspace].active_timeframes` slots of the `1s`…`1h` pool, v11.2); the per-(symbol, timeframe) analytical unit is a TimeframePipeline. Canonical glossary: [06-01-api-gateway-contract.md §1.0](../integration-and-api/06-01-api-gateway-contract.md).
+*   **Market Instance:** The (symbol, exchange) container owning the ACTIVE duration TimeframePipelines (the ACTIVE durations (`[workspace].timeframes`, any subset of the `1s`…`1d` pool, v11.9)); the per-(symbol, duration) analytical unit is a TimeframePipeline. Canonical glossary: [06-01-api-gateway-contract.md §1.0](../integration-and-api/06-01-api-gateway-contract.md).
 *   **Market Phase:** The active stage of an asset within its broader market cycle — 4 phases (`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`) plus the `UNKNOWN` empty-state sentinel.
 *   **Market Regime:** The underlying environmental behavior of an asset, defining the structural context (e.g., `EXPANSION`, `RANGE`).
 *   **Matrix:** The structured, immutable output produced by an analytical layer, serving as the interface contract between stages.

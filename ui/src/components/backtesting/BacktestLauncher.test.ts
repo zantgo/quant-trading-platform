@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // BacktestLauncher (v8.2) — the installer-style wizard:
-// step navigation, allocation-sum guard, fixed-ladder display,
+// step navigation, allocation-sum guard, archive-ladder display,
 // and the Run step's progress/cancel state machine.
 import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

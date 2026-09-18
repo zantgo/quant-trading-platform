@@ -54,7 +54,7 @@ Levels remain constant until the next session begins. The calculator accumulates
 ---
 
 ## 3. Multi-Timeframe Consistency
-Pivot Points are computed **independently on every ACTIVE fixed-ladder timeframe** (the fastest `[workspace].active_timeframes` slots of the `1s` … `1h` pool, v11.2), but every timeframe references the **same UTC-daily session boundary**. This keeps the published levels identical across charts within a given day while still allowing each timeframe's session accumulation to warm independently.
+Pivot Points are computed **independently on every ACTIVE duration** (`[workspace].timeframes`, any subset of the `1s`…`1d` pool, v11.9), but every timeframe references the **same UTC-daily session boundary**. This keeps the published levels identical across charts within a given day while still allowing each timeframe's session accumulation to warm independently.
 
 ---
 

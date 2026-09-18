@@ -43,7 +43,7 @@
     }
 
     // v11.2: the ladder is the ACTIVE one — the fastest N slots of the
-    // fixed 10-slot pool (`[workspace].active_timeframes`, editable in
+    // 14-duration pool (`[workspace].timeframes`, editable in
     // Settings). The wizard shows it read-only; the count is a workspace
     // Settings knob, not a picker.
     const ACTIVE_LADDER = $derived.by(() => {
@@ -210,7 +210,7 @@
                 throw new Error(init.error || 'Failed to initialize session.');
             }
 
-            // 3. Create each staged instance (the fixed 10-slot ladder is
+            // 3. Create each staged instance (the 14-duration pool is
             // applied server-side; no per-slot TF payload is sent).
             for (const draft of instances) {
                 const created = await createInstance(draft.base, app.quote);

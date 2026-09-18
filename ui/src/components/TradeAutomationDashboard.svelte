@@ -623,7 +623,7 @@
                             {/if}
                             <span class={local.ghostWatermark}>GHOST / NO ACTION</span>
                         {:else}
-                            <div class={styles.empty}>No eligible setup right now — the executor scans the 10 timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
+                            <div class={styles.empty}>No eligible setup right now — the executor scans the ACTIVE timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
                         {/if}
                     </div>
 
@@ -733,7 +733,7 @@
                     {:else}
                         <div class={styles.card}>
                             <h3 class={styles.cardTitle}>Active Setup</h3>
-                            <div class={styles.empty}>No eligible setup right now — the executor scans the 10 timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
+                            <div class={styles.empty}>No eligible setup right now — the executor scans the ACTIVE timeframes on every completed candle. Setups must be Actionable (net RR ≥ 1.0) and READY.</div>
                         </div>
                     {/if}
                 {/if}

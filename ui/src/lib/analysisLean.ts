@@ -15,7 +15,7 @@
 // v6.10.19c (C): the hero counts ALL timeframe lines present (the
 // supporting/contradicting lists) — a display choice over the raw data.
 // The bias engine's LEAN-tier vote definition (COMPRESSION windows and
-// |overall_score| ≤ 10 TFs excluded) is unchanged and lives in
+// |overall_score| ≤ 10 is excluded) is unchanged and lives in
 // `analysis.rs` — the hero and the bias vote intentionally differ: the
 // hero shows every TF that reported; the bias engine votes only on the
 // decisive ones.

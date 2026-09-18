@@ -287,7 +287,7 @@ describe('AlignmentPanel — Per-Timeframe gauge grid (v7.4, moved from the Anal
     }));
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
     const cards = Array.from(document.querySelectorAll(`.${styles.tfSquare}`));
-    // All ten ladder slots render (inactive ones show placeholders).
+    // All ACTIVE durations render (inactive ones show placeholders).
     expect(cards.length).toBe(14);
     expect(cards.map((c) => c.textContent?.match(/1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D/)?.[0])).toEqual([
       '1S', '3S', '5S', '15S', '30S', '1M', '3M', '5M', '15M', '30M', '1H', '4H', '12H', '1D',

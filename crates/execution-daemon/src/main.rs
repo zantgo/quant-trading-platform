@@ -11,7 +11,7 @@
 //!   (Observe / Simulate / Execute), exchange, currency, and instances
 //!   before entering the workspace.
 //! - `--mode cli`: interactive terminal launch (exchange, currency,
-//!   instances — every pair runs the fixed 10-slot TF ladder), then a
+//!   instances — every pair runs the 14-duration TF ladder), then a
 //!   live terminal monitor that redraws the L7 overview + per-instance
 //!   rows. Supports
 //!   `--trading observe|paper|live` (default observe); paper reuses the
@@ -432,7 +432,7 @@ impl CliArgs {
 //   1. Exchange          — pre-filled from --exchange or workspace default.
 //   2. Settlement currency — forced per exchange (HL=USDC, Bitget=USDT).
 //   3. Instances         — one or more (base symbol only — every pair
-//                          runs the fixed 10-slot TF ladder), pre-filled
+//                          runs the 14-duration TF ladder), pre-filled
 //                          from existing workspace.instances[].
 //   4. Confirm           — then the instances just run in the terminal
 //                          monitor. No config.toml is rewritten by the
@@ -586,7 +586,7 @@ fn cli_launch_plan(
     println!("  → Settlement currency forced to {}", currency);
 
     // 2. Instances — pre-seed from workspace.instances[]. Durations are
-    //    not carried: the fixed 10-slot ladder is registry-driven.
+    //    not carried: the 14-duration pool is registry-driven.
     let mut instances: Vec<CliInstance> = workspace
         .instances
         .iter()
@@ -749,7 +749,7 @@ fn canonical_overall_risk(micro_risk: Option<f64>, risk_count: u32, risk_sum: f6
 }
 
 fn main() {
-    // v11.1: the fixed 10-slot ladder multiplies the per-pipeline future
+    // v11.1: the 14-duration pool multiplies the per-pipeline future
     // state (per-slot arrays inside `build_pipelines`/`spawn_tasks`), which
     // overflows tokio's default 2 MiB worker stack in debug builds when an
     // instance is created. 16 MiB workers keep the same headroom margin the
@@ -1299,7 +1299,7 @@ async fn async_main() {
     //
     // CLI mode prompts the operator for exchange/currency/instances BEFORE
     // spawning anything — the plan is written into the workspace config so
-    // `registry::add_instance` binds each pair to the fixed 10-slot TF
+    // `registry::add_instance` binds each pair to the 14-duration TF
     // ladder, then every instance is spawned with the boot retry policy.
     // v8.2: the prompt offers a Backtest choice — the interactive sibling
     // of the GUI launcher (runs the simulation, then exits).
@@ -1376,7 +1376,7 @@ async fn async_main() {
         }
     }
 
-    // ── CLI plan → workspace config (fixed 10-slot TF ladder) ──────
+    // ── CLI plan → workspace config (ACTIVE duration ladder) ──────
     if let Some(plan) = &cli_plan {
         let mut cfg = workspace_state.config().await;
         let exec_mode = match plan.trading.as_str() {

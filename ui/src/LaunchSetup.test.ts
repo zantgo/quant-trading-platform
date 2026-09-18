@@ -5,7 +5,7 @@
 //   1. Mode        — Observe / Simulate / Execute
 //   2. Environment — exchange + settlement currency (+ capital for paper,
 //                    credentials for live)
-//   3. Instances   — staged drafts (the fixed 10-slot ladder is applied
+//   3. Instances   — staged drafts (the ACTIVE duration set is applied
 //                    server-side; no per-slot TF choice exists)
 //   4. Review      — summary → Launch
 //

@@ -689,7 +689,7 @@
                 <h3 class={engine.cardTitle}>Visual Overlays</h3>
                 <ConfigSourceChip source="per-instance" apply="LIVE" />
             </div>
-            <p class={engine.infoLine}>Which indicator panes and price overlays the Workspace charts render. Applied to all ten timeframes.</p>
+            <p class={engine.infoLine}>Which indicator panes and price overlays the Workspace charts render. Applied to all ACTIVE timeframes.</p>
             <div class={styles.visGroups}>
                 {#each VISUAL_GROUPS as group (group.title)}
                     <div class={styles.visGroup}>

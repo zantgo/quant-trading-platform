@@ -26,7 +26,7 @@ The Distribution Matrix itself is not a single data structure but a **multiplexe
 
 | Component | Description |
 |-----------|-------------|
-| **Channel per `(symbol, timeframe)` pipeline** | Each `(symbol, timeframe_secs)` combination owns a dedicated `NormalizedCandle` broadcast channel. The fixed 10-slot ladder with one symbol thus yields ten channels. |
+| **Channel per `(symbol, timeframe)` pipeline** | Each `(symbol, timeframe_secs)` combination owns a dedicated `NormalizedCandle` broadcast channel. The 14-duration pool with one symbol thus yields ten channels. |
 | **Candle Aggregator subscriber** | The Candle Aggregator subscribes to the micro (base) timeframe `NormalizedCandle` channel for higher-timeframe rollup. |
 | **Channel capacity** | 10,000 buffered events per channel. |
 

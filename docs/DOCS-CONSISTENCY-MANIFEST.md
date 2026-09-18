@@ -138,7 +138,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] `cascade_risk` is the **8th** of the eight sub-dimensions (plus `overall_risk` as the 9th aggregate field). The textual reference at `03-02-06 §7` ("plus `overall_risk` as the 9th and final aggregate field") is correct; no surviving "9th dimension" error.
 - [x] `cascade_risk_index` placeholder is **not** aggregated into `systemic_risk_score` (deferred per CHANGELOG §Open Items `AUDIT-V4-005`).
 - [x] **Liquidity data-flow invariant (pinned).** `L1.5 → {L4, L5}; L2.5 → {L4, L5}; L4 + L5 → L6`.
-- [x] **Instance identity (canonical register).** Market Instance = (symbol, exchange) container of the ten fixed TimeframePipelines (one per slot of the fixed 10-slot ladder, `1s`…`1h`); canonical glossary: `06-01` §1.0. All other documents link to the glossary instead of restating the definition.
+- [x] **Instance identity (canonical register).** Market Instance = (symbol, exchange) container of the ACTIVE TimeframePipelines (one per slot of the 14-duration pool, `1s`…`1h`); canonical glossary: `06-01` §1.0. All other documents link to the glossary instead of restating the definition.
 
 ### 12.6 Auth / audit / operator
 - [x] **Single-operator local deployment** documented once in `06-01 §1` with cross-references from `06-01 §3.3` (WS control frames) and `06-02 §3.10` (`risk_control_events.operator_id` column). Every audit event carries `operator_id = "local"`; there is no per-route authentication, no caller-supplied identity, and no multi-client model.
@@ -178,7 +178,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 ### 12.10 Authoring hygiene
 - [x] Zero inline `(MAT-XX)`, `(SIG-XX)`, `(EXE-XX)`, `(OPS-XX)`, `(UI-XX)`, `(DB-XX)`, `(API-XX)`, `(AUDIT-XX)`, `(Issue NN)` markers in normative sections. The only surviving audit identifiers are in `docs/CHANGELOG.md`, exactly per the locked decision Q3. (Verified by `grep -rE "\(MAT-[0-9]+..." docs/ | grep -v CHANGELOG` → empty output.)
 - [x] Zero literal source-line citations (`crates/...rs:N` or `crates/...rs::func(...)`). Module-path cross-references (e.g. `crates/market-analyzer/src/indicators/registry.rs`) are retained as cross-doc identifiers (these are module paths, not line numbers).
-- [x] Subjective adjectives in algorithmic specs are limited to "default" (e.g. "the default ladder is the fixed 10-slot register — `1s` 1 s … `1h` 3600 s"), "deterministic", and "canonical" — none of the "most defensible" / "best forward-looking" / "robust" / "comprehensive" filler.
+- [x] Subjective adjectives in algorithmic specs are limited to "default" (e.g. "the default ladder is the 14-duration register — `1s` 1 s … `1h` 3600 s"), "deterministic", and "canonical" — none of the "most defensible" / "best forward-looking" / "robust" / "comprehensive" filler.
 - [x] External issue IDs (`EXE-08`, `Issue 4.N`) live only in `docs/CHANGELOG.md`.
 ### 12.11 v6.2 additions verification (file-count invariant, scoped-enum rule, Gate-0 ordering)
 
@@ -295,7 +295,7 @@ Any normative table found in two places is by definition a defect. Every concept
 
 ### 13.2 Terminology register (canonical forms)
 
-- **Market Instance** = (symbol, exchange) container of the ten fixed TimeframePipelines (one per slot of the fixed 10-slot ladder, `1s`…`1h`); `instance_id = <symbol>@<exchange>`. Canonical glossary: `06-01` §1.0.
+- **Market Instance** = (symbol, exchange) container of the ACTIVE TimeframePipelines (one per slot of the 14-duration pool, `1s`…`1h`); `instance_id = <symbol>@<exchange>`. Canonical glossary: `06-01` §1.0.
 - **Enum serialization (two wire conventions):** (a) **SCREAMING_SNAKE_CASE** for the liquidity, overview, viability, `DirectionFamily`, `LevelSource`, `CandlePipelineState`, `SequenceIntegrity`, and `ReconstructionMethod` enums — these carry `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]`; (b) **PascalCase** for the L2–L6 analysis / decision / risk / alignment / advisory / signal enums — `AlignState`, `MarketBias`, `MarketRegime`, `MarketPhase`, the Trend / Momentum / Structure / Volatility / Volume `Assessment` enums, `QualityLevel`, `SetupQuality`, `OpportunityType`, `TimeHorizon`, `RiskLevel`, `RiskState`, `SignalKind`, `SignalDirection`, `SignalStatus`, `IndicatorLifecycleState`, `FeedState`, `DirectionalGuidance`, `MarketStance`, `OpportunityClass`, `StrategyEnvironment`, `EntryGuidance`, `ExitGuidance`, `ProtectionStrategy`, `TargetStrategy` — these have **no** serde rename and serialize as their Rust variant names. Timeframe identity is not an enum: it is `timeframe_secs: u64` with a derived `timeframe_label: string`. JSON examples must use the owning enum's wire convention; PascalCase in prose may also cite Rust types.
 - **Empty-state sentinel:** UNKNOWN for every assessment/phase enum (MarketPhase = 4 phases + UNKNOWN).
 - **Confidence scales:** indicator/signal [0, 1]; alignment/risk dimension [0, 100]; pipeline-level per `02-00b`.

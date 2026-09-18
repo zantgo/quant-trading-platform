@@ -82,7 +82,7 @@ function createInstanceState(symbol: string): InstanceState {
         symbol, exchange: 'Hyperliquid', isConnected: false,
         mode: undefined,
         terms: Object.fromEntries(
-            TIMEFRAME_SLOT_KINDS.map((slot) => [slot, createTimeframeTelemetry(symbol, slot, TIMEFRAME_SLOT_DURATION_SECS[slot])]),
+            DURATIONS.map((secs) => [secs, createTimeframeTelemetry(symbol, secs, secs)]),
         ) as Record<number, TimeframeTelemetry>,
         // Defaults to the full ladder until `/api/instances` delivers
         // `active_secs` (syncInstanceIdsFromList narrows it to the fastest N).

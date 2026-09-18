@@ -15,7 +15,7 @@
 // the Opportunity page, and the decision_rank hero block on the
 // Recommendation page. The MTF export additionally surfaces per-TF
 // indicator detail (raw, signals, sub_values, lifecycle) for each of the
-// 10 timeframes, so the operator does not have to switch tabs to harvest
+// ACTIVE durations, so the operator does not have to switch tabs to harvest
 // the per-TF metrics.
 //
 // ════════════════════════════════════════════════════════════════════════
@@ -437,7 +437,7 @@ function confidence(indicators: Record<string, IndicatorDto>, key: string): numb
  *     `indicators[]` list under the top-level `indicators` field).
  *   • `buildMtfExportJson` — per-TF indicator detail block, so the MTF
  *     export carries the full raw/signals/sub_values surface for each of
- *     the 10 timeframes without forcing the consumer to switch tabs.
+ *     the ACTIVE timeframes without forcing the consumer to switch tabs.
  *
  * The Fibonacci sub-values are *not* appended here — callers that want
  * them should call `extractFibSummary` and decide whether to merge the
@@ -1155,7 +1155,7 @@ interface MtfExportPayload {
     timeframes: MtfTimeframeEntry[];
     groups: MtfGroupEntry[];
     indicators: MtfIndicatorEntry[];
-    /** Sum of unique signal labels across all 10 TFs (matches the SIGNALS
+    /** Sum of unique signal labels across all ACTIVE durations (matches the SIGNALS
      *  badge in FacetTabs but lifted to the cross-TF scope). */
     signals_total: number;
 }
@@ -1281,7 +1281,7 @@ export function buildMtfExportJson(args: MtfExportArgs): string {
             indicator_count: groupCounts.get(k) ?? 0,
         }));
 
-    // Sum of unique signal labels across all 10 TFs × all indicators.
+    // Sum of unique signal labels across all ACTIVE durations × all indicators.
     const uniqueLabels = new Set<string>();
     for (const { tf } of slotDefs) {
         const inds = (tf.indicators ?? {}) as Record<string, IndicatorDto>;

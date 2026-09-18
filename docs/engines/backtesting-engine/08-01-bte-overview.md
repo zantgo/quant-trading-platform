@@ -33,7 +33,7 @@ choices as the live Launch Setup, with one extra choice (archive depth):
 | Step | Name | Choices |
 |------|------|---------|
 | 1 | Environment | Exchange (Hyperliquid / Bitget), settlement currency (USDC/USDT per exchange), starting capital |
-| 2 | Instances | One or more instances: ticker + ladder timeframes (chosen from the fixed 10-slot pool, archive-eligible values ≥ 60 s — the sub-minute slots are live-only) + **allocation %** (1–100, Σ ≤ 100 %, ≤ 100 instances) |
+| 2 | Instances | One or more instances: ticker + ladder timeframes (chosen from the 14-duration pool, archive-eligible values ≥ 60 s — the sub-minute slots are live-only) + **allocation %** (1–100, Σ ≤ 100 %, ≤ 100 instances) |
 | 3 | Historical Data | Archive depth 1–365 days (no date range pickers), per-TF readiness chips, burn-in note, per-exchange max-depth display |
 | 4 | Run | Progress bar (Fetching → Warming → Replaying → Analyzing) with % and **Cancel** |
 
@@ -43,11 +43,11 @@ Rules:
   an instance is selected, the launcher is preseeded from it (backward
   compatibility: `instance_id` on the run payload is still accepted).
 - **Bound ladder = the instance's ACTIVE ladder ∩ ≥ 60 s (v11.2).** A bound
-  run replays `active_secs` (the fastest `[workspace].active_timeframes`
+  run replays `active_secs` (the fastest `[workspace].timeframes`
   slots, see [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md))
   filtered to the 60-second archive floor. At the default count of 5 (all
   sub-minute) that set is **empty** and the run is rejected
-  `400 no_active_ladder` ("raise `[workspace].active_timeframes` past the
+  `400 no_active_ladder` ("raise `[workspace].timeframes` past the
   60 s slots to backtest"); raising the count past `1m` (N ≥ 6) makes the
   instance backtestable. A `timeframe_secs` outside the resolved set is
   rejected `400` naming the set. Standalone runs are unaffected (explicit
@@ -121,7 +121,7 @@ execution-daemon --backtest --exchange hl|bitget --symbols BTC,ETH \
     --tf 60,180,300,900,3600 --depth 180 --capital 1000 --allocation 10
 ```
 
-`--tf` accepts 1..=10 strictly-ascending values from the standard tiers, all
+`--tf` accepts 1..=14 strictly-ascending values from the standard tiers, all
 ≥ 60 s (the archive floor; the sub-minute fixed slots `1s`–`30s` are
 live-only and can never be backfilled). The default standalone ladder is
 `60,180,300,900,3600` (`1m`…`1h`).

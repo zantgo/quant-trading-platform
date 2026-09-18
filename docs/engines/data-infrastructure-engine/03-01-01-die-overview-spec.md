@@ -19,11 +19,11 @@ The DIE is the **sole ingress point** for external market data. It owns everythi
 
 | Term | Definition | Source |
 |------|------------|--------|
-| **Micro** | The family name for the fastest ladder slots (`1s` 1 s / `3s` 3 s). The base slot `1s` (1 s) is the fastest of the ten fixed ladder slots (v11.1 — the ladder is fixed, not configurable). | [01-04-timeframe-model.md §1](../../conceptual-foundations/01-04-timeframe-model.md) |
+| **Micro** | The family name for the fastest ladder slots (`1s` 1 s / `3s` 3 s). The base duration `1s` (1 s) is the fastest of the 14-duration pool (v11.9 — the pool is closed, the ACTIVE set is operator-chosen). | [01-04-timeframe-model.md §1](../../conceptual-foundations/01-04-timeframe-model.md) |
 | **Sub-minute** | The duration class for any slot shorter than 60s — the five live-only slots `1s` (1 s), `3s` (3 s), `5s` (5 s), `15s` (15 s), `30s` (30 s). | [08-04-candle-reconstruction.md](../../operations-and-compliance/08-04-candle-reconstruction.md) |
 | **<1m** | Shorthand for the sub-minute class. Identical meaning. | [08-04-candle-reconstruction.md](../../operations-and-compliance/08-04-candle-reconstruction.md) |
 
-The three terms refer to the same reconstruction ladder in different contexts: "micro" identifies the fastest slot family; "sub-minute" / "<1m" describes the duration class for triggering `ExponentialMovingAverage` or `LinearExtrapolation` reconstruction (see [08-04 §Two Strategies](../../operations-and-compliance/08-04-candle-reconstruction.md)). On the fixed 10-slot ladder (v11.1) the base slot `1s` is 1 s — always sub-minute — and the five sub-minute slots are live-only (never REST-backfilled); the five archive-eligible slots (`1m` 60 s … `1h` 3600 s) are ≥ 1 m and need no reconstruction-based synthesis. Only ACTIVE slots (v11.2 — the fastest `[workspace].active_timeframes` slots) have pipelines at all: candle reconstruction, pipelines, and bootstrap fetches exist exclusively for slots in the active set; inactive slots are inert (no task, no socket, no fetch).
+The three terms refer to the same reconstruction ladder in different contexts: "micro" identifies the fastest slot family; "sub-minute" / "<1m" describes the duration class for triggering `ExponentialMovingAverage` or `LinearExtrapolation` reconstruction (see [08-04 §Two Strategies](../../operations-and-compliance/08-04-candle-reconstruction.md)). On the 14-duration pool (v11.1) the base slot `1s` is 1 s — always sub-minute — and the five sub-minute slots are live-only (never REST-backfilled); the five archive-eligible slots (`1m` 60 s … `1h` 3600 s) are ≥ 1 m and need no reconstruction-based synthesis. Only ACTIVE slots (v11.2 — the ACTIVE durations (`[workspace].timeframes`)) have pipelines at all: candle reconstruction, pipelines, and bootstrap fetches exist exclusively for slots in the active set; inactive slots are inert (no task, no socket, no fetch).
 
 ### 1.1 Responsibilities
 
@@ -38,7 +38,7 @@ The three terms refer to the same reconstruction ladder in different contexts: "
 
 ### 1.3 Operational Acceptance Criteria
 
-The DIE meets these acceptance criteria when run with default configuration under nominal load (1 active symbol, the ACTIVE ladder — the fastest N of the fixed 10-slot pool, N = `[workspace].active_timeframes` default 5 (v11.2; N = 10 exercises the full pool) — 1 venue):
+The DIE meets these acceptance criteria when run with default configuration under nominal load (1 active symbol, the ACTIVE ladder — the fastest N of the 14-duration pool, the ACTIVE duration set `[workspace].timeframes` (v11.9; the full pool exercises all 14 durations) — 1 venue):
 
 | ID | Criterion | Verification |
 |----|-----------|--------------|

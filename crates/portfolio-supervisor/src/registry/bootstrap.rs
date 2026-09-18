@@ -451,7 +451,7 @@ pub(crate) async fn populate_buffers(
     // `latest_snapshot`). Ascending fastest → slowest.
     warm_snapshots: Vec<bool>,
 ) {
-    // All ten timeframes share the same per-pair derivatives state
+    // All ACTIVE durations share the same per-pair derivatives state
     // (latest_* locks and rolling history), so the first warmed slot in
     // ladder order carries the right restored values for them.
     if let Some(first) = warmed.iter().flatten().next() {

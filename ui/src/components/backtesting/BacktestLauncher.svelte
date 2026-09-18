@@ -250,7 +250,7 @@
             const symbol = symbolOf(inst.base);
             const tfs = BACKTEST_LADDER_SECS;
             // Coverage is per-symbol×TF; we require depth+burnIn on *every* TF.
-            // If any TF lacks coverage we backfill the whole fixed 10-slot
+            // If any TF lacks coverage we backfill the whole archive
             // ladder in a single standalone request.
             let needsBackfill = false;
             let coverageRes: Response | null = null;

@@ -92,7 +92,7 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
 
 ### 4.1 Layer ① — Setup Intake
 
-**Input:** the latest completed `MarketSnapshot` of every fixed-ladder slot per symbol (`1s`…`1h` — up to 10, one per slot; v11.1), each carrying the full MTF-synthesized decision matrix. Read from the instance's `TimeframeBuffers` every executor tick (1s).
+**Input:** the latest completed `MarketSnapshot` of every ACTIVE duration per symbol (`1s`…`1d`, one per duration; v11.9), each carrying the full MTF-synthesized decision matrix. Read from the instance's `TimeframeBuffers` every executor tick (1s).
 
 **Pure function:** `extract_top_setup(snapshots) -> Option<SetupPlan>`
 

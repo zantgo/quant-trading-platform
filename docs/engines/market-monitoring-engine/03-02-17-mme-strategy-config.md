@@ -313,7 +313,7 @@ the 52 registry keys, all `1.0`. `l1.signals.confidence_boost` is `{}` =
 detector defaults. `l2_5.oi_split.funding_anchor: null` = follow
 `l1_5.funding_extreme_pct` (the v9 F-01 fix).
 
-**v11.1 slot keys (fixed 10-slot ladder).** Every per-TF strategy key is now
+**v11.1 slot keys (14-duration pool).** Every per-TF strategy key is now
 indexed by the fixed slot names `1s`, `3s`, `5s`, `15s`, `30s`,
 `1m`, `3m`, `5m`, `15m`, `1h` (the legacy `micro` /
 `fast` / `slow` / `macro` keys are gone):

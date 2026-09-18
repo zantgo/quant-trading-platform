@@ -115,7 +115,7 @@ Both are wired in `SetupPlan::effective()`; `arm_bracket` arms at the floored/ca
 
 ### 4b. Ladder Roles (v11 — TF-role separation)
 
-One strategy, ten fixed slots (pool), four roles. When the fastest slot is sub-hour the roles diverge, otherwise they collapse to legacy (all = fastest slot). The configured extremes resolve over the ACTIVE snapshots — the fastest `[workspace].active_timeframes` slots (v11.2): with the default N = 5, decision/stop fall back from `1h` to the slowest ACTIVE slot (`30s`); at N = 1 all roles collapse onto `1s`. See [03-03-08 §2](03-03-08-tae-ladder-roles.md).
+One strategy, duration pool, four roles. When the fastest slot is sub-hour the roles diverge, otherwise they collapse to legacy (all = fastest slot). The configured extremes resolve over the ACTIVE snapshots — the ACTIVE durations (`[workspace].timeframes`, v11.9): with the default N = 5, decision/stop fall back from `1h` to the slowest ACTIVE slot (`30s`); at N = 1 all roles collapse onto `1s`. See [03-03-08 §2](03-03-08-tae-ladder-roles.md).
 
 | Role | Default (`1s < 1h` — always true on the fixed ladder) | Feeds |
 |------|------------------------|-------|

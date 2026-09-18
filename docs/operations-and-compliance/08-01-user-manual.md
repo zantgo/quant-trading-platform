@@ -122,7 +122,7 @@ The single source of configuration truth is `config.toml` at the workspace root.
 - `symbols` — list of `Exchange:Symbol` instruments to ingest
 - `[workspace.minimal_tae]` — automation risk tuning (see [TAE Overview §9](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md))
 
-For the fixed 10-slot timeframe ladder and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
+For the 14-duration timeframe pool and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
 
 The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.toml` **explicitly**; the API is the only path that mutates `config.toml` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.toml` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3](../integration-and-api/06-02-database-schema-spec.md).
 
@@ -144,7 +144,7 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
    credentials inline (Hyperliquid: wallet address + private key; Bitget: API key + secret +
    passphrase) and stores them encrypted via `POST /api/keys`.
 3. **Instances** — add one or more symbols. There are no timeframe pickers (v11.1): every
-   instance runs the **fixed 10-slot ladder** (`1s` 1 s … `1h` 3600 s) displayed
+   instance runs the **ACTIVE duration set** (`1s` 1 s … `1d` 86400 s) displayed
    as read-only chips, or skip and add them later from the
    workspace panel.
 4. **Review** — a summary table (mode, exchange, currency, capital/credential status,

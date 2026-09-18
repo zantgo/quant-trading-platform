@@ -32,13 +32,13 @@ The interactive launch mirrors the GUI Launch Setup wizard (observe-only for now
 2. Settlement currency  forced (HL=USDC, Bitget=USDT)
 3. Instances            base symbol only, repeated until blank
                         ← pre-seeded from workspace.instances[] (keep with Enter);
-                          the FIXED 10-slot ladder is printed, no TF prompts (v11.1)
+                          the ACTIVE duration set is printed, no TF prompts (v11.1)
 4. TAE activation       "Activate TAE (trade automation)? y/N" (default OFF; --tae-on)
 5. Summary + confirm    → session init (observe) → instances just run
 ```
 
 Every prompt is *non-blocking* — pressing Enter accepts the bracketed default. There are no
-timeframe inputs (v11.1): the ladder is the fixed 10-slot register and is displayed, not asked.
+timeframe inputs (v11.1): the ladder is the 14-duration register and is displayed, not asked.
 
 ### 2.1 What happens after confirm
 
@@ -47,7 +47,7 @@ timeframe inputs (v11.1): the ladder is the fixed 10-slot register and is displa
    the web handler `POST /api/session/init`. No orders are ever dispatched.
 2. The launch plan is written into the workspace config (mode
    `observe`, operational mode `advisory`; per-instance TF durations are NOT written — the
-   fixed 10-slot ladder is registry-driven) so `registry::add_instance` resolves the exact
+   14-duration pool is registry-driven) so `registry::add_instance` resolves the exact
    pipeline slots.
 3. Each instance is spawned through the registry with the boot retry policy (20 attempts ×
    30 s backoff). Instances persist into `config.toml` via the registry's normal
@@ -60,10 +60,7 @@ touching `config.toml`).
 
 ### 2.2 Default timeframe ladder
 
-There is no default-ladder choice anymore (v11.1): every instance runs the **fixed 10-slot
-ladder** — the ACTIVE set comes from `[workspace].timeframes` (`config_models::SUPPORTED_DURATIONS` is the pool)
-(`1s` 1 s, `3s` 3 s, `5s` 5 s, `15s` 15 s, `30s` 30 s, `1m` 60 s,
-`3m` 180 s, `5m` 300 s, `15m` 900 s, `1h` 3600 s). The GUI Launch
+There is no default-ladder choice: every instance runs the **ACTIVE duration set** from `[workspace].timeframes` (the closed 14-duration pool is `config_models::SUPPORTED_DURATIONS` — `1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `4h`, `12h`, `1d`). The GUI Launch
 Setup wizard reads the same values from `GET /api/config` and **displays** the ladder —
 neither surface offers TF pickers or per-TF dropdowns anymore, so every surface agrees on
 the pipeline slots by construction.

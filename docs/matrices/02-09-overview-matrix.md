@@ -20,7 +20,7 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.17, **Market
         + [Alignment Matrix per symbol]    (v6.10.3+ — cross-TF aggregate)
 ```
 
-L7 aggregates **all ACTIVE timeframe windows** per symbol (the fastest `[workspace].active_timeframes` slots of the `1s`…`1h` pool, v11.2 — see the I-2 note below); per-window advisories feed the breadth/bias/opportunity/regime tallies, per-symbol scalars are the mean over the windows, and categorical per-asset fields are the mode (ties resolve to the fastest window). The Alignment Matrix inputs (v6.10.3+) are likewise sourced from each instance's `MarketSnapshot.alignment` and aggregated across all symbols (see §3.5 below). The legacy slow-tier-300s-only basis is retired.
+L7 aggregates **all ACTIVE timeframe windows** per symbol (the ACTIVE durations (`[workspace].timeframes`, any subset of the `1s`…`1d` pool, v11.9) — see the I-2 note below); per-window advisories feed the breadth/bias/opportunity/regime tallies, per-symbol scalars are the mean over the windows, and categorical per-asset fields are the mode (ties resolve to the fastest window). The Alignment Matrix inputs (v6.10.3+) are likewise sourced from each instance's `MarketSnapshot.alignment` and aggregated across all symbols (see §3.5 below). The legacy slow-tier-300s-only basis is retired.
 
 Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced by `compute_overview()`.
 
@@ -51,7 +51,7 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `instance_count` | `u32` | Active monitoring instances. |
 | `active_symbols` | `string[]` | Sorted list of active symbols. |
 
-**Invariant (code truth).** `instance_count` counts active `InstanceMeta` records (`is_active`), while `active_symbols` is the sorted union of symbols from active instances **and** all advisory windows (v6.10.18 I-2, v11.1: each symbol contributes 0–10 TF-window advisories — one per ladder slot; v11.2: one per ACTIVE slot, so the bound is `active_timeframes`). In the current single-instance-per-symbol deployment the two coincide (`instance_count == active_symbols.length`), but the code does not enforce equality — `global_summary` phrases it as "N active instances across M symbols". Multi-instance mode (multiple `MarketSnapshot` per symbol) is not currently supported.
+**Invariant (code truth).** `instance_count` counts active `InstanceMeta` records (`is_active`), while `active_symbols` is the sorted union of symbols from active instances **and** all advisory windows (v6.10.18 I-2, v11.1: each symbol contributes 0–14 TF-window advisories — one per pool duration; v11.9: one per ACTIVE duration, so the bound is the ACTIVE count). In the current single-instance-per-symbol deployment the two coincide (`instance_count == active_symbols.length`), but the code does not enforce equality — `global_summary` phrases it as "N active instances across M symbols". Multi-instance mode (multiple `MarketSnapshot` per symbol) is not currently supported.
 
 ### 2.2 AssetRank
 
@@ -98,8 +98,8 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 > `risk_environment` / health keep the plain TF-mean (screen-to-panel
 > parity).
 
-> **L7 aggregation basis (v6.10.18 I-2; v11.1 fixed ladder).** The Overview aggregates ALL TEN
-> fixed-ladder timeframe windows per symbol (`1s`…`1h`; the earlier
+> **L7 aggregation basis (v6.10.18 I-2; v11.9 duration pool).** The Overview aggregates ALL ACTIVE
+> ACTIVE duration windows per symbol (`1s`…`1d`; the earlier
 > 300s-slow-only
 > basis made the headline contradict every panel — e.g. HIGH_RISK next to
 > an avg-risk of 41). Per-window advisories feed the breadth/bias/

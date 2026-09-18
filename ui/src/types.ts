@@ -1067,22 +1067,6 @@ export interface TimeframeOption {
     seconds: number;
 }
 
-export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
-    { label: '1 sec', seconds: 1 },
-    { label: '3 sec', seconds: 3 },
-    { label: '5 sec', seconds: 5 },
-    { label: '15 sec', seconds: 15 },
-    { label: '30 sec', seconds: 30 },
-    { label: '1 min', seconds: 60 },
-    { label: '3 min', seconds: 180 },
-    { label: '5 min', seconds: 300 },
-    { label: '15 min', seconds: 900 },
-    { label: '30 min', seconds: 1800 },
-    { label: '1 hrs', seconds: 3600 },
-    { label: '4 hrs', seconds: 14400 },
-    { label: '12 hrs', seconds: 43200 },
-    { label: '1 day', seconds: 86400 },
-];
 
 // ================================================================
 // Phase 1-3: Liquidity Intelligence types

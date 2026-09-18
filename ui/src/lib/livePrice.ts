@@ -4,7 +4,7 @@
 // the regression suite (ui/src/tests/snapshot.transform.test.ts) can
 // both exercise the exact same code path.
 //
-// 1. **Stage 1 — Freshest of all ten slots:** walk every slot's
+// 1. **Stage 1 — Freshest of all ACTIVE durations:** walk every duration's
 //    `priceText` and `latestSnapshot.timestamp`, returning the value from
 //    the slot whose `timestamp` is most recent AND within 30 seconds of
 //    `now`. This keeps the header honest even when one slot is mid-
