@@ -148,6 +148,14 @@ async fn test_config_endpoint_returns_ok() {
     assert!(json.get("macro_timeframe").is_none());
     assert!(json.get("active_timeframes").is_none());
     assert!(json.get("active_slots").is_none());
+    // v11.11: the per-duration indicator profiles ride the payload — 14
+    // rows, and they DIFFER per duration (T0 scalping vs T10 macro).
+    let profiles = json["duration_profiles"].as_object().expect("duration_profiles");
+    assert_eq!(profiles.len(), 14, "one profile row per supported duration");
+    let rsi = |k: &str| profiles[k]["rsi_period"].as_u64().unwrap();
+    assert_ne!(rsi("1"), rsi("3600"), "1s and 1h rows must differ");
+    assert_eq!(rsi("1"), 7, "T0 scalping row: RSI 7");
+    assert_eq!(rsi("3600"), 14, "T10 macro row: RSI 14");
 }
 
 #[tokio::test]

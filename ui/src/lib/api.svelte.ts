@@ -76,6 +76,10 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     }
 
     if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number };
+    // v11.11: per-duration indicator profiles (the registry's real rows).
+    if (config.duration_profiles && typeof config.duration_profiles === 'object') {
+        app.settings.durationProfiles = config.duration_profiles as Record<number, Record<string, number>>;
+    }
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
     if (config.indicator_registry) app.indicatorRegistry = config.indicator_registry as import('../types').IndicatorMeta[];
 

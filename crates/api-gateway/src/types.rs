@@ -141,6 +141,13 @@ pub struct ConfigResponse {
     /// reads its duration toggles from.
     #[serde(default)]
     pub timeframes: Vec<u64>,
+    /// v11.11: the per-duration indicator profile the registry actually
+    /// runs (`duration_profile::overlay(workspace_indicators, secs)` for
+    /// every supported duration). The UI settings surface seeds each
+    /// duration's editor from the matching row so the operator edits the
+    /// REAL defaults, not one static set.
+    #[serde(default)]
+    pub duration_profiles: std::collections::BTreeMap<u64, config_models::IndicatorsConfig>,
     /// v7.3: workspace liquidity config (retentions, feed toggles) —
     /// surfaced so DIE Settings can render the true retention values and
     /// the PME can derive data-retention facts from one source.
