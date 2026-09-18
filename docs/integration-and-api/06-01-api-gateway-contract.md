@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 

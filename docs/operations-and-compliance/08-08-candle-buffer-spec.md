@@ -1,6 +1,6 @@
 # Candle Buffer Specification
 
-**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** network-adapters + portfolio-supervisor + market-analyzer

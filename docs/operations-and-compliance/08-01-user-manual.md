@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -138,17 +138,21 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 1. **Mode** — three cards: **Observe** (monitor markets/signals, no orders, safest),
    **Simulate** (paper trading with a starting capital), **Execute** (live trading with real
    credentials).
-2. **Environment** — the **exchange** (Hyperliquid or Bitget) and the **settlement currency**
-   (Hyperliquid = USDC only, Bitget = USDT only). Simulate mode adds the **Starting Capital
-   (USD)** field (prefilled from the previous session). Execute mode collects the exchange
-   credentials inline (Hyperliquid: wallet address + private key; Bitget: API key + secret +
-   passphrase) and stores them encrypted via `POST /api/keys`.
+2. **Environment** — the **exchange** (Bitget or Hyperliquid; v11.11 defaults to **Bitget**)
+   and the **settlement currency** (Bitget = USDT only, Hyperliquid = USDC only; the default
+   follows the exchange). Simulate mode adds the **Starting Capital (USD)** field (prefilled
+   from the previous session). Execute mode collects the exchange credentials inline
+   (Hyperliquid: wallet address + private key; Bitget: API key + secret + passphrase) and
+   stores them encrypted via `POST /api/keys`.
 3. **Instances** — add one or more symbols. There are no timeframe pickers (v11.1): every
    instance runs the **ACTIVE duration set** (`1s` 1 s … `1d` 86400 s) displayed
    as read-only chips, or skip and add them later from the
    workspace panel.
 4. **Review** — a summary table (mode, exchange, currency, capital/credential status,
-   instance list) → **Launch** lands you directly in the first instance's workspace.
+   instance list) → **Launch**. v11.11: when instances are staged, the welcome screen shows a
+   **loading step** (per-instance `waiting → ready ✓`) and lets you in only once every staged
+   pair has its first snapshot (60 s cap → continue-with-note); launching without instances
+   lands directly on the Market Monitor **Overview**.
 
 Observe mode requires no capital and no credentials. The execution mode is chosen **once at launch** (wizard step 1) and fixed for the instance's lifetime — there is no runtime mode toggle. Observe instances run the setup executor in **ghost mode**: the Automation dashboard shows what the executor *would* do (tracked setup, sizing, projection) but no order is ever dispatched. To change mode, edit `mode` in `config.toml` and restart.
 

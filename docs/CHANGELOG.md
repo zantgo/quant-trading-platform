@@ -4,6 +4,22 @@
 
 ------
 
+## v11.11 (2026-09-18) — UI/UX Hardening: Settings Surface, TF Editor, Overview & Welcome Polish
+
+**The Market Monitor surfaces are consolidated and made self-explanatory: General Settings is one stacked page (no section switch), the Workspace Timeframes editor is a single two-pane rail+pane (toggle + edit the selected duration), the Alignment Timeframe Status table is its own always-expanded section, the Overview header is one row of six uniform pills, per-duration indicator editors seed from the REAL backend profile, and the Welcome screen defaults to Bitget/USDT and holds a loading step until the staged instances produce their first snapshots.**
+
+- **Welcome screen**: the mode card loses its stray step number and is restyled (glowing cyan radio dot, larger title); Environment defaults to **Bitget + USDT**; launching with staged instances now shows **"Preparing your workspace…"** with per-instance `waiting → ready ✓` rows and only enters the system once every staged pair has a first snapshot (60 s cap → continue-with-note); no staged instances → immediate landing (unchanged).
+- **Settings surface**: `GeneralSettings` is ONE **General Settings** page — Fees & Leverage → Cost Projection → Share Config (+ Exchange in live mode) stacked as sibling cards; the Fees & Leverage / Share Config switch and per-section routing are erased; the Workspace Settings header loses the `pair · exchange` chip.
+- **Timeframes editor**: the separate toggle-grid and duration-rail cards are merged into one two-pane editor — left rail rows carry the activation switch, label, ACTIVE tag and target selection; the right pane shows the selected duration's grouped parameters (Trend & Volatility / Momentum & Flow / Volume, Cycle & Dispersion) with short descriptions, a filter box, the Instance Memory chip and an `Active: N / 14` footer.
+- **Per-duration defaults**: `GET /api/config` carries `duration_profiles` — the exact 14 `duration_profile` rows the registry runs; the editors seed each duration's draft from its row (the old static placeholder set made every duration look identical).
+- **Alignment tab**: the Timeframe Status table is its own titled, ALWAYS-expanded section, moved below Metrics and above Score.
+- **Overview**: `Instances / Sys Risk / Sync` join the scan pills as six uniform rounded pills; the instance decision badge is larger than the per-timeframe badges (clear general-vs-duration hierarchy).
+- **MTF header**: the MTF SYNC verdict gets a badge history trail like every other layer.
+- **Consistency**: standalone backtest/CLI ladder caps raised 1..=10 → 1..=14; ~80 stale references to the erased 10-slot world swept from code, docs and tests; `TIMEFRAME_OPTIONS` removed.
+- **Docs sweep**: 07-01/07-02/07-05, 08-01, 02-01/02-09, 03-02-* and the manifest updated; corpus re-stamped to 11.11.
+
+------
+
 ## v11.10 (2026-09-17) — Per-Duration L2.5 Liquidity Tuning
 
 **The liquidity extension (L2.5) stops treating every timeframe identically: the estimator geometry, the cluster-refresh cadence, and the OI-delta window are now resolved PER DURATION via `config_models::liquidity_profile` (tier provenance mirrors `duration_profile` — scalping durations run finer bins, tighter magnet distances, faster bound decay and shorter OI windows). The `oi_delta_1h` wire field is renamed `oi_delta_pct` and the snapshot surfaces `oi_delta_window_secs`.**

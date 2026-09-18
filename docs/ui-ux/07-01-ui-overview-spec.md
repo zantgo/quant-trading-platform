@@ -1,6 +1,6 @@
 # UI Overview Specification
 
-**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the Svelte 5 frontend architecture — state management, rune patterns, WebSocket consumption, store layer, inline shell architecture, hash-based URL routing, chart overlay models, CSS architecture, and performance targets. Companion to the [UI Dashboard Layout](07-02-ui-dashboard-layout.md).
 

@@ -1,6 +1,6 @@
 # Trade Automation Engine — Overview Specification (v7)
 
-**Version:** 11.10 (2026-09-17) — the v7 redesign replaces the policy-driven TAE with a **setup executor** that consumes MME top setups directly.
+**Version:** 11.11 (2026-09-18) — the v7 redesign replaces the policy-driven TAE with a **setup executor** that consumes MME top setups directly.
 **Status:** Specified — v7 implementation in progress.
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the boundaries, architecture, trade lifecycle, invalidation semantics, and execution model of the v7 Trade Automation Engine — the engine that **executes what the Market Monitoring Engine recommends** through a single unified execution engine whose only mode-dependent part is the final broker dispatch.

@@ -7,7 +7,7 @@
      PascalCase — they document the screen-facing *display* fields, not
      wire enums. Exempted from the G6 enum-casing lint via the marker. -->
 
-**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors **1:1 the data the panel renders** — the same numbers, the same prices, the same dynamic strings, the same words; only the presentation changes (the screen formats `63390` as `$63390`, the JSON carries the raw value). Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 
@@ -89,6 +89,7 @@ and by the panels' builder wiring:
 | `meta.current_price` | `pickInstanceLivePrice(activeInstance terms)` — the freshest live price within 30 s, else last known good | **Live tick value.** Two exports clicked at the same instant carry the same price; sequential exports naturally drift as the market moves — that is expected and is not an inconsistency. |
 | `meta.prev_day_price` / `price_change` / `price_change_direction` | `pickLatestCompletedSnapshot(terms)` — the newest **completed-candle** snapshot (shadow/live-tick frames drop `prev_day_px`) | Consistent across tabs: one canonical completed snapshot feeds all seven. |
 | `meta.timestamp` | The snapshot's Unix-seconds timestamp (`null` for MTF — no single TF) | Single-TF exports carry their active TF's snapshot ts; the L3–L6 tabs carry the newest snapshot's ts. |
+| `duration_profiles` | v11.11: `GET /api/config` carries the 14 per-duration indicator profiles the registry runs (`{ "<secs>": IndicatorsConfig }`, `duration_profile::overlay(workspace, secs)`) — the settings editors seed each duration's draft from its row. |
 | `meta.timeframe_secs` | `0` for MTF (multi-TF sentinel); the active TF's `barDurationSec` otherwise | MTF also emits `meta.timeframes` — the **ACTIVE** duration display labels in canonical order (v11.9: any subset of the 14-duration pool, `[workspace].timeframes` — default fastest eight → `["1s","3s","5s","15s","30s","1m","3m","5m"]`, derived via `tfLabel`; renamed from the historical `timesframes` typo, 2026-08-17). |
 | `meta.datetime_utc` | `now` at click time | Each export is a fresh click-epoch; timestamps legitimately differ across sequential clicks. |
 | `meta.is_completed` | The snapshot's `is_completed` flag | Consistent per snapshot. |
