@@ -872,7 +872,6 @@ impl TimeframeConfig {
 impl Default for TimeframeConfig {
     /// Placeholder bound to the fastest duration (1s). Used by serde when a
     /// per-duration block omits fields that serde must default."""
-
     fn default() -> Self {
         Self::new(1, IndicatorsConfig::default())
     }

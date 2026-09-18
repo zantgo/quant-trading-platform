@@ -1,6 +1,6 @@
 <script lang="ts">
     import { useAppStore } from './state.svelte';
-    import { createInstance } from './lib/api.svelte';
+    import { createInstance, deleteInstanceById } from './lib/api.svelte';
     import { tfLabel } from './types';
     import { activeDurations } from './lib/terms';
     import styles from './LaunchSetup.module.css';
@@ -18,6 +18,8 @@
         recoveryError = null;
         try {
             await app.session.recoverInterrupted();
+            // The session is live — hand control back to the app shell.
+            app.wizardActive = false;
         } catch (e) {
             recoveryError = e instanceof Error ? e.message : String(e);
         } finally {
@@ -41,7 +43,18 @@
 
     interface DraftInstance {
         base: string;
+        /// v11.11: ADD-TIME creation — the instance is created (symbol
+        /// validated + pipelines spawned) the moment the operator adds the
+        /// symbol; the chip tracks its progress.
+        status: 'creating' | 'waiting' | 'ready' | 'timeout' | 'failed';
+        error?: string;
+        instanceId?: string;
     }
+
+    // The wizard must never unmount mid-flow: the session activates at the
+    // ENVIRONMENT→INSTANCES transition (below), which would otherwise tear
+    // this component down while instances are still being created.
+    app.wizardActive = true;
 
     // v11.2: the ladder is the ACTIVE one — the fastest N slots of the
     // 14-duration pool (`[workspace].timeframes`, editable in
@@ -99,6 +112,9 @@
     let newBase = $state('');
     let error = $state<string | null>(null);
     let loading = $state(false);
+    /// v11.11: the session was initialized at the ENVIRONMENT→INSTANCES
+    /// transition (instance creation requires an active session).
+    let staged = $state(false);
 
     // Perpetual-futures settlement rules per exchange:
     //  - Hyperliquid settles exclusively in USDC.
@@ -119,13 +135,54 @@
 
     const stepTitles = ['Mode', 'Environment', 'Instances', 'Review'];
 
-    function goNext() {
+    // v11.11: CONTINUE from the Instances step is gated on every staged
+    // chip having finished loading (failed chips block until removed; a
+    // timed-out chip passes with a "still warming" note). Zero staged
+    // instances keeps the skip affordance.
+    const stagedReady = $derived(
+        instances.length === 0
+            || instances.every((i) => i.status === 'ready' || i.status === 'timeout'),
+    );
+
+    async function goNext() {
         error = null;
+        if (step === 2 && !staged) {
+            // The session activates HERE so instances can be created at
+            // ADD time (the backend rejects creation without a session).
+            loading = true;
+            const init = await app.initSession(
+                currency,
+                exchange,
+                mode,
+                mode === 'paper' ? Number(capital) : undefined,
+            );
+            loading = false;
+            if (!init.success) {
+                error = init.error || 'Failed to initialize session.';
+                return;
+            }
+            staged = true;
+            app.bumpWsVersion();
+        }
         if (step < 4) step += 1;
     }
 
-    function goBack() {
+    async function goBack() {
         error = null;
+        if (step === 3 && instances.length > 0) {
+            // Staged instances pin the session's environment — changing
+            // exchange/currency requires discarding them first.
+            const proceed = window.confirm(
+                `Going back discards the ${instances.length} staged instance${instances.length === 1 ? '' : 's'} (the environment can only change on an empty staging list). Continue?`,
+            );
+            if (!proceed) return;
+            for (const draft of instances) {
+                if (draft.instanceId) await deleteInstanceById(draft.instanceId);
+                app.removeInstance(app.pairKeyFor(draft.base));
+            }
+            instances = [];
+            staged = false;
+        }
         if (step > 1) step -= 1;
     }
 
@@ -134,7 +191,7 @@
         error = null;
     }
 
-    function addInstance() {
+    async function addInstance() {
         const base = newBase.trim().toUpperCase();
         if (!/^[A-Z0-9]{2,10}$/.test(base)) {
             error = 'Invalid ticker. Must be 2-10 alphanumeric characters.';
@@ -144,13 +201,54 @@
             error = `${base} is already in the instance list.`;
             return;
         }
-        instances = [...instances, { base }];
         newBase = '';
         error = null;
+        const draft: DraftInstance = { base, status: 'creating' };
+        instances = [...instances, draft];
+        // Created — and symbol-validated — IMMEDIATELY. The backend rejects
+        // symbols that don't exist on the venue and spawns the full
+        // pipeline set inside this call.
+        const created = await createInstance(base, app.quote);
+        if (!created.ok) {
+            instances = instances.map((i) =>
+                i.base === base ? { ...i, status: 'failed', error: created.error || `Failed to add ${base}.` } : i,
+            );
+            return;
+        }
+        app.initInstance(base, exchange, created.instanceId);
+        instances = instances.map((i) =>
+            i.base === base ? { ...i, status: 'waiting', instanceId: created.instanceId } : i,
+        );
+        // Warm gate: the chip completes when the pair's first snapshot
+        // lands (60 s cap — then it passes with a "still warming" note).
+        const key = app.pairKeyFor(base);
+        const deadline = Date.now() + 60_000;
+        while (Date.now() < deadline) {
+            const pair = app.instancesMap[key];
+            const ready = !!pair
+                && activeDurations(pair).some(
+                    (secs) => pair.terms[secs]?.latestSnapshot != null,
+                );
+            if (ready) {
+                instances = instances.map((i) => (i.base === base ? { ...i, status: 'ready' } : i));
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        instances = instances.map((i) =>
+            i.base === base
+                ? { ...i, status: 'timeout', error: 'Still warming — the first snapshot has not arrived yet.' }
+                : i,
+        );
     }
 
-    function removeInstance(index: number) {
+    async function removeInstance(index: number) {
+        const draft = instances[index];
         instances = instances.filter((_, i) => i !== index);
+        if (draft?.instanceId) {
+            await deleteInstanceById(draft.instanceId);
+            app.removeInstance(app.pairKeyFor(draft.base));
+        }
     }
 
 
@@ -197,6 +295,7 @@
     }
 
     function landOnOverview(): void {
+        app.wizardActive = false;
         app.currentEngine = 'market_monitor';
         app.middleTab = 'overview';
         app.activeEngineTab = 'overview';
@@ -235,31 +334,11 @@
                 }
             }
 
-            // 2. Initialize the session (mode becomes the default for created instances).
-            const init = await app.initSession(
-                currency,
-                exchange,
-                mode,
-                mode === 'paper' ? Number(capital) : undefined,
-            );
-            if (!init.success) {
-                throw new Error(init.error || 'Failed to initialize session.');
-            }
-
-            // 3. Create each staged instance (the 14-duration pool is
-            // applied server-side; no per-slot TF payload is sent).
-            for (const draft of instances) {
-                const created = await createInstance(draft.base, app.quote);
-                if (!created.ok) {
-                    throw new Error(created.error || `Failed to add ${draft.base}.`);
-                }
-                app.initInstance(draft.base, exchange, created.instanceId);
-            }
-
-            // 4. v11.11: with staged instances, hold on the welcome screen
-            // while they warm — every pair must produce a first snapshot
-            // (60 s cap, then the operator can continue). No instances →
-            // land immediately on the Market Monitor Overview.
+            // 2. v11.11: the session was already initialized at the
+            // ENVIRONMENT→INSTANCES transition, and every staged instance
+            // was created (and symbol-validated) at ADD time — the
+            // overview is already alive. This is a short readiness
+            // confirm before landing.
             const stagedKeys = instances.map((draft) => app.pairKeyFor(draft.base));
             if (stagedKeys.length > 0) {
                 loadingSteps = stagedKeys.map((key) => ({
@@ -474,6 +553,17 @@
                         <div class={styles.instanceRow}>
                             <span class={styles.instancePair}>{inst.base} <span class={styles.instanceQuote}>{app.quote}</span></span>
                             <span class={styles.instanceTfs}>{ACTIVE_LADDER_TEXT}</span>
+                            {#if inst.status === 'creating'}
+                                <span class={styles.instanceStatus} title="Creating the instance and warming its pipelines…">creating…</span>
+                            {:else if inst.status === 'waiting'}
+                                <span class={styles.instanceStatus} title="Waiting for the first live snapshot">waiting for first snapshot…</span>
+                            {:else if inst.status === 'ready'}
+                                <span class="{styles.instanceStatus} {styles.instanceStatusReady}">ready ✓</span>
+                            {:else if inst.status === 'timeout'}
+                                <span class={styles.instanceStatus} title={inst.error}>still warming</span>
+                            {:else}
+                                <span class="{styles.instanceStatus} {styles.instanceStatusFailed}" title={inst.error}>✕ unavailable</span>
+                            {/if}
                             <button class={styles.removeBtn} aria-label={`Remove ${inst.base}`}
                                 onclick={() => removeInstance(i)}>✕</button>
                         </div>
@@ -542,7 +632,12 @@
                 <span></span>
             {/if}
             {#if step < 4}
-                <button class={styles.primaryButton} onclick={goNext} disabled={loading}>
+                <button
+                    class={styles.primaryButton}
+                    onclick={goNext}
+                    disabled={loading || (step === 3 && !stagedReady)}
+                    title={step === 3 && !stagedReady ? 'Instances are still loading…' : undefined}
+                >
                     Continue
                 </button>
             {:else}

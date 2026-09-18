@@ -19,6 +19,8 @@ import { vi } from 'vitest';
 import LaunchSetup from './LaunchSetup.svelte';
 import { useAppStore } from './state.svelte';
 
+const originalFetch = globalThis.fetch;
+
 beforeEach(() => {
     const app = useAppStore();
     // The wizard renders the session quote; pin the real singleton to the
@@ -30,9 +32,34 @@ beforeEach(() => {
     app.session.sessionInterrupted = false;
     app.session.interruptedSession = null;
     for (const key of Object.keys(app.instancesMap)) delete app.instancesMap[key];
+    // v11.11: the ENVIRONMENT→INSTANCES transition initializes the session
+    // and "+ Add" creates the instance immediately — every test needs a
+    // permissive default backend (individual describes re-stub).
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        if (String(url).includes('/api/session/init')) {
+            return new Response(JSON.stringify({ success: true }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            });
+        }
+        if (String(url).includes('/api/instances')) {
+            return new Response(JSON.stringify({ id: 'inst_default' }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            });
+        }
+        return new Response('{}', {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        });
+    }) as unknown as typeof fetch);
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    (globalThis as any).fetch = originalFetch;
+});
 
 /** Read the text of every radio button label so we can check availability. */
 function availableCurrencies(container: HTMLElement): string[] {
@@ -59,26 +86,43 @@ async function goToEnvironment(container: HTMLElement) {
     await fireEvent.click(screen.getByText('Continue'));
 }
 
+/** v11.11: the ENVIRONMENT→INSTANCES transition initializes the session
+ * (async) before the step flips — wait for the Instances step UI. */
 async function goToInstances(container: HTMLElement) {
     await goToEnvironment(container);
     await fireEvent.click(screen.getByText('Continue'));
+    await waitFor(() => expect(container.textContent).toContain('Add instance'));
 }
 
 /** Advance from the Instances step (3) to Review (4). */
-async function goToReviewFromInstances() {
+async function goToReviewFromInstances(container: HTMLElement) {
     await fireEvent.click(screen.getByText('Continue'));
+    await waitFor(() => expect(container.textContent).toContain('Review'));
 }
 
-/** Advance from the Environment step (2) to Review (4). */
-async function goToReviewFromEnvironment() {
-    await fireEvent.click(screen.getByText('Continue'));
-    await goToReviewFromInstances();
-}
-
-/** Full path from the Mode step straight to Review. */
+/** Full path from the Mode step straight to Review (no staged instances —
+ * CONTINUE is never gated on an empty staging list). */
 async function goToReview(container: HTMLElement) {
     await goToInstances(container);
-    await goToReviewFromInstances();
+    await goToReviewFromInstances(container);
+}
+
+/** v11.11: staged chips load at ADD time — park a first snapshot on every
+ * staged pair (retrying: the map entry appears once the create POST
+ * resolves) so the readiness poll flips them `ready` and CONTINUE
+ * unlocks. */
+async function completeStagedWarmup() {
+    const app = useAppStore();
+    await waitFor(
+        () => {
+            for (const pair of Object.values(app.instancesMap)) {
+                if (pair.terms[1]) pair.terms[1].latestSnapshot = {} as never;
+            }
+            const btn = screen.getByText('Continue') as HTMLButtonElement;
+            expect(btn.disabled).toBe(false);
+        },
+        { timeout: 3000 },
+    );
 }
 
 describe('Launch Setup — mode selection', () => {
@@ -164,9 +208,14 @@ describe('Launch Setup — instances step', () => {
         await fireEvent.click(screen.getByText('+ Add'));
 
         // Normalized to uppercase and shown with the quote + the ACTIVE
-        // ladder label.
-        expect(container.textContent).toContain('BTC');
+        // ladder label. v11.11: the chip loads at ADD time — the instance
+        // POST fires immediately (status pill visible).
+        await waitFor(() => expect(container.textContent).toContain('BTC'));
         expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
+        const addCalls = (globalThis.fetch as any).mock.calls.filter(
+            ([u]: any[]) => String(u) === '/api/instances',
+        );
+        expect(addCalls.length).toBe(1);
 
         // Duplicate rejection.
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
@@ -178,9 +227,13 @@ describe('Launch Setup — instances step', () => {
         await fireEvent.click(screen.getByText('+ Add'));
         expect(container.textContent).toContain('Invalid ticker');
 
-        // Remove.
+        // Remove (also DELETEs the created instance).
         await fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Remove BTC"]')!);
-        expect(container.textContent).toContain('No instances configured yet.');
+        await waitFor(() => expect(container.textContent).toContain('No instances configured yet.'));
+        const deleteCalls = (globalThis.fetch as any).mock.calls.filter(
+            ([u, o]: any[]) => String(u).includes('/api/instances/') && o?.method === 'DELETE',
+        );
+        expect(deleteCalls.length).toBe(1);
     });
 
     it('review step lists the staged instances', async () => {
@@ -190,10 +243,52 @@ describe('Launch Setup — instances step', () => {
         await fireEvent.input(baseInput!, { target: { value: 'ETH' } });
         await fireEvent.click(screen.getByText('+ Add'));
 
-        await goToReviewFromInstances();
+        await completeStagedWarmup();
+        await goToReviewFromInstances(container);
         expect(container.textContent).toContain('Review');
         expect(container.textContent).toContain('1 configured');
-        expect(container.textContent).toContain('ETH-USDC');
+        expect(container.textContent).toContain('ETH-USDT');
+    });
+
+    it('CONTINUE stays locked while a staged instance is still loading', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container);
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        await waitFor(() => expect(container.textContent).toContain('waiting for first snapshot'));
+        const continueBtn = screen.getByText('Continue') as HTMLButtonElement;
+        expect(continueBtn.disabled).toBe(true);
+        // First snapshot arrives → chip ready → CONTINUE unlocks.
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].terms[1].latestSnapshot = {} as never;
+        await waitFor(() => expect(continueBtn.disabled).toBe(false), { timeout: 3000 });
+    });
+
+    it('a symbol the exchange rejects blocks CONTINUE until removed', async () => {
+        // Re-stub: the instance POST fails like a nonexistent symbol would.
+        vi.stubGlobal('fetch', vi.fn(async (url: string, opts?: RequestInit) => {
+            if (String(url) === '/api/instances' && opts?.method === 'POST') {
+                return new Response(
+                    JSON.stringify({ error: "'ZZZZZZ' isn't available on Bitget (USDT perpetual futures)." }),
+                    { status: 400, headers: { 'content-type': 'application/json' } },
+                );
+            }
+            if (String(url).includes('/api/session/init')) {
+                return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+            }
+            return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+        }) as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container);
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'ZZZZZZ' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        await waitFor(() => expect(container.textContent).toContain('unavailable'));
+        expect((screen.getByText('Continue') as HTMLButtonElement).disabled).toBe(true);
+        // Removing the failed chip re-enables CONTINUE.
+        await fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Remove ZZZZZZ"]')!);
+        await waitFor(() => expect((screen.getByText('Continue') as HTMLButtonElement).disabled).toBe(false));
     });
 });
 
@@ -229,21 +324,16 @@ describe('Launch Setup — launch orchestration', () => {
         return { calls, fetchMock };
     }
 
-    it('launches an observe session with staged instances', async () => {
+    it('launches an observe session with staged instances', { timeout: 20000 }, async () => {
         const { calls } = mockBackend();
         const { container } = await render(LaunchSetup);
         await goToInstances(container);
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
         await fireEvent.click(screen.getByText('+ Add'));
-        await goToReviewFromInstances();
-        // Review shows the ACTIVE ladder (captured before the launch click —
-        // the wizard then switches to the loading step).
-        const reviewText = container.textContent ?? '';
-        await fireEvent.click(screen.getByText('Launch'));
-
-        await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
-
+        // v11.11: the instance was CREATED at add time — the init + create
+        // POSTs have already fired before Review.
+        await waitFor(() => expect(calls.some((c) => String(c.url) === '/api/instances')).toBe(true));
         const initCall = calls.find((c) => String(c.url).includes('/api/session/init'));
         expect(initCall?.body).toMatchObject({
             mode: 'observe',
@@ -252,9 +342,21 @@ describe('Launch Setup — launch orchestration', () => {
         });
         // No capital submitted in observe mode.
         expect((initCall?.body as any)?.initial_capital_usd).toBeUndefined();
-
         const instCall = calls.find((c) => String(c.url).endsWith('/api/instances'));
         expect(instCall?.body).toMatchObject({ base: 'BTC', quote: 'USDT' });
+
+        await completeStagedWarmup();
+        await goToReviewFromInstances(container);
+        // Review shows the ACTIVE ladder (captured before the launch click —
+        // the wizard then switches to the loading step).
+        const reviewText = container.textContent ?? '';
+        // Park the engine BEFORE launching: v11.11 lands within one
+        // readiness poll, so the park must precede the click.
+        const app = useAppStore();
+        app.currentEngine = 'data_infra';
+        await fireEvent.click(screen.getByText('Launch'));
+
+        await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
 
         // v8 fixed ladder: the launch flow POSTs no per-slot TF config —
         // the backend applies the canonical ladder itself.
@@ -263,21 +365,20 @@ describe('Launch Setup — launch orchestration', () => {
 
         expect(reviewText).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
 
-        // v11.11: the welcome screen HOLDS while the staged instances warm.
-        const app = useAppStore();
-        expect(container.textContent).toContain('Preparing your workspace…');
-        expect(container.textContent).toContain('waiting for first snapshot');
+        // v11.11: the launch screen is now a short readiness confirm —
+        // the staged instance was already warmed at ADD time, so its row
+        // is immediately ready and the wizard lands.
+        expect(container.textContent).toContain('ready ✓');
 
         // First snapshot arrives → ready → land on the Market Monitor Overview.
-        // (Park the engine elsewhere so the landing is observable.)
-        app.currentEngine = 'data_infra';
-        const pair = app.instancesMap['BTC-USDT'];
-        expect(pair).toBeTruthy();
-        pair.terms[1].latestSnapshot = {} as never;
+        expect(app.instancesMap['BTC-USDT']).toBeTruthy();
+        app.instancesMap['BTC-USDT'].terms[1].latestSnapshot = {} as never;
         await waitFor(() => expect(app.currentEngine).toBe('market_monitor'), { timeout: 5000 });
         expect(app.middleTab).toBe('overview');
         expect(app.activeEngineTab).toBe('overview');
         expect(app.selectedInstance).toBeNull();
+        // The wizard released the app shell.
+        expect(app.wizardActive).toBe(false);
     });
 
     it('launches without staged instances: no loading step, immediate landing', async () => {
@@ -297,7 +398,7 @@ describe('Launch Setup — launch orchestration', () => {
         expect(container.textContent).toContain('Active ladder (8)');
     });
 
-    it('surfaces a backend error from session init', async () => {
+    it('surfaces a backend error when initializing the session (ENVIRONMENT step)', async () => {
         const fetchMock = vi.fn((url: string) => {
             if (typeof url === 'string' && url.includes('/api/session/init')) {
                 return Promise.resolve(new Response(
@@ -309,11 +410,14 @@ describe('Launch Setup — launch orchestration', () => {
         });
         vi.stubGlobal('fetch', fetchMock);
         const { container } = await render(LaunchSetup);
-        await goToReview(container);
-        await fireEvent.click(screen.getByText('Launch'));
+        // v11.11: init fires on the ENVIRONMENT→INSTANCES transition — the
+        // error surfaces there and the step does not advance.
+        await goToEnvironment(container);
+        await fireEvent.click(screen.getByText('Continue'));
         await waitFor(() =>
             expect(container.textContent).toContain('Live session requires an active Hyperliquid API key'),
         );
+        expect(container.textContent).not.toContain('Add instance');
     });
 });
 

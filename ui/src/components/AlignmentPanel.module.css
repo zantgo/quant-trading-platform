@@ -1,7 +1,10 @@
 .panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: rgba(255, 255, 255, 0.02); color: #e2e8f0; }
 .panelHeader { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0; text-transform: uppercase; }
-.section { margin-top: 4px; margin-bottom: 18px; }
+/* v11.11: uniform section rhythm — spacing comes entirely from each
+   block's 18px bottom margin (margin-top 0), so every section title sits
+   the same distance below the container above it. */
+.section { margin-top: 0; margin-bottom: 18px; }
 .sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 10px 0; text-transform: uppercase; display: flex; align-items: baseline; gap: 8px; }
 .sectionMeta { font-size: 9px; font-weight: 500; color: #475569; text-transform: none; letter-spacing: 0; font-family: var(--mono); }
 .noDataBanner { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0 10px; line-height: 1.5; }

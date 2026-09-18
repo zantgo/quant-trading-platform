@@ -961,14 +961,11 @@ async fn async_main() {
             .unwrap_or_else(|| "observe".to_string())
             .to_lowercase()
     } else {
-        // Web boot: the first instance's persisted mode (Observe/Paper/
-        // Live) describes the session; the Launch Setup wizard persists it
-        // before instances spawn.
-        match workspace.instances.first().map(|i| &i.mode) {
-            Some(config_models::ExecutionMode::Observe) => "observe".to_string(),
-            Some(config_models::ExecutionMode::Live) => "live".to_string(),
-            _ => "paper".to_string(),
-        }
+        // Web boot: the persisted instances describe the session posture
+        // (v7.3 doctrine); an empty workspace is the default observe
+        // posture — the Launch Setup wizard persists instance modes before
+        // instances spawn.
+        config_models::session_mode_from_instances(&workspace.instances).to_string()
     };
     let session_started_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1020,7 +1017,10 @@ async fn async_main() {
     {
         *interrupted_session_info.write().await = Some(api_gateway::InterruptedSessionInfo {
             id: row.id,
-            mode: Some(row.mode.clone()),
+            // The row's mode was written at boot — derive the card's mode
+            // from the persisted instances instead so the Recovery card
+            // reflects what actually ran (empty workspace ⇒ observe).
+            mode: Some(session_mode.clone()),
             exchange: row.exchange.clone(),
             currency: row.currency.clone(),
             started_at_ms: row.started_at_ms,
@@ -1400,7 +1400,7 @@ async fn async_main() {
                 timeframes: std::collections::BTreeMap::new(),
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: config_models::OperationalMode::Advisory,
-                mode: exec_mode.clone(),
+                mode: exec_mode,
                 strategy: None,
                 allocation_pct: None,
                 weight_overrides: None,

@@ -2,9 +2,11 @@
 //
 // Every layer badge (L1 Metrics per instance×slot, L2 Alignment … L6
 // Recommendation per instance, L7 Overview global) keeps a LITERAL ring of
-// its last 7 states — newest first, position 0 = the CURRENT sample. The
-// rendering (BadgeTrail.svelte) shows positions 1..4 as progressively
-// smaller/fainter "ghost text" after the live badge.
+// its last 10 states — newest first, position 0 = the CURRENT sample (the
+// cap was 7 before v11.11; the Instance Status signal-squares read the
+// last 10 completed candles). The rendering (BadgeTrail.svelte) shows
+// positions 1..4 as progressively fainter "ghost text" after the live
+// badge.
 //
 // Entries are produced by the SAME builder functions the live badges use,
 // so a trail can never disagree with the badge beside it.
@@ -22,7 +24,7 @@ export interface BadgeHistoryEntry {
     ts: number;
 }
 
-export const BADGE_HISTORY_CAP = 7;
+export const BADGE_HISTORY_CAP = 10;
 const STORAGE_KEY = 'qtp.badgeHistory.v1';
 const PERSIST_DEBOUNCE_MS = 2000;
 
@@ -84,7 +86,7 @@ function persist(): void {
 
 /** Push a sample (completed-candle / overview-poll cadence). Literal
  *  semantics: repeats are kept. Newest lands at index 0; the ring caps
- *  at 5 (oldest dropped rightmost). */
+ *  at 10 (oldest dropped rightmost). */
 export function pushBadge(key: string, entry: BadgeHistoryEntry): void {
     if (!key || !entry || typeof entry.label !== 'string') return;
     const ring = history.get(key) ?? [];
@@ -140,3 +142,44 @@ export function layerKey(layer: 'l2' | 'l3' | 'l4' | 'l5' | 'l6' | 'mtf', pairKe
 }
 
 export const L7_KEY = 'l7:global';
+
+// ── v11.11: signal histogram (Instance Status squares) ──────────────
+
+export type SignalBucket = 'bull' | 'bear' | 'neutral';
+
+/** Classify a stored badge color into the three-state histogram palette
+ *  (green bull / red bear / amber neutral). Unknown colors (rgba greys,
+ *  the inactive dashed state) land on neutral — the cautious default. */
+function bucketOfColor(color: string): SignalBucket {
+    const c = (color || '').toLowerCase();
+    if (c.includes('22c55e') || c.includes('4ade80') || c.includes('34d399') || c.includes('10b981')) return 'bull';
+    if (c.includes('dc2626') || c.includes('ef4444') || c.includes('f87171') || c.includes('f43f5e')) return 'bear';
+    return 'neutral';
+}
+
+export interface SignalBucketRun {
+    bucket: SignalBucket;
+    count: number;
+}
+
+/** Group the ring (the last `cap` samples INCLUDING the current one) into
+ *  color-class runs ordered by count DESC — most common class LEFT.
+ *  Ties break toward the class whose most recent sample is newest. This is
+ *  a HISTOGRAM, not a timeline: "4 of the last 5 red" reads as a red wall
+ *  regardless of where each sample fell in time. */
+export function signalBuckets(key: string, cap = 10): SignalBucketRun[] {
+    const ring = getBadgeHistory(key).slice(0, cap);
+    const counts = new Map<SignalBucket, number>();
+    const firstIndex = new Map<SignalBucket, number>();
+    ring.forEach((entry, i) => {
+        const b = bucketOfColor(entry.color);
+        counts.set(b, (counts.get(b) ?? 0) + 1);
+        if (!firstIndex.has(b)) firstIndex.set(b, i);
+    });
+    return [...counts.entries()]
+        .map(([bucket, count]) => ({ bucket, count }))
+        .sort((a, b) => {
+            if (b.count !== a.count) return b.count - a.count;
+            return (firstIndex.get(a.bucket) ?? 0) - (firstIndex.get(b.bucket) ?? 0);
+        });
+}

@@ -357,9 +357,10 @@ describe('RecommendationPanel — Top Setup card', () => {
         expect(screen.getAllByText(/64500/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/65000/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/63200/).length).toBeGreaterThan(0);
-        // The invalidation thesis is bound to the card's own stop-loss
-        // (63200) with the LONG direction word ("below").
-        expect(screen.getByText('A close below $63200 on the completed candle invalidates the Breakout thesis.')).toBeTruthy();
+        // v11.11: the invalidation thesis sentence was removed from the
+        // Recommendation card ("A close below $X … invalidates the …
+        // thesis.") — the stop-loss level itself still renders above.
+        expect(screen.queryByText(/invalidates the .* thesis\./)).toBeNull();
     });
 
     it('v6.14: the headline card renders the backend display_score (precondition-scaled)', () => {

@@ -182,12 +182,16 @@ describe('InstanceStatusTable — decision badge', () => {
         expect(badge.textContent).toContain('STAND ASIDE');
     });
 
-    it('renders the L/H/S probability chips when probabilities exist', () => {
+    it('v11.11: renders the three probability RINGS sorted biggest-LEFT', () => {
         seed('BTC-USDT', makeInstance());
         const { container } = renderTable();
-        expect(container.textContent).toContain('L 20%');
-        expect(container.textContent).toContain('H 35%');
-        expect(container.textContent).toContain('S 45%');
+        // The text chips are gone; three ring gauges carry the values with
+        // the dominant probability first (left).
+        expect(container.querySelector('[role="img"][aria-label*="Probabilities"]')).toBeTruthy();
+        const values = Array.from(
+            container.querySelectorAll('[role="img"][aria-label*="Probabilities"] span[title]'),
+        ).map((el) => el.getAttribute('title'));
+        expect(values).toEqual(['SHORT 45%', 'HOLD 35%', 'LONG 20%']);
     });
 });
 

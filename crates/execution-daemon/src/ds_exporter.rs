@@ -75,18 +75,17 @@ pub async fn run_ds_exporter(
             msg = rx.recv() => {
                 let Some(msg) = msg else { break };
                 match msg {
-                    database_storage::TelemetryMsg::InsertSnapshot(snap) => {
-                        if cfg.capture_market {
+                    database_storage::TelemetryMsg::InsertSnapshot(snap)
+                        if cfg.capture_market => {
                             let value = serde_json::to_value(&*snap).unwrap_or(serde_json::Value::Null);
                             let rel = format!("market/{}.{}.ndjson", snap.symbol, snap.timeframe_secs);
                             w.write_line(&sdir, &rel, &value);
                         }
-                    }
                     database_storage::TelemetryMsg::JournalTrade {
                         symbol, direction, entry_price, exit_price, entry_timestamp,
                         exit_timestamp, size, realized_pnl, roi_pct, allocated_usd, trigger,
-                    } => {
-                        if cfg.capture_trading {
+                    }
+                        if cfg.capture_trading => {
                             let value = serde_json::json!({
                                 "symbol": symbol, "direction": direction,
                                 "entry_price": entry_price, "exit_price": exit_price,
@@ -97,7 +96,6 @@ pub async fn run_ds_exporter(
                             });
                             w.write_line(&sdir, "trading/trades.ndjson", &value);
                         }
-                    }
                     database_storage::TelemetryMsg::InsertLiquidationEvent {
                         exchange,
                         symbol,
@@ -106,8 +104,8 @@ pub async fn run_ds_exporter(
                         size_usd,
                         timestamp_ms,
                         venue_order_id,
-                    } => {
-                        if cfg.capture_trading {
+                    }
+                        if cfg.capture_trading => {
                             let value = serde_json::json!({
                                 "exchange": exchange, "symbol": symbol, "side": side,
                                 "price": price, "size_usd": size_usd,
@@ -115,7 +113,6 @@ pub async fn run_ds_exporter(
                             });
                             w.write_line(&sdir, "trading/liquidation_events.ndjson", &value);
                         }
-                    }
                     _ => {}
                 }
             }

@@ -251,6 +251,7 @@ pub async fn insert_backfill_job(
 }
 
 /// Update a backfill job's progress/status row.
+#[allow(clippy::too_many_arguments)]
 pub async fn update_backfill_job(
     pool: &SqlitePool,
     job_id: i64,

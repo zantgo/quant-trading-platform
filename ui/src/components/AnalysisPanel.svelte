@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { AnalysisMatrix, AlignmentMatrix, TimeframeTelemetry } from '../types';
+    import { tfLabel } from '../types';
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import { buildAnalysisTabExport } from '../lib/exportBuilders/analysisTab';
@@ -241,6 +242,50 @@
         return combined.sort((a, b) => timeframeRank(a.text) - timeframeRank(b.text));
     });
 
+    interface SignalCard {
+        key: string;
+        label: string;
+        sig: { text: string; type: string } | null;
+    }
+
+    // v11.11 (stable roster): the grid shows one card per ACTIVE duration —
+    // keyed off the CONFIGURED ladder, not whatever durations happened to be
+    // warm inside the last accepted analysis frame. After a ladder edit the
+    // slots re-warm at their own cadences; frames that omit a duration now
+    // render that card dim (idle) instead of letting it vanish and return.
+    const signalCards = $derived.by((): SignalCard[] => {
+        const byLabel = new Map<string, Array<{ text: string; type: string }>>();
+        const globals: Array<{ text: string; type: string }> = [];
+        for (const sig of sortedSignals) {
+            const label = decomposeSignal(sig.text).timeframe;
+            if (label === 'GLOBAL') {
+                globals.push(sig);
+                continue;
+            }
+            const list = byLabel.get(label) ?? [];
+            list.push(sig);
+            byLabel.set(label, list);
+        }
+        const cards: SignalCard[] = [];
+        for (const secs of activeDurations(instance)) {
+            const label = tfLabel(secs).toUpperCase();
+            const list = byLabel.get(label);
+            if (list && list.length > 0) {
+                for (const sig of list) cards.push({ key: `${label}·${sig.text}`, label, sig });
+            } else {
+                cards.push({ key: `${label}·idle`, label, sig: null });
+            }
+            byLabel.delete(label);
+        }
+        // Durations reporting outside the configured ladder (stale frames
+        // mid-recharge) and global/ambient lines keep rendering, last.
+        for (const [label, list] of byLabel) {
+            for (const sig of list) cards.push({ key: `${label}·${sig.text}`, label, sig });
+        }
+        for (const sig of globals) cards.push({ key: `GLOBAL·${sig.text}`, label: 'GLOBAL', sig });
+        return cards;
+    });
+
     // ── Signal lean — the operator wants to see at-a-glance whether the
     // signals net bullish or bearish. Direction is parsed from each signal
     // text rather than assumed from the supporting/contradicting bucket.
@@ -381,54 +426,82 @@
         <div class={styles.signalsHeader}>
             <span class={styles.sectionTitle}>Signals</span>
         </div>
-        {#if sortedSignals.length > 0}
+        {#if signalCards.length > 0}
             <div class={styles.signalList}>
-                {#each sortedSignals as sig (sig.text)}
-                    {@const p = decomposeSignal(sig.text)}
-                    {@const dir = sig.type}
-                    <!-- AN-1: neutral signals render with the neutral (gray)
-                         square + flat icon — they must not inherit the
-                         bearish red styling and down arrow. -->
-                    <div class="{styles.sigSquare} {dir === 'bullish' ? styles.sigSquareBull : dir === 'bearish' ? styles.sigSquareBear : styles.sigSquareNeutral}" title={p.raw}>
-                        <span class={styles.sigTf}>{p.timeframe}</span>
-                        <div class={styles.sigIconWrap}>
-                            {#if dir === 'bullish'}
-                                <svg viewBox="0 0 24 24" class={styles.sigIcon} fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="12" y1="19" x2="12" y2="5"></line>
-                                    <polyline points="5 12 12 5 19 12"></polyline>
-                                </svg>
-                            {:else if dir === 'bearish'}
-                                <svg viewBox="0 0 24 24" class={styles.sigIcon} fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                                    <polyline points="19 12 12 19 5 12"></polyline>
-                                </svg>
-                            {:else}
+                {#each signalCards as card (card.key)}
+                    {#if card.sig}
+                        {@const p = decomposeSignal(card.sig.text)}
+                        {@const dir = card.sig.type}
+                        <!-- AN-1: neutral signals render with the neutral (gray)
+                             square + flat icon — they must not inherit the
+                             bearish red styling and down arrow. -->
+                        <div class="{styles.sigSquare} {dir === 'bullish' ? styles.sigSquareBull : dir === 'bearish' ? styles.sigSquareBear : styles.sigSquareNeutral}" title={p.raw}>
+                            <span class={styles.sigTf}>{p.timeframe}</span>
+                            <div class={styles.sigIconWrap}>
+                                {#if dir === 'bullish'}
+                                    <svg viewBox="0 0 24 24" class={styles.sigIcon} fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="19" x2="12" y2="5"></line>
+                                        <polyline points="5 12 12 5 19 12"></polyline>
+                                    </svg>
+                                {:else if dir === 'bearish'}
+                                    <svg viewBox="0 0 24 24" class={styles.sigIcon} fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <polyline points="19 12 12 19 5 12"></polyline>
+                                    </svg>
+                                {:else}
+                                    <svg viewBox="0 0 24 24" class={styles.sigIcon} fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="6" y1="12" x2="18" y2="12"></line>
+                                    </svg>
+                                {/if}
+                            </div>
+                            <div class={styles.sigMetricsWrap}>
+                                <div class={styles.sigMetricRow}>
+                                    <span class={styles.sigMetricLabel}>Score:</span>
+                                    <span class={styles.sigMetricValue} style="color: {scoreColor(p.score ?? 0)}">
+                                        {p.score !== null ? (p.score >= 0 ? '+' : '') + p.score : '—'}
+                                    </span>
+                                </div>
+                                <div class={styles.sigMetricRow}>
+                                    <span class={styles.sigMetricLabel}>Regime:</span>
+                                    <span class={styles.sigMetricValue} style="color: {tfRegimeCls(p.regime) === styles.tfRegimeBull ? '#22c55e' : tfRegimeCls(p.regime) === styles.tfRegimeBear ? '#ef4444' : '#f59e0b'}">
+                                        {p.regime}
+                                    </span>
+                                </div>
+                                <div class={styles.sigMetricRow}>
+                                    <span class={styles.sigMetricLabel}>Signals:</span>
+                                    <span class={styles.sigMetricValue} style="color: #22c55e;">
+                                        {p.signalsCount !== null ? p.signalsCount : '—'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    {:else}
+                        <!-- v11.11 idle card: the duration is ACTIVE but the
+                             last frame carried no line for it (slot still
+                             re-warming) — dim placeholder, never removed. -->
+                        <div class="{styles.sigSquare} {styles.sigSquareNeutral} {styles.sigSquareIdle}" title="{card.label} — awaiting the next completed candle">
+                            <span class={styles.sigTf}>{card.label}</span>
+                            <div class={styles.sigIconWrap}>
                                 <svg viewBox="0 0 24 24" class={styles.sigIcon} fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <line x1="6" y1="12" x2="18" y2="12"></line>
                                 </svg>
-                            {/if}
-                        </div>
-                        <div class={styles.sigMetricsWrap}>
-                            <div class={styles.sigMetricRow}>
-                                <span class={styles.sigMetricLabel}>Score:</span>
-                                <span class={styles.sigMetricValue} style="color: {scoreColor(p.score ?? 0)}">
-                                    {p.score !== null ? (p.score >= 0 ? '+' : '') + p.score : '—'}
-                                </span>
                             </div>
-                            <div class={styles.sigMetricRow}>
-                                <span class={styles.sigMetricLabel}>Regime:</span>
-                                <span class={styles.sigMetricValue} style="color: {tfRegimeCls(p.regime) === styles.tfRegimeBull ? '#22c55e' : tfRegimeCls(p.regime) === styles.tfRegimeBear ? '#ef4444' : '#f59e0b'}">
-                                    {p.regime}
-                                </span>
-                            </div>
-                            <div class={styles.sigMetricRow}>
-                                <span class={styles.sigMetricLabel}>Signals:</span>
-                                <span class={styles.sigMetricValue} style="color: #22c55e;">
-                                    {p.signalsCount !== null ? p.signalsCount : '—'}
-                                </span>
+                            <div class={styles.sigMetricsWrap}>
+                                <div class={styles.sigMetricRow}>
+                                    <span class={styles.sigMetricLabel}>Score:</span>
+                                    <span class={styles.sigMetricValue}>—</span>
+                                </div>
+                                <div class={styles.sigMetricRow}>
+                                    <span class={styles.sigMetricLabel}>Regime:</span>
+                                    <span class={styles.sigMetricValue}>WARMING</span>
+                                </div>
+                                <div class={styles.sigMetricRow}>
+                                    <span class={styles.sigMetricLabel}>Signals:</span>
+                                    <span class={styles.sigMetricValue}>—</span>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    {/if}
                 {/each}
             </div>
         {:else}

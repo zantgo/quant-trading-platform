@@ -54,12 +54,14 @@ impl Default for AnalyticsParams {
 impl AnalyticsParams {
     /// v9: build the verdict bar from the strategy's `pae` section.
     pub fn from_strategy(pae: &config_models::PaeParams) -> Self {
-        let mut p = Self::default();
-        p.alpha = pae.verdict.alpha;
-        p.monte_carlo_runs = pae.verdict.monte_carlo_runs;
-        p.min_trades_for_verdict = pae.verdict.min_trades_for_verdict;
-        p.min_profit_factor = pae.verdict.min_profit_factor;
-        p.min_expectancy = pae.verdict.min_expectancy;
+        let mut p = Self {
+            alpha: pae.verdict.alpha,
+            monte_carlo_runs: pae.verdict.monte_carlo_runs,
+            min_trades_for_verdict: pae.verdict.min_trades_for_verdict,
+            min_profit_factor: pae.verdict.min_profit_factor,
+            min_expectancy: pae.verdict.min_expectancy,
+            ..Default::default()
+        };
         let c = &pae.verdict.edge_classification;
         p.edge_strong_pf = c.strong.profit_factor_min.unwrap_or(1.2);
         p.edge_strong_wr = c.strong.win_rate_min.unwrap_or(0.50);

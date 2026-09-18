@@ -113,10 +113,10 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
         let mut seen = std::collections::HashSet::new();
         for &secs in set {
             if !config_models::is_supported_duration(secs) {
-                return Some(format!("timeframes: unsupported duration {secs}s").into());
+                return Some(format!("timeframes: unsupported duration {secs}s"));
             }
             if !seen.insert(secs) {
-                return Some(format!("timeframes: duplicate duration {secs}s").into());
+                return Some(format!("timeframes: duplicate duration {secs}s"));
             }
         }
     }
@@ -335,7 +335,11 @@ pub async fn update_config(
     // v7.4: engine-settings edits (TAE / PME / PAE / Profile) are applied
     // LIVE — recharge every running instance so the executors, safety
     // ladder and sizing read the new values on their next cycle. Recharge
-    // is idempotent; failures are logged, never fatal (the config is saved).
+    // is idempotent; failures are logged AND surfaced in the response body
+    // (v11.11) — the config is saved, but a failed recharge means the
+    // instance keeps running its previous pipeline set, so the operator
+    // (and the UI) must know.
+    let mut recharge_failures: Vec<String> = Vec::new();
     if runtime_fields_present {
         let ctx = state.registry_context();
         let symbols: Vec<String> = state
@@ -353,6 +357,7 @@ pub async fn update_config(
                     "Config update: pipeline recharge failed for {}: {}",
                     symbol, e
                 );
+                recharge_failures.push(format!("{symbol}: {e}"));
             } else {
                 let _ = state
                     .recharge_tx
@@ -362,11 +367,22 @@ pub async fn update_config(
     }
 
     println!("Configuration Updated: successfully synchronized config.toml dynamically.");
-    (
-        axum::http::StatusCode::OK,
-        "Configuration successfully saved.",
-    )
-        .into_response()
+    if recharge_failures.is_empty() {
+        (
+            axum::http::StatusCode::OK,
+            "Configuration successfully saved.",
+        )
+            .into_response()
+    } else {
+        (
+            axum::http::StatusCode::OK,
+            format!(
+                "Configuration successfully saved. Warning: pipeline recharge failed (instance keeps the previous ladder): {}",
+                recharge_failures.join("; ")
+            ),
+        )
+            .into_response()
+    }
 }
 
 // ─── TOML export/import (config-sharing workflow) ───────────────────

@@ -8,22 +8,24 @@
     //          Recommendation view uses: `computeDecisionRank` +
     //          `buildL6DecisionHeader`'s exact badge palette (direction
     //          colors, HOLD/STAND ASIDE neutral), rendered with its
-    //          probability percentage ("SHORT 45%").
-    //   Col 4  three small meta chips "L x% · H y% · S z%" (dim; only
-    //          when probabilities exist)
-    //   Col 5  mode chip (observe / paper / live; dim)
+    //          probability percentage ("SHORT 45%") + flat ghost trail
+    //   Col 4  PROBABILITIES — v11.11: three ring gauges (green LONG /
+    //          amber HOLD / red SHORT), arc = probability, sorted by value
+    //          DESC (biggest LEFT), re-sorting dynamically
     //
     // Expanded (per instance): N sub-rows — one per ACTIVE slot
     // (`activeDurations`, ladder order) — each showing the slot label +
-    // duration and the SAME badge + pipeline pill the Alignment tab's
-    // TfStatusTable renders (`metricsBadgeFor`), reusing the LayerHeader
-    // badge/status CSS classes verbatim.
+    // duration, the SAME badge the Alignment tab's TfStatusTable renders
+    // (`metricsBadgeFor`), a flat ghost trail, and the v11.11 signal
+    // histogram (10 squares grouped by count, most common LEFT) in place
+    // of the old LIVE/LOADING pill (removed — loading renders as dim
+    // skeleton cells).
     //
-    // Ordering follows `app.overviewMatrix.asset_ranking` symbol order
-    // when present; falls back to map insertion order. Empty state is
-    // handled by GeneralDashboard (the component renders nothing without
-    // instances); an instance with no data shows the grey `—` badge and
-    // loading pills — `emptyBadge()` semantics throughout.
+    // Ordering: instances ordered NEWEST FIRST (v11.4 — reversed
+    // `instancesMap` insertion order). Empty state is handled by
+    // GeneralDashboard (the component renders nothing without instances);
+    // an instance with no data shows the grey `—` badge and skeleton
+    // squares — `emptyBadge()` semantics throughout.
     import type { InstanceState } from '../types';
     import { tfLabel } from '../types';
     import type { WsState } from '../lib/websocket.svelte';
@@ -31,6 +33,8 @@
     import { activeDurations } from '../lib/terms';
     import { getBadgeTrail, badgeHistoryVersion, l1Key, layerKey } from '../lib/badgeHistory.svelte';
     import BadgeTrail from './BadgeTrail.svelte';
+    import ProbabilityRings from './ProbabilityRings.svelte';
+    import SignalSquares from './SignalSquares.svelte';
     import { computeDecisionRank, type DecisionRank } from '../lib/decisionRank';
     import { buildL6DecisionHeader, metricsBadgeFor, type BadgeSpec } from '../lib/layerHeader';
     import styles from './InstanceStatusTable.module.css';
@@ -49,13 +53,6 @@
         neutral: headerStyles.badgeNeutral,
         empty: headerStyles.badgeEmpty,
         error: headerStyles.badgeError,
-    };
-
-    const statusDotCls: Record<string, string> = {
-        live: headerStyles.statusLive,
-        stale: headerStyles.statusStale,
-        error: headerStyles.statusError,
-        loading: headerStyles.statusLoading,
     };
 
     interface InstanceRow {
@@ -194,13 +191,17 @@
                                     <span>{Math.round(rank.top_prob)}%</span>
                                 {/if}
                             </div>
-                            <BadgeTrail entries={decisionTrail} />
+                            <BadgeTrail entries={decisionTrail} flat flatSize={11} />
                         </td>
                         <td class={styles.probsCell}>
                             {#if hasData}
-                                <span class="{styles.probChip} {styles.probShort}">S {rank.short.probability}%</span>
-                                <span class="{styles.probChip} {styles.probHold}">H {rank.hold.probability}%</span>
-                                <span class="{styles.probChip} {styles.probLong}">L {rank.long.probability}%</span>
+                                <!-- v11.11: three ring gauges (biggest LEFT,
+                                     dynamic re-sort) replace the text chips. -->
+                                <ProbabilityRings
+                                    short={rank.short.probability}
+                                    hold={rank.hold.probability}
+                                    long={rank.long.probability}
+                                />
                             {/if}
                         </td>
                     </tr>
@@ -229,13 +230,14 @@
                                             <span>{info.badge.sublabel}</span>
                                         {/if}
                                     </div>
-                                    <BadgeTrail entries={tfTrail} />
+                                    <BadgeTrail entries={tfTrail} flat flatSize={9.5} />
                                 </td>
                                 <td class={styles.probsCell}>
-                                    <div class={headerStyles.statusIndicator} aria-live="polite">
-                                        <span class="{headerStyles.statusDot} {statusDotCls[info.status]}"></span>
-                                        <span>{info.status}</span>
-                                    </div>
+                                    <!-- v11.11: the LIVE/LOADING indicator is
+                                         gone — the probabilities column carries
+                                         market information: the last-10 signal
+                                         histogram (loading = dim skeleton). -->
+                                    <SignalSquares {pairKey} {slot} />
                                 </td>
                             </tr>
                         {/each}

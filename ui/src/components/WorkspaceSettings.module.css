@@ -168,7 +168,7 @@
 .vis-groups {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
 }
 
 .vis-group {
@@ -186,10 +186,27 @@
     margin: 0;
 }
 
+/* v11.11: denser chip grid — narrower minimum column packs more toggles
+   per row inside the full-width card. */
 .vis-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 6px;
+}
+
+/* v11.11: Indicator Activation — two side-by-side panes (input left,
+   telemetry checkboxes right); collapses below 900px. */
+.activationGrid {
+    display: grid;
+    grid-template-columns: minmax(200px, 1fr) minmax(280px, 1.4fr);
+    gap: 16px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .activationGrid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .vis-toggle {
@@ -230,13 +247,23 @@
 }
 
 /* v11.8 — dedicated Liquidation Heatmap container (below Indicators). */
-.heatmapBlock {
-    padding: 10px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+/* v11.11: per-TF heatmap cards in a responsive grid (3-up at desktop
+   widths) instead of full-width stacked rows — same content per card,
+   dramatically better space use. */
+.heatmapGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
 }
 
-.heatmapBlock:last-child {
-    border-bottom: none;
+.heatmapCard {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.015);
 }
 
 /* v11.8 — Timeframes CRUD chips (presence = activation). */

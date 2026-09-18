@@ -185,10 +185,12 @@ pub fn regime_matches(regime: analysis::MarketRegime, name: &str) -> bool {
 impl OpportunityParams {
     /// Legacy config path (pre-strategy `[workspace.opportunity_matrix]`).
     pub fn from_config(cfg: &config_models::OpportunityMatrixConfig) -> Self {
-        let mut params = Self::default();
-        params.confluent_atr_fallback_enabled = cfg.confluent_atr_fallback_enabled;
-        params.confluent_atr_k_entry = cfg.confluent_atr_k_entry;
-        params.confluent_atr_k_target = cfg.confluent_atr_k_target;
+        let mut params = Self {
+            confluent_atr_fallback_enabled: cfg.confluent_atr_fallback_enabled,
+            confluent_atr_k_entry: cfg.confluent_atr_k_entry,
+            confluent_atr_k_target: cfg.confluent_atr_k_target,
+            ..Default::default()
+        };
         params.net_cost = core_domain::risk_reward::NetCostModel {
             taker_fee_bps: cfg.net_taker_fee_bps,
             slippage_bps: cfg.net_slippage_bps,
@@ -199,10 +201,12 @@ impl OpportunityParams {
 
     /// The strategy path: build from the strategy's `l4` section.
     pub fn from_strategy(l4: &config_models::L4Params) -> Self {
-        let mut params = Self::default();
-        params.confluent_atr_fallback_enabled = l4.zones.atr_fallback.enabled;
-        params.confluent_atr_k_entry = l4.zones.atr_fallback.k_entry;
-        params.confluent_atr_k_target = l4.zones.atr_fallback.k_target;
+        let mut params = Self {
+            confluent_atr_fallback_enabled: l4.zones.atr_fallback.enabled,
+            confluent_atr_k_entry: l4.zones.atr_fallback.k_entry,
+            confluent_atr_k_target: l4.zones.atr_fallback.k_target,
+            ..Default::default()
+        };
         params.net_cost = core_domain::risk_reward::NetCostModel {
             taker_fee_bps: l4.costs.taker_fee_bps,
             slippage_bps: l4.costs.slippage_bps,
@@ -1339,7 +1343,7 @@ fn derive_neutral_bracket(
     let (expected_rr_internal, geometry_consistent) = if let Some(_gross) = gross {
         // v9 (F-04): the net-cost model is wired — previously hardcoded
         // `NetCostModel::default()` (6/5/0 bps).
-        let cost = params.net_cost.clone();
+        let cost = params.net_cost;
         let net = cost.net_rr(
             (entry_zone.low + entry_zone.high) / 2.0,
             (target_zone.low + target_zone.high) / 2.0,
@@ -1796,7 +1800,7 @@ fn compute_opportunity(
     let short_gross_rr_internal = rr_value(&short_rr_status);
     // v9 (F-04): the net-cost model is wired from `OpportunityParams` —
     // previously hardcoded `NetCostModel::default()` (6/5/0 bps).
-    let cost_model = params.net_cost.clone();
+    let cost_model = params.net_cost;
     let long_net_rr = if rr_is_ok(&long_rr_status) {
         cost_model.net_rr(
             (long_entry_zone.low + long_entry_zone.high) / 2.0,

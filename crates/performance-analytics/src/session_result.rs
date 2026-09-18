@@ -99,13 +99,24 @@ fn exit_reason_canonical(raw: &str) -> String {
     }
 }
 
+/// v11.12: clippy `type_complexity` — raw `query_as` tuple rows.
+type SessionMetaRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<f64>,
+    i64,
+    Option<i64>,
+);
+type TradeRow = (String, i64, i64, f64, f64, f64, f64, f64, f64, String);
+
 pub async fn compile_session_result(
     pool: &SqlitePool,
     session_id: i64,
     workspace: &config_models::WorkspaceConfig,
 ) -> Option<SessionResult> {
     // ── session row
-    let sess: Option<(String, Option<String>, Option<String>, Option<f64>, i64, Option<i64>)> =
+    let sess: Option<SessionMetaRow> =
         sqlx::query_as(
             "SELECT mode, exchange, currency, portfolio_capital_usd, started_at_ms, ended_at_ms FROM sessions WHERE id = ?1",
         )
@@ -127,7 +138,7 @@ pub async fn compile_session_result(
         .div_euclid(1000);
 
     // ── trades for this session (session_id filter, fallback to all if nulls)
-    let rows: Vec<(String, i64, i64, f64, f64, f64, f64, f64, f64, String)> =
+    let rows: Vec<TradeRow> =
         sqlx::query_as(
             "SELECT symbol, entry_timestamp, exit_timestamp, entry_price, exit_price, size, realized_pnl, roi_pct, commission_fees, trigger_source \
              FROM trade_telemetry_history WHERE session_id = ?1 ORDER BY exit_timestamp ASC",
@@ -139,7 +150,7 @@ pub async fn compile_session_result(
 
     // Fallback: if no session_id stamped (old rows), try paper_trades
     let rows_fallback = if rows.is_empty() {
-        let alt: Vec<(String, i64, i64, f64, f64, f64, f64, f64, f64, String)> =
+        let alt: Vec<TradeRow> =
             sqlx::query_as(
                 "SELECT symbol, entry_timestamp, exit_timestamp, CAST(entry_price AS REAL), CAST(exit_price AS REAL), CAST(size AS REAL), CAST(realized_pnl AS REAL), CAST(roi_pct AS REAL), 0.0, trigger \
                  FROM paper_trades WHERE session_id = ?1 ORDER BY exit_timestamp ASC",

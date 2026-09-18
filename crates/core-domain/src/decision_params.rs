@@ -231,8 +231,10 @@ mod tests {
 
     #[test]
     fn confidence_assessment_uses_risk_discount_k() {
-        let mut p = DecisionParams::default();
-        p.risk_discount_k = 0.5;
+        let p = DecisionParams {
+            risk_discount_k: 0.5,
+            ..Default::default()
+        };
         let c = p.confidence_assessment(0.8, 50.0);
         // 0.8 × (1 − 0.5·0.5) × 100 = 60
         assert!((c - 60.0).abs() < 1e-9);
@@ -253,8 +255,10 @@ mod tests {
 
     #[test]
     fn risk_ceiling_floors_readiness_in_compute() {
-        let mut p = DecisionParams::default();
-        p.risk_ceiling_max_overall_risk = Some(60.0);
+        let p = DecisionParams {
+            risk_ceiling_max_overall_risk: Some(60.0),
+            ..Default::default()
+        };
         let analysis = sample_analysis();
         let risk = high_risk();
         let ctx = crate::decision_context::DecisionContext::compute(
@@ -272,8 +276,10 @@ mod tests {
         assert_eq!(ctx.trade_readiness, "WATCH");
 
         // Below the ceiling the ceiling does not interfere.
-        let mut p2 = DecisionParams::default();
-        p2.risk_ceiling_max_overall_risk = Some(60.0);
+        let p2 = DecisionParams {
+            risk_ceiling_max_overall_risk: Some(60.0),
+            ..Default::default()
+        };
         let ctx2 = crate::decision_context::DecisionContext::compute(
             &std::collections::HashMap::new(),
             100.0,
@@ -290,8 +296,10 @@ mod tests {
 
     #[test]
     fn risk_ceiling_stamps_advisory() {
-        let mut p = DecisionParams::default();
-        p.risk_ceiling_max_overall_risk = Some(60.0);
+        let p = DecisionParams {
+            risk_ceiling_max_overall_risk: Some(60.0),
+            ..Default::default()
+        };
         let analysis = sample_analysis();
         let adv = crate::advisory::compute_advisory(
             &analysis,

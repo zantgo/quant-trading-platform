@@ -233,8 +233,8 @@ pub async fn serve_update_instance_config(
             operational_mode: Default::default(),
             mode: match state.session.session_mode().await.as_deref() {
                 Some("live") => config_models::ExecutionMode::Live,
-                Some("observe") => config_models::ExecutionMode::Observe,
-                _ => config_models::ExecutionMode::Paper,
+                Some("paper") => config_models::ExecutionMode::Paper,
+                _ => config_models::ExecutionMode::Observe,
             },
             allocation_pct: None,
             weight_overrides: None,

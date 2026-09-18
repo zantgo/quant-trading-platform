@@ -1206,15 +1206,13 @@ impl SetupExecutor {
                     .read()
                     .await
                     .values()
-                    .filter_map(|p| Some(p.size * p.entry_price))
+                    .map(|p| p.size * p.entry_price)
                     .fold(dec!(0), |acc, v| acc + v);
-                let Some(alloc_dec) = Decimal::from_f64_retain(allocation / 100.0) else {
-                    return None;
-                };
+                // v11.12: `?` instead of let-else (clippy) — the closure
+                // already returns Option.
+                let alloc_dec = Decimal::from_f64_retain(allocation / 100.0)?;
                 let prospective = gross + equity * alloc_dec;
-                let Some(cap_dec) = Decimal::from_f64_retain(cap_pct) else {
-                    return None;
-                };
+                let cap_dec = Decimal::from_f64_retain(cap_pct)?;
                 if prospective / equity * dec!(100) > cap_dec {
                     self.log(
                         instance_id,

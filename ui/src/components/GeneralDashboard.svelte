@@ -226,12 +226,15 @@
                 </div>
             </div>
 
-            <!-- v11.2: per-instance status table (collapsed rows + the
-                 same decision badge the Recommendation view derives) —
-                 sits between the unified header and the hero. -->
-            <InstanceStatusTable {wssMap} />
-
+            <!-- v11.11 DEFINITIVE ORDER: the page is a top-down funnel —
+                 verdict (Market Status) → comparison (Asset Rankings) →
+                 operational detail (Instance Status) → KPIs → cards →
+                 diagnostics (Market Health, last). -->
             <RecommendationHero />
+
+            <AssetRankingsTable />
+
+            <InstanceStatusTable {wssMap} />
 
             <HeaderKpiStrip />
 
@@ -245,8 +248,6 @@
             </div>
 
             <MarketHealthCard />
-
-            <AssetRankingsTable />
         {/if}
 
         <div class={styles.runnerBar}>

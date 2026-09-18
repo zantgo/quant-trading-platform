@@ -224,28 +224,45 @@ async fn handle_ws_socket(
             }
         }
     }
-    // Audit fix (M3): an unknown duration (pipeline not configured for
-    // this pair) previously panicked the socket task and killed the
-    // connection. Fall back to the FASTEST ACTIVE channel (best-effort
-    // resolution per 06-01 §3.1) so legacy clients and unknown durations
-    // stay alive and receive data.
+    // Audit fix (M3) + v11.11: an unknown duration (pipeline not configured
+    // for this pair) previously PANICKED the socket task; the fallback bound
+    // the FASTEST ACTIVE channel instead — but the frontend slot-guard
+    // drops frames whose `timeframe_label` mismatches, so the socket stayed
+    // open yet eternally silent (exactly the freshly-ADDED-timeframe case
+    // whose recharge is still in flight). Wait — bounded — for a recharge
+    // that installs the requested pipeline; close if none arrives so the
+    // client's reconnect backoff can retry against the new ladder.
     let mut rx_stream: broadcast::Receiver<MarketSnapshot> = match rx_stream {
         Some(rx) => rx,
         None => {
             eprintln!(
-                "WS: no pipeline for {}s (pair {}) — falling back to the fastest active pipeline",
+                "WS: no pipeline for {}s (pair {}) yet — waiting for a recharge to install it",
                 requested_secs, pair_key
             );
-            match state.get_active_pair(&pair_key).await.and_then(|p| {
-                p.all()
-                    .first()
-                    .map(|fastest| fastest.broadcast_tx.subscribe())
-            }) {
+            let mut resolved: Option<broadcast::Receiver<MarketSnapshot>> = None;
+            for _ in 0..6 {
+                match tokio::time::timeout(std::time::Duration::from_secs(10), recharge_rx.recv())
+                    .await
+                {
+                    Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {
+                        if let Some(p) = state.get_active_pair(&pair_key).await {
+                            current_pair = Some(p.clone());
+                            if let Some(rx) = p.subscribe_broadcast_by_secs(requested_secs) {
+                                resolved = Some(rx);
+                                break;
+                            }
+                        }
+                    }
+                    Ok(Err(broadcast::error::RecvError::Closed)) => return,
+                    Err(_) => break,
+                }
+            }
+            match resolved {
                 Some(rx) => rx,
                 None => {
                     eprintln!(
-                        "WS: fastest pipeline missing for '{}' (pair deleted mid-upgrade) — closing socket",
-                        pair_key
+                        "WS: pipeline for {}s (pair {}) never appeared — closing socket",
+                        requested_secs, pair_key
                     );
                     return;
                 }

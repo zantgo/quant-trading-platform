@@ -128,6 +128,29 @@ export class AppStore {
     /// reconnect `$effect` in `App.svelte` re-runs and re-attaches each
     /// WS connection with the new `timeframe_secs`.
     wsVersion = $state(0);
+    /// v11.11: the Launch Setup wizard stays mounted until it lands —
+    /// the session activates at the ENVIRONMENT→INSTANCES transition
+    /// (add-time instance creation), which must NOT unmount the wizard
+    /// mid-flow. Cleared by `landOnOverview()` / recovery.
+    wizardActive = $state(false);
+
+    /// v11.11: timestamp of the last local ACTIVE-ladder save (`POST
+    /// /api/config { timeframes }`). Reconciliation backs off for a grace
+    /// window so a stale `active_secs` payload — slow recharge, or a failed
+    /// recharge whose instance kept the OLD pipeline set — can never revert
+    /// what the operator just saved (the "timeframes appear then disappear"
+    /// oscillation).
+    activeLadderSavedAt = 0;
+    /** One reconcile cadence (30 s) plus margin. */
+    static readonly LADDER_SAVE_GRACE_MS = 30_000;
+
+    notifyLadderSaved(): void {
+        this.activeLadderSavedAt = Date.now();
+    }
+
+    ladderSaveInGrace(): boolean {
+        return Date.now() - this.activeLadderSavedAt < AppStore.LADDER_SAVE_GRACE_MS;
+    }
     currentGlobalView = $state<string>('dashboard');
     overviewMatrix = $state<OverviewMatrix | null>(null);
 
@@ -497,12 +520,53 @@ export class AppStore {
             // race (e.g. a config refetch rebuilding instancesMap with the
             // full-pool default between syncs), so TF rails/tables can
             // never stay stuck on the full pool.
-            for (const inst of instances) {
-                if (!inst?.pair || !Array.isArray(inst.active_secs) || inst.active_secs.length === 0) continue;
-                const entry = this.instancesMap[inst.pair];
-                if (entry) entry.activeDurations = durationsFromSecs(inst.active_secs);
+            //
+            // v11.11: the ladder SOURCE is `GET /api/config.timeframes` —
+            // the workspace-level set, canonicalized by the backend and
+            // updated BEFORE any recharge starts. The live instance's
+            // `active_secs` is stale for the seconds a recharge bootstraps
+            // and permanently stale when a recharge failed, and reconciling
+            // from it made durations flicker in and out. A ladder saved
+            // locally within the grace window is honored regardless.
+            let ladderChanged = false;
+            if (this.ladderSaveInGrace()) return;
+            const workspaceLadder = await this.fetchWorkspaceLadder();
+            if (workspaceLadder && workspaceLadder.length > 0) {
+                const canonical = durationsFromSecs(workspaceLadder);
+                if (canonical.length > 0) {
+                    for (const key of Object.keys(this.instancesMap)) {
+                        const entry = this.instancesMap[key];
+                        if (JSON.stringify(entry.activeDurations) !== JSON.stringify(canonical)) {
+                            entry.activeDurations = [...canonical];
+                            ladderChanged = true;
+                        }
+                    }
+                }
+            } else {
+                // Config endpoint unavailable — fall back to the live
+                // instance ladder (pre-v11.11 behavior).
+                for (const inst of instances) {
+                    if (!inst?.pair || !Array.isArray(inst.active_secs) || inst.active_secs.length === 0) continue;
+                    const entry = this.instancesMap[inst.pair];
+                    if (entry) entry.activeDurations = durationsFromSecs(inst.active_secs);
+                }
             }
+            // A poll-discovered ladder change (other tab / CLI edit) must
+            // re-attach the per-duration WS sockets without a restart.
+            if (ladderChanged) this.bumpWsVersion();
         } catch (_) {}
+    }
+
+    private async fetchWorkspaceLadder(): Promise<number[] | null> {
+        try {
+            const res = await fetch('/api/config');
+            if (!res.ok) return null;
+            const data = await res.json();
+            const tfs = data?.timeframes;
+            return Array.isArray(tfs) && tfs.length > 0 ? (tfs as number[]) : null;
+        } catch (_) {
+            return null;
+        }
     }
 
     startOverviewPolling(intervalMs = 3000): void {
@@ -786,7 +850,7 @@ export class AppStore {
     /// Signal the WS reconnect effect in `App.svelte` to tear down and
     /// re-attach all WebSocket connections with the current per-slot
     /// durations. Must be called after every save in `WorkspaceSettings`
-    /// and `TimeframeSettings` so the WS URL's `timeframe_secs` matches
+    /// and the MME Settings editors so the WS URL's `timeframe_secs` matches
     /// the new pipeline's `barDurationSec`.
     bumpWsVersion(): void { this.wsVersion++; }
 

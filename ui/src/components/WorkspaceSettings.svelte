@@ -261,7 +261,19 @@
     type TfSlot = number;
     let selectedSlot = $state<TfSlot>(1);
 
-    const slotOrder = $derived<TfSlot[]>(activeDurations(pair));
+    /// v11.11: draft ACTIVE ladder — toggles mutate THIS, never the live
+    /// `pair.activeDurations`; the change applies only when SAVE is clicked
+    /// (which POSTs it to `/api/config`). Seeded from the pair on load and
+    /// kept in canonical ascending order.
+    let activeDraft = $state<number[]>([]);
+
+    /// The ACTIVE ladder as rendered on this tab: the draft while the
+    /// operator edits, the live pair ladder otherwise.
+    const activeLadder = $derived<number[]>(
+        activeDraft.length > 0 ? activeDraft : activeDurations(pair),
+    );
+
+    const slotOrder = $derived<TfSlot[]>([...activeLadder]);
 
     /// Keep the configured pane on an ACTIVE slot when the ladder narrows
     /// (e.g. after a settings save reduced the active count).
@@ -376,17 +388,27 @@
             const tf = pair.terms[slot];
             tfDraft[slot] = profileTermDraft(slot);
         }
+        activeDraft = [...activeDurations(pair)];
+        // v11.11: pristine baseline at load — a toggle landing before the
+        // config GET resolves must never be swallowed by the async
+        // baseline effect below.
+        untrack(() => {
+            baseline = snapshotKey();
+            if (saveState === 'dirty') saveState = 'idle';
+        });
         void loadInstanceConfig();
     });
 
     // ─── Dirty tracking: drafts vs the baseline taken at load ───────────
     function snapshotKey(): string {
+        const ladder = activeLadder;
         return JSON.stringify({
             symbol: pair.symbol,
             exchange: pair.exchange,
             visuals: draft.visuals,
             automation: draft.automation,
-            tf: Object.fromEntries(activeDurations(pair).map((slot) => [slot, tfDraft[slot]])),
+            active: ladder,
+            tf: Object.fromEntries(ladder.map((slot) => [slot, tfDraft[slot]])),
             activation,
         });
     }
@@ -404,11 +426,12 @@
         void pair.symbol;
         void pair.instanceId;
         untrack(() => {
-            baseline = snapshotKey();
-            // Reset button state when switching pairs / initial load.
-            // `save()` will set `saved` → `idle` via timeout; this just
-            // clears a stale `dirty` from the previous pair.
-            if (saveState === 'dirty') saveState = 'idle';
+            // v11.11: a pending edit (dirty) is never re-baselined — the
+            // async config GET resolving late must not absorb it. The load
+            // effect already seeded the pristine baseline.
+            if (saveState !== 'dirty') {
+                baseline = snapshotKey();
+            }
         });
     });
 
@@ -440,10 +463,12 @@
         });
     }
 
-    /// v11.8: timeframe CRUD — presence in `activeDurations` IS activation.
-    /// Persists via /api/config (workspace knob) and locally to the pair.
-    async function toggleTfSlot(slot: number): Promise<void> {
-        const current: number[] = pair.activeDurations ?? [...DURATIONS];
+    /// v11.11: timeframe CRUD is now DRAFT-ONLY — presence in `activeDraft`
+    /// is the pending activation. No fetch here: the ladder POSTs (and the
+    /// instance recharge it triggers) happen once, on SAVE. This is what
+    /// keeps rapid toggling freeze-free.
+    function toggleTfSlot(slot: number): void {
+        const current: number[] = activeDraft.length > 0 ? activeDraft : [...activeDurations(pair)];
         if (current.length === 0) return;
         let next: number[];
         if (current.includes(slot)) {
@@ -453,22 +478,7 @@
             next = [...current, slot];
         }
         // Canonical ladder order.
-        next = DURATIONS.filter((s) => next.includes(s)); // canonical order
-        if (next.length === 0) return;
-        const res = await fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ timeframes: next }),
-        });
-        if (!res.ok) {
-            const txt = await res.text().catch(() => '');
-            identityError = txt || `Active timeframes save failed (${res.status})`;
-            return;
-        }
-        pair.activeDurations = next;
-        app.bumpWsVersion();
-        clearHistoryCache();
-        clearCandleCache();
+        activeDraft = DURATIONS.filter((s) => next.includes(s));
     }
 
     function updateSlotLeverageTiers(slot: TfSlot, next: number[]) {
@@ -482,7 +492,8 @@
             identity: { symbol: pair.symbol, exchange: pair.exchange },
             visuals: draft.visuals,
             automation: { ...draft.automation, interval_seconds: calculatedAutomationInterval },
-            timeframes: Object.fromEntries(activeDurations(pair).map((slot) => [slot, tfDraft[slot]])),
+            timeframes: Object.fromEntries(activeLadder.map((slot) => [slot, tfDraft[slot]])),
+            active_timeframes: [...activeLadder],
             activation,
         });
     }
@@ -496,8 +507,9 @@
         // current instance only (rename/recreate is no longer offered).
         let targetTabKey = tabKey;
         let target = pair;
+        const ladder = [...activeLadder];
 
-        for (const slot of activeDurations(target)) {
+        for (const slot of ladder) {
             applyVisualsToTerm(target.terms[slot] as unknown as Record<string, any>, vis);
         }
 
@@ -507,18 +519,55 @@
 
         saveState = 'saving';
         try {
-            const body: Record<string, unknown> = {};
-            for (const slot of activeDurations(target)) {
-                body[slot] = { indicators: buildIndicators(tfDraft[slot]) };
+            // (1) v11.11: the ACTIVE ladder is a workspace knob — POST it
+            // first. The backend recharges every Running instance inside
+            // this request, so the ladder side effects (WS re-attach +
+            // cache invalidation) run immediately after; a params-POST
+            // failure below must never leave sockets bound to the old
+            // pipeline set.
+            const ladderChanged = JSON.stringify(ladder) !== JSON.stringify(activeDurations(target));
+            if (ladderChanged) {
+                const ladderRes = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timeframes: ladder }),
+                });
+                if (!ladderRes.ok) {
+                    const txt = await ladderRes.text().catch(() => '');
+                    identityError = txt || `Active timeframes save failed (${ladderRes.status})`;
+                    saveState = 'error';
+                    return;
+                }
+                pair.activeDurations = [...ladder];
+                app.notifyLadderSaved();
+                app.bumpWsVersion();
+                clearHistoryCache();
+                clearCandleCache();
             }
-            body.automation = { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval };
-            body.activation = {
-                disabled_indicators: activation.disabledIndicators.split(',').map((s) => s.trim()).filter(Boolean),
-                disabled_signals: [],
-                disabled_signal_kinds: [],
-                liquidation_feed: activation.liquidationFeed,
-                cluster_estimation: activation.clusterEstimation,
-                liquidity_signals_enabled: activation.liquiditySignalsEnabled,
+
+            // (2) Per-instance params in the canonical nested shape the
+            // backend contract declares (`timeframes` keyed by duration
+            // seconds — v11.9); top-level numeric keys are rejected by
+            // `deny_unknown_fields`.
+            const body: Record<string, unknown> = {
+                timeframes: Object.fromEntries(
+                    ladder.map((slot) => [
+                        String(slot),
+                        {
+                            candles: { duration_seconds: slot },
+                            indicators: buildIndicators(tfDraft[slot]),
+                        },
+                    ]),
+                ),
+                automation: { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval },
+                activation: {
+                    disabled_indicators: activation.disabledIndicators.split(',').map((s) => s.trim()).filter(Boolean),
+                    disabled_signals: [],
+                    disabled_signal_kinds: [],
+                    liquidation_feed: activation.liquidationFeed,
+                    cluster_estimation: activation.clusterEstimation,
+                    liquidity_signals_enabled: activation.liquiditySignalsEnabled,
+                },
             };
             // Prefer the backend-assigned UUID; fall back to the pair key only
             // for the first paint of a freshly added instance whose UUID has
@@ -534,21 +583,23 @@
                     const headerId = res.headers.get('x-instance-id');
                     if (headerId) target.instanceId = headerId;
                 }
-                for (const slot of activeDurations(target)) {
+                for (const slot of ladder) {
                     const tf = target.terms[slot];
                     if (tf) applyTermToTelemetry(tfDraft[slot], tf);
                 }
-                // Force WS reconnect so each connection's URL carries the
-                // new `timeframe_secs` value matching the recharged pipeline.
-                app.bumpWsVersion();
-                // Drop the cached `/api/history?…&timeframe_secs=<old>` so the
-                // next PriceChart mount refetches for the new timeframe_secs.
-                clearHistoryCache();
-                clearCandleCache();
+                if (!ladderChanged) {
+                    // Params-only save still forces the WS reconnect so each
+                    // connection's URL carries the current `timeframe_secs`.
+                    app.bumpWsVersion();
+                    clearHistoryCache();
+                    clearCandleCache();
+                }
                 baseline = snapshotKey();
                 saveState = 'saved';
                 setTimeout(() => { saveState = 'idle'; }, 2000);
             } else {
+                const txt = await res.text().catch(() => '');
+                identityError = txt || `Instance config save failed (${res.status})`;
                 saveState = 'error';
             }
         } catch (e) {
@@ -617,7 +668,7 @@
             <div class={styles.tfShell}>
                 <aside class={styles.tfShellRail}>
                     {#each DURATIONS as slot (slot)}
-                        {@const on = (pair.activeDurations ?? []).includes(slot)}
+                        {@const on = activeLadder.includes(slot)}
                         <div
                             class="{styles.railRow} {selectedSlot === slot ? styles.active : ''} {on ? '' : styles.railRowOff}"
                         >
@@ -626,7 +677,7 @@
                                 class="{styles.railSwitch} {on ? styles.railSwitchOn : ''}"
                                 aria-pressed={on}
                                 aria-label="{tfLabel(slot)} activation"
-                                disabled={on && (pair.activeDurations?.length ?? 0) <= 1}
+                                disabled={on && activeLadder.length <= 1}
                                 title={on ? 'Deactivate' : 'Activate'}
                                 onclick={() => toggleTfSlot(slot)}
                             ></button>
@@ -658,7 +709,7 @@
                         {@render paramFields(paneSlot, tfDraft[paneSlot])}
                     </div>
                     <div class={styles.paneFooter}>
-                        Active: {(pair.activeDurations ?? []).length} / {DURATIONS.length}
+                        Active: {activeLadder.length} / {DURATIONS.length}
                     </div>
                 </div>
             </div>
@@ -673,15 +724,17 @@
                 Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
                 of any selected integer × tier. Matching bands intensify, the rest dim. Configured per timeframe.
             </p>
-            {#each slotOrder as slot (slot)}
-                <div class={styles.heatmapBlock}>
-                    <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[slot]}</h4>
-                    <LiquidationHeatmapTierPicker
-                        tiers={tfDraft[slot].heatmapLeverageTiers}
-                        onChange={(next) => updateSlotLeverageTiers(slot, next)}
-                    />
-                </div>
-            {/each}
+            <div class={styles.heatmapGrid}>
+                {#each slotOrder as slot (slot)}
+                    <div class={styles.heatmapCard}>
+                        <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[slot]}</h4>
+                        <LiquidationHeatmapTierPicker
+                            tiers={tfDraft[slot].heatmapLeverageTiers}
+                            onChange={(next) => updateSlotLeverageTiers(slot, next)}
+                        />
+                    </div>
+                {/each}
+            </div>
         </div>
 
         <div class={engine.card}>
@@ -720,25 +773,27 @@
                 Disable noisy indicators for this instance (comma-separated keys, e.g. <code class={engine.code}>choppiness, zscore</code>) and
                 control which liquidity feeds feed the derivatives telemetry.
             </p>
-            <div class={engine.formRow}>
+            <!-- v11.11: two side-by-side panes — the text input left, the
+                 telemetry checkboxes right (single row, better space use). -->
+            <div class={styles.activationGrid}>
                 <div class={engine.field}>
                     <label class={engine.fieldLabel} for="ws-act-disabled">Disabled indicators</label>
                     <input class={engine.fieldInput} id="ws-act-disabled" type="text" bind:value={activation.disabledIndicators} placeholder="choppiness, zscore" spellcheck="false" />
                 </div>
-            </div>
-            <div class={styles.visGrid}>
-                <label class="{styles.visToggle} {activation.liquidationFeed ? styles.visToggleOn : ''}">
-                    <input type="checkbox" bind:checked={activation.liquidationFeed} />
-                    <span>Liquidation feed</span>
-                </label>
-                <label class="{styles.visToggle} {activation.clusterEstimation ? styles.visToggleOn : ''}">
-                    <input type="checkbox" bind:checked={activation.clusterEstimation} />
-                    <span>Cluster estimation</span>
-                </label>
-                <label class="{styles.visToggle} {activation.liquiditySignalsEnabled ? styles.visToggleOn : ''}">
-                    <input type="checkbox" bind:checked={activation.liquiditySignalsEnabled} />
-                    <span>Liquidity signals</span>
-                </label>
+                <div class={styles.visGrid}>
+                    <label class="{styles.visToggle} {activation.liquidationFeed ? styles.visToggleOn : ''}">
+                        <input type="checkbox" bind:checked={activation.liquidationFeed} />
+                        <span>Liquidation feed</span>
+                    </label>
+                    <label class="{styles.visToggle} {activation.clusterEstimation ? styles.visToggleOn : ''}">
+                        <input type="checkbox" bind:checked={activation.clusterEstimation} />
+                        <span>Cluster estimation</span>
+                    </label>
+                    <label class="{styles.visToggle} {activation.liquiditySignalsEnabled ? styles.visToggleOn : ''}">
+                        <input type="checkbox" bind:checked={activation.liquiditySignalsEnabled} />
+                        <span>Liquidity signals</span>
+                    </label>
+                </div>
             </div>
         </div>
     </section>

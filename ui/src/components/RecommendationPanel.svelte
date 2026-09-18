@@ -261,6 +261,33 @@
     // the empty container).
     const topSetup = $derived(topSetupSummary(opportunity, analysis, decisionCtx, rank.top, markPrice));
 
+    // v11.11: the setup chips row only carries information when TWO OR
+    // MORE qualifying setups share one direction (e.g. a LONG Breakout and
+    // a LONG Pullback). A single qualifying setup headlines the card and
+    // needs no row, and the old "qualifying — see Opportunities" pointer
+    // is gone. Chips read `SIDE Type (met/total)`, capped at three.
+    const setupChips = $derived.by((): string[] | null => {
+        const setup = topSetup;
+        if (!setup || setup.opportunity_type === 'NoActiveSetup') return null;
+        const headlineSide = setup.direction === 'LONG' || setup.direction === 'SHORT' ? setup.direction : null;
+        const counts = new Map<string, string[]>();
+        if (headlineSide) {
+            counts.set(headlineSide, [
+                `${headlineSide} ${sanitizeLabel(setup.opportunity_type)} (${setup.preconditions_met}/${setup.preconditions_total})`,
+            ]);
+        }
+        for (const alt of setup.alternate_setups ?? []) {
+            if (alt.side !== 'LONG' && alt.side !== 'SHORT') continue;
+            const list = counts.get(alt.side) ?? [];
+            list.push(`${alt.side} ${sanitizeLabel(alt.opportunity_type)} (${alt.preconditions_met}/${alt.preconditions_total})`);
+            counts.set(alt.side, list);
+        }
+        for (const chips of counts.values()) {
+            if (chips.length >= 2) return chips.slice(0, 3);
+        }
+        return null;
+    });
+
     // ── R:R (Risk-Adj R:R) display: when verdict is HOLD AND the
     // discount is 0, surface "N/A — no directional bias" instead of a
     // misleading "0.00" that operators read as "this trade has 0 R:R".
@@ -338,6 +365,9 @@
          [Subject] Summary naming scheme. The verdict-consistent accent
          (green LONG / red SHORT / amber HOLD) rides the SummaryCard's
          left edge (v7.2). ── -->
+    <!-- v11.11: title blocks wrapped in `.section` for a uniform 16px
+         rhythm, mirroring the Alignment panel. -->
+    <div class={styles.section}>
     <SummaryCard label="VERDICT & RATIONALE" accent={verdictAccent}>
         <div class={styles.verdictCard}>
             <blockquote class={styles.verdictQuote}>{buildVerdictSentence(rank, dangerDisplay)}</blockquote>
@@ -357,10 +387,12 @@
             </ul>
         </div>
     </SummaryCard>
+    </div>
 
     <!-- Unified directional gauge — net bias from Long% − Short%,
          shown as a semi-circular dial. Center = Neutral, right = Long (green),
          left = Short (red). -->
+    <div class={styles.section}>
     <div class={styles.sectionTitle}>Recommendation Bias</div>
     <div class={styles.gaugeCard}>
         <div class={styles.gaugeWrap}>
@@ -389,6 +421,7 @@
                 <span class="{styles.gaugeLong} {biasDirection !== 'LONG' ? styles.dim : ''}">LONG</span>
             </div>
         </div>
+    </div>
     </div>
 
     <!-- ── SETUP (the single unified presentation — verdict-consistent
@@ -492,25 +525,14 @@
                         </span>
                     </div>
                 </div>
-                {#if topSetup.direction !== 'NEUTRAL' && topSetup.zones && topSetup.zones.invalidation > 0}
-                    <div class={styles.profileCardInvalidation}>
-                        A close {topSetup.direction === 'LONG' ? 'below' : 'above'} ${fmtPriceScale(topSetup.zones.invalidation, markPrice)} on the completed candle invalidates the {sanitizeLabel(topSetup.opportunity_type)} thesis.
-                    </div>
-                {/if}
                 {#if topSetup.rationale && topSetup.rationale !== `${topSetup.opportunity_type}: preconditions ${topSetup.preconditions_met}/${topSetup.preconditions_total}`}
                     <div class={styles.profileCardNotes}>{topSetup.rationale}</div>
                 {/if}
-                {#if (topSetup.alternate_setups?.length ?? 0) > 0}
+                {#if setupChips}
                     <div class={styles.alternateNote}>
-                        {#each topSetup.alternate_setups.slice(0, 2) as alt, i (i)}
-                            <span class={styles.alternateItem}>
-                                {alt.side === 'LONG' ? 'LONG' : alt.side === 'SHORT' ? 'SHORT' : 'NEUTRAL'} {sanitizeLabel(alt.opportunity_type)} ({alt.preconditions_met}/{alt.preconditions_total})
-                            </span>
+                        {#each setupChips as chip, i (i)}
+                            <span class={styles.alternateItem}>{chip}</span>
                         {/each}
-                        {#if topSetup.alternate_setups.length > 2}
-                            <span class={styles.alternateItem}>+{topSetup.alternate_setups.length - 2} more</span>
-                        {/if}
-                        <span class={styles.alternateLabel}>qualifying — see Opportunities</span>
                     </div>
                 {/if}
             </div>

@@ -20,9 +20,15 @@
         entries: BadgeHistoryEntry[];
         /** How many past states to show (default 4; Alignment uses 6). */
         max?: number;
+        /** v11.11: uniform size — no per-position shrink (Instance Status
+         *  table, where a consistent type scale matters more than the
+         *  size-based recency cue; opacity still encodes recency). */
+        flat?: boolean;
+        /** Font size (px) for flat mode. */
+        flatSize?: number;
     }
 
-    let { entries, max = 4 }: Props = $props();
+    let { entries, max = 4, flat = false, flatSize = 10.5 }: Props = $props();
 
     const ghosts = $derived(entries.slice(1, 1 + Math.max(0, Math.min(max, 6))));
     const now = $derived(Date.now());
@@ -33,8 +39,8 @@
     <span class={styles.trail} aria-hidden="true">
         {#each ghosts as g, i (g.ts)}
             <span class={styles.sep} aria-hidden="true">▸</span><span
-                class="{styles.ghost} {styles[`ghost${i + 1}`]}"
-                style="color: {g.color};"
+                class="{styles.ghost} {flat ? styles.ghostFlat : styles[`ghost${i + 1}`]}"
+                style="color: {g.color}; {flat ? `font-size: ${flatSize}px; opacity: ${Math.max(0.25, 1 - i * 0.18)};` : ''}"
             >{g.label}</span>
         {/each}
     </span>

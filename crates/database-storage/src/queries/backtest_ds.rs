@@ -380,10 +380,8 @@ mod tests {
         pool
     }
 
-    fn run_row(pool: &SqlitePool) -> impl std::future::Future<Output = i64> + '_ {
-        async move {
-            crate::queries::analytics::insert_backtest_run(pool, "{}", "{}", "{}", "{}", "{}").await
-        }
+    async fn run_row(pool: &SqlitePool) -> i64 {
+        crate::queries::analytics::insert_backtest_run(pool, "{}", "{}", "{}", "{}", "{}").await
     }
 
     #[tokio::test]

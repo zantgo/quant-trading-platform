@@ -655,6 +655,7 @@ fn directional_vote_hold(
 ///   hysteresis (FIX-H1): a graced direction HOLDS while the score stays above
 ///   `BIAS_GRACE_HOLD_BAND_MIN` and the vote does not collapse, so a 19.5→13.8
 ///   composite move does not flip the bias Bullish→Neutral mid-consensus.
+#[allow(clippy::too_many_arguments)]
 pub fn derive_analysis(
     alignment: &AlignmentMatrix,
     bbwp: Option<f64>,

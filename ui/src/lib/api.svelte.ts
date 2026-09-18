@@ -64,7 +64,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
 
     // v11.9: `[workspace].timeframes` — the ACTIVE duration set (seconds,
     // ascending subset of the supported pool). Seeded into the settings
-    // store so the MME TimeframeSettings editor starts from the
+    // store so the MME Settings editors start from the
     // authoritative value. The wire may carry it top-level or under a
     // `workspace` sub-object; anything malformed leaves the store as-is.
     const rawSet = (config.timeframes
@@ -192,7 +192,11 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         return pairKeyFromDeclaredSymbol(app, declared);
     }));
     for (const key of Object.keys(app.instancesMap)) {
-        if (!declaredKeys.has(key)) {
+        // v11.11: only drop UNCONFIRMED entries. A backend-confirmed
+        // instance (instanceId assigned at creation) must never be wiped by
+        // a config snapshot that predates its creation — the add-time
+        // creation race that emptied the post-launch overview.
+        if (!declaredKeys.has(key) && !app.instancesMap[key].instanceId) {
             app.removeInstance(key);
         }
     }
@@ -369,7 +373,15 @@ export async function syncInstanceIdsFromList(app: AppStore): Promise<void> {
             // v11.2: mirror the ACTIVE ladder (`active_secs` → slot kinds).
             // An absent/empty list leaves the store's all-10 default — the
             // instance payload always carries the field on v11.2+ backends.
-            if (entry && Array.isArray(inst.active_secs) && inst.active_secs.length > 0) {
+            // v11.11: skipped inside the post-save grace window — a stale
+            // `active_secs` must not revert a ladder the operator just
+            // saved (see `AppStore.notifyLadderSaved`).
+            if (
+                entry
+                && Array.isArray(inst.active_secs)
+                && inst.active_secs.length > 0
+                && !app.ladderSaveInGrace()
+            ) {
                 entry.activeDurations = durationsFromSecs(inst.active_secs);
             }
         }

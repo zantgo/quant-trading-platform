@@ -949,7 +949,7 @@ async fn spawn_tasks(
             u64,
         );
         // One refresh handle-set per ACTIVE duration (fastest → slowest).
-        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = (0..n)
+        let per_tf_handles: Vec<ClusterRefreshHandle<'_>> = (0..n)
             .map(|i| {
                 (
                     active_secs[i],

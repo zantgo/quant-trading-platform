@@ -1,4 +1,9 @@
 use crate::AppState;
+
+/// v11.12: clippy `type_complexity` — raw `query_as` tuple row for the
+/// anomaly-events query.
+type AnomalyRow = (String, i64, i64, String, String, String, String, String);
+
 use axum::{
     extract::{Query, State},
     response::IntoResponse,
@@ -1575,7 +1580,6 @@ pub async fn serve_analytics_comparison(State(state): State<Arc<AppState>>) -> i
     // Backtests.
     let runs = database_storage::query_backtest_runs_list(&state.pool, 200).await;
     {
-        let runs = runs;
         for r in runs {
             let summary: serde_json::Value =
                 serde_json::from_str(&r.summary_json).unwrap_or(serde_json::Value::Null);
@@ -1652,7 +1656,7 @@ pub async fn serve_backtest_input_bars(
 ) -> impl IntoResponse {
     let symbol_filter = query.symbol.clone();
     let tf_filter = query.timeframe_secs;
-    let rows: Vec<(String, i64, i64, String, String, String, String, String)> = sqlx::query_as(
+    let rows: Vec<AnomalyRow> = sqlx::query_as(
         "SELECT symbol, timeframe_secs, ts_secs, open, high, low, close, volume
          FROM backtest_input_bars
          WHERE run_id = ?1

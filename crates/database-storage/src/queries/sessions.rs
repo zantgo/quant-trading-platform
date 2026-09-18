@@ -67,9 +67,21 @@ pub async fn current_session_id(pool: &SqlitePool) -> Result<Option<i64>, sqlx::
     Ok(row.map(|r| r.0))
 }
 
+/// v11.12: clippy `type_complexity` — the raw `query_as` tuple row.
+type SessionRowTuple = (
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<f64>,
+    i64,
+    Option<i64>,
+    String,
+);
+
 /// All sessions, newest first.
 pub async fn list_sessions(pool: &SqlitePool) -> Result<Vec<SessionRow>, sqlx::Error> {
-    let rows: Vec<(i64, String, Option<String>, Option<String>, Option<f64>, i64, Option<i64>, String)> =
+    let rows: Vec<SessionRowTuple> =
         sqlx::query_as(
             "SELECT id, mode, exchange, currency, portfolio_capital_usd, started_at_ms, ended_at_ms, status
              FROM sessions ORDER BY id DESC",

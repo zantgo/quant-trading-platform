@@ -1184,9 +1184,11 @@ mod tests {
 
     #[tokio::test]
     async fn funding_settlement_is_direction_aware() {
-        let mut cfg = FeesConfig::default();
         // Positive rate: longs pay, shorts receive.
-        cfg.funding_rate_8h = 0.01;
+        let cfg = FeesConfig {
+            funding_rate_8h: 0.01,
+            ..Default::default()
+        };
         let e = ExecutionEngine::new(cfg);
         e.set_initial_equity(dec!(10_000)).await;
 
@@ -1246,8 +1248,10 @@ mod tests {
 
     #[tokio::test]
     async fn settle_funding_with_rate_override_uses_passed_rate() {
-        let mut cfg = FeesConfig::default();
-        cfg.funding_rate_8h = 0.01;
+        let cfg = FeesConfig {
+            funding_rate_8h: 0.01,
+            ..Default::default()
+        };
         let e = ExecutionEngine::new(cfg);
         e.set_initial_equity(dec!(10_000)).await;
         open_long(&e, "BTC-USDC", dec!(100)).await;
@@ -1266,8 +1270,10 @@ mod tests {
 
     #[tokio::test]
     async fn fill_prices_include_configured_slippage() {
-        let mut cfg = FeesConfig::default();
-        cfg.slippage_bps = 5.0;
+        let cfg = FeesConfig {
+            slippage_bps: 5.0,
+            ..Default::default()
+        };
         let e = ExecutionEngine::new(cfg);
         e.set_initial_equity(dec!(10_000)).await;
 
@@ -1306,8 +1312,10 @@ mod tests {
 
     #[tokio::test]
     async fn limit_fills_clamp_at_resting_price_with_slippage() {
-        let mut cfg = FeesConfig::default();
-        cfg.slippage_bps = 5.0;
+        let cfg = FeesConfig {
+            slippage_bps: 5.0,
+            ..Default::default()
+        };
         let e = ExecutionEngine::new(cfg);
         e.set_initial_equity(dec!(10_000)).await;
         e.submit_order(

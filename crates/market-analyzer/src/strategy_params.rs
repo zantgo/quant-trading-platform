@@ -11,34 +11,36 @@ pub fn decision_params_from_strategy(
     l6: &config_models::L6Params,
 ) -> core_domain::decision_params::DecisionParams {
     use core_domain::decision_params::DecisionParams;
-    let mut p = DecisionParams::default();
-    p.confluence_weights = l6.synthesis.confluence_weights;
-    p.risk_discount_k = l6.synthesis.risk_discount_k;
-    p.opportunity_fallback = l6.synthesis.opportunity_fallback;
-    p.stance_risk_avoid = l6.stance.risk.avoid;
-    p.stance_risk_cautious = l6.stance.risk.cautious;
-    p.stance_risk_neutral = l6.stance.risk.neutral;
-    p.stance_risk_constructive = l6.stance.risk.constructive;
-    p.stance_risk_aggressive = l6.stance.risk.aggressive;
-    p.direction_risk_strong = l6.direction.risk_strong;
-    p.direction_risk_plain = l6.direction.risk_plain;
-    p.entry_vol_no_entry = l6.entry.vol_risk_no_entry;
-    p.entry_vol_immediate = l6.entry.vol_risk_immediate;
-    p.entry_vol_breakout = l6.entry.vol_risk_breakout;
-    p.exit_risk_increasing = l6.exit.risk_increasing;
-    p.exit_trend_weakening = l6.exit.trend_weakening;
-    p.protection_vol_risk = l6.protection.vol_risk;
-    p.sr_proximity_atr_mult = l6.protection.sr_proximity_atr_mult;
-    p.target_rr_based = l6.target.rr_based;
-    p.target_trailing = l6.target.trailing;
-    p.stop_base_mult_strong = l6.stop.base_multiplier.strong;
-    p.stop_base_mult_weak = l6.stop.base_multiplier.weak;
-    p.stop_base_pct = l6.stop.base_pct;
-    p.stop_base_clamp_min = l6.stop.base_clamp[0];
-    p.stop_base_clamp_max = l6.stop.base_clamp[1];
-    p.stop_vol_bump_scale = l6.stop.vol_bump_scale;
-    p.stop_final_clamp_min = l6.stop.final_clamp[0];
-    p.stop_final_clamp_max = l6.stop.final_clamp[1];
+    let mut p = DecisionParams {
+        confluence_weights: l6.synthesis.confluence_weights,
+        risk_discount_k: l6.synthesis.risk_discount_k,
+        opportunity_fallback: l6.synthesis.opportunity_fallback,
+        stance_risk_avoid: l6.stance.risk.avoid,
+        stance_risk_cautious: l6.stance.risk.cautious,
+        stance_risk_neutral: l6.stance.risk.neutral,
+        stance_risk_constructive: l6.stance.risk.constructive,
+        stance_risk_aggressive: l6.stance.risk.aggressive,
+        direction_risk_strong: l6.direction.risk_strong,
+        direction_risk_plain: l6.direction.risk_plain,
+        entry_vol_no_entry: l6.entry.vol_risk_no_entry,
+        entry_vol_immediate: l6.entry.vol_risk_immediate,
+        entry_vol_breakout: l6.entry.vol_risk_breakout,
+        exit_risk_increasing: l6.exit.risk_increasing,
+        exit_trend_weakening: l6.exit.trend_weakening,
+        protection_vol_risk: l6.protection.vol_risk,
+        sr_proximity_atr_mult: l6.protection.sr_proximity_atr_mult,
+        target_rr_based: l6.target.rr_based,
+        target_trailing: l6.target.trailing,
+        stop_base_mult_strong: l6.stop.base_multiplier.strong,
+        stop_base_mult_weak: l6.stop.base_multiplier.weak,
+        stop_base_pct: l6.stop.base_pct,
+        stop_base_clamp_min: l6.stop.base_clamp[0],
+        stop_base_clamp_max: l6.stop.base_clamp[1],
+        stop_vol_bump_scale: l6.stop.vol_bump_scale,
+        stop_final_clamp_min: l6.stop.final_clamp[0],
+        stop_final_clamp_max: l6.stop.final_clamp[1],
+        ..Default::default()
+    };
     if let Some(q) = l6.entry_danger.quality_penalties.get("Excellent") {
         p.quality_penalties[0] = *q;
     }
@@ -80,9 +82,11 @@ pub fn analysis_params_from_strategy(
     l3: &config_models::L3Params,
 ) -> core_domain::analysis::AnalysisParams {
     use core_domain::analysis::AnalysisParams;
-    let mut p = AnalysisParams::default();
-    p.bias_strong = l3.bias.bands.strong;
-    p.bias_plain = l3.bias.bands.plain;
+    let mut p = AnalysisParams {
+        bias_strong: l3.bias.bands.strong,
+        bias_plain: l3.bias.bands.plain,
+        ..Default::default()
+    };
     let g = &l3.bias.grace;
     p.grace_band_min = g.band[0];
     p.grace_band_max = g.band[1];
@@ -130,26 +134,26 @@ pub fn alignment_params_from_strategy(
     l2: &config_models::L2Params,
 ) -> core_domain::alignment::AlignmentParams {
     use core_domain::alignment::AlignmentParams;
-    let mut p = AlignmentParams::default();
-    p.tf_weight_mode = l2.tf_weighting.mode.clone();
-    p.tf_weights = l2.tf_weighting.weights.clone();
-    p.tf_weight_floor = l2.tf_weighting.floor;
-    p.tf_weight_ceil = l2.tf_weighting.ceil;
-    p.blend_trend = l2.overall_blend.trend;
-    p.blend_momentum = l2.overall_blend.momentum;
-    p.blend_volume = l2.overall_blend.volume;
-    p.blend_volatility = l2.overall_blend.volatility;
-    p.thin_volume_enabled = l2.thin_volume.enabled;
-    p.thin_volume_threshold = l2.thin_volume.threshold;
-    p.thin_blend_trend = l2.thin_volume.blend.trend;
-    p.thin_blend_momentum = l2.thin_volume.blend.momentum;
-    p.thin_blend_volume = l2.thin_volume.blend.volume;
-    p.thin_blend_volatility = l2.thin_volume.blend.volatility;
-    p.min_confluence_tfs = l2.confluence.min_tfs as u32;
-    p.trend_agreement_weighted = l2.trend_agreement_weighted;
-    p.dimension_mask = l2.dimension_mask.clone();
-    p.overall_label_bands = l2.states.overall_label_bands;
-    p
+    AlignmentParams {
+        tf_weight_mode: l2.tf_weighting.mode.clone(),
+        tf_weights: l2.tf_weighting.weights.clone(),
+        tf_weight_floor: l2.tf_weighting.floor,
+        tf_weight_ceil: l2.tf_weighting.ceil,
+        blend_trend: l2.overall_blend.trend,
+        blend_momentum: l2.overall_blend.momentum,
+        blend_volume: l2.overall_blend.volume,
+        blend_volatility: l2.overall_blend.volatility,
+        thin_volume_enabled: l2.thin_volume.enabled,
+        thin_volume_threshold: l2.thin_volume.threshold,
+        thin_blend_trend: l2.thin_volume.blend.trend,
+        thin_blend_momentum: l2.thin_volume.blend.momentum,
+        thin_blend_volume: l2.thin_volume.blend.volume,
+        thin_blend_volatility: l2.thin_volume.blend.volatility,
+        min_confluence_tfs: l2.confluence.min_tfs as u32,
+        trend_agreement_weighted: l2.trend_agreement_weighted,
+        dimension_mask: l2.dimension_mask.clone(),
+        overall_label_bands: l2.states.overall_label_bands,
+    }
 }
 
 /// Build the L5 runtime `RiskParams` from the strategy's `l5` section.
@@ -258,19 +262,21 @@ pub fn overview_params_from_strategy(
     l7: &config_models::L7Params,
 ) -> core_domain::overview::OverviewParams {
     use core_domain::overview::OverviewParams;
-    let mut p = OverviewParams::default();
-    p.breadth_strong = l7.breadth_bands.strong;
-    p.breadth_positive = l7.breadth_bands.positive;
-    p.breadth_balanced = l7.breadth_bands.balanced;
-    p.global_bias_strong_share = l7.global_bias.strong_share;
-    p.global_bias_plain_share = l7.global_bias.plain_share;
-    p.sync_bands = l7.sync_bands;
-    p.risk_low_max = l7.risk.dist_bins.low_max;
-    p.risk_high_min = l7.risk.dist_bins.high_min;
-    p.env_mean_high = l7.risk.env_mean.high;
-    p.env_mean_moderate = l7.risk.env_mean.moderate;
-    p.systemic_high_weight = l7.systemic.weights[0];
-    p.systemic_sync_weight = l7.systemic.weights[1];
+    let mut p = OverviewParams {
+        breadth_strong: l7.breadth_bands.strong,
+        breadth_positive: l7.breadth_bands.positive,
+        breadth_balanced: l7.breadth_bands.balanced,
+        global_bias_strong_share: l7.global_bias.strong_share,
+        global_bias_plain_share: l7.global_bias.plain_share,
+        sync_bands: l7.sync_bands,
+        risk_low_max: l7.risk.dist_bins.low_max,
+        risk_high_min: l7.risk.dist_bins.high_min,
+        env_mean_high: l7.risk.env_mean.high,
+        env_mean_moderate: l7.risk.env_mean.moderate,
+        systemic_high_weight: l7.systemic.weights[0],
+        systemic_sync_weight: l7.systemic.weights[1],
+        ..Default::default()
+    };
     let sp = &l7.systemic.sync_penalty;
     p.sync_penalty = [
         sp.get("highly_synchronized").copied().unwrap_or(100.0),

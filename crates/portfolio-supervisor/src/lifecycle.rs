@@ -75,6 +75,7 @@ impl LifecycleManager {
     ///     "never start trading unless explicitly activated").
     ///   - automation with start-at triggers → STOPPED (waits for the
     ///     trigger; unchanged legacy rule).
+    ///
     /// `mode = None` keeps the legacy RUNNING default (tests, ad-hoc).
     pub fn new_for_mode(
         automation: Option<AutomationState>,
@@ -436,8 +437,10 @@ mod tests {
 
     #[test]
     fn automation_start_triggers_boot_stopped_regardless_of_mode() {
-        let mut cond = AutomationConditions::default();
-        cond.start_at_time = Some("2026-01-01T00:00:00Z".to_string());
+        let cond = AutomationConditions {
+            start_at_time: Some("2026-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
         let mgr = LifecycleManager::new_for_mode(
             Some(AutomationState::new(cond)),
             Some(config_models::ExecutionMode::Paper),

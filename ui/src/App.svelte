@@ -481,7 +481,7 @@
 
 {#if !app.sessionChecked}
     <div class={styles.loading}><div class={styles.spinner}></div><span>Connecting to Trading Platform…</span></div>
-{:else if !app.sessionActive}
+{:else if !app.sessionActive || app.wizardActive}
     <LaunchSetup />
 {:else}
     <div class={styles.gridContainer}>

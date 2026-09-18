@@ -166,7 +166,9 @@ impl Instance {
             buffers,
             active_secs,
             lifecycle: RwLock::new(lifecycle_mgr),
-            execution_mode: RwLock::new(config_models::ExecutionMode::Paper),
+            // Transient init — `set_execution_mode` overrides right after
+            // construction in add/recharge. Workspace default is observe.
+            execution_mode: RwLock::new(config_models::ExecutionMode::Observe),
         }
     }
 

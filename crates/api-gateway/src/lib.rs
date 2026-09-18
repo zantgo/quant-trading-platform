@@ -298,26 +298,31 @@ impl AppState {
         let exchange = info
             .exchange
             .as_deref()
-            .and_then(|e| {
+            .map(|e| {
                 if e.eq_ignore_ascii_case("bitget") {
-                    Some(portfolio_supervisor::session::ExchangeChoice::Bitget)
+                    portfolio_supervisor::session::ExchangeChoice::Bitget
                 } else {
-                    Some(portfolio_supervisor::session::ExchangeChoice::Hyperliquid)
+                    portfolio_supervisor::session::ExchangeChoice::Hyperliquid
                 }
             })
             .ok_or("interrupted session has no exchange recorded")?;
         let currency = info
             .currency
             .as_deref()
-            .and_then(|c| {
+            .map(|c| {
                 if c.eq_ignore_ascii_case("usdt") {
-                    Some(portfolio_supervisor::session::Currency::USDT)
+                    portfolio_supervisor::session::Currency::USDT
                 } else {
-                    Some(portfolio_supervisor::session::Currency::USDC)
+                    portfolio_supervisor::session::Currency::USDC
                 }
             })
             .ok_or("interrupted session has no currency recorded")?;
-        let mode = info.mode.clone().unwrap_or_else(|| "observe".into());
+        // The persisted instances are the session's truth (v7.3 doctrine) —
+        // NOT the boot-time `mode` column, which is a stale guess written
+        // before the wizard ran. An empty workspace recovers as observe.
+        let mode =
+            config_models::session_mode_from_instances(&self.workspace.config().await.instances)
+                .to_string();
         let capital = if mode == "paper" {
             Some(self.workspace.config().await.portfolio_capital_usd)
         } else {

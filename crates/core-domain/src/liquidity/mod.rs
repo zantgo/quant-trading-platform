@@ -1840,6 +1840,7 @@ mod cluster_tests {
         assert_ne!(key_narrow, key_wide);
     }
 
+    #[test]
     fn cluster_magnet_strength_decays_with_distance() {
         let history = make_history(50_000.0, 200, 200.0);
         let input = ClusterEstimateInput {
