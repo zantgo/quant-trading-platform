@@ -6,7 +6,7 @@ import { activeDurations } from './terms';
 import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
 import { emitCandleDebug } from './candleDebug';
 import { pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY, getBadgeHistory } from './badgeHistory.svelte';
-import { buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader, buildL5RiskHeader, buildL6DecisionHeader, metricsBadgeFor } from './layerHeader';
+import { buildL1MtfHeader, buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader, buildL5RiskHeader, buildL6DecisionHeader, metricsBadgeFor, prettifyEnum } from './layerHeader';
 import { computeDecisionRank } from './decisionRank';
 import type { Time } from 'lightweight-charts';
 
@@ -478,6 +478,17 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             const fastestActive = activeDurations(pairInst)[0];
             if (fastestActive === tf.slot) {
                 const now = Date.now();
+                // v11.11: the MTF SYNC verdict gets a badge trail too —
+                // sampled on the same pair candle cycle as L2–L6.
+                pushBadge(layerKey('mtf', symbol), (() => {
+                    const b = buildL1MtfHeader(pair.alignment).badge;
+                    const verdict = pair.alignment?.mtf_overall_label;
+                    return {
+                        label: verdict ? prettifyEnum(verdict) : b.label,
+                        color: b.color,
+                        ts: now,
+                    };
+                })());
                 pushBadge(layerKey('l2', symbol), (() => {
                     const b = buildL2AlignmentHeader(pair.alignment).badge;
                     return { label: b.label, color: b.color, ts: now };
