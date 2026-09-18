@@ -10,44 +10,16 @@
 
     const app = useAppStore();
 
-    // v11.8: optional section override — the dedicated Settings page hosts
-    // this component without an engine navbar, so it pins the section.
-    let { sectionOverride = null, sectionSwitch = false }: {
-        sectionOverride?: 'fee' | 'share' | null;
-        /// v11.9: MME Settings (no instance) hosts this component without
-        /// an engine navbar — render the Fees & Leverage / Share Config
-        /// switch inline.
-        sectionSwitch?: boolean;
-    } = $props();
-    let pickedSection = $state<'fee' | 'share' | null>(null);
-
-    // Section pages are driven by the engine navbar (profile /
-    // settings tab rows). v10.1: the Exchange (credentials)
-    // section only exists in live mode; the old Settings section moved
-    // to DIE → Connection Settings. Fallback = 'fee'.
+    // v11.11: the single GENERAL SETTINGS page — every general container
+    // (Fees & Leverage, Cost Projection, Exchange in live mode, Share
+    // Config) renders stacked on one page. The old section switch and
+    // per-section routing are gone.
     const sessionMode = $derived(
         app.sessionMode === 'observe' || app.sessionMode === 'paper' || app.sessionMode === 'live'
             ? app.sessionMode
             : 'paper',
     );
-    let section = $derived(
-        pickedSection
-            ? pickedSection
-            : sectionOverride
-                ? sectionOverride
-                : ['fee', 'exchange', 'share'].includes(app.middleTab)
-                    && (app.middleTab !== 'exchange' || sessionMode === 'live')
-                    ? app.middleTab
-                    : 'fee',
-    );
-
-    const sectionTitles: Record<string, string> = {
-        fee: 'Fees, Leverage & Cost Projection',
-        exchange: 'Exchange Settings',
-        share: 'Share Configuration',
-    };
-
-    const sectionTabLabel = 'SETTINGS';
+    const showExchange = $derived(sessionMode === 'live');
 
     // ─── Fees & Leverage editor — the single source for economics ────────
     interface FeesCfg { maker_fee_pct?: number; taker_fee_pct?: number; funding_rate_8h?: number }
@@ -77,7 +49,8 @@
     }
 
     $effect(() => {
-        if (section === 'fee' && !feeLoaded) void loadFeeConfig();
+        // v11.11: the general page always hosts the fee editor.
+        if (!feeLoaded) void loadFeeConfig();
     });
 
     const feeDirty = $derived.by(() => {
@@ -198,32 +171,17 @@
     <header class={engine.unifiedHeader}>
         <div class={engine.headerTop}>
             <div class={engine.titleGroup}>
-                <h2 class={engine.title}>{sectionTitles[section]}</h2>
+                <h2 class={engine.title}>General Settings</h2>
             </div>
             <div class={engine.headerRight}>
-                {#if sectionSwitch}
-                    <button
-                        type="button"
-                        class={section === 'fee' ? engine.btnPrimary : engine.btn}
-                        onclick={() => (pickedSection = 'fee')}
-                    >Fees &amp; Leverage</button>
-                    <button
-                        type="button"
-                        class={section === 'share' ? engine.btnPrimary : engine.btn}
-                        onclick={() => (pickedSection = 'share')}
-                    >Share Config</button>
-                {/if}
-                <span class={engine.tabLabel}>{sectionTabLabel}</span>
-                {#if section === 'fee'}
-                    <SettingsSaveButton state={feeSaveState} onsave={saveFee} />
-                {/if}
+                <span class={engine.tabLabel}>SETTINGS</span>
+                <SettingsSaveButton state={feeSaveState} onsave={saveFee} />
             </div>
         </div>
     </header>
 
     <div class={styles.profileContent}>
-        {#if section === 'fee'}
-            {#if feeError}
+        {#if feeError}
                 <div class="{engine.alertBanner} {engine.alertError}">{feeError}</div>
             {/if}
 
@@ -301,9 +259,9 @@
                     </div>
                 </div>
             </div>
-        {:else if section === 'exchange'}
+        {#if showExchange}
             <ExchangeSettings />
-        {:else if section === 'share'}
+        {/if}
             <div class={engine.card}>
                 <p class={engine.infoLine}>
                     Download your workspace (instances, timeframes, indicators, fees, safety rules) as a single <code class={engine.code}>config.toml</code> file.
@@ -337,6 +295,5 @@
                     <p class="{engine.neg} {engine.infoLine}" style="margin-top:0.75rem;">{importMessage}</p>
                 {/if}
             </div>
-        {/if}
     </div>
 </div>

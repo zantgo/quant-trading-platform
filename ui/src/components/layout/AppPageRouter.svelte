@@ -112,7 +112,7 @@
             {#if activePair}
                 <WorkspaceSettings pair={activePair} tabKey={activeTab} />
             {:else}
-                <GeneralSettings sectionSwitch />
+                <GeneralSettings />
             {/if}
         {/if}
     {:else if currentEngine === 'performance'}
