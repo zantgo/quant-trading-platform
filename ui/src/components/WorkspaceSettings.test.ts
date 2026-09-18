@@ -34,10 +34,12 @@ function seedPair(activeDurations: number[] = [1, 3, 5, 15, 30]) {
     return { app, pair };
 }
 
-function crudChips(container: HTMLElement): HTMLButtonElement[] {
-    return (Array.from(container.querySelectorAll('button[aria-pressed]')) as HTMLButtonElement[]).filter((b) =>
-        DURATIONS.some((secs) => b.textContent?.includes(tfLabel(secs))),
-    );
+/// v11.11: activation lives in the merged rail — one switch per duration
+/// (`aria-label "<label> activation"`, `aria-pressed`).
+function railSwitches(container: HTMLElement): HTMLButtonElement[] {
+    return Array.from(
+        container.querySelectorAll('button[aria-label$="activation"]'),
+    ) as HTMLButtonElement[];
 }
 
 const originalFetch = globalThis.fetch;
@@ -65,21 +67,53 @@ afterEach(() => {
 });
 
 describe('WorkspaceSettings — Timeframes CRUD (v11.8)', () => {
-    it('renders 14 duration chips, 5 active by default (fastest-5 fixture)', async () => {
+    it('renders 14 rail switches, 5 active by default (fastest-5 fixture)', async () => {
         const { pair } = seedPair();
         const { container } = render(WorkspaceSettings, { props: { pair, tabKey: 'BTC-USDT' } });
         await tick();
-        const chips = crudChips(container);
-        expect(chips.length).toBe(DURATIONS.length);
-        expect(chips.filter((c) => c.getAttribute('aria-pressed') === 'true').length).toBe(5);
-        expect(container.textContent).toContain('Timeframes');
+        const switches = railSwitches(container);
+        expect(switches.length).toBe(DURATIONS.length);
+        expect(switches.filter((c) => c.getAttribute('aria-pressed') === 'true').length).toBe(5);
+        // v11.11 merged editor: ACTIVE tags + grouped parameter pane + footer.
+        expect(container.textContent).toContain('ACTIVE');
+        expect(container.textContent).toContain('TREND & VOLATILITY CHANNELS');
+        expect(container.textContent).toContain('Active: 5 / 14');
+        expect(container.textContent).toContain('Instance Memory: Allocated');
+    });
+
+    it('filters the parameter pane via the filter box', async () => {
+        const { pair } = seedPair();
+        const { container } = render(WorkspaceSettings, { props: { pair, tabKey: 'BTC-USDT' } });
+        await tick();
+        const filter = container.querySelector('input[placeholder="Filter parameters…"]') as HTMLInputElement;
+        expect(filter).toBeTruthy();
+        await fireEvent.input(filter, { target: { value: 'keltner' } });
+        await tick();
+        const text = container.textContent ?? '';
+        expect(text).toContain('Keltner EMA');
+        expect(text).not.toContain('RSI Window');
+    });
+
+    it('clicking a rail row selects the target duration', async () => {
+        const { pair } = seedPair();
+        const { container } = render(WorkspaceSettings, { props: { pair, tabKey: 'BTC-USDT' } });
+        await tick();
+        const rows = Array.from(container.querySelectorAll('button')).filter(
+            (b) => b.textContent?.includes('15s') && !b.getAttribute('aria-label'),
+        ) as HTMLButtonElement[];
+        expect(rows.length).toBeGreaterThan(0);
+        await fireEvent.click(rows[0]);
+        await tick();
+        expect(container.textContent).toContain('15s · 15s — INDICATOR PARAMETERS');
     });
 
     it('activating a duration POSTs timeframes and updates pair.activeDurations', async () => {
         const { pair } = seedPair();
         const { container } = render(WorkspaceSettings, { props: { pair, tabKey: 'BTC-USDT' } });
         await tick();
-        const oneMinute = crudChips(container).find((c) => c.textContent?.includes('1m'))!;
+        const oneMinute = railSwitches(container).find(
+            (c) => c.getAttribute('aria-label') === '1m activation',
+        )!;
         expect(oneMinute.getAttribute('aria-pressed')).toBe('false');
         await fireEvent.click(oneMinute);
         await waitFor(() => {
@@ -97,7 +131,9 @@ describe('WorkspaceSettings — Timeframes CRUD (v11.8)', () => {
         const { pair } = seedPair([1]);
         const { container } = render(WorkspaceSettings, { props: { pair, tabKey: 'BTC-USDT' } });
         await tick();
-        const one = crudChips(container).find((c) => c.textContent?.includes('1s'))!;
+        const one = railSwitches(container).find(
+            (c) => c.getAttribute('aria-label') === '1s activation',
+        )!;
         expect(one.disabled).toBe(true);
         await fireEvent.click(one);
         expect(pair.activeDurations).toEqual([1]);
