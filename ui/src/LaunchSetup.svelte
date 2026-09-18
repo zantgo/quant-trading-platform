@@ -2,6 +2,7 @@
     import { useAppStore } from './state.svelte';
     import { createInstance } from './lib/api.svelte';
     import { tfLabel } from './types';
+    import { activeDurations } from './lib/terms';
     import styles from './LaunchSetup.module.css';
 
     const app = useAppStore();
@@ -86,8 +87,8 @@
     // ─── Wizard state ────────────────────────────────────────────────
     let step = $state(1);
     let mode = $state<LaunchMode>('observe');
-    let exchange = $state('Hyperliquid');
-    let currency = $state('USDC');
+    let exchange = $state('Bitget');
+    let currency = $state('USDT');
     let capital = $state(1000);
     let walletAddress = $state('');
     let privateKey = $state('');
@@ -167,6 +168,41 @@
         }
     }
 
+    // v11.11: welcome-screen instance loading. After a launch WITH staged
+    // instances the wizard waits here until every staged pair has its
+    // first snapshot (WS is auto-attached by App's ws effect). No staged
+    // instances → the wizard lands immediately.
+    let waiting = $state(false);
+    let waitTimedOut = $state(false);
+    let loadingSteps = $state<{ key: string; label: string; ready: boolean }[]>([]);
+
+    async function waitForInstances(keys: string[]): Promise<void> {
+        const deadline = Date.now() + 60_000;
+        while (Date.now() < deadline) {
+            let allReady = true;
+            const next = loadingSteps.map((entry) => {
+                const pair = app.instancesMap[entry.key];
+                const ready = !!pair
+                    && activeDurations(pair).some(
+                        (secs) => pair.terms[secs]?.latestSnapshot != null,
+                    );
+                if (!ready) allReady = false;
+                return ready === entry.ready ? entry : { ...entry, ready };
+            });
+            loadingSteps = next;
+            if (allReady) return;
+            await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        waitTimedOut = true;
+    }
+
+    function landOnOverview(): void {
+        app.currentEngine = 'market_monitor';
+        app.middleTab = 'overview';
+        app.activeEngineTab = 'overview';
+        app.selectedInstance = null;
+    }
+
     async function handleLaunch() {
         error = null;
         loading = true;
@@ -220,12 +256,25 @@
                 app.initInstance(draft.base, exchange, created.instanceId);
             }
 
-            // 4. v11.9 (N3): always land on the Market Monitor Overview,
-            // regardless of the staged instances.
-            app.currentEngine = 'market_monitor';
-            app.middleTab = 'overview';
-            app.activeEngineTab = 'overview';
-            app.selectedInstance = null;
+            // 4. v11.11: with staged instances, hold on the welcome screen
+            // while they warm — every pair must produce a first snapshot
+            // (60 s cap, then the operator can continue). No instances →
+            // land immediately on the Market Monitor Overview.
+            const stagedKeys = instances.map((draft) => app.pairKeyFor(draft.base));
+            if (stagedKeys.length > 0) {
+                loadingSteps = stagedKeys.map((key) => ({
+                    key,
+                    label: app.pairDisplayFor(key) ?? key,
+                    ready: false,
+                }));
+                waiting = true;
+                loading = false;
+                app.bumpWsVersion();
+                await waitForInstances(stagedKeys);
+                if (!waitTimedOut) landOnOverview();
+                return;
+            }
+            landOnOverview();
         } catch (e: any) {
             error = e?.message || 'Launch failed.';
         }
@@ -284,7 +333,36 @@
             </nav>
         </header>
 
-        {#if step === 1}
+        {#if waiting}
+            <section class={styles.section} aria-label="Loading instances">
+                <h2 class={styles.sectionTitle}>Preparing your workspace…</h2>
+                <p class={styles.sectionSubtitle}>
+                    Warming {loadingSteps.length} instance{loadingSteps.length === 1 ? '' : 's'} —
+                    first snapshots arriving.
+                </p>
+                <div class={styles.loadingList}>
+                    {#each loadingSteps as entry (entry.key)}
+                        <div class={styles.loadingRow}>
+                            <span class={styles.loadingName}>{entry.label}</span>
+                            {#if entry.ready}
+                                <span class={styles.loadingReady}>ready ✓</span>
+                            {:else}
+                                <span class={styles.loadingPending}>waiting for first snapshot…</span>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+                {#if waitTimedOut}
+                    <p class={styles.loadingNote}>
+                        Some instances are still warming — continue and watch live
+                        progress in the workspace.
+                    </p>
+                    <button class={styles.primaryButton} onclick={landOnOverview}>
+                        CONTINUE TO WORKSPACE
+                    </button>
+                {/if}
+            </section>
+        {:else if step === 1}
             <section class={styles.section}>
                 <h2 class={styles.sectionTitle}>Choose how you want to start</h2>
                 <div class={styles.modeCards}>
@@ -304,7 +382,6 @@
                             {/if}
                             <span class={styles.modeDesc}>{MODE_META[m].description}</span>
                             <span class={styles.modeArrow}>{mode === m ? '●' : '○'}</span>
-                            <span class={styles.modeStep}>{i + 1}</span>
                         </button>
                     {/each}
                 </div>
@@ -457,6 +534,7 @@
             <div class={styles.formError}>{error}</div>
         {/if}
 
+        {#if !waiting}
         <footer class={styles.footer}>
             {#if step > 1}
                 <button class={styles.backButton} onclick={goBack} disabled={loading}>Back</button>
@@ -478,5 +556,6 @@
                 </button>
             {/if}
         </footer>
+        {/if}
     </div>
 </div>
