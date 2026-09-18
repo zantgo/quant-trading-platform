@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 11.10 (2026-09-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -220,11 +220,13 @@ It applies an additional CSS class `styles.rowSubTabs` on top of `styles.rowTabs
 
 ### 4.1.1 Alignment — Per-Timeframe Status Table (`TfStatusTable`)
 
-The Alignment tab renders a **"Per-timeframe status" table** (`TfStatusTable.svelte`)
-directly under the layer header, above the summary card. One row per **ACTIVE**
-duration (v11.9 — N rows, `[workspace].timeframes`; inactive durations are
-inert and have no status to show), in canonical order (`1S` up, each with its
-duration label — `1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `4h`, `12h`, `1d`):
+The Alignment tab renders a **"Timeframe Status"** section (`TfStatusTable.svelte`)
+with its own section title and container (v11.11 — **always expanded**, no collapse
+bar), positioned **below Metrics and above Score** (order: header → Summary →
+Metrics → Timeframe Status → Score). One row per **ACTIVE** duration (v11.9 —
+N rows, `[workspace].timeframes`; inactive durations are inert and have no status
+to show), in canonical order (`1S` up, each with its duration label — `1s`, `3s`,
+`5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `4h`, `12h`, `1d`):
 
 | Column | Content |
 |--------|---------|
@@ -494,9 +496,24 @@ The form is loaded once via `GET /api/config` on mount (`$effect`) and re-loaded
 
 The instance-level settings surface (`WorkspaceSettings.svelte`, mounted by `AppPageRouter` when `middleTab === 'settings'` **with an instance selected**; the editor component is `TimeframeSettings.svelte`) renders a left-rail + right-pane shell of timeframe cards — **one card per ACTIVE duration** (v11.9 — the `[workspace].timeframes` set; inactive durations are inert and render no card). With no instance selected the same tab renders **General settings** instead (v11.9, N2: Fees & Leverage / Share Config; the standalone Settings page is erased).
 
-### 9.0 Active Timeframes Toggles (v11.9)
+With no instance selected the same tab renders the single **General Settings** page (v11.11:
+Fees & Leverage → Cost Projection → Share Config, plus Exchange in live mode — stacked
+cards, no section switch).
 
-A dedicated **"Active timeframes" card** (`.activeCountCard`) sits above the per-duration cards: a 14-button toggle grid (one per pool duration, `aria-pressed` state, the min-1 guard refuses to deactivate the final active duration) with the `"<n> / 14"` count and a hint line ("Toggle which timeframes run (at least one); saving recharges running instances."). The toggles ride the SAME Apply click and dirty-tracking flow as the per-duration indicator overrides, but POST to **`/api/config`** (body `{ timeframes: [secs…] }` — the endpoint validates 1..=14 unique pool members and **live-recharges running instances**), then mirror the new ACTIVE set locally (`app.settings.timeframes`, `pair.activeDurations`) and force a WS reconnect so the socket count matches.
+### 9.0 Merged Timeframes Editor (v11.11)
+
+ONE card hosts both activation and per-duration parameters in a two-pane shell:
+the left rail lists every pool duration as a row (activation **switch** with the
+min-1 guard, duration label, `ACTIVE` tag; clicking the row selects the **target**
+duration), and the right pane renders the target's grouped indicator parameters
+(`TREND & VOLATILITY CHANNELS`, `MOMENTUM & FLOW`, `VOLUME, CYCLE & DISPERSION`)
+with short per-field descriptions, a parameter filter box, the `Instance Memory:
+Allocated` chip and an `Active: N / 14` footer. Drafts seed from the backend's
+REAL per-duration profile (`GET /api/config` → `duration_profiles`). The rails
+and drafts ride the SAME save flow: toggle changes POST **`/api/config`**
+(`{ timeframes: [secs…] }`, validated 1..=14) while the per-instance parameter
+overrides POST `/api/instances/:id/config`; both live-recharge and force a WS
+reconnect.
 
 ### 9.1 Layout
 
@@ -600,7 +617,7 @@ The shell uses the **Premium Dark Cockpit** aesthetic (see `brutalist-grid.modul
 |-------|---------|
 | `RiskCalculator.svelte` | Interactive risk sizing form: capital, risk %, entry/stop/target, dynamic ATR toggle → live `RiskCalculation` output. |
 | `CommissionCalculator.svelte` | Fee projection: dual-entry breakdown, viability check, break-even profit %. |
-| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (ticker + allocation % only; since v11.1 the ladder is **displayed**, not picked — no per-TF duration dropdowns and no `TIMEFRAME_OPTIONS` picker; since v11.9 the displayed ladder is the ACTIVE duration set from `[workspace].timeframes`) → Review → Launch. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
+| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (ticker + allocation % only; since v11.1 the ladder is **displayed**, not picked — no per-TF duration dropdowns and no `TIMEFRAME_OPTIONS` picker; since v11.9 the displayed ladder is the ACTIVE duration set from `[workspace].timeframes`) → Review → Launch. v11.11: Environment defaults to **Bitget + USDT**; launching with staged instances shows a **loading step** ("Preparing your workspace…" with per-instance `waiting → ready ✓` rows) and enters the system only once every staged pair produced a first snapshot (60 s cap → continue-with-note); no staged instances → immediate MME-Overview landing. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
 | `QuitDialog.svelte` | Session termination confirmation modal (triggered from Engines Sidebar footer). Lives at `ui/src/QuitDialog.svelte` (top-level, not under `components/`). See [§14.1](#141-quitdialog). |
 
 ---
