@@ -288,3 +288,169 @@
     font-size: 9px;
     opacity: 0.7;
 }
+
+/* ── v11.11: merged two-pane Timeframes editor ─────────────────────── */
+.railRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 8px;
+}
+
+.railRow.active {
+    background: rgba(100, 255, 218, 0.06);
+}
+
+.railRowOff {
+    opacity: 0.45;
+}
+
+.railSwitch {
+    width: 28px;
+    height: 16px;
+    min-width: 28px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+    position: relative;
+    padding: 0;
+}
+
+.railSwitch::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.55);
+    transition: transform 0.12s ease;
+}
+
+.railSwitchOn {
+    background: rgba(100, 255, 218, 0.22);
+    border-color: rgba(100, 255, 218, 0.6);
+}
+
+.railSwitchOn::after {
+    transform: translateX(12px);
+    background: #64ffda;
+}
+
+.railSwitch:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.railTarget {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex: 1;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    padding: 2px 4px;
+    text-align: left;
+}
+
+.railActiveTag {
+    margin-left: auto;
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    color: #64ffda;
+    border: 1px solid rgba(100, 255, 218, 0.5);
+    border-radius: 4px;
+    padding: 0 4px;
+}
+
+.paneHead {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.paneMemory {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    color: #64ffda;
+    border: 1px solid rgba(100, 255, 218, 0.35);
+    border-radius: 4px;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
+.paneFilter {
+    margin-left: auto;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: inherit;
+    font: inherit;
+    font-size: 11px;
+    padding: 4px 8px;
+    min-width: 180px;
+}
+
+.paneFooter {
+    margin-top: 10px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.paramGroupTitle {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: #64ffda;
+    margin: 14px 0 8px;
+}
+
+.paramGroupCount {
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0;
+}
+
+.paramGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px 16px;
+}
+
+.paramField {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'label input' 'desc input';
+    align-items: center;
+    column-gap: 10px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.paramLabel {
+    grid-area: label;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+}
+
+.paramDesc {
+    grid-area: desc;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.paramField input {
+    grid-area: input;
+    width: 72px;
+    text-align: right;
+}
