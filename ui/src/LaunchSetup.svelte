@@ -18,7 +18,10 @@
         recoveryError = null;
         try {
             await app.session.recoverInterrupted();
-            // The session is live — hand control back to the app shell.
+            // The session is live and the operator acted — release the
+            // Welcome gate (same fix as landOnOverview; without the ack the
+            // recovered workspace never rendered).
+            app.acknowledgeSession();
             app.wizardActive = false;
         } catch (e) {
             recoveryError = e instanceof Error ? e.message : String(e);
@@ -327,6 +330,11 @@
     }
 
     function landOnOverview(): void {
+        // v11.12 FIX: the landing must release the Welcome gate — without
+        // the ack, `!app.sessionAcknowledged` kept LaunchSetup mounted and
+        // BOTH launch paths (zero-instance and staged-instance) appeared
+        // frozen on the wizard/preparing screen.
+        app.acknowledgeSession();
         app.wizardActive = false;
         app.currentEngine = 'market_monitor';
         app.middleTab = 'overview';

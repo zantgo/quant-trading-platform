@@ -3,7 +3,7 @@ import type { DecisionProfile, DecisionScore, RiskProfile, RiskCalculation, FeeT
 import { DURATIONS } from './types';
 import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
-import { SessionStore, isSessionAcknowledged, markSessionAcknowledged } from './stores/session.svelte';
+import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 import { ENGINE_DEFAULT_TAB } from './lib/engineTabs';
 import { loadPref } from './lib/prefs';
@@ -133,13 +133,14 @@ export class AppStore {
     /// (add-time instance creation), which must NOT unmount the wizard
     /// mid-flow. Cleared by `landOnOverview()` / recovery.
     wizardActive = $state(false);
-    /// v11.12: per-tab Welcome-gate acknowledgement (sessionStorage). A LIVE
+    /// v11.12: per-tab Welcome-gate acknowledgement — IN-MEMORY ONLY. A LIVE
     /// session renders the main UI only after this tab deliberately
-    /// connected (Resume) — a page reload always re-prompts.
-    sessionAcknowledged = $state(isSessionAcknowledged());
+    /// connected (Resume / wizard landing); any page reload resets the flag
+    /// so the mandatory Resume/Quit card reappears. Already-open tabs are
+    /// never interrupted mid-work (the flag lives as long as the tab).
+    sessionAcknowledged = $state(false);
 
     acknowledgeSession(): void {
-        markSessionAcknowledged();
         this.sessionAcknowledged = true;
     }
 
