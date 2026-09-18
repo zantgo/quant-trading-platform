@@ -322,9 +322,16 @@ async fn spawn_tasks(
     let _ = eff_liq;
 
     // One event channel per ACTIVE duration (fastest → slowest).
-    let mut pipeline_txs: Vec<mpsc::Sender<NormalizedEvent>> = Vec::with_capacity(10);
-    let mut pipeline_rxs: Vec<mpsc::Receiver<NormalizedEvent>> = Vec::with_capacity(10);
-    for _ in 0..10 {
+    // v11.12 FIX: this was hardcoded `for _ in 0..10` — a pre-v11.9
+    // fixed-slot leftover. Growing the ladder past 10 durations left
+    // `rx_iter.next()` empty at the pipeline-spec build below and PANICKED
+    // mid-recharge ("one rx per active duration"), killing the recharge
+    // after the old pipelines were already cancelled — the new instance
+    // never installed and the operator's save hung forever. The channel
+    // count MUST follow the ACTIVE ladder.
+    let mut pipeline_txs: Vec<mpsc::Sender<NormalizedEvent>> = Vec::with_capacity(n);
+    let mut pipeline_rxs: Vec<mpsc::Receiver<NormalizedEvent>> = Vec::with_capacity(n);
+    for _ in 0..n {
         let (tx, rx) = mpsc::channel::<NormalizedEvent>(200);
         pipeline_txs.push(tx);
         pipeline_rxs.push(rx);

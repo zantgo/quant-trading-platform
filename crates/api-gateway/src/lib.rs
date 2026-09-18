@@ -279,6 +279,8 @@ impl AppState {
         self.session
             .active
             .store(false, std::sync::atomic::Ordering::Relaxed);
+        // v11.12: back to the Welcome gate.
+        self.session.set_ui_active(false);
         *self.session.base_currency.write().await = None;
         *self.session.exchange.write().await = None;
 
@@ -338,6 +340,8 @@ impl AppState {
         self.session
             .active
             .store(true, std::sync::atomic::Ordering::Relaxed);
+        // v11.12: recovery is an operator action — release the Welcome gate.
+        self.session.set_ui_active(true);
         // The boot spawn task must not flip the session inactive —
         // recovery keeps it active with the instances running.
         self.boot_session_recovered
@@ -397,6 +401,8 @@ impl AppState {
                 .await
                 .map_err(|e| format!("could not mark session discarded: {e}"))?;
         }
+        // v11.12: discard keeps the operator at the Welcome gate.
+        self.session.set_ui_active(false);
         *self.interrupted_session.write().await = None;
         println!(
             "🗑️  Interrupted session discarded — {} instance(s) removed; settings back to defaults",

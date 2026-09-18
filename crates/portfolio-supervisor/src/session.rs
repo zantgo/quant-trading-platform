@@ -64,6 +64,14 @@ impl ExchangeChoice {
 
 pub struct SessionState {
     pub active: AtomicBool,
+    /// v11.12: OPERATOR-INTENT activation — the flag `/api/session/status`
+    /// reports as `active`. Only an explicit operator action flips it
+    /// (`POST /session/init`, `POST /session/recover` set it; quit/discard
+    /// clear it). The BOOT auto-init intentionally does NOT: it exists only
+    /// to let the background instance respawn pass the session-active gate,
+    /// and it previously raced the browser's first status poll into
+    /// skipping the mandatory Welcome screen after a Ctrl+C restart.
+    pub ui_active: AtomicBool,
     pub base_currency: RwLock<Option<Currency>>,
     pub exchange: RwLock<Option<ExchangeChoice>>,
     /// v7.1 follow-up: the operator's chosen execution mode at session
@@ -84,11 +92,22 @@ impl SessionState {
     pub fn new() -> Self {
         Self {
             active: AtomicBool::new(false),
+            ui_active: AtomicBool::new(false),
             base_currency: RwLock::new(None),
             exchange: RwLock::new(None),
             mode: RwLock::new(None),
             portfolio_capital_usd: RwLock::new(None),
         }
+    }
+
+    /// The UI-facing activation (see `ui_active`).
+    pub fn ui_active(&self) -> bool {
+        self.ui_active.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_ui_active(&self, on: bool) {
+        self.ui_active
+            .store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub async fn session_mode(&self) -> Option<String> {

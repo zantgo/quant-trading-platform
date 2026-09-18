@@ -3,7 +3,7 @@ import type { DecisionProfile, DecisionScore, RiskProfile, RiskCalculation, FeeT
 import { DURATIONS } from './types';
 import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
-import { SessionStore } from './stores/session.svelte';
+import { SessionStore, isSessionAcknowledged, markSessionAcknowledged } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 import { ENGINE_DEFAULT_TAB } from './lib/engineTabs';
 import { loadPref } from './lib/prefs';
@@ -133,6 +133,15 @@ export class AppStore {
     /// (add-time instance creation), which must NOT unmount the wizard
     /// mid-flow. Cleared by `landOnOverview()` / recovery.
     wizardActive = $state(false);
+    /// v11.12: per-tab Welcome-gate acknowledgement (sessionStorage). A LIVE
+    /// session renders the main UI only after this tab deliberately
+    /// connected (Resume) — a page reload always re-prompts.
+    sessionAcknowledged = $state(isSessionAcknowledged());
+
+    acknowledgeSession(): void {
+        markSessionAcknowledged();
+        this.sessionAcknowledged = true;
+    }
 
     /// v11.11: timestamp of the last local ACTIVE-ladder save (`POST
     /// /api/config { timeframes }`). Reconciliation backs off for a grace
@@ -582,6 +591,11 @@ export class AppStore {
             void this.fetchOverview();
             this._overviewTimer = setInterval(() => {
                 void this.fetchOverview();
+                // v11.12: cheap status re-fetch so a daemon restart (or a
+                // Recover from another tab) is reflected on every open tab
+                // within one poll — the mandatory Welcome gate never goes
+                // stale.
+                void this.session.fetchSessionStatus();
                 this._overviewPollTicks++;
                 if (this._overviewPollTicks % 10 === 0) {
                     void this.reconcileInstances();
