@@ -379,6 +379,10 @@ describe('Launch Setup — launch orchestration', () => {
         expect(app.middleTab).toBe('overview');
         expect(app.activeEngineTab).toBe('overview');
         expect(app.selectedInstance).toBeNull();
+        // v11.12 FIX: the staged-instance landing must also release the
+        // Welcome gate (the reported "freezes on ready ✓").
+        expect(app.sessionAcknowledged).toBe(true);
+        expect(app.wizardActive).toBe(false);
         // The wizard released the app shell.
         expect(app.wizardActive).toBe(false);
     });
@@ -391,6 +395,11 @@ describe('Launch Setup — launch orchestration', () => {
         const app = useAppStore();
         await waitFor(() => expect(app.currentEngine).toBe('market_monitor'), { timeout: 3000 });
         expect(container.textContent).not.toContain('Preparing your workspace…');
+        // v11.12 FIX: the landing MUST release the Welcome gate — without
+        // the ack the app shell kept LaunchSetup mounted over the overview
+        // (the reported "LAUNCH does nothing with zero instances").
+        expect(app.sessionAcknowledged).toBe(true);
+        expect(app.wizardActive).toBe(false);
     });
 
     it('review marks the ladder as ACTIVE (count + durations, no picker)', async () => {
@@ -548,11 +557,10 @@ describe('LaunchSetup — live-session resume gate (v11.12)', () => {
         // The wizard is hidden behind the gate.
         expect(container.textContent).not.toContain('choose how you want to start');
 
-        // Resume releases the gate (per-tab ack) and leaves the wizard.
+        // Resume releases the gate (in-memory per-tab ack) and leaves the wizard.
         await fireEvent.click(screen.getByText('Resume session'));
         expect(app.sessionAcknowledged).toBe(true);
         expect(app.wizardActive).toBe(false);
-        try { expect(sessionStorage.getItem('qtp.sessionAcknowledged')).toBe('1'); } catch { /* jsdom */ }
     });
 
     it('Quit tears the session down and returns to the wizard', async () => {
