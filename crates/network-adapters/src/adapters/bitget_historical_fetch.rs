@@ -171,9 +171,22 @@ impl HistoricalFetchPolicy for BitgetHistoricalFetch {
         // structurally identical, only the page-cap constant and the
         // anchor function differ (Bitget returns newest-first within a
         // page; HL returns oldest-first).
+        //
+        // v11.12 FIX: Bitget rejects any candle window wider than 90 days
+        // ("startTime and endTime interval cannot be greater than 90 days").
+        // The raw target window (500 × 12h = 250 d, 500 × 1d = 500 d) blew
+        // past that cap and the FIRST page 400'd — 12h/1d bootstraps got
+        // zero warm data and cold-started. Clamp the initial window to the
+        // venue limit; the backward cursor (≤ BITGET_PAGE_LIMIT candles per
+        // page, and `end_ts` only ever moves EARLIER) keeps every later
+        // page within it. A clamped window yields a partial warm
+        // (≤180 × 12h / ≤90 × 1d candles) — the MIN_WARMUP_BARS gate in the
+        // bootstrap already logs the shortfall.
+        const BITGET_MAX_WINDOW_MS: u64 = 90 * 24 * 3600 * 1000;
+        let requested_window_ms = (request.target_count as u64).saturating_mul(duration_ms);
         let start_ts = request
             .end_ts
-            .saturating_sub((request.target_count as u64) * duration_ms);
+            .saturating_sub(requested_window_ms.min(BITGET_MAX_WINDOW_MS));
 
         let mut collected: Vec<NormalizedCandle> = Vec::with_capacity(request.target_count);
         let mut end_ts = request.end_ts;

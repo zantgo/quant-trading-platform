@@ -31,6 +31,8 @@ beforeEach(() => {
     app.session.sessionActive = false;
     app.session.sessionInterrupted = false;
     app.session.interruptedSession = null;
+    app.sessionAcknowledged = false;
+    app.wizardActive = false;
     for (const key of Object.keys(app.instancesMap)) delete app.instancesMap[key];
     // v11.11: the ENVIRONMENT→INSTANCES transition initializes the session
     // and "+ Add" creates the instance immediately — every test needs a
@@ -521,5 +523,72 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         await waitFor(() => expect(discardCalls).toBe(1));
         expect(app.session.sessionInterrupted).toBe(false);
         vi.unstubAllGlobals();
+    });
+});
+
+// ── v11.12: mandatory Welcome gate for a LIVE session (page reload) ──
+describe('LaunchSetup — live-session resume gate (v11.12)', () => {
+    function seedLiveSession() {
+        const app = useAppStore();
+        app.session.sessionActive = true;
+        app.session.sessionInterrupted = false;
+        app.session.interruptedSession = null;
+        app.session.sessionId = 7;
+        app.session.sessionInstanceCount = 2;
+        app.sessionAcknowledged = false;
+        return app;
+    }
+
+    it('a live session on a fresh load shows the Resume/Quit card instead of the wizard', async () => {
+        const app = seedLiveSession();
+        const { container } = await render(LaunchSetup);
+        expect(container.textContent).toContain('is running');
+        expect(container.textContent).toContain('Resume session');
+        expect(container.textContent).toContain('Quit session');
+        // The wizard is hidden behind the gate.
+        expect(container.textContent).not.toContain('choose how you want to start');
+
+        // Resume releases the gate (per-tab ack) and leaves the wizard.
+        await fireEvent.click(screen.getByText('Resume session'));
+        expect(app.sessionAcknowledged).toBe(true);
+        expect(app.wizardActive).toBe(false);
+        try { expect(sessionStorage.getItem('qtp.sessionAcknowledged')).toBe('1'); } catch { /* jsdom */ }
+    });
+
+    it('Quit tears the session down and returns to the wizard', async () => {
+        seedLiveSession();
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            if (String(url) === '/api/session/quit') {
+                return new Response(JSON.stringify({ success: true }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                });
+            }
+            return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+        }) as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        await fireEvent.click(screen.getByText('Quit session'));
+        await waitFor(() => expect(container.textContent).not.toContain('is running'));
+        const app = useAppStore();
+        expect(app.session.sessionActive).toBe(false);
+        expect(app.sessionAcknowledged).toBe(false);
+        vi.unstubAllGlobals();
+    });
+
+    it('an interrupted session still shows the Recover/Discard card, not the resume card', async () => {
+        const app = seedLiveSession();
+        app.session.sessionActive = false;
+        app.session.sessionInterrupted = true;
+        app.session.interruptedSession = {
+            id: 9,
+            mode: 'observe',
+            exchange: 'Hyperliquid',
+            currency: 'USDC',
+            started_at_ms: Date.now() - 60_000,
+            instance_count: 1,
+        };
+        const { container } = await render(LaunchSetup);
+        expect(container.textContent).toContain('Interrupted session detected');
+        expect(container.textContent).not.toContain('Resume session');
     });
 });

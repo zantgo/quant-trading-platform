@@ -4,10 +4,11 @@ use axum::{extract::State, response::IntoResponse, Json};
 use std::sync::Arc;
 
 pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let active = state
-        .session
-        .active
-        .load(std::sync::atomic::Ordering::Relaxed);
+    // v11.12: `active` is the OPERATOR-INTENT flag (`ui_active`), never the
+    // boot auto-init state — a fresh `./manage.sh run` after Ctrl+C must
+    // ALWAYS land on the Welcome screen (wizard + Recover/Discard), even
+    // while the background instance respawn is still running.
+    let active = state.session.ui_active();
     let currency = *state.session.base_currency.read().await;
     let exchange = *state.session.exchange.read().await;
     let instance_count = state.instance_count().await;
@@ -195,16 +196,20 @@ pub async fn serve_session_init(
         .await;
 
     match state.init_session(currency, exchange).await {
-        Ok(()) => (
-            axum::http::StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Session initialized successfully.",
-                "mode": mode,
-                "portfolio_capital_usd": payload.portfolio_capital_usd,
-            })),
-        )
-            .into_response(),
+        Ok(()) => {
+            // v11.12: operator acted — the UI may leave the Welcome gate.
+            state.session.set_ui_active(true);
+            (
+                axum::http::StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "message": "Session initialized successfully.",
+                    "mode": mode,
+                    "portfolio_capital_usd": payload.portfolio_capital_usd,
+                })),
+            )
+                .into_response()
+        }
         Err(e) => (
             axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({

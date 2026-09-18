@@ -1,3 +1,21 @@
+// v11.12: per-tab Welcome-gate acknowledgement. sessionStorage is PER-TAB:
+// each browser tab must deliberately (re)connect to a running session, and
+// an already-open tab is never interrupted mid-work. Daemon restarts still
+// surface the Recover/Discard card on every tab via the status poll.
+const SESSION_ACK_KEY = 'qtp.sessionAcknowledged';
+
+export function markSessionAcknowledged(): void {
+    try { sessionStorage.setItem(SESSION_ACK_KEY, '1'); } catch { /* private mode */ }
+}
+
+export function clearSessionAcknowledged(): void {
+    try { sessionStorage.removeItem(SESSION_ACK_KEY); } catch { /* private mode */ }
+}
+
+export function isSessionAcknowledged(): boolean {
+    try { return sessionStorage.getItem(SESSION_ACK_KEY) === '1'; } catch { return false; }
+}
+
 export class SessionStore {
     sessionActive = $state(false);
     sessionCurrency = $state<string>('USDT');
@@ -52,6 +70,7 @@ export class SessionStore {
             const txt = await res.text().catch(() => '');
             throw new Error(txt || `recover failed (${res.status})`);
         }
+        markSessionAcknowledged();
         await this.fetchSessionStatus();
         if (this.onSessionActivated) this.onSessionActivated();
     }
@@ -87,6 +106,7 @@ export class SessionStore {
                 this.sessionActive = true; this.sessionCurrency = currency;
                 this.sessionExchange = exchange; this.sessionMode = mode;
                 if (capital != null && capital > 0) this.sessionCapital = capital;
+                markSessionAcknowledged();
                 if (!wasActive && this.onSessionActivated) this.onSessionActivated();
                 this.sessionLoading = false; return { success: true };
             }
@@ -105,6 +125,7 @@ export class SessionStore {
                 this.sessionActive = false; this.sessionCurrency = 'USDT';
                 this.sessionExchange = 'Hyperliquid';
                 this.sessionMode = 'observe'; this.sessionInstanceCount = 0;
+                clearSessionAcknowledged();
                 this.sessionLoading = false; return true;
             }
         } catch (_) {}

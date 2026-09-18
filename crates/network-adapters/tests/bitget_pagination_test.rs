@@ -335,3 +335,75 @@ async fn bitget_paginated_fetch_does_not_saturate_after_page_one() {
     }
     seen.insert(candles.last().unwrap().start_time_ms);
 }
+
+/// v11.12 regression: Bitget rejects any candle window wider than 90 days
+/// ("startTime and endTime interval cannot be greater than 90 days"). The
+/// initial window for slow durations (500 × 12h = 250 d, 500 × 1d = 500 d)
+/// used to blow past that cap and the FIRST page 400'd — 12h/1d bootstraps
+/// got zero warm data. The fetch must clamp its requested window to the
+/// venue limit; the backward cursor keeps every later page within it too.
+#[tokio::test]
+async fn bitget_window_is_clamped_to_90_days_for_slow_durations() {
+    let interval_ms: u64 = 43_200_000; // 12 h
+    let target_count: usize = 500; // raw window = 250 days — over the cap
+                                   // A PAST anchor (like the sibling tests): the open-candle filter drops
+                                   // anything starting after real wall-clock time.
+    let now_ms: u64 = 1_700_000_000_000;
+    const MAX_WINDOW_MS: u64 = 90 * 24 * 3600 * 1000;
+
+    let request = make_request(43200, target_count, now_ms);
+
+    let page_calls: Arc<std::sync::Mutex<Vec<(u64, u64, u32)>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let page_calls_for_pager = page_calls.clone();
+
+    let pager: PageFetcher = Arc::new(
+        move |_symbol, _internal, _product, _interval, start_ts, end_ts, limit, _url| {
+            let calls = page_calls_for_pager.clone();
+            Box::pin(async move {
+                calls.lock().unwrap().push((start_ts, end_ts, limit));
+                // Return candles honouring the window like the real venue.
+                Ok(generate_candles_newest_first(
+                    (limit as usize).min(BITGET_PAGE_LIMIT_TEST),
+                    start_ts,
+                    end_ts,
+                    interval_ms,
+                    63_000.0,
+                ))
+            })
+        },
+    );
+
+    let fetch = BitgetHistoricalFetch::new_with_pager(
+        "http://127.0.0.1:1".to_string(),
+        "USDT-FUTURES".to_string(),
+        pager,
+    );
+    let candles = fetch.fetch(request).await.expect("fetch succeeds");
+
+    // EVERY page window (including the first) respects the 90-day cap.
+    let history = cursor_history(&page_calls.lock().unwrap());
+    assert!(!history.is_empty(), "at least one page call expected");
+    for (i, (start_ts, end_ts)) in history.iter().enumerate() {
+        assert!(
+            end_ts.saturating_sub(*start_ts) <= MAX_WINDOW_MS,
+            "page {i} window {}d exceeds Bitget's 90-day cap",
+            (end_ts - start_ts) / 86_400_000
+        );
+    }
+
+    // The clamp engaged: the raw 250-day request was cut to ≤90 days.
+    let (first_start, first_end) = history[0];
+    assert_eq!(first_end, now_ms);
+    assert!(
+        first_end - first_start <= MAX_WINDOW_MS,
+        "initial window must be clamped"
+    );
+
+    // A partial warm still returns real history (≤180 × 12h candles).
+    assert!(
+        !candles.is_empty() && candles.len() <= 180,
+        "clamped 12h warm must yield 1..=180 candles, got {}",
+        candles.len()
+    );
+}

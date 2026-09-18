@@ -274,6 +274,38 @@
     let waitTimedOut = $state(false);
     let loadingSteps = $state<{ key: string; label: string; ready: boolean }[]>([]);
 
+    // v11.12: mandatory Welcome gate for a LIVE session — a page reload
+    // (per tab) must deliberately reconnect (Resume) or explicitly Quit;
+    // it never silently resumes. Multi-tab is preserved: sessionStorage is
+    // per-tab, so already-open tabs are never interrupted mid-work. The
+    // card shows on a fresh load (step 1) only — it must never hijack an
+    // in-progress wizard (the wizard's own init flips the server
+    // ui_active mid-flow).
+    const liveSession = $derived(
+        app.session.sessionActive
+            && !app.session.sessionInterrupted
+            && step === 1
+            && !staged
+            && !waiting,
+    );
+    let quitting = $state(false);
+    let resumeError = $state<string | null>(null);
+
+    function resumeSession(): void {
+        resumeError = null;
+        app.wizardActive = false;
+        app.acknowledgeSession();
+    }
+
+    async function quitLiveSession(): Promise<void> {
+        quitting = true;
+        resumeError = null;
+        const ok = await app.session.quitSession();
+        quitting = false;
+        if (!ok) resumeError = 'Quit failed — is the daemon still running?';
+    }
+
+
     async function waitForInstances(keys: string[]): Promise<void> {
         const deadline = Date.now() + 60_000;
         while (Date.now() < deadline) {
@@ -363,6 +395,36 @@
 
 <div class={styles.launchGate}>
     <div class={styles.launchCard}>
+        {#if liveSession}
+            <!-- v11.12: MANDATORY Welcome gate for a LIVE session — a page
+                 reload (per tab) must deliberately reconnect or quit; it
+                 never silently resumes. -->
+            <div class={styles.recoveryCard} role="alertdialog" aria-label="Live session detected">
+                <div class={styles.recoveryTitle}>◉ SESSION #{String(app.session.sessionId ?? 0).padStart(4, '0')} is running</div>
+                <p class={styles.recoveryCopy}>
+                    The platform has a live session with
+                    {app.session.sessionInstanceCount}
+                    instance{app.session.sessionInstanceCount === 1 ? '' : 's'}.
+                    Reconnect this tab to the running workspace, or quit the session
+                    (stops all instances) and return to the Launch Setup.
+                </p>
+                <div class={styles.recoveryActions}>
+                    <button class={styles.recoveryRecover} onclick={resumeSession}>
+                        Resume session
+                    </button>
+                    <button
+                        class={styles.recoveryDiscard}
+                        disabled={quitting}
+                        onclick={quitLiveSession}
+                    >
+                        {quitting ? 'Quitting…' : 'Quit session'}
+                    </button>
+                </div>
+                {#if resumeError}
+                    <p class={styles.recoveryError}>{resumeError}</p>
+                {/if}
+            </div>
+        {:else}
         {#if app.session.sessionInterrupted && app.session.interruptedSession}
             <div class={styles.recoveryCard} role="alertdialog" aria-label="Interrupted session detected">
                 <div class={styles.recoveryTitle}>⚠ Interrupted session detected</div>
@@ -651,6 +713,7 @@
                 </button>
             {/if}
         </footer>
+        {/if}
         {/if}
     </div>
 </div>
