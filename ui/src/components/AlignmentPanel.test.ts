@@ -249,29 +249,31 @@ describe('AlignmentPanel — SUMMARY head card (v7.0)', () => {
   });
 });
 
-describe('AlignmentPanel — Timeframe Status table (v10.2)', () => {
-  it('renders the per-timeframe status table between the layer header and the summary card', async () => {
+describe('AlignmentPanel — Timeframe Status section (v11.11)', () => {
+  it('renders the per-timeframe status table as its own always-expanded section between Metrics and Score', async () => {
     seed(makeAlignment());
-    // v11.4: the fixture pair runs the full ladder (all-10 default).
     const app = useAppStore();
     const pair = app.instancesMap['BTC-USDT'];
     if (pair) pair.activeDurations = [...DURATIONS];
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
     await tick();
-    // The collapse bar carries the label; the table renders expanded (default).
-    const bar = screen.getByLabelText('Per-timeframe status');
-    expect(bar).toBeTruthy();
-    expect(bar.getAttribute('aria-expanded')).toBe('true');
+    // v11.11: the collapse bar is gone — the table is ALWAYS expanded.
+    expect(screen.queryByLabelText('Per-timeframe status')).toBeNull();
     const table = screen.getByRole('table');
-    // One row per ACTIVE slot (10 for the full ladder), each a LayerHeader badge.
     const rows = table.querySelectorAll('tbody tr');
     expect(rows.length).toBe(14);
     expect(table.querySelectorAll(`.${headerStyles.badge}`).length).toBe(14);
-    // Order: directly after the </LayerHeader>, before the SUMMARY card.
-    const headerRoot = document.querySelector(`.${headerStyles.layerHeader}`)!;
-    const card = screen.getByLabelText('SUMMARY');
-    expect(headerRoot.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(table.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Section order: Metrics → Timeframe Status → Score.
+    const titleOf = (t: string) =>
+      Array.from(document.querySelectorAll('div')).find(
+        (d) => d.textContent === t && /sectionTitle/.test(d.className),
+      );
+    const metrics = titleOf('Metrics');
+    const status = titleOf('Timeframe Status');
+    const score = titleOf('Score');
+    expect(metrics && status && score).toBeTruthy();
+    expect(metrics!.compareDocumentPosition(status!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(status!.compareDocumentPosition(score!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

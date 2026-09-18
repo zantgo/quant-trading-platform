@@ -181,7 +181,7 @@
                         </td>
                         <td class={styles.badgeCell}>
                             <div
-                                class="{headerStyles.badge} {badgeCls[badge.state]}"
+                                class="{headerStyles.badge} {styles.decisionBadgeLg} {badgeCls[badge.state]}"
                                 style="border-color: {badge.color}; color: {badge.color}; background-color: {badge.background};"
                                 aria-label="Decision badge: {badge.label}"
                             >
@@ -216,7 +216,7 @@
                                 </td>
                                 <td class={styles.badgeCell}>
                                     <div
-                                        class="{headerStyles.badge} {badgeCls[info.badge.state]}"
+                                        class="{headerStyles.badge} {styles.tfBadgeSm} {badgeCls[info.badge.state]}"
                                         style="border-color: {info.badge.color}; color: {info.badge.color}; background-color: {info.badge.background};"
                                         aria-label="TF badge: {info.badge.label}"
                                     >
