@@ -200,6 +200,7 @@ impl RunControls {
 /// already validated archive coverage; this function replays
 /// deterministically and returns the standard `BacktestResult`
 /// (`result.cancelled` is true when the run was aborted).
+#[allow(clippy::too_many_arguments)]
 pub async fn run_historical_backtest(
     pool: &SqlitePool,
     params: &BacktestParams,

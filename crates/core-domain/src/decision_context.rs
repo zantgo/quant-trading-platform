@@ -90,6 +90,7 @@ impl DecisionContext {
     ///
     /// v9 F-05: `params` is the shared Decision-layer parameter struct —
     /// every grid below reads the same source `compute_advisory` uses.
+    #[allow(clippy::too_many_arguments)]
     pub fn compute(
         indicators: &HashMap<String, NormalizedIndicatorValue>,
         close: f64,

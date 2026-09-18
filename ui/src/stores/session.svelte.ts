@@ -104,7 +104,7 @@ export class SessionStore {
             if (res.ok && data.success) {
                 this.sessionActive = false; this.sessionCurrency = 'USDT';
                 this.sessionExchange = 'Hyperliquid';
-                this.sessionMode = 'paper'; this.sessionInstanceCount = 0;
+                this.sessionMode = 'observe'; this.sessionInstanceCount = 0;
                 this.sessionLoading = false; return true;
             }
         } catch (_) {}

@@ -7,7 +7,7 @@ export class SettingsStore {
 
     /// v11.9 — `[workspace].timeframes`: the ACTIVE duration set (seconds,
     /// ascending subset of the 14-duration pool). Edited from the MME
-    /// TimeframeSettings tab; saving POSTs it to `/api/config`, which
+    /// MME Settings timeframes editor; saving POSTs it to `/api/config`, which
     /// live-recharges running instances. Seeded from the GET payload in
     /// `applyConfigToStore`.
     timeframes = $state<number[]>([1, 3, 5, 15, 30, 60, 180, 300]);

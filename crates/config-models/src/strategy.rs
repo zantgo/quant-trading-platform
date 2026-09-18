@@ -125,6 +125,7 @@ impl Default for L1SignalParams {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct L1Params {
     /// Per-indicator trust weights (0–5; default 1.0 = today). Zero =
     /// compute + display but muted from synthesis.
@@ -137,19 +138,6 @@ pub struct L1Params {
     /// Don't feed DIE-synthesized gap candles into indicator state machines.
     pub ignore_reconstructed_candles: bool,
     pub order_book: L1OrderBookParams,
-}
-
-impl Default for L1Params {
-    fn default() -> Self {
-        Self {
-            indicator_weights: std::collections::HashMap::new(),
-            monitor_only: Vec::new(),
-            context: L1ContextParams::default(),
-            signals: L1SignalParams::default(),
-            ignore_reconstructed_candles: false,
-            order_book: L1OrderBookParams::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -494,24 +482,13 @@ impl Default for L2States {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct L2_5Params {
     pub estimation: L2_5Estimation,
     pub oi_split: L2_5OiSplit,
     pub confidence: L2_5Confidence,
     pub funding_modulation: L2_5FundingModulation,
     pub signals: L2_5Signals,
-}
-
-impl Default for L2_5Params {
-    fn default() -> Self {
-        Self {
-            estimation: L2_5Estimation::default(),
-            oi_split: L2_5OiSplit::default(),
-            confidence: L2_5Confidence::default(),
-            funding_modulation: L2_5FundingModulation::default(),
-            signals: L2_5Signals::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -638,20 +615,11 @@ impl Default for L3Params {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct L3Bias {
     pub bands: L3BiasBands,
     pub grace: L3Grace,
     pub lean: L3Lean,
-}
-
-impl Default for L3Bias {
-    fn default() -> Self {
-        Self {
-            bands: L3BiasBands::default(),
-            grace: L3Grace::default(),
-            lean: L3Lean::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1172,6 +1140,7 @@ impl Default for L5Params {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct L5Dimensions {
     pub market: L5Market,
     pub volatility: L5Volatility,
@@ -1181,21 +1150,6 @@ pub struct L5Dimensions {
     pub signal: L5Signal,
     pub execution: L5Execution,
     pub cascade: L5Cascade,
-}
-
-impl Default for L5Dimensions {
-    fn default() -> Self {
-        Self {
-            market: L5Market::default(),
-            volatility: L5Volatility::default(),
-            execution_liquidity: L5ExecLiquidity::default(),
-            structure: L5Structure::default(),
-            momentum: L5Momentum::default(),
-            signal: L5Signal::default(),
-            execution: L5Execution::default(),
-            cascade: L5Cascade::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1454,6 +1408,7 @@ impl Default for L5Cascade {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct L6Params {
     pub synthesis: L6Synthesis,
     pub stance: L6Stance,
@@ -1467,25 +1422,6 @@ pub struct L6Params {
     pub readiness: L6Readiness,
     pub probability: L6Probability,
     pub risk_ceiling: L6RiskCeiling,
-}
-
-impl Default for L6Params {
-    fn default() -> Self {
-        Self {
-            synthesis: L6Synthesis::default(),
-            stance: L6Stance::default(),
-            direction: L6Direction::default(),
-            entry: L6Entry::default(),
-            exit: L6Exit::default(),
-            protection: L6Protection::default(),
-            target: L6Target::default(),
-            stop: L6Stop::default(),
-            entry_danger: L6EntryDanger::default(),
-            readiness: L6Readiness::default(),
-            probability: L6Probability::default(),
-            risk_ceiling: L6RiskCeiling::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1508,16 +1444,9 @@ impl Default for L6Synthesis {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct L6Stance {
     pub risk: L6StanceRisk,
-}
-
-impl Default for L6Stance {
-    fn default() -> Self {
-        Self {
-            risk: L6StanceRisk::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1740,17 +1669,10 @@ impl Default for L6Probability {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct L6RiskCeiling {
     /// `null` = no ceiling (today). Soft-block when exceeded.
     pub max_overall_risk: Option<f64>,
-}
-
-impl Default for L6RiskCeiling {
-    fn default() -> Self {
-        Self {
-            max_overall_risk: None,
-        }
-    }
 }
 
 // ─── L7: Overview ───────────────────────────────────────────────
@@ -1822,18 +1744,10 @@ impl Default for L7GlobalBias {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct L7Risk {
     pub dist_bins: L7DistBins,
     pub env_mean: L7EnvMean,
-}
-
-impl Default for L7Risk {
-    fn default() -> Self {
-        Self {
-            dist_bins: L7DistBins::default(),
-            env_mean: L7EnvMean::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1934,6 +1848,7 @@ impl Default for L7AssetRank {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct TaeParams {
     pub intake: TaeIntake,
     pub lifecycle: TaeLifecycle,
@@ -1941,19 +1856,6 @@ pub struct TaeParams {
     pub execution: TaeExecution,
     pub risk: TaeRisk,
     pub recovery: TaeRecovery,
-}
-
-impl Default for TaeParams {
-    fn default() -> Self {
-        Self {
-            intake: TaeIntake::default(),
-            lifecycle: TaeLifecycle::default(),
-            sizing: TaeSizing::default(),
-            execution: TaeExecution::default(),
-            risk: TaeRisk::default(),
-            recovery: TaeRecovery::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1990,32 +1892,19 @@ impl Default for TaeIntake {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct TaeVolGate {
     pub min_hv_pct: Option<f64>,
     pub max_hv_pct: Option<f64>,
 }
 
-impl Default for TaeVolGate {
-    fn default() -> Self {
-        Self {
-            min_hv_pct: None,
-            max_hv_pct: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct TaeFundingGate {
     /// Skip longs when funding below this (crowded long); skip shorts
     /// above `-this` (crowded short). null = no gate.
     pub extreme_pct: Option<f64>,
-}
-
-impl Default for TaeFundingGate {
-    fn default() -> Self {
-        Self { extreme_pct: None }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2054,18 +1943,10 @@ impl Default for TaeLifecycle {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct TaeDaily {
     pub max_trades: Option<u32>,
     pub max_loss_pct: Option<f64>,
-}
-
-impl Default for TaeDaily {
-    fn default() -> Self {
-        Self {
-            max_trades: None,
-            max_loss_pct: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2232,54 +2113,29 @@ impl Default for TaeRisk {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct TaeTrailing {
     pub activate_at_rr: Option<f64>,
     pub atr_mult: Option<f64>,
 }
 
-impl Default for TaeTrailing {
-    fn default() -> Self {
-        Self {
-            activate_at_rr: None,
-            atr_mult: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct TaeRecovery {
     pub stale_state_window_secs: Option<u64>,
-}
-
-impl Default for TaeRecovery {
-    fn default() -> Self {
-        Self {
-            stale_state_window_secs: None,
-        }
-    }
 }
 
 // ─── PME ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct PmeParams {
     pub safety: PmeSafety,
     pub exposure: PmeExposure,
     pub capital: PmeCapital,
     pub enforce_systemic_veto: bool,
-}
-
-impl Default for PmeParams {
-    fn default() -> Self {
-        Self {
-            safety: PmeSafety::default(),
-            exposure: PmeExposure::default(),
-            capital: PmeCapital::default(),
-            enforce_systemic_veto: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2372,36 +2228,19 @@ impl Default for PmeExposure {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct PmeEnforce {
     pub single_pair: bool,
     pub portfolio: bool,
     pub correlation: bool,
 }
 
-impl Default for PmeEnforce {
-    fn default() -> Self {
-        Self {
-            single_pair: false,
-            portfolio: false,
-            correlation: false,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct PmeCapital {
     pub margin_alert_bands: PmeMarginBands,
     pub enforce_margin_close_only: bool,
-}
-
-impl Default for PmeCapital {
-    fn default() -> Self {
-        Self {
-            margin_alert_bands: PmeMarginBands::default(),
-            enforce_margin_close_only: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2426,20 +2265,11 @@ impl Default for PmeMarginBands {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct PaeParams {
     pub verdict: PaeVerdict,
     pub risk_math: PaeRiskMath,
     pub regimes: PaeRegimes,
-}
-
-impl Default for PaeParams {
-    fn default() -> Self {
-        Self {
-            verdict: PaeVerdict::default(),
-            risk_math: PaeRiskMath::default(),
-            regimes: PaeRegimes::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

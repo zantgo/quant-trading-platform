@@ -12,7 +12,6 @@
 //! swing_window_bars (bars, not wall-clock), heatmap bucket size.
 
 use crate::strategy::{L1_5Params, L2_5Params};
-use crate::SUPPORTED_DURATIONS;
 
 /// One duration's estimator geometry. `price_anchor_pct` is in the
 /// strategy's PERCENT convention (divide by 100 at the estimator boundary).
@@ -114,6 +113,7 @@ pub fn for_duration(secs: u64, base: &L2_5Params, l1_5: &L1_5Params) -> Liquidit
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SUPPORTED_DURATIONS;
 
     #[test]
     fn factor_table_covers_the_full_pool() {

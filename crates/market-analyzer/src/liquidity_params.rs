@@ -118,11 +118,15 @@ mod tests {
 
     #[test]
     fn strategy_wins_per_field() {
-        let mut base = LiquidityConfig::default();
-        base.funding_extreme_pct = 0.001;
-        let mut l1_5 = L1_5Params::default();
-        l1_5.funding_extreme_pct = 0.002;
-        l1_5.cascade_detected_zscore = 3.0;
+        let base = LiquidityConfig {
+            funding_extreme_pct: 0.001,
+            ..Default::default()
+        };
+        let l1_5 = L1_5Params {
+            funding_extreme_pct: 0.002,
+            cascade_detected_zscore: 3.0,
+            ..Default::default()
+        };
         let eff = effective_liquidity(Some(&base), None, &l1_5);
         assert_eq!(eff.cfg.funding_extreme_pct, 0.002);
         assert_eq!(eff.cfg.cascade_detected_zscore, 3.0);

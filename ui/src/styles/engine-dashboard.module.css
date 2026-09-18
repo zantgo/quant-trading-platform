@@ -668,3 +668,14 @@
         flex-wrap: wrap;
     }
 }
+
+/* v11.11: muted description line under card titles. Previously referenced
+   by WorkspaceSettings via `engine.infoLine` WITHOUT a definition — the
+   paragraphs rendered as class="undefined". Mirrors the sibling
+   dashboards' local .infoLine. */
+.infoLine {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+    margin: 0 0 10px;
+    line-height: 1.5;
+}

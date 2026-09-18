@@ -36,7 +36,9 @@
     width: 100%;
     border-collapse: collapse;
     font-size: 11px;
-    background: #121214;
+    /* v11.11: translucent dark surface — visually matches the Instance
+       Status table below/above it (one table family on the Overview). */
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .th {
@@ -61,7 +63,7 @@
 
 .tr {
     border-bottom: 1px solid rgba(255,255,255,0.04);
-    background: #17171a;
+    background: rgba(255,255,255,0.012);
 }
 
 .tr:last-child {
@@ -69,7 +71,7 @@
 }
 
 .tr:hover {
-    background: rgba(255,255,255,0.035);
+    background: rgba(255,255,255,0.03);
 }
 
 .tdSymbol {

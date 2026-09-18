@@ -228,8 +228,11 @@ pub async fn add_instance(
     } else {
         match state.session.session_mode().await.as_deref() {
             Some("live") => config_models::ExecutionMode::Live,
-            Some("observe") => config_models::ExecutionMode::Observe,
-            _ => config_models::ExecutionMode::Paper,
+            Some("paper") => config_models::ExecutionMode::Paper,
+            // No session default (and the workspace default) is observe —
+            // the safest posture. Only an explicit "paper" session yields
+            // paper instances.
+            _ => config_models::ExecutionMode::Observe,
         }
     };
 
@@ -261,6 +264,11 @@ pub async fn add_instance(
     };
 
     let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
+    if let Err(e) = &warmed_states {
+        // v11.11: no silent cold starts — a total warm failure must be
+        // visible in the log next to the spawn it belongs to.
+        eprintln!("⚠️  Historical Bootstrap failed for {base}: {e} — pipelines start cold.");
+    }
 
     // ── Build pipelines (creates channels, buffers, ActivePair) ──
     let pipeline_ctx = pipelines::PipelineContext {
@@ -719,6 +727,12 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     };
 
     let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
+    if let Err(e) = &warmed_states {
+        // v11.11: no silent cold starts on recharge either.
+        eprintln!(
+            "⚠️  Historical Bootstrap failed on recharge for {pair_key}: {e} — pipelines start cold."
+        );
+    }
 
     // Build fresh pipelines
     let cancel = CancellationToken::new();

@@ -61,3 +61,11 @@
     font-size: 7px;
     color: rgba(255, 255, 255, 0.22);
 }
+
+/* v11.11: flat ghost — uniform size for the Instance Status table; the
+   per-position opacity rides the inline style. */
+.ghostFlat {
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}

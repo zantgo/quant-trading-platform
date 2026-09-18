@@ -1,0 +1,15 @@
+.squares {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+.square {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    flex: none;
+}
+.squareIdle {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}

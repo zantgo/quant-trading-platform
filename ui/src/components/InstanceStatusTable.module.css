@@ -154,8 +154,12 @@
     white-space: nowrap;
 }
 
+/* v11.11 type scale — the symbol row is the parent entity: label and
+   primary badge read 14px; the per-TF rows step down to an 11px primary
+   badge. Trails render FLAT (BadgeTrail `flat`), recency encoded by
+   opacity only — no per-position shrinking. */
 .symbol {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 800;
     letter-spacing: 0.04em;
     color: #e2e8f0;
@@ -170,28 +174,6 @@
 
 .badge-cell {
     white-space: nowrap;
-}
-
-.prob-chip {
-    font-size: 10px;
-    font-weight: 500;
-    color: #64748b;
-    margin-right: 10px;
-}
-
-.prob-chip:last-child {
-    margin-right: 0;
-}
-
-.mode-chip {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #64748b;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 5px;
-    padding: 2px 8px;
 }
 
 .tf-cell {
@@ -225,37 +207,17 @@
     border: 0;
 }
 
-/* v11.4 — probabilities: S/H/L order with direction colors, larger font. */
-.probChip {
-    font-size: 12px;
-    font-weight: 600;
-    margin-right: 10px;
-    font-family: var(--mono, monospace);
-}
-
-.probShort {
-    color: #f87171;
-}
-
-.probHold {
-    color: #f59e0b;
-}
-
-.probLong {
-    color: #4ade80;
-}
-
 /* v11.11 — badge hierarchy: the symbol's general decision reads bigger
    than any individual timeframe badge. */
 .decisionBadgeLg {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 700;
     padding: 4px 10px;
 }
 
 .tfBadgeSm {
-    font-size: 9px;
-    font-weight: 500;
-    padding: 1px 5px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 6px;
     opacity: 0.92;
 }

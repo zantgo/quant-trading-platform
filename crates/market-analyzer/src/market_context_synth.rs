@@ -414,8 +414,10 @@ mod tests {
 
     #[test]
     fn monitor_only_mutes_key_from_context() {
-        let mut l1 = L1Params::default();
-        l1.monitor_only = vec!["rsi".to_string()];
+        let l1 = L1Params {
+            monitor_only: vec!["rsi".to_string()],
+            ..Default::default()
+        };
         let mut map = empty_snapshot_inputs();
         map.insert(
             "rsi".into(),

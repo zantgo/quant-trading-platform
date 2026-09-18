@@ -308,11 +308,12 @@
     </LayerHeader>
 
 
-    <!-- ── ALIGNMENT SUMMARY (v7.0): the interpretation prose moved from
-         the bottom of the panel into the head-badge zone. Gray premium
-         card, prose only — the green/red composition strip and the
-         "Composition weights" whisper footnote are gone. -->
-    <SummaryCard label="SUMMARY">
+    <!-- ── v11.11: every section title block is wrapped in `.section` so
+         the vertical rhythm is UNIFORM — each title sits the same 18px
+         below the container above it (`.section` margin-top is 0; the
+         spacing comes from the previous block's margin-bottom). -->
+    <div class={styles.section}>
+        <SummaryCard label="SUMMARY">
         <div class={styles.interpretation}>
             {#if alignment && alignment.timeframes_present > 0}
                 {#if alignment.trend_agreement_pct >= 75}
@@ -342,12 +343,14 @@
             {/if}
         </div>
     </SummaryCard>
+    </div>
 
     <!-- ── v7.0.1 (B): the header hero is two circular dials side by side
          — an AGREEMENT dial (trend agreement %) and a SCORE dial (the
          composite blend). Both use the plain card look. The old CONSENSUS
          2×2 axis grid is gone — the four axis values still surface in the
          Score section's weight chips below. -->
+    <div class={styles.section}>
     <div class={styles.sectionTitle}>Metrics</div>
     <div class={styles.alignmentHero}>
         <div class={styles.dialCard}>
@@ -412,6 +415,7 @@
             TIMEFRAME MISALIGNMENT — time horizons are not working together
         </div>
     {/if}
+    </div>
 
     <!-- ── Timeframe Status (v11.11): own titled section, ALWAYS expanded,
          below Metrics and above Score — one row per ACTIVE duration

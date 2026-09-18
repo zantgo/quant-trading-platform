@@ -322,7 +322,11 @@ fn post_instance_config_by_uuid_recharges_in_memory_state() {
 }
 
 async fn post_instance_config_by_uuid_recharges_in_memory_state_inner() {
-    tokio::time::timeout(Duration::from_secs(60), async {
+    // 120 s budget: the recharge bootstraps real history from the live
+    // exchange REST (network-bound), and an observe-mode instance boots
+    // RUNNING (ghost radar), adding legitimate background work. The old
+    // 60 s budget was already ~97% consumed on a good run.
+    tokio::time::timeout(Duration::from_secs(120), async {
         let state = setup_app_with_instance().await;
         let addr = serve_for(state.clone()).await;
         let client = reqwest::Client::new();
@@ -369,7 +373,7 @@ async fn post_instance_config_by_uuid_recharges_in_memory_state_inner() {
         );
     })
     .await
-    .expect("save->recharge cycle exceeded 15 s budget");
+    .expect("save->recharge cycle exceeded 120 s budget");
 }
 
 #[test]

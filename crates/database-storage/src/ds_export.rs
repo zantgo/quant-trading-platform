@@ -254,11 +254,10 @@ mod tests {
         let eq_lines = std::fs::read_to_string(bdir.join("equity.ndjson")).unwrap();
         assert_eq!(trades_lines.lines().count(), 2, "rerun truncates trades");
         assert_eq!(eq_lines.lines().count(), 2, "rerun truncates equity");
-        assert_eq!(
+        assert!(
             std::fs::read_to_string(bdir.join("run.json"))
                 .unwrap()
                 .contains("\"total_trades\": 2"),
-            true,
             "run.json reflects the rerun"
         );
         let _ = std::fs::remove_dir_all(&tmp);

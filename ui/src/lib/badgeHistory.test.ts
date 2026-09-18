@@ -7,7 +7,7 @@
 //   • trail view = positions 1..4 (position 0 is the live badge).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { pushBadge, getBadgeHistory, getBadgeTrail, clearBadgeHistory, BADGE_HISTORY_CAP } from './badgeHistory.svelte';
+import { pushBadge, getBadgeHistory, getBadgeTrail, clearBadgeHistory, BADGE_HISTORY_CAP, signalBuckets } from './badgeHistory.svelte';
 
 function entry(label: string, ts: number) {
     return { label, color: '#22c55e', ts };
@@ -19,13 +19,13 @@ beforeEach(() => {
 });
 
 describe('badgeHistory ring', () => {
-    it('keeps the literal last 7 samples, newest first', () => {
-        for (const [i, label] of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].entries()) {
+    it('keeps the literal last 10 samples, newest first (v11.11 cap)', () => {
+        for (const [i, label] of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'].entries()) {
             pushBadge('k', entry(label, i));
         }
         const ring = getBadgeHistory('k');
         expect(ring.length).toBe(BADGE_HISTORY_CAP);
-        expect(ring.map((e) => e.label)).toEqual(['H', 'G', 'F', 'E', 'D', 'C', 'B']);
+        expect(ring.map((e) => e.label)).toEqual(['L', 'K', 'J', 'I', 'H', 'G', 'F', 'E', 'D', 'C']);
     });
 
     it('keeps repeats (literal sampling)', () => {
@@ -72,5 +72,39 @@ describe('badgeHistory ring', () => {
         clearBadgeHistory();
         pushBadge('k', entry('OK', 1));
         expect(getBadgeHistory('k')[0].label).toBe('OK');
+    });
+});
+
+// ── v11.11: the signal histogram (Instance Status squares) ──────────
+describe('signalBuckets', () => {
+    beforeEach(() => clearBadgeHistory());
+
+    it('groups by color class, ordered by count DESC (most common first)', () => {
+        // Neutral, Neutral, Bear, Bear, Bull → 2 amber, 2 red, 1 green.
+        const seq: Array<[string, string]> = [
+            ['WEAK BULL', '#4ade80'],
+            ['WEAK BEAR', '#f87171'],
+            ['WEAK BEAR', '#f87171'],
+            ['NEUTRAL', '#f59e0b'],
+            ['NEUTRAL', '#f59e0b'],
+        ];
+        for (const [label, color] of seq) pushBadge('k', { label, color, ts: 1 });
+        const buckets = signalBuckets('k', 5);
+        expect(buckets[0]).toEqual({ bucket: 'neutral', count: 2 });
+        expect(buckets[1]).toEqual({ bucket: 'bear', count: 2 });
+        expect(buckets[2]).toEqual({ bucket: 'bull', count: 1 });
+    });
+
+    it('reads as a wall: 4-of-5 red dominates regardless of timing', () => {
+        for (let i = 0; i < 4; i++) pushBadge('k', { label: 'WEAK BEAR', color: '#f87171', ts: i });
+        pushBadge('k', { label: 'WEAK BULL', color: '#4ade80', ts: 9 });
+        const buckets = signalBuckets('k', 5);
+        expect(buckets[0]).toEqual({ bucket: 'bear', count: 4 });
+        expect(buckets[1]).toEqual({ bucket: 'bull', count: 1 });
+    });
+
+    it('caps the window at `cap` samples including the current', () => {
+        for (let i = 0; i < 12; i++) pushBadge('k', entry('NEUTRAL', i));
+        expect(signalBuckets('k', 10)[0].count).toBe(10);
     });
 });

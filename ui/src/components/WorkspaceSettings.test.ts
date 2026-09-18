@@ -107,7 +107,7 @@ describe('WorkspaceSettings — Timeframes CRUD (v11.8)', () => {
         expect(container.textContent).toContain('15s · 15s — INDICATOR PARAMETERS');
     });
 
-    it('activating a duration POSTs timeframes and updates pair.activeDurations', async () => {
+    it('v11.11: toggling is draft-only — UI updates, no POST until SAVE', async () => {
         const { pair } = seedPair();
         const { container } = render(WorkspaceSettings, { props: { pair, tabKey: 'BTC-USDT' } });
         await tick();
@@ -116,15 +116,50 @@ describe('WorkspaceSettings — Timeframes CRUD (v11.8)', () => {
         )!;
         expect(oneMinute.getAttribute('aria-pressed')).toBe('false');
         await fireEvent.click(oneMinute);
+        await tick();
+        // Draft: the switch, tag and counter update…
+        expect(oneMinute.getAttribute('aria-pressed')).toBe('true');
+        expect(container.textContent).toContain('Active: 6 / 14');
+        // …but the live ladder and the network stay untouched.
+        expect(pair.activeDurations).toEqual([1, 3, 5, 15, 30]);
+        const configPosts = (globalThis.fetch as any).mock.calls.filter(
+            ([u, o]: any[]) => String(u) === '/api/config' && o?.method === 'POST',
+        );
+        expect(configPosts.length).toBe(0);
+    });
+
+    it('v11.11: SAVE applies the ladder once (config POST + canonical instance POST)', async () => {
+        const { pair } = seedPair();
+        const { container } = render(WorkspaceSettings, { props: { pair, tabKey: 'BTC-USDT' } });
+        await tick();
+        const oneMinute = railSwitches(container).find(
+            (c) => c.getAttribute('aria-label') === '1m activation',
+        )!;
+        await fireEvent.click(oneMinute);
+        const saveBtn = await waitFor(() => {
+            const btn = screen.getByText('SAVE') as HTMLButtonElement;
+            expect(btn.disabled).toBe(false);
+            return btn;
+        });
+        await fireEvent.click(saveBtn);
         await waitFor(() => {
             expect(pair.activeDurations).toEqual([1, 3, 5, 15, 30, 60]);
         });
-        const post = (globalThis.fetch as any).mock.calls.find(
+        const configPost = (globalThis.fetch as any).mock.calls.find(
             ([u, o]: any[]) => String(u) === '/api/config' && o?.method === 'POST',
         );
-        expect(JSON.parse(post[1].body)).toEqual({
-            timeframes: [1, 3, 5, 15, 30, 60],
-        });
+        expect(configPost).toBeTruthy();
+        expect(JSON.parse(configPost[1].body)).toEqual({ timeframes: [1, 3, 5, 15, 30, 60] });
+        const instancePost = (globalThis.fetch as any).mock.calls.find(
+            ([u]: any[]) => String(u).includes('/api/instances/inst_test/config'),
+        );
+        expect(instancePost).toBeTruthy();
+        const body = JSON.parse(instancePost[1].body);
+        // v11.9 contract: per-duration overrides nested under `timeframes`,
+        // keyed by seconds — top-level numeric keys are rejected by the
+        // backend's `deny_unknown_fields`.
+        expect(Object.keys(body.timeframes).sort()).toEqual(['1', '15', '3', '30', '5', '60']);
+        expect(body.timeframes['60'].candles).toEqual({ duration_seconds: 60 });
     });
 
     it('cannot deactivate the last active timeframe', async () => {

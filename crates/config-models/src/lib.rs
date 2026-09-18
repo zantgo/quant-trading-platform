@@ -563,7 +563,7 @@ pub struct InstanceEntry {
     pub automation: AutomationConfig,
     #[serde(default)]
     pub operational_mode: OperationalMode,
-    /// v7 execution mode (Observe / Paper / Live). Default Paper.
+    /// v7 execution mode (Observe / Paper / Live). Default Observe.
     #[serde(default)]
     pub mode: ExecutionMode,
     /// v9: the bound strategy (by name). `None` = the workspace default
@@ -597,10 +597,23 @@ fn default_portfolio_capital() -> f64 {
 #[derive(Default)]
 pub enum ExecutionMode {
     /// Market/signal monitoring only — no orders are ever dispatched.
-    Observe,
     #[default]
+    Observe,
     Paper,
     Live,
+}
+
+/// Session-posture derivation from the persisted instance entries
+/// (boot session rows + v11.6 crash recovery). The instances ARE the
+/// truth (v7.3 doctrine): the first entry's mode describes the session;
+/// an empty workspace is the default observe posture.
+pub fn session_mode_from_instances(instances: &[InstanceEntry]) -> &'static str {
+    match instances.first().map(|i| i.mode) {
+        Some(ExecutionMode::Observe) => "observe",
+        Some(ExecutionMode::Paper) => "paper",
+        Some(ExecutionMode::Live) => "live",
+        None => "observe",
+    }
 }
 
 /// v7 TAE — the minimal setup-executor configuration. Replaces the erased
@@ -1033,13 +1046,14 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
             ws.risk_limits.max_portfolio_exposure_pct,
         ),
     ] {
-        if !v.is_finite() || !(0.0 < v) || !(v <= 100.0) {
+        if !v.is_finite() || v <= 0.0 || v > 100.0 {
             return Err(ConfigError::InvalidNumeric {
                 detail: format!("[workspace.risk_limits].{name} = {v} (must be in (0, 100])"),
             });
         }
     }
-    if !(0.0 < ws.risk_limits.max_correlation) || ws.risk_limits.max_correlation > 1.0 {
+    let max_correlation = ws.risk_limits.max_correlation;
+    if !max_correlation.is_finite() || max_correlation <= 0.0 || max_correlation > 1.0 {
         return Err(ConfigError::InvalidNumeric {
             detail: format!(
                 "[workspace.risk_limits].max_correlation = {} (must be in (0, 1])",
@@ -1148,7 +1162,7 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
                 ),
             });
         }
-        if !(liq.bucket_retention_days > 0) {
+        if liq.bucket_retention_days == 0 {
             return Err(ConfigError::InvalidNumeric {
                 detail: format!(
                     "[workspace.liquidity].bucket_retention_days = {} (must be >0)",
@@ -1189,7 +1203,7 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
         }
         if hm.retention_secs == 0 {
             return Err(ConfigError::InvalidNumeric {
-                detail: format!("[workspace.heatmap].retention_secs = 0 (must be >0)"),
+                detail: "[workspace.heatmap].retention_secs = 0 (must be >0)".to_string(),
             });
         }
     }
@@ -1508,7 +1522,7 @@ indicators = { rsi_period = 14 }
         // v11.9 parity gate: `tf_ladder_defaults` returns the full
         // 14-duration supported pool regardless of the (now ignored)
         // workspace slow/macro keys.
-        let mut ws = WorkspaceConfig::default();
+        let ws = WorkspaceConfig::default();
         assert_eq!(ws.tf_ladder_defaults(), SUPPORTED_DURATIONS.to_vec());
         assert_eq!(
             SUPPORTED_DURATIONS,
@@ -1583,8 +1597,10 @@ indicators = { rsi_period = 14 }
 
     #[test]
     fn timeframes_validation_rejects_bad_sets() {
-        let mut ws = WorkspaceConfig::default();
-        ws.timeframes = Vec::new();
+        let mut ws = WorkspaceConfig {
+            timeframes: Vec::new(),
+            ..Default::default()
+        };
         assert!(validate_workspace(&ws).is_err());
         ws.timeframes = SUPPORTED_DURATIONS.to_vec();
         assert!(validate_workspace(&ws).is_ok());
@@ -1629,6 +1645,73 @@ mode = "observe"
         assert_eq!(ws.id, "main");
         assert_eq!(ws.instances.len(), 0);
         assert_eq!(ws.default_currency, "USDC");
+    }
+
+    fn entry_with_mode(mode: ExecutionMode) -> InstanceEntry {
+        InstanceEntry {
+            id: "btc".into(),
+            symbol: "BTC-USDT".into(),
+            quote: "USDT".into(),
+            status: InstanceStatus::Running,
+            timeframes: std::collections::BTreeMap::new(),
+            strategy: None,
+            automation: AutomationConfig::default(),
+            operational_mode: OperationalMode::Advisory,
+            mode,
+            allocation_pct: None,
+            weight_overrides: None,
+            activation: None,
+        }
+    }
+
+    #[test]
+    fn session_mode_empty_workspace_is_observe() {
+        assert_eq!(session_mode_from_instances(&[]), "observe");
+    }
+
+    #[test]
+    fn session_mode_follows_first_instance_mode() {
+        for (mode, expect) in [
+            (ExecutionMode::Observe, "observe"),
+            (ExecutionMode::Paper, "paper"),
+            (ExecutionMode::Live, "live"),
+        ] {
+            let instances = vec![entry_with_mode(mode)];
+            assert_eq!(session_mode_from_instances(&instances), expect);
+        }
+    }
+
+    #[test]
+    fn session_mode_first_instance_wins_over_the_rest() {
+        let instances = vec![
+            entry_with_mode(ExecutionMode::Observe),
+            entry_with_mode(ExecutionMode::Paper),
+        ];
+        assert_eq!(session_mode_from_instances(&instances), "observe");
+        let instances = vec![
+            entry_with_mode(ExecutionMode::Live),
+            entry_with_mode(ExecutionMode::Observe),
+        ];
+        assert_eq!(session_mode_from_instances(&instances), "live");
+    }
+
+    #[test]
+    fn execution_mode_serde_default_is_observe() {
+        let toml = r#"
+[workspace]
+id = "main"
+name = "Test"
+default_currency = "USDC"
+default_exchange = "Hyperliquid"
+
+[[workspace.instances]]
+id = "btc"
+symbol = "BTC-USDT"
+quote = "USDT"
+"#;
+        let cfg: OnDiskConfig = toml::from_str(toml).expect("missing mode must default");
+        let (_platform, workspace) = cfg.split();
+        assert_eq!(workspace.instances[0].mode, ExecutionMode::Observe);
     }
 
     #[test]

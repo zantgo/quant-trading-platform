@@ -633,12 +633,11 @@ fn profile_zones<'a>(
             profile.short_invalidation_level,
         )
     };
-    let (Some(entry), Some(target)) = (entry, target) else {
-        return None;
-    };
-    let Some(inv) = inv else {
-        return None;
-    };
+    // v11.12: `?` instead of let-else (clippy) — same semantics, the fn
+    // returns Option.
+    let entry = entry?;
+    let target = target?;
+    let inv = inv?;
     if entry.low <= 0.0
         || entry.high <= 0.0
         || target.low <= 0.0

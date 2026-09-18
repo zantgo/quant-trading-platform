@@ -291,9 +291,12 @@ pub async fn fetch_and_warm_bootstrap(
     // Fetch every ACTIVE duration concurrently (one spawned task per
     // duration; handles are awaited in spawn order so the result vec stays
     // aligned with `ladder_secs`).
-    let mut handles: Vec<
-        tokio::task::JoinHandle<Result<(Vec<NormalizedCandle>, u64, u64), String>>,
-    > = Vec::with_capacity(ladder_secs.len());
+    // v11.12: type aliases keep the signatures readable (clippy
+    // `type_complexity`).
+    type SlotCandles = (Vec<NormalizedCandle>, u64, u64);
+    type SlotFetch = Result<SlotCandles, String>;
+    let mut handles: Vec<tokio::task::JoinHandle<SlotFetch>> =
+        Vec::with_capacity(ladder_secs.len());
     for &secs in &ladder_secs {
         handles.push(tokio::spawn(collect_slot_candles(
             secs,
@@ -309,25 +312,36 @@ pub async fn fetch_and_warm_bootstrap(
             input.sub_minute_skip_historical,
         )));
     }
-    let mut slot_results: Vec<Result<(Vec<NormalizedCandle>, u64, u64), String>> =
-        Vec::with_capacity(handles.len());
+    let mut slot_results: Vec<SlotFetch> = Vec::with_capacity(handles.len());
     for h in handles {
         slot_results.push(
             h.await
-                .map_err(|e| format!("bootstrap fetch task failed: {e}"))?,
+                .unwrap_or_else(|e| Err(format!("bootstrap fetch task panicked: {e}"))),
         );
     }
 
-    // Fail fast on the first hard error (≥60s duration with unreachable
-    // REST and an empty DB), preserving the pre-ladder behaviour.
+    // v11.11 per-slot tolerance: a hard slot error — typically a
+    // NEWLY-ADDED duration (zero local DB history) hitting a transient
+    // REST failure — cold-starts that slot ALONE instead of poisoning the
+    // whole warm. The empty slot logs below and the pipeline fills live at
+    // its own candle cadence; the other durations keep their warmed state.
     let mut slot_candles: Vec<Vec<NormalizedCandle>> = vec![Vec::new(); ladder_secs.len()];
     let mut total_db: u64 = 0;
     let mut total_rest: u64 = 0;
     for (i, res) in slot_results.into_iter().enumerate() {
-        let (candles, db_warm, rest_gap) = res?;
-        total_db += db_warm;
-        total_rest += rest_gap;
-        slot_candles[i] = candles;
+        match res {
+            Ok((candles, db_warm, rest_gap)) => {
+                total_db += db_warm;
+                total_rest += rest_gap;
+                slot_candles[i] = candles;
+            }
+            Err(e) => {
+                eprintln!(
+                    "⚠️  Historical Bootstrap [{}]: {}s slot cold-starts ({}).",
+                    input.internal_symbol, ladder_secs[i], e
+                );
+            }
+        }
     }
 
     if let Some(ref reliability) = input.reliability {
@@ -922,5 +936,50 @@ mod cold_start_sub_minute_tests {
         );
         assert_eq!(db_count, 0, "no DB rows for a 1s TF on an empty pool");
         assert_eq!(rest_count, 0, "REST unreachable → zero REST candles");
+    }
+}
+
+#[cfg(test)]
+mod tolerance_tests {
+    use super::*;
+
+    /// v11.11 regression: a ≥60s slot whose REST fetch fails against an
+    /// EMPTY local DB (exactly a freshly-ADDED duration) used to fail-fast
+    /// the entire bootstrap — the new duration's MTF column stayed empty
+    /// until restart and the sibling slots were poisoned too. The slot must
+    /// cold-start alone and the warm must still succeed.
+    #[tokio::test]
+    async fn unreachable_rest_cold_starts_the_slot_instead_of_failing_the_warm() {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("mem pool");
+        database_storage::run_migrations(&pool)
+            .await
+            .expect("migrations");
+
+        let input = BootstrapInput {
+            base: "BTC".into(),
+            internal_symbol: "BTC-USDT".into(),
+            quote: Currency::USDT,
+            // Unroutable port — every ≥60s slot's REST fetch fails fast.
+            rest_url: "http://127.0.0.1:9".into(),
+            exchange_choice: ExchangeChoice::Hyperliquid,
+            pool,
+            ladder_cfgs: vec![
+                TimeframeConfig::new(60, config_models::IndicatorsConfig::default()),
+                TimeframeConfig::new(300, config_models::IndicatorsConfig::default()),
+            ],
+            fib_config: FibonacciConfig::default(),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
+            fetch_timeout_ms: 500,
+            sub_minute_skip_historical: false,
+            reliability: None,
+        };
+
+        let warmed = fetch_and_warm_bootstrap(&input)
+            .await
+            .expect("per-slot tolerance must not fail the whole warm");
+        assert_eq!(warmed.len(), 2, "both slots must produce a (cold) state");
     }
 }

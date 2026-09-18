@@ -208,19 +208,20 @@ describe('GeneralDashboard — empty state', () => {
 });
 
 describe('GeneralDashboard — instance status table (v11.2)', () => {
-    it('renders the per-instance status table between the unified header and the RecommendationHero', () => {
+    it('renders the v11.11 definitive order: header → hero → rankings → instance table', () => {
         seedPair('BTC');
         seedPair('ETH');
         const { container } = render(GeneralDashboard, { props: { wssMap: {} } });
         const table = container.querySelector('[aria-label="Per-instance status"]');
         expect(table).toBeTruthy();
-        // DOM order: unified header < instance status table < hero.
         const header = container.querySelector('[class*="unifiedHeader"]');
         const hero = container.querySelector('[class*="hero"]');
         expect(header).toBeTruthy();
         expect(hero).toBeTruthy();
-        expect(header!.compareDocumentPosition(table!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-        expect(table!.compareDocumentPosition(hero!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        // v11.11 DEFINITIVE ORDER: header → MARKET STATUS (hero) →
+        // ASSET RANKINGS → INSTANCE STATUS (…→ Market Health last).
+        expect(header!.compareDocumentPosition(hero!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        expect(hero!.compareDocumentPosition(table!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
         // One collapsed row per instance.
         const bodyRows = Array.from(table!.querySelectorAll('tbody tr'));
         expect(bodyRows.length).toBe(2);

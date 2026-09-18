@@ -391,7 +391,7 @@
      // Warm cache = preserve live candles, no history refetch needed.
      // The cache stays valid until a WS reconnect (websocket.svelte.ts
      // purges both history + candle caches) or a timeframe config change
-     // (TimeframeSettings.svelte clears both caches). No `purgeCacheForKey`
+     // (the MME Settings editors clear both caches). No `purgeCacheForKey`
      // here — the previous no-op purge plus immediate refetch is what
      // caused the 1s erasure (stale history overwrote live candles).
      //
