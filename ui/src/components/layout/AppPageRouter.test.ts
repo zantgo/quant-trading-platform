@@ -4,7 +4,7 @@
 // surface — General settings when no instance is selected (Fees &
 // Leverage / Share Config), Workspace settings when one is.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/svelte';
+import { cleanup, render, screen } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import AppPageRouter from './AppPageRouter.svelte';
 import { useAppStore } from '../../state.svelte';
@@ -52,12 +52,17 @@ function renderRouter(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AppPageRouter — MME settings dual-mode (v11.9 N2)', () => {
-    it('no instance selected renders General settings (Fees & Leverage / Share Config)', async () => {
+    it('no instance selected renders the full General settings page (v11.11)', async () => {
         const { container } = renderRouter();
         await tick();
         const text = container.textContent ?? '';
+        // v11.11: ONE stacked page — title, fee card, cost projection and
+        // the share-config container all present without any switch.
+        expect(text).toContain('General Settings');
         expect(text).toContain('Fees & Leverage');
-        expect(text).toContain('Share Config');
+        expect(text).toContain('Cost Projection');
+        expect(text).toContain('Download config.toml');
+        expect(screen.queryByText('Share Config')).toBeNull();
     });
 
     it('instance selected renders Workspace settings', async () => {

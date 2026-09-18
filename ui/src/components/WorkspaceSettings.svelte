@@ -531,12 +531,6 @@
         <div class={engine.headerTop}>
             <div class={engine.titleGroup}>
                 <h2 class={engine.title}>Workspace Settings</h2>
-                {#if pair}
-                    <span class={engine.metaChip}>
-                        <span class={engine.metaChipLabel}>pair</span>
-                        <span class={engine.metaChipValue}>{pair.symbol} · {pair.exchange}</span>
-                    </span>
-                {/if}
             </div>
             <div class={engine.headerRight}>
                 <span class={engine.tabLabel}>Settings</span>
