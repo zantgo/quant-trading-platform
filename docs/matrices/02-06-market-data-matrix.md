@@ -86,4 +86,4 @@ The Market Data Layer produces candles at the 10 fixed ladder timeframes simulta
 - [DIE Layer 2 — Market Data](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) — Producing-layer specification.
 - [Raw Data Matrix](02-10-raw-data-matrix.md) — Upstream input.
 - [Metrics Matrix](02-07-metrics-matrix.md) — Downstream consumer (MME Layer 1).
-- [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) — Fixed 10-slot ladder.
+- [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) — 14-duration pool.

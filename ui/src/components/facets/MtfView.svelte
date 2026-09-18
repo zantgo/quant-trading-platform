@@ -557,7 +557,7 @@
                 {rows.length} indicator{rows.length === 1 ? '' : 's'}
             </span>
             {#if indicatorLeanTotal > 0}
-                <span class={styles.headingBadges} title={`BULL ${indicatorLean.bull} · BEAR ${indicatorLean.bear} · MIXED ${indicatorLean.mixed} — per-indicator agreement across all 10 timeframes`}>
+                <span class={styles.headingBadges} title={`BULL ${indicatorLean.bull} · BEAR ${indicatorLean.bear} · MIXED ${indicatorLean.mixed} — per-indicator agreement across all ACTIVE timeframes`}>
                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {indicatorLit === 'bull' ? styles.dirBadgeLit : ''}"
                           data-dir="bull" data-lit={indicatorLit === 'bull' ? 'true' : 'false'}>
                         BULL {indicatorLean.bull}
@@ -656,7 +656,7 @@
                 {totalSignalCount} signal{totalSignalCount === 1 ? '' : 's'}
             </span>
             {#if tallyTotal(globalSignalLean) > 0}
-                <span class={styles.headingBadges} title={`Bullish ${globalSignalLean.bull} · Bearish ${globalSignalLean.bear} · Neutral ${globalSignalLean.neutral} — across all 10 timeframes`}>
+                <span class={styles.headingBadges} title={`Bullish ${globalSignalLean.bull} · Bearish ${globalSignalLean.bear} · Neutral ${globalSignalLean.neutral} — across all ACTIVE timeframes`}>
                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {litSide(globalSignalLean.bull, globalSignalLean.bear) === 'bull' ? styles.dirBadgeLit : ''}"
                           data-dir="bull" data-lit={litSide(globalSignalLean.bull, globalSignalLean.bear) === 'bull' ? 'true' : 'false'}>
                         ▲ {globalSignalLean.bull}
@@ -706,7 +706,7 @@
                                         {/if}
                                     </span>
                                 {/each}
-                                <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Neutral ${totals.neutral} — summed across all 10 timeframes`}>
+                                <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Neutral ${totals.neutral} — summed across all ACTIVE timeframes`}>
                                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
                                           data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
                                         ▲ {totals.bull}
@@ -742,7 +742,7 @@
             </span>
             {#if totalDivergenceCount > 0}
                 {@const lit = globalDivergenceLean === 'BULL' ? 'bull' : globalDivergenceLean === 'BEAR' ? 'bear' : null}
-                <span class={styles.headingBadges} title={`Bullish ${globalDivergenceTally.bull} · Bearish ${globalDivergenceTally.bear} · Unknown ${globalDivergenceTally.unknown} — across all 10 timeframes`}>
+                <span class={styles.headingBadges} title={`Bullish ${globalDivergenceTally.bull} · Bearish ${globalDivergenceTally.bear} · Unknown ${globalDivergenceTally.unknown} — across all ACTIVE timeframes`}>
                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
                           data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
                         ▲ {globalDivergenceTally.bull}
@@ -785,7 +785,7 @@
                                         {sub ? divShort(sub) : '·'}
                                     </span>
                                 {/each}
-                                <span class={styles.tblTotal} title={`Bullish ${r.bullCount} · Bearish ${r.bearCount} · Unknown ${r.unknownCount} — summed across all 10 timeframes`}>
+                                <span class={styles.tblTotal} title={`Bullish ${r.bullCount} · Bearish ${r.bearCount} · Unknown ${r.unknownCount} — summed across all ACTIVE timeframes`}>
                                     <span class="{styles.dirBadge} {styles.dirBadgeBull} {r.directionLabel === 'BULL' ? styles.dirBadgeLit : ''}"
                                           data-dir="bull" data-lit={r.directionLabel === 'BULL' ? 'true' : 'false'}>
                                         ▲ {r.bullCount}

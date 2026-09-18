@@ -20,7 +20,7 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
 
         let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
 
-        // One event channel per fixed-ladder slot (10 total).
+        // One event channel per ACTIVE duration.
         let mut pipeline_txs: Vec<mpsc::Sender<NormalizedEvent>> = Vec::with_capacity(10);
         let mut pipeline_rxs: Vec<mpsc::Receiver<NormalizedEvent>> = Vec::with_capacity(10);
         for _ in 0..10 {
@@ -163,7 +163,7 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
         // Long-lived history for async borrow in future (keeps references alive)
         let _ = (&histories[0], &histories[2]);
 
-        // Spawn all 10 fixed-ladder pipelines.
+        // Spawn all ACTIVE duration pipelines.
         let mut handles = Vec::new();
         for i in 0..10 {
             let rx = pipeline_rxs.remove(0);
@@ -272,7 +272,7 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
         }
     })
     .await
-    .expect("Fixed-ladder integration test timed out");
+    .expect("Duration-pool integration test timed out");
 }
 
 fn drain_broadcast(rx: &mut broadcast::Receiver<MarketSnapshot>) -> usize {

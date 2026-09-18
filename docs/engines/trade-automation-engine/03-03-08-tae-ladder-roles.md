@@ -9,11 +9,11 @@
 
 ## 1. Problem
 
-Running a swing-calibrated default strategy (trend≥75, stance Constructive) on the legacy configurable `1m/3m/5m/15m` ladder produced near-zero trades: the micro-TF (1m) read pullback noise inside a macro bull trend as `bias Neutral`, `volatility` as danger, and `market_stance Cautious` — the L4/L6 gate chain vetoed everything while the 15m macro saw a clean trend (`EMA50>200` 81-100% bullish in the verified 7-day window). The v11.1 fixed 10-slot ladder (1 s … 1 h) widens the spread further — the fastest slot (`1s`, 1 s) is pure tick noise while the slowest (`1h`, 1 h) carries the trend — making explicit role separation essential rather than optional.
+Running a swing-calibrated default strategy (trend≥75, stance Constructive) on the legacy configurable `1m/3m/5m/15m` ladder produced near-zero trades: the micro-TF (1m) read pullback noise inside a macro bull trend as `bias Neutral`, `volatility` as danger, and `market_stance Cautious` — the L4/L6 gate chain vetoed everything while the 15m macro saw a clean trend (`EMA50>200` 81-100% bullish in the verified 7-day window). The v11.1 14-duration pool (1 s … 1 h) widens the spread further — the fastest slot (`1s`, 1 s) is pure tick noise while the slowest (`1h`, 1 h) carries the trend — making explicit role separation essential rather than optional.
 
 ## 2. Solution — Roles
 
-One strategy, ten fixed ladder slots, four roles. Roles map to slots; when the fastest slot is sub-hour (`1s < 3600` — always true on the fixed ladder, since `1s` = 1 s) the roles diverge, otherwise they collapse to the legacy behavior (all roles = representative/fastest slot).
+One strategy, the duration pool, four roles. Roles map to slots; when the fastest slot is sub-hour (`1s < 3600` — always true on the fixed ladder, since `1s` = 1 s) the roles diverge, otherwise they collapse to the legacy behavior (all roles = representative/fastest slot).
 
 | Role | Default Slot (extremes mapping) | What it feeds |
 |------|-----------------------------|---------------|
@@ -22,17 +22,17 @@ One strategy, ten fixed ladder slots, four roles. Roles map to slots; when the f
 | `stop_tf` | `1h` (3600 s) | SL distance floor (`L6 stop_loss_distance_pct` or `stop_tf` ATR) |
 | `target_tf` | `1s` (1 s) | TP zone |
 
-Legacy (`ladder_roles.enabled = false`): all roles = the fastest slot (old behavior, no code fork). On the fixed ladder the sub-hour activation gate is always satisfied, so role separation is effectively always on when `enabled = true`.
+Legacy (`ladder_roles.enabled = false`): all roles = the fastest slot (old behavior, no code fork). In the duration pool the sub-hour activation gate is always satisfied, so role separation is effectively always on when `enabled = true`.
 
-**Active-extremes fallback (v11.2).** Role selection operates over the ACTIVE snapshots only — the fastest N of the fixed pool (`[workspace].active_timeframes`, 1..=10, default 5; see [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md)). Inactive slots produce no snapshot, so a role configured on an inactive slot degrades to the same slot's ACTIVE extreme:
+**Active-extremes fallback (v11.2).** Role selection operates over the ACTIVE snapshots only — the ACTIVE set of the 14-duration pool (`[workspace].timeframes`; see [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md)). Inactive slots produce no snapshot, so a role configured on an inactive slot degrades to the same slot's ACTIVE extreme:
 
-| `active_timeframes` | decision/stop resolve to | entry/target resolve to |
+| ACTIVE durations | decision/stop resolve to | entry/target resolve to |
 |---------------------|--------------------------|-------------------------|
-| 10 | `1h` (3600 s — configured extreme present) | `1s` (1 s) |
-| 5 (**default**) | **`30s`** (30 s — slowest ACTIVE; `1h` not running) | `1s` (1 s — fastest ACTIVE, every N ≥ 1) |
+| full pool (14) | `1d` (86400 s — configured extreme present) | `1s` (1 s) |
+| default (fastest 8) | **`5m`** (300 s — slowest ACTIVE; `1d` not running) | `1s` (1 s — fastest ACTIVE) |
 | 1 | **`1s`** (1 s) — degenerate case: decision == stop == entry == target | `1s` (1 s) |
 
-The N=1 case collapses all four roles onto one snapshot — role separation is a no-op and the executor behaves like the legacy single-TF path. The shipped defaults stay the string extremes (`1h` / `1s`); the resolution, not the config, follows the active set.
+The N=1 case collapses all four roles onto one snapshot — role separation is a no-op and the executor behaves like the legacy single-TF path. The shipped defaults stay the string extremes (`1d` / `1s`); the resolution, not the config, follows the active set.
 
 ## 3. Config
 

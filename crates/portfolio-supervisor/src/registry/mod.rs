@@ -608,7 +608,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     // Cancel all active tasks for old instance
     old_instance.cancel.cancel();
 
-    // Drain old buffers (all 10 fixed-ladder slots; the recharged instance
+    // Drain old buffers (all ACTIVE durations; the recharged instance
     // gets fresh buffers from `build_pipelines`).
     {
         for buf in old_instance.buffers() {
@@ -884,7 +884,7 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
 ///
 /// **AUDIT-V7-313.** Full implementation is staged behind this entry
 /// point; the current revision logs the intent and delegates to
-/// `recharge_instance` (which rebuilds all ten TFs) so the contract is
+/// `recharge_instance` (which rebuilds every ACTIVE duration) so the contract is
 /// observable end-to-end. A future commit will replace the delegation
 /// with single-TF teardown+rebuild.
 pub async fn reload_timeframe(
@@ -916,6 +916,6 @@ pub async fn reload_timeframe(
     pipeline.indicator_lifecycle.write().await.clear();
 
     // Full implementation deferred: delegate to recharge_instance which
-    // rebuilds all ten TFs. This is conservative but observable.
+    // rebuilds every ACTIVE duration. This is conservative but observable.
     recharge_instance(state, instance_id).await
 }

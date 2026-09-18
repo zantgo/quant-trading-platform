@@ -501,7 +501,7 @@ impl SetupPlan {
 }
 
 /// Extract the top setup from the latest completed snapshots of the
-/// fixed-ladder TFs (one per slot, fastest → slowest).
+/// ACTIVE durations (one per duration, fastest → slowest).
 ///
 /// Selection: candidates = profiles with `preconditions_met > 0`,
 /// `trade_viability == Actionable`, geometry consistent for the active side

@@ -321,7 +321,7 @@ async fn spawn_tasks(
     let liquidity_config = eff_liq.cfg.clone();
     let _ = eff_liq;
 
-    // One event channel per fixed-ladder slot (10 total, fastest → slowest).
+    // One event channel per ACTIVE duration (fastest → slowest).
     let mut pipeline_txs: Vec<mpsc::Sender<NormalizedEvent>> = Vec::with_capacity(10);
     let mut pipeline_rxs: Vec<mpsc::Receiver<NormalizedEvent>> = Vec::with_capacity(10);
     for _ in 0..10 {
@@ -524,7 +524,7 @@ async fn spawn_tasks(
         let a_pipeline_state: Arc<RwLock<core_domain::models::CandlePipelineState>> =
             pair_pipes[i].pipeline_state.clone();
 
-        // Sibling handles: every OTHER fixed-ladder slot's latest-snapshot
+        // Sibling handles: every OTHER ACTIVE duration's latest-snapshot
         // lock, in ladder order, excluding this pipeline's own.
         let cross_tf_snapshots: Vec<Arc<RwLock<Option<MarketSnapshot>>>> = latests
             .iter()

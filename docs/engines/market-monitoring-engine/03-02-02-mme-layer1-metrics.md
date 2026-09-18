@@ -150,7 +150,7 @@ The Metrics Layer is the **sole producer** of `MarketSnapshot` frames. Once buil
 | Consumer | Subscription | Transport |
 |----------|-------------|-----------|
 | MME L2–L7 | All configured timeframes for an instance. | `MarketSnapshot` broadcast receiver → higher-layer cascade. |
-| Frontend | N parallel connections (one per ACTIVE ladder slot — N = `[workspace].active_timeframes`, 1..=10 default 5, v11.2). | WebSocket `/ws?symbol=&timeframe_secs=` → `MarketSnapshot` channel. |
+| Frontend | N parallel connections (one per ACTIVE ladder slot — N = the ACTIVE duration count, default 8, v11.9). | WebSocket `/ws?symbol=&timeframe_secs=` → `MarketSnapshot` channel. |
 | Telemetry logger | Completed snapshots only. | `MarketSnapshot` broadcast receiver → SQLite `market_snapshots`. |
 
 The WebSocket handler (`server/ws.rs`) resolves the requested `(symbol, timeframe_secs)` to the correct `MarketSnapshot` channel and streams frames to the client.

@@ -126,7 +126,7 @@ export interface MtfPayload {
   header: HeaderBlock;
   groups: MtfGroupEntry[];
   indicators: MtfIndicatorEntry[];
-  /** Aggregated across all 10 TFs (same shape as the Metrics single-TF export). */
+  /** Aggregated across all ACTIVE durations (same shape as the Metrics single-TF export). */
   group_confluence: GroupConfluenceRow[];
   signals_by_kind: Record<string, IndicatorSignalExport[]>;
   divergences: DivergenceRow[];
@@ -634,7 +634,7 @@ interface MtfAggregate {
 }
 
 /**
- * Aggregate indicator data across all 10 TFs into a single flattened view
+ * Aggregate indicator data across all ACTIVE durations into a single flattened view
  * (same shape the single-TF Metrics export carries in its top-level
  * `signals_by_kind` / `divergences` / `levels` blocks). Deduplicates by
  * `(key, label, kind, time-bucket)` so the same signal that fired on
@@ -715,7 +715,7 @@ function aggregateAcrossTFs(perTf: MtfTimeframeEntry[], registry: IndicatorMeta[
 // ── Public builder ───────────────────────────────────────────────────────
 
 export interface MtfTabInputs {
-  /** Per-slot telemetry keyed by the fixed 10-slot ladder. */
+  /** Per-slot telemetry keyed by the 14-duration pool. */
   terms: Record<number, TimeframeTelemetry>;
   registry: IndicatorMeta[];
   /** v6.11: filtering was removed entirely — every registry row is always
@@ -771,7 +771,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
   // v6.11: filtering was removed — the shown row set IS the full registry.
   const visibleKeys = new Set(args.registry.map((m) => m.key));
 
-  // Per-TF per-indicator row (one per registry entry × 10 TFs).
+  // Per-TF per-indicator row (one per registry entry × ACTIVE durations).
   const indicators: MtfIndicatorEntry[] = args.registry.map((m) => {
     const split = splitIndicatorKey(m.key);
     const values: MtfIndicatorValue[] = slotDefs.map(({ label, tf }) => {
@@ -839,7 +839,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
       total_indicator_count: groupTotalCounts.get(k) ?? 0,
     }));
 
-  // Group confluence + signals_by_kind + divergences + levels across all 10 TFs.
+  // Group confluence + signals_by_kind + divergences + levels across all ACTIVE durations.
   // We aggregate per-TF indicator maps into a single map and reuse the
   // shared Metrics builders so the cross-TF aggregates have the same shape
   // as the single-TF aggregates.

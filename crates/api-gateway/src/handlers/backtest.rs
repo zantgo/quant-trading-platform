@@ -96,12 +96,12 @@ pub async fn serve_backfill_start(
         let Some(tfs) = payload
             .timeframes
             .as_ref()
-            .filter(|t| (1..=10).contains(&t.len()))
+            .filter(|t| (1..=config_models::SUPPORTED_DURATIONS.len()).contains(&t.len()))
         else {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
-                    "error": "timeframes must contain 1..=10 values",
+                    "error": "timeframes must contain 1..=14 values",
                     "code": "invalid_timeframes",
                 })),
             )

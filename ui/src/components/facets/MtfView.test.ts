@@ -126,7 +126,7 @@ describe('MtfView — grid is always unfiltered (v6.11)', () => {
         expect(text).toContain('Volume');
     });
 
-    it('renders the normalized value grid across the 10 timeframes', () => {
+    it('renders the normalized value grid across the ACTIVE timeframes', () => {
         const terms = makePair({
             1: { indicators: { rsi: { raw_value: 60, normalized: 0.4, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.5 } } },
             180: { indicators: { rsi: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.5 } } },

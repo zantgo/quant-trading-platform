@@ -89,7 +89,7 @@ and by the panels' builder wiring:
 | `meta.current_price` | `pickInstanceLivePrice(activeInstance terms)` — the freshest live price within 30 s, else last known good | **Live tick value.** Two exports clicked at the same instant carry the same price; sequential exports naturally drift as the market moves — that is expected and is not an inconsistency. |
 | `meta.prev_day_price` / `price_change` / `price_change_direction` | `pickLatestCompletedSnapshot(terms)` — the newest **completed-candle** snapshot (shadow/live-tick frames drop `prev_day_px`) | Consistent across tabs: one canonical completed snapshot feeds all seven. |
 | `meta.timestamp` | The snapshot's Unix-seconds timestamp (`null` for MTF — no single TF) | Single-TF exports carry their active TF's snapshot ts; the L3–L6 tabs carry the newest snapshot's ts. |
-| `meta.timeframe_secs` | `0` for MTF (multi-TF sentinel); the active TF's `barDurationSec` otherwise | MTF also emits `meta.timeframes` — the **ACTIVE** ladder display labels in slot order (v11.2: the fastest N of the fixed 10-slot pool, `[workspace].active_timeframes` — e.g. N=5 → `["1s","3s","5s","15s","30s"]`; N=10 → the full `["1s","3s","5s","15s","30s","1m","3m","5m","15m","1h"]`, exactly `TIMEFRAME_SLOT_LABELS` order; renamed from the historical `timesframes` typo, 2026-08-17). |
+| `meta.timeframe_secs` | `0` for MTF (multi-TF sentinel); the active TF's `barDurationSec` otherwise | MTF also emits `meta.timeframes` — the **ACTIVE** duration display labels in canonical order (v11.9: any subset of the 14-duration pool, `[workspace].timeframes` — default fastest eight → `["1s","3s","5s","15s","30s","1m","3m","5m"]`, derived via `tfLabel`; renamed from the historical `timesframes` typo, 2026-08-17). |
 | `meta.datetime_utc` | `now` at click time | Each export is a fresh click-epoch; timestamps legitimately differ across sequential clicks. |
 | `meta.is_completed` | The snapshot's `is_completed` flag | Consistent per snapshot. |
 
@@ -301,7 +301,7 @@ Notes:
 
 Mirrors `MtfView.svelte` (N × N grid with per-row agreement — one column per
 ACTIVE ladder slot, v11.2). The meta block carries `timeframes` — the ACTIVE
-ladder display labels in slot order (the fastest N of the fixed 10-slot pool;
+duration display labels in canonical order (the ACTIVE set of the 14-duration pool;
 e.g. N=5 → `["1s","3s","5s","15s","30s"]`; renamed from the
 historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
 10-slot ladder, v11.2 slices it to the active set) and `timeframe_secs: 0`
@@ -396,8 +396,8 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
 
 Notes:
 - The `timeframes` array carries exactly **N entries** in ladder order — the
-  ACTIVE slots of the fixed 10-slot pool (`[workspace].active_timeframes`,
-  1..=10, default 5; N=10 → `1s` 1 s … `1h` 3600 s; v11.2) — one
+  ACTIVE durations of the 14-duration pool (`[workspace].timeframes`,
+  any subset 1..=14, default the fastest eight; v11.9) — one
   per ACTIVE ladder slot. Each
   entry is projected from the store's per-slot `TimeframeTelemetry` record,
   which carries the authoritative `slot` identity the entries derive from:

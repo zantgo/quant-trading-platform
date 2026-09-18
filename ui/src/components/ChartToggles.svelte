@@ -60,7 +60,7 @@ function syncAll(fn: (tf: any) => void) {
         syncAll(tf => { tf.showVolumeProfile = v; });
     }
 
-    /// New v6.6 overlay toggles. All sync across the 10 timeframes the same
+    /// New v6.6 overlay toggles. All sync across the ACTIVE timeframes the same
     /// way LIQ HEATMAP and VOL PROFILE do.
     function toggleAnchoredVwap() {
         if (!pair) return;

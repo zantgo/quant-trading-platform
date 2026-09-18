@@ -110,7 +110,7 @@ pub fn detect_gap(
 
 Returns `Some((gap_start, gap_end))` when the elapsed time since the last persisted candle exceeds the threshold; `None` otherwise. The threshold is configurable per-exchange.
 
-**Default value.** `gap_threshold_secs = 2 × candles.duration_seconds` (twice the base slot duration — `2` for `1s`, the 1 s base of the fixed 10-slot ladder). This prevents false gap detections from clock jitter while still catching real disconnects. Gap detection is the analyzer's inline sequence audit (`MAX_GAP_FILL_BARS`); no `[adapters.<exchange>.gap_threshold_secs]` config exists (corrected 2026-08-17). Setting the threshold below the base candle duration will trigger false gap detections.
+**Default value.** `gap_threshold_secs = 2 × candles.duration_seconds` (twice the base candle duration — `2` for `1s`, the fastest duration of the 14-duration pool). This prevents false gap detections from clock jitter while still catching real disconnects. Gap detection is the analyzer's inline sequence audit (`MAX_GAP_FILL_BARS`); no `[adapters.<exchange>.gap_threshold_secs]` config exists (corrected 2026-08-17). Setting the threshold below the base candle duration will trigger false gap detections.
 
 ## Serialization
 

@@ -8,8 +8,8 @@
 //!   3. Failures (no snapshot, no OI, insufficient history) bubble
 //!      up as `ClusterRefreshError` rather than silently returning None.
 //!
-//! v11.1: the ActivePair carries the FIXED 10-slot ladder. These tests use
-//! three distinct ladder slots (closest fixed-ladder equivalents of the
+//! v11.9: the ActivePair carries the ACTIVE duration set. These tests use
+//! three distinct durations (closest pool equivalents of the
 //! legacy micro@60s / fast@300s / macro@900s trio); every other slot is a
 //! default pipe that the cluster assertions never touch.
 //!

@@ -9,7 +9,7 @@
 
 ## §1 Purpose
 
-This document is the **single source of truth** for the platform's candle buffer behavior across all exchanges and the fixed-ladder slots (`1s`…`1h`; v11.1 pool — v11.2 runs its fastest `[workspace].active_timeframes` slots, the rest are inert). The candle universe is governed by **three independent numbers** — each with its own role, never interchangeable:
+This document is the **single source of truth** for the platform's candle buffer behavior across all exchanges and the duration pool (`1s`…`1d`; v11.9 — the engine runs the ACTIVE `[workspace].timeframes` durations, the rest are inert). The candle universe is governed by **three independent numbers** — each with its own role, never interchangeable:
 
 | Tier | Value | Constant / config | Role |
 |------|-------|-------------------|------|

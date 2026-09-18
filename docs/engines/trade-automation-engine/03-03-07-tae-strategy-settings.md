@@ -175,7 +175,7 @@ UI buttons on the TAE dashboard header (paper + live; disabled in observe).
 
 ## Guarantees
 
-- Intake always evaluates all ACTIVE TF snapshots of the fixed ladder (v11.2 — the fastest `[workspace].active_timeframes` slots; no TF-preference knob).
+- Intake always evaluates all ACTIVE TF snapshots of the fixed ladder (v11.2 — the ACTIVE durations (`[workspace].timeframes`); no TF-preference knob).
 - Params-at-entry freeze: trailing/breakeven/time-stop/confidence
   baselines are stamped at entry; recharge affects new setups only.
 - Safety precedence: the PME soft gate and the L6/L7 strategy gates (risk

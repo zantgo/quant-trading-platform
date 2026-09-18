@@ -32,7 +32,7 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 | Field | Type | Description |
 |-------|------|-------------|
 | `symbol` | `string` | The entity under analysis. |
-| `timeframes_present` | `u8` | Count of timeframes contributing (1–10; the fixed 10-slot ladder). |
+| `timeframes_present` | `u8` | Count of timeframes contributing (1–14; the ACTIVE durations of `[workspace].timeframes`). |
 | `dimensions` | `AlignmentDimension[10]` | The 10 alignment dimensions (ordered — see §3). |
 | `mtf_trend_alignment` | `f64` | Weighted signed trend consensus `[-1, 1]`. |
 | `mtf_momentum_alignment` | `f64` | Weighted signed momentum consensus `[-1, 1]`. |
@@ -56,7 +56,7 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `timeframe` | `string` | Stable slot label, e.g. `1S` … `1H` (the fixed 10-slot ladder). |
+| `timeframe` | `string` | Stable slot label, e.g. `1S` … `1H` (the 14-duration pool). |
 | `timeframe_secs` | `u64` | Duration in seconds. |
 | `trend_score` | `f64` | Local trend score `[-1, 1]`. |
 | `momentum_score` | `f64` | Local momentum score `[-1, 1]`. |
@@ -121,9 +121,9 @@ Each contributing timeframe is weighted by its duration, favouring higher timefr
 
 $$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0.2,\ 1.0\right)$$
 
-The divisor is the **slowest active** slot's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest slot always weights `1.0`; shorter slots scale down proportionally. With the full active count (v11.2 `active_timeframes = 10` — every slot of the fixed pool running) the slowest slot is `1h` (3600 s), so `divisor = 3600 s` and the proportional fallback's clamp floor (0.2) leaves `1s`…`5m` (1–300 s) at the 0.20 floor and `15m` at 0.25; at smaller active counts the divisor is the slowest ACTIVE slot (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)).
+The divisor is the **slowest active** slot's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest slot always weights `1.0`; shorter slots scale down proportionally. With the full active count (v11.9 full 14-duration pool active) the slowest slot is `1h` (3600 s), so `divisor = 3600 s` and the proportional fallback's clamp floor (0.2) leaves `1s`…`5m` (1–300 s) at the 0.20 floor and `15m` at 0.25; at smaller active counts the divisor is the slowest ACTIVE slot (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)).
 
-**Divisor rule:** `divisor = max({duration_seconds for slot in active_slots})`. On the fixed ladder with every slot ACTIVE (`active_timeframes = 10`): `divisor = 3600 s`; the default count (5) resolves it to `30s` (30 s).
+**Divisor rule:** `divisor = max({duration_seconds for slot in active_slots})`. On the fixed ladder with every slot ACTIVE (the full 14-duration pool active): `divisor = 3600 s`; the default count (5) resolves it to `30s` (30 s).
 
 The weighted consensus for a dimension is:
 
@@ -224,14 +224,14 @@ otherwise   → NEUTRAL_MTF
 > `AlignState` values on the wire are PascalCase (`"Bullish"`, `"Neutral"`, `"StrongBullish"`, …) — see §3.1 for the state mapping. Dimensions 2 and 3 carry the recomputed §6.1 scores (volume `mean = 0.10` → score 55.0 / confidence 10.0; volatility `mean = 0.20` → score 60.0 / confidence 20.0).
 
 > The example above is a 4-TF snapshot (`timeframes_present: 4`) — a mid-warmup subset of
-> the fixed 10-slot ladder (§2.1: the field ranges 1–10). Per the
+> the ACTIVE duration set (§2.1: the field ranges 1–14). Per the
 > §4.4 heuristic, `signal_cross_tf_count = round(0.3 × total signals)`;
 > the seed `3` corresponds to ~10 active signals summed across the four
 > timeframes. It is a breadth indicator — not a distinct-key count.
 
 ### 6.1 Worked per-TF decomposition (Volume & Volatility)
 
-The Volume (55.0) and Volatility (60.0) dimension scores above decompose into per-slot signed scores as follows (weights per §4.1 on the fixed 10-slot ladder — `1s`…`5m` 0.2 (clamp floor), `15m` 0.25, `1h` 1.0; Σw = 2.85):
+The Volume (55.0) and Volatility (60.0) dimension scores above decompose into per-slot signed scores as follows (weights per §4.1 on the 14-duration pool — `1s`…`5m` 0.2 (clamp floor), `15m` 0.25, `1h` 1.0; Σw = 2.85):
 
 | Slot | Weight `w` | Volume `s` | Volatility `s` |
 |-----------|-----------|-----------|----------------|

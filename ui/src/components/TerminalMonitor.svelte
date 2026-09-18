@@ -270,7 +270,7 @@
             </LayerHeader>
 
             {#if activeTf === 'Mtf'}
-                <!-- Dedicated Cross-Timeframe Grid Workspace (v6.11: unfiltered — every indicator and every signal across all 10 TFs) -->
+                <!-- Dedicated Cross-Timeframe Grid Workspace (v6.11: unfiltered — every indicator and every signal across all ACTIVE durations) -->
                 <div class={styles.facetBody}>
                     <MtfView
                         terms={pair.terms}

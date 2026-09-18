@@ -228,7 +228,7 @@ duration label — `1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `30m
 
 | Column | Content |
 |--------|---------|
-| **Timeframe** | Uppercase slot label (`TIMEFRAME_SLOT_LABELS[slot].toUpperCase()`) + `· <duration>` sub-label. |
+| **Timeframe** | Duration label (`tfLabel(secs).toUpperCase()`) + `· <duration>` sub-label. |
 | **Status** | The SAME badge the Metrics (L1) tab header shows for that TF — single-sourced through `metricsBadgeFor` (`lib/layerHeader.ts`) so the two surfaces can never disagree. Bias label + regime sublabel, tinted via `biasColor`; reuses the `LayerHeader` badge CSS classes verbatim (pixel-identical chrome). |
 | **Pipeline** | The same live/stale/loading/error pipeline pill as the Metrics header (`CandlePipelineState`-derived status dot + label). |
 
@@ -521,7 +521,7 @@ A dedicated **"Active timeframes" card** (`.activeCountCard`) sits above the per
 Each `.term-card` contains:
 
 1. **Card title** (`.card-title`) — uppercase slot display name (e.g. `1S`).
-2. **Fixed duration label** — the slot's ladder duration rendered read-only from `TIMEFRAME_SLOT_DURATION_SECS` (e.g. `1s`); since v11.1 the ladder is fixed, so there is **no** TF `<select>` and no `TIMEFRAME_OPTIONS` picker on the card (`TIMEFRAME_OPTIONS` survives in `ui/src/types.ts` only as an unused legacy constant).
+2. **Duration label** — the duration rendered read-only (e.g. `1s`); there is **no** TF `<select>` picker on the card.
 3. **Indicator inputs scroll** (`.indicator-inputs-scroll`) — `max-height: 520 px`, `overflow-y: auto`, contains a vertical list of `.input-row` entries.
 
 ### 9.3 Indicator Inputs (~50 rows per card)

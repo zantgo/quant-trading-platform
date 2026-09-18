@@ -5,7 +5,7 @@
 //!     pairs are configured
 //!   - 400 on invalid slot query param
 //!   - 404 on unknown symbol query param
-//!   - single-symbol response includes all 10 fixed-ladder TF slots
+//!   - single-symbol response includes all ACTIVE duration slots
 //!   - single-(symbol, slot) response shape
 //!   - Stale status derivation: a successful refresh whose TTL elapsed
 //!     surfaces as Stale (not Ok)

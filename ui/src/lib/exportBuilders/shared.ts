@@ -306,7 +306,7 @@ function pickLatestSnapshot(
 }
 
 /**
- * Latest snapshot across the 10 TFs that has `is_completed === true`.
+ * Latest snapshot across the ACTIVE durations that has `is_completed === true`.
  * Shadow (live-tick) frames drop `prev_day_px` / `price_change`, so the
  * canonical anchor for the meta price block must prefer a completed frame.
  * Falls back to the newest frame if no completed frame is present yet.

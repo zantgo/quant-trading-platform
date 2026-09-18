@@ -121,7 +121,7 @@ pub struct MtfTrendAlignment {
     pub structural_trend: String,
 }
 
-/// Multi-TF trend alignment over a fixed-ladder snapshot slice (v11.1: the
+/// Multi-TF trend alignment over an ACTIVE-duration snapshot slice (v11.9: the
 /// legacy 4-arg `micro, fast, slow, macro` signature became a slice).
 ///
 /// `snaps` is ordered fastest → slowest (ladder order). Semantics preserved

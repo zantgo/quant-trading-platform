@@ -92,7 +92,7 @@ Shadow snapshots carry updated indicator readings for real-time display, but sig
 | Concern | Strategy |
 |---------|----------|
 | **Per-instance isolation** | Each Market Instance owns an independent async pipeline; no shared mutable state between instances. |
-| **Per-timeframe pipelines** | The ACTIVE fixed-ladder timeframes (`1s`… — the fastest `[workspace].active_timeframes` slots, v11.2) of an instance run as concurrent `TimeframePipeline`s. |
+| **Per-timeframe pipelines** | The ACTIVE durations (`[workspace].timeframes`, v11.9) of an instance run as concurrent `TimeframePipeline`s. |
 | **Warm-then-stream** | An instance bootstraps (warm-up from history) before subscribing to the live broadcast. |
 | **Lock scope** | Shared registries (symbol mapper, instance registry) use `RwLock` with minimal critical sections. |
 | **Backpressure** | Bounded channels between DIE and MME; broadcast lag is signalled, never silently dropped. |
@@ -103,7 +103,7 @@ Shadow snapshots carry updated indicator readings for real-time display, but sig
 
 ## 4. Symbol-Specific Instance Management
 
-A **Market Instance** (`crates/portfolio-supervisor/src/instance.rs`) is the smallest operational unit: one symbol with its ACTIVE fixed-ladder timeframe pipelines (the fastest `[workspace].active_timeframes` slots, v11.2), trading state, safety manager, and config.
+A **Market Instance** (`crates/portfolio-supervisor/src/instance.rs`) is the smallest operational unit: one symbol with its ACTIVE duration pipelines (`[workspace].timeframes`, v11.9), trading state, safety manager, and config.
 
 ### 4.1 Instance Lifecycle
 

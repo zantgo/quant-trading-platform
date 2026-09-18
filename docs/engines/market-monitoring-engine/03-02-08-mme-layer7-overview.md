@@ -33,7 +33,7 @@ $$\text{breadth\_pct} = \frac{\text{long\_count} - \text{short\_count}}{\text{to
 
 This drives `global_market_bias` (STRONG_BULLISH … MIXED), `market_breadth` (STRONG_POSITIVE … STRONG_NEGATIVE), and `market_synchronization` (HIGHLY_SYNCHRONIZED … HIGHLY_FRAGMENTED). Bands in [Overview Matrix §3](../../matrices/02-09-overview-matrix.md).
 
-L7 aggregates **all ACTIVE timeframe windows** per instance (the fastest `[workspace].active_timeframes` slots of the fixed `1s`…`1h` pool — I-2, v6.10.18; v11.1 fixed the 10-slot ladder, v11.2 makes the count variable 1..=10); the legacy slow-tier-300s-only basis is retired. Per-window advisories feed the breadth / bias / opportunity / regime tallies; per-symbol scalars (confidence, overall risk) are the mean over the windows; categorical per-asset fields are the mode (ties resolve to the fastest window).
+L7 aggregates **all ACTIVE timeframe windows** per instance (`[workspace].timeframes` — any subset 1..=14 of the `1s`…`1d` pool, default the fastest eight; I-2, v6.10.18; v11.9 duration-keyed); the legacy slow-tier-300s-only basis is retired. Per-window advisories feed the breadth / bias / opportunity / regime tallies; per-symbol scalars (confidence, overall risk) are the mean over the windows; categorical per-asset fields are the mode (ties resolve to the fastest window).
 
 ---
 
@@ -66,7 +66,7 @@ Correlated downside elevates `sync_penalty` (0–100), because synchronized decl
 
 The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / `NO_DATA` — canonical derivation rule table in [Overview Matrix §2.3](../../matrices/02-09-overview-matrix.md)) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-overview.md).
 
-> **Active-window normalization (v11.2).** The per-instance `risk_windows` input carries one `(tf_decay_weight, overall_risk)` pair per **ACTIVE** slot only — inactive slots (`[workspace].active_timeframes` governs the active fastest-N prefix; [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md)) have no pipeline and push no window. The decay weights keep the 10-slot key map, are sliced to the pushed (active) windows, and the weighted share normalizes by the **sum of the pushed windows' weights** — so the systemic high-share stays a true weighted mean of the windows that actually exist at any active count (the `risk_windows.is_empty()` fallback to the plain per-symbol mean is unchanged).
+> **Active-window normalization (v11.2).** The per-instance `risk_windows` input carries one `(tf_decay_weight, overall_risk)` pair per **ACTIVE** slot only — inactive slots (`[workspace].timeframes` governs the active fastest-N prefix; [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md)) have no pipeline and push no window. The decay weights keep the 10-slot key map, are sliced to the pushed (active) windows, and the weighted share normalizes by the **sum of the pushed windows' weights** — so the systemic high-share stays a true weighted mean of the windows that actually exist at any active count (the `risk_windows.is_empty()` fallback to the plain per-symbol mean is unchanged).
 
 > **STRONG_BEARISH coverage (correction).** A previous version of this section used the informal phrase "unless the global bias is bearish" — this excluded `STRONG_BEARISH`. The corrected condition is member-set inclusion over `GlobalBias`'s bearish family (`BEARISH` ∪ `STRONG_BEARISH`), matching the canonical table in [Overview Matrix §4](../../matrices/02-09-overview-matrix.md).
 

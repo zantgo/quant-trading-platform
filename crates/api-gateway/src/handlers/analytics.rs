@@ -240,7 +240,7 @@ pub struct BacktestRequest {
 #[derive(serde::Deserialize, Clone)]
 pub struct BacktestSymbolRequest {
     pub symbol: String,
-    /// The ladder to simulate (1..=10 strictly-ascending values ≥ 60s, the
+    /// The ladder to simulate (1..=14 strictly-ascending values ≥ 60s, the
     /// archive floor).
     pub timeframes: Vec<u64>,
     /// Per-instance allocation override (1..=100 %). `None` = global.
@@ -449,14 +449,14 @@ pub async fn serve_backtest_run(
                     )
                         .into_response();
                 }
-                if !(1..=10).contains(&sym.timeframes.len())
+                if !(1..=config_models::SUPPORTED_DURATIONS.len()).contains(&sym.timeframes.len())
                     || sym.timeframes.windows(2).any(|w| w[0] >= w[1])
                     || sym.timeframes.iter().any(|tf| *tf < 60)
                 {
                     return (
                         axum::http::StatusCode::BAD_REQUEST,
                         Json(serde_json::json!({
-                            "error": "timeframes must be 1..=10 strictly-ascending values ≥ 60s (the archive floor)",
+                            "error": "timeframes must be 1..=14 strictly-ascending values ≥ 60s (the archive floor)",
                             "code": "invalid_timeframes",
                         })),
                     )

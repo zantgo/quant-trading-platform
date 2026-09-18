@@ -658,7 +658,7 @@ pub async fn run_single(
     // Owned (cloned once per pipeline spawn) so callers never wrestle
     // with borrow lifetimes across the spawned task.
     strategy: StrategyConfig,
-    // Sibling pipelines' latest-snapshot handles (every OTHER fixed-ladder
+    // Sibling pipelines' latest-snapshot handles (every OTHER ACTIVE
     // slot, excluding this pipeline's own). Ten-slot generalization of the
     // former a/b/c trio.
     cross_tf_snapshots: Vec<Arc<RwLock<Option<MarketSnapshot>>>>,

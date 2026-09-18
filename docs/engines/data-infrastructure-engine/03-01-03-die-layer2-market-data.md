@@ -97,7 +97,7 @@ The `live` candle returned on every tick is the **shadow** value — the real-ti
 
 ## 4. Multi-Timeframe Aggregation
 
-The platform monitors the ACTIVE fixed-ladder timeframes per instance (the fastest `[workspace].active_timeframes` slots of the ten-slot pool, v11.2). The base slot (`1s`, 1 s) is generated directly from ticks; the higher slots are rolled up.
+The platform monitors the ACTIVE durations per instance (`[workspace].timeframes`, v11.9). The base slot (`1s`, 1 s) is generated directly from ticks; the higher slots are rolled up.
 
 ### 4.1 Standard Timeframe Ladder (fixed — v11.1)
 
@@ -118,7 +118,7 @@ The pool is **closed** (`core_domain::SUPPORTED_DURATIONS`) and the ACTIVE set i
 
 ### 4.2 Higher-Timeframe Aggregation
 
-The `CandleAggregator` (`crates/market-analyzer/src/candle_aggregator.rs`) rolls the base `1s` candle stream into the higher fixed-ladder buckets (`3s` … `1h`). The target durations are the fixed ladder constants — no longer read from `config.toml` (`[fast_timeframe.duration_seconds]` and friends are legacy, ignored since v11.1).
+The `CandleAggregator` (`crates/market-analyzer/src/candle_aggregator.rs`) rolls the base `1s` candle stream into the higher duration buckets (`3s`…`1d`). The target durations come from the closed 14-duration pool — legacy ladder keys in `config.toml` are hard-rejected since v11.9.
 
 ```
 1s close ──► process_base_candle() ──► (Option<3s>, …, Option<1h>)

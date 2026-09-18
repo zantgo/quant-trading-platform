@@ -66,7 +66,7 @@ planned for a future release (Unscheduled).
   validates the bound instance (exists + running) and the depth
   (1..=365); rejects a second active job for the instance (409).
   The bound ladder is the instance's **ACTIVE ladder** (v11.2 — `active_secs`,
-  the fastest `[workspace].active_timeframes` slots, see
+  the ACTIVE durations (`[workspace].timeframes`), see
   [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md)).
 - **Standalone form (v8.2)** `{ exchange, symbol, timeframes[], depth_days }`:
   no running instance required; job key = `exchange:symbol`; the same
@@ -77,13 +77,12 @@ Both forms:
 - Page the exchange backward from `now` to `now − depth_days` for every
   **≥ 1-minute** TF in the requested ladder (sub-minute TFs bypass
   exchange history — HFP-03; their archive coverage comes from the live
-  path only). On the fixed 10-slot ladder (v11.1) the five sub-minute
+  path only). On the 14-duration pool (v11.1) the five sub-minute
   slots `1s`/`3s`/`5s`/`15s`/`30s` (1–30 s) are always
   skipped — they are live-only, warm state-only, and never REST-backfilled.
-  The 60-second archive floor is unchanged by the active count (v11.2);
-  at the default `active_timeframes = 5` the bound ladder is all
-  sub-minute, so a bound backfill pages nothing — raise the count past
-  `1m` to backfill.
+  The 60-second archive floor is unchanged by the active set (v11.9);
+  a sub-minute-only bound ladder has no archive-eligible duration, so a
+  bound backfill pages nothing — activate a duration at or above `1m`.
 - Validate the Hyperliquid per-TF ceiling (see §2).
 - **Resumable** — the cursor starts just below the earliest archived
   candle, so covered spans cost zero requests.
