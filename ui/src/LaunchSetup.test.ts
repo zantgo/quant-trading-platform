@@ -103,25 +103,39 @@ describe('Launch Setup — mode selection', () => {
     });
 });
 
+describe('Launch Setup — mode card (v11.11)', () => {
+    it('has no stray step number and shows the restyled card content', async () => {
+        const { container } = await render(LaunchSetup);
+        const cards = Array.from(container.querySelectorAll('button')).filter((b) =>
+            (b.textContent ?? '').includes('Observe'),
+        );
+        expect(cards.length).toBeGreaterThan(0);
+        const card = cards[0];
+        // Title + verb + badge + description only — the old bottom-right
+        // step number ("1") is erased.
+        expect(card.textContent).not.toMatch(/\d/);
+        expect(card.textContent).toContain('Monitor');
+        expect(card.textContent).toContain('Market monitor');
+    });
+});
+
 describe('Launch Setup — currency contract', () => {
+    it('defaults to Bitget + USDT (v11.11)', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToEnvironment(container);
+        const exchange = container.querySelector<HTMLSelectElement>('#launch-exchange')!;
+        expect(exchange.value).toBe('Bitget');
+        expect(isCurrencyEnabled(container, 'USDT')).toBe(true);
+        expect(isCurrencyEnabled(container, 'USDC')).toBe(false);
+    });
+
     it('Hyperliquid exposes only USDC', async () => {
         const { container } = await render(LaunchSetup);
         await goToEnvironment(container);
-        const enabled = availableCurrencies(container);
-        expect(enabled).toContain('USDC');
+        const exchange = container.querySelector<HTMLSelectElement>('#launch-exchange');
+        await fireEvent.change(exchange!, { target: { value: 'Hyperliquid' } });
         expect(isCurrencyEnabled(container, 'USDC')).toBe(true);
         expect(isCurrencyEnabled(container, 'USDT')).toBe(false);
-    });
-
-    it('Bitget exposes only USDT', async () => {
-        const { container } = await render(LaunchSetup);
-        await goToEnvironment(container);
-        const exchange = container.querySelector<HTMLSelectElement>('#launch-exchange');
-        await fireEvent.change(exchange!, { target: { value: 'Bitget' } });
-        const enabled = availableCurrencies(container);
-        expect(enabled).toContain('USDT');
-        expect(isCurrencyEnabled(container, 'USDT')).toBe(true);
-        expect(isCurrencyEnabled(container, 'USDC')).toBe(false);
     });
 });
 
@@ -223,6 +237,9 @@ describe('Launch Setup — launch orchestration', () => {
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
         await fireEvent.click(screen.getByText('+ Add'));
         await goToReviewFromInstances();
+        // Review shows the ACTIVE ladder (captured before the launch click —
+        // the wizard then switches to the loading step).
+        const reviewText = container.textContent ?? '';
         await fireEvent.click(screen.getByText('Launch'));
 
         await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
@@ -230,30 +247,47 @@ describe('Launch Setup — launch orchestration', () => {
         const initCall = calls.find((c) => String(c.url).includes('/api/session/init'));
         expect(initCall?.body).toMatchObject({
             mode: 'observe',
-            exchange: 'Hyperliquid',
-            currency: 'USDC',
+            exchange: 'Bitget',
+            currency: 'USDT',
         });
         // No capital submitted in observe mode.
         expect((initCall?.body as any)?.initial_capital_usd).toBeUndefined();
 
         const instCall = calls.find((c) => String(c.url).endsWith('/api/instances'));
-        expect(instCall?.body).toMatchObject({ base: 'BTC', quote: 'USDC' });
+        expect(instCall?.body).toMatchObject({ base: 'BTC', quote: 'USDT' });
 
         // v8 fixed ladder: the launch flow POSTs no per-slot TF config —
         // the backend applies the canonical ladder itself.
         const configCall = calls.find((c) => String(c.url).includes('/config'));
         expect(configCall).toBeUndefined();
 
-        // Review shows the ACTIVE ladder.
-        expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
+        expect(reviewText).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
 
-        // v11.9 (N3): landing is ALWAYS the Market Monitor Overview — the
-        // staged instance is not auto-selected.
+        // v11.11: the welcome screen HOLDS while the staged instances warm.
         const app = useAppStore();
-        expect(app.currentEngine).toBe('market_monitor');
+        expect(container.textContent).toContain('Preparing your workspace…');
+        expect(container.textContent).toContain('waiting for first snapshot');
+
+        // First snapshot arrives → ready → land on the Market Monitor Overview.
+        // (Park the engine elsewhere so the landing is observable.)
+        app.currentEngine = 'data_infra';
+        const pair = app.instancesMap['BTC-USDT'];
+        expect(pair).toBeTruthy();
+        pair.terms[1].latestSnapshot = {} as never;
+        await waitFor(() => expect(app.currentEngine).toBe('market_monitor'), { timeout: 5000 });
         expect(app.middleTab).toBe('overview');
         expect(app.activeEngineTab).toBe('overview');
         expect(app.selectedInstance).toBeNull();
+    });
+
+    it('launches without staged instances: no loading step, immediate landing', async () => {
+        mockBackend();
+        const { container } = await render(LaunchSetup);
+        await goToReview(container);
+        await fireEvent.click(screen.getByText('Launch'));
+        const app = useAppStore();
+        await waitFor(() => expect(app.currentEngine).toBe('market_monitor'), { timeout: 3000 });
+        expect(container.textContent).not.toContain('Preparing your workspace…');
     });
 
     it('review marks the ladder as ACTIVE (count + durations, no picker)', async () => {
