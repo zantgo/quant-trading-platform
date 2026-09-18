@@ -12,6 +12,13 @@ export class SettingsStore {
     /// `applyConfigToStore`.
     timeframes = $state<number[]>([1, 3, 5, 15, 30, 60, 180, 300]);
 
+    /// v11.11 — per-duration indicator profiles exactly as the registry
+    /// runs them (`duration_profile::overlay(workspace, secs)`), keyed by
+    /// duration seconds. Seeded from the GET /api/config payload; the
+    /// settings editors seed each duration's draft from the matching row
+    /// so the operator edits the REAL per-duration defaults.
+    durationProfiles = $state<Record<number, Record<string, number>>>({});
+
     globalCandlesConfig = $state({ duration_seconds: 60 });
     globalIndicatorsConfig = $state({
         ema_fast: 10, ema_medium: 50, ema_slow: 100, ema_long: 200,

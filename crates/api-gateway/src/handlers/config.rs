@@ -15,6 +15,18 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
         indicator_registry: market_analyzer::indicators::registry::all(),
         api_failover: current_config.api_failover,
         timeframes: current_config.active_timeframes_for(),
+        duration_profiles: config_models::SUPPORTED_DURATIONS
+            .iter()
+            .map(|&secs| {
+                (
+                    secs,
+                    config_models::duration_profile::overlay(
+                        &current_config.indicators,
+                        secs,
+                    ),
+                )
+            })
+            .collect(),
         liquidity: Some(current_config.liquidity.clone()),
         minimal_tae: Some(current_config.minimal_tae.clone()),
         analytics: Some(current_config.analytics.clone()),

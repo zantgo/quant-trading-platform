@@ -98,28 +98,55 @@
         };
     }
 
-    function readTermFromTelemetry(tf: TimeframeTelemetry): TermDraft {
+
+    /// v11.11: seed a duration's draft from the backend's REAL per-duration
+    /// profile (`GET /api/config` → `duration_profiles`, the exact rows the
+    /// registry runs) — no longer from one static placeholder set.
+    function profileTermDraft(secs: number): TermDraft {
         const base = defaultTermDraft();
+        base.durationSeconds = secs;
+        const row = app.settings.durationProfiles[secs];
+        if (!row) return base;
+        const n = (k: string, fb: number): number =>
+            typeof row[k] === 'number' ? (row[k] as number) : fb;
         return {
             ...base,
-            durationSeconds: tf.barDurationSec,
-            emaFast: tf.emaFastVal, emaMedium: tf.emaMediumVal, emaSlow: tf.emaSlowVal, emaLong: tf.emaLongVal,
-            rsiPeriod: tf.rsiPeriodVal,
-            macdFast: tf.macdFastVal, macdSlow: tf.macdSlowVal, macdSignal: tf.macdSignalVal,
-            adxPeriod: tf.adxPeriodVal, atrPeriod: tf.atrPeriodVal, squeezePeriod: tf.squeezePeriodVal,
-            bbwpPeriod: tf.bbwpPeriodVal, bbwpLookback: tf.bbwpLookbackVal,
-            stochKPeriod: tf.stochKPeriodVal, stochDPeriod: tf.stochDPeriodVal, stochSPeriod: tf.stochSPeriodVal, chandemoPeriod: tf.chandemoPeriodVal,
-            supertrendPeriod: tf.supertrendPeriodVal, supertrendMultiplier: tf.supertrendMultiplierVal,
-            keltnerEmaPeriod: tf.keltnerEmaPeriodVal, keltnerAtrPeriod: tf.keltnerAtrPeriodVal, keltnerMultiplier: tf.keltnerMultiplierVal,
-            donchianPeriod: tf.donchianPeriodVal, obvSmoothing: tf.obvSmoothingVal, cmfPeriod: tf.cmfPeriodVal, mfiPeriod: tf.mfiPeriodVal, hvPeriod: tf.hvPeriodVal,
-            aroonPeriod: tf.aroonPeriodVal, chopPeriod: tf.chopPeriodVal, linregPeriod: tf.linregPeriodVal, zscorePeriod: tf.zscorePeriodVal,
-            macdExtremeHigh: tf.macdExtremeHighVal, macdExtremeLow: tf.macdExtremeLowVal, macdContraction: tf.macdContractionVal,
-            adxTrendThreshold: tf.adxTrendThresholdVal, adxExhaustionThreshold: tf.adxExhaustionThresholdVal, adxSlopeLookback: tf.adxSlopeLookbackVal,
-            squeezeMinDuration: tf.squeezeMinDurationVal, squeezeBbPeriod: tf.squeezeBbPeriodVal, squeezeBbStdDev: tf.squeezeBbStdDevVal,
-            squeezeKcPeriod: tf.squeezeKcPeriodVal, squeezeKcAtrMult: tf.squeezeKcAtrMultVal,
-            atrMultiplier: tf.atrMultiplierVal, atrTargetRR: tf.atrTargetRRVal,
-            volumeAvgPeriod: tf.volumeAvgPeriodVal, rvolInstitutional: tf.rvolInstitutionalVal, rvolClimax: tf.rvolClimaxVal,
-            heatmapLeverageTiers: tf.heatmapLeverageTiers ?? [10],
+            emaFast: n('ema_fast', base.emaFast), emaMedium: n('ema_medium', base.emaMedium),
+            emaSlow: n('ema_slow', base.emaSlow), emaLong: n('ema_long', base.emaLong),
+            rsiPeriod: n('rsi_period', base.rsiPeriod),
+            macdFast: n('macd_fast', base.macdFast), macdSlow: n('macd_slow', base.macdSlow),
+            macdSignal: n('macd_signal', base.macdSignal),
+            adxPeriod: n('adx_period', base.adxPeriod), atrPeriod: n('atr_period', base.atrPeriod),
+            squeezePeriod: n('squeeze_period', base.squeezePeriod),
+            bbwpPeriod: n('bbwp_period', base.bbwpPeriod), bbwpLookback: n('bbwp_lookback', base.bbwpLookback),
+            stochKPeriod: n('stoch_k_period', base.stochKPeriod), stochDPeriod: n('stoch_d_period', base.stochDPeriod),
+            stochSPeriod: n('stoch_s_period', base.stochSPeriod), chandemoPeriod: n('chandemo_period', base.chandemoPeriod),
+            supertrendPeriod: n('supertrend_period', base.supertrendPeriod),
+            supertrendMultiplier: n('supertrend_multiplier', base.supertrendMultiplier),
+            keltnerEmaPeriod: n('keltner_ema_period', base.keltnerEmaPeriod),
+            keltnerAtrPeriod: n('keltner_atr_period', base.keltnerAtrPeriod),
+            keltnerMultiplier: n('keltner_multiplier', base.keltnerMultiplier),
+            donchianPeriod: n('donchian_period', base.donchianPeriod),
+            obvSmoothing: n('obv_smoothing', base.obvSmoothing), cmfPeriod: n('cmf_period', base.cmfPeriod),
+            mfiPeriod: n('mfi_period', base.mfiPeriod), hvPeriod: n('hv_period', base.hvPeriod),
+            aroonPeriod: n('aroon_period', base.aroonPeriod), chopPeriod: n('chop_period', base.chopPeriod),
+            linregPeriod: n('linreg_period', base.linregPeriod), zscorePeriod: n('zscore_period', base.zscorePeriod),
+            macdExtremeHigh: n('macd_extreme_high_threshold', base.macdExtremeHigh),
+            macdExtremeLow: n('macd_extreme_low_threshold', base.macdExtremeLow),
+            macdContraction: n('macd_histogram_contraction_threshold', base.macdContraction),
+            adxTrendThreshold: n('adx_trend_threshold', base.adxTrendThreshold),
+            adxExhaustionThreshold: n('adx_exhaustion_threshold', base.adxExhaustionThreshold),
+            adxSlopeLookback: n('adx_slope_lookback', base.adxSlopeLookback),
+            squeezeMinDuration: n('squeeze_min_duration', base.squeezeMinDuration),
+            squeezeBbPeriod: n('squeeze_bb_period', base.squeezeBbPeriod),
+            squeezeBbStdDev: n('squeeze_bb_std_dev', base.squeezeBbStdDev),
+            squeezeKcPeriod: n('squeeze_kc_period', base.squeezeKcPeriod),
+            squeezeKcAtrMult: n('squeeze_kc_atr_multiplier', base.squeezeKcAtrMult),
+            atrMultiplier: n('atr_multiplier_coefficient', base.atrMultiplier),
+            atrTargetRR: n('atr_target_rr_ratio', base.atrTargetRR),
+            volumeAvgPeriod: n('volume_average_period', base.volumeAvgPeriod),
+            rvolInstitutional: n('rvol_institutional', base.rvolInstitutional),
+            rvolClimax: n('rvol_climax', base.rvolClimax),
         };
     }
 
@@ -289,7 +316,7 @@
         draft.automation.intervalUnit = pair.automationIntervalUnit as 'seconds' | 'minutes' | 'hours';
         for (const slot of activeDurations(pair)) {
             const tf = pair.terms[slot];
-            if (tf) tfDraft[slot] = readTermFromTelemetry(tf);
+            tfDraft[slot] = profileTermDraft(slot);
         }
         void loadInstanceConfig();
     });
