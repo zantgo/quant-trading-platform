@@ -20,10 +20,7 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
             .map(|&secs| {
                 (
                     secs,
-                    config_models::duration_profile::overlay(
-                        &current_config.indicators,
-                        secs,
-                    ),
+                    config_models::duration_profile::overlay(&current_config.indicators, secs),
                 )
             })
             .collect(),
