@@ -99,7 +99,7 @@
     </nav>
 
     <div class={styles.actionRow}>
-        <h2 class={engine.title}>{SECTION_TITLES[tab]}</h2>
+        <h2 class="{engine.title} {styles.sectionTitle}">{SECTION_TITLES[tab]}</h2>
         <div class={styles.actionGroup}>
             <SettingsSaveButton state={saveState} onsave={saveAll} />
             <ExportDataButton

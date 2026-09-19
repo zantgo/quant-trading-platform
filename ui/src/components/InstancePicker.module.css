@@ -29,13 +29,16 @@
 
 .title {
     /* v11.12.11: matches the Settings tab section titles
-       (engine-dashboard .title) — 13px sans, 700, .08em, white. */
+       (engine-dashboard .title) — 13px sans, 700, .08em, white.
+       v11.12.14: this title alone re-enables synthesis so it reads bold
+       while the rest of the app keeps the regular 400 face. */
     font-size: 13px;
     font-weight: 700;
     letter-spacing: 0.08em;
     color: #f5f5f7;
     margin: 0 0 4px;
     text-transform: uppercase;
+    font-synthesis: weight;
 }
 
 .subtitle {

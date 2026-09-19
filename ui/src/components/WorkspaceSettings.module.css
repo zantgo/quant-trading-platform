@@ -38,8 +38,12 @@
 
 /* ─── Timeframe shell (inside the Timeframes & Indicators card) ────── */
 .tf-shell {
-    display: flex;
-    gap: 16px;
+    /* v11.12.14: grid (was flex) so the TIMEFRAME | INDICATOR header row
+       tracks the real rail/pane columns exactly. */
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 16px;
+    row-gap: 10px;
     align-items: stretch;
 }
 
@@ -405,9 +409,10 @@
     margin-bottom: 10px;
 }
 
-/* v11.12.13: Timeframes card title — replaces the provenance chip +
-   instruction line, naming the two panes (rail = TIMEFRAME, pane = INDICATOR). */
-.tfCardTitle {
+/* v11.12.14: two-pane header — TIMEFRAME tracks the rail column,
+   | INDICATOR the pane column (the shell grid rows guarantee alignment). */
+.tf-card-title-rail,
+.tf-card-title-pane {
     margin: 0;
     font-size: 12px;
     font-weight: 700;
@@ -416,10 +421,10 @@
     text-transform: uppercase;
 }
 
-.tfCardTitleSep {
+.tf-card-title-sep {
     color: rgba(255, 255, 255, 0.35);
     font-weight: 500;
-    padding: 0 2px;
+    padding-right: 2px;
 }
 
 .paneMemory {
