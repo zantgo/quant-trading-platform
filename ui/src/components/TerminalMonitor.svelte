@@ -29,6 +29,7 @@
     import LevelsView from './facets/LevelsView.svelte';
     import MtfView from './facets/MtfView.svelte';
     import LayerHeader from './LayerHeader.svelte';
+    import TimeframesRail from './TimeframesRail.svelte';
     import { buildL1MetricsHeader, buildL1MtfHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import { getBadgeTrail, badgeHistoryVersion, l1Key, layerKey } from '../lib/badgeHistory.svelte';
     import styles from './TerminalMonitor.module.css';
@@ -66,6 +67,16 @@
             })),
         ];
     });
+
+    // v11.12.8: the rail markup moved to the shared TimeframesRail component
+    // (same rail as the Charts tab); this only shapes the item payload.
+    const railItems = $derived(
+        TIMEFRAMES.map((tf) => ({
+            key: tf.key,
+            label: tf.label,
+            secsText: tf.secs != null ? formatTimeframeLabel(tf.secs) : (tf.key === 'Mtf' ? 'Multi-TF' : '—'),
+        }))
+    );
 
     const activeTfEntry = $derived(
         activeTf === 'Mtf'
@@ -236,22 +247,11 @@
 </script>
 
 <div class={styles.monitor}>
-    <div class={styles.tfSidebar}>
-        <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>
-        <!-- v7.0-prod (D7): MTF first, then the duration ladder (fastest → slowest).
-             The MTF entry is part of TIMEFRAMES itself (sentinel with
-             empty tfKey + secs=null); the body switches to MtfView when
-             activeTf === 'Mtf'. -->
-        {#each TIMEFRAMES as tf (tf.key)}
-            <button
-                class="{styles.tfSidebarItem} {activeTf === tf.key ? styles.active : ''}"
-                onclick={() => activeTf = tf.key}
-            >
-                <span class={styles.tfLabel}>{tf.label}</span>
-                <span class={styles.tfSecs}>{tf.secs != null ? formatTimeframeLabel(tf.secs) : (tf.key === 'Mtf' ? 'Multi-TF' : '—')}</span>
-            </button>
-        {/each}
-    </div>
+    <TimeframesRail
+        items={railItems}
+        activeKey={activeTf}
+        onSelect={(k) => activeTf = k as TfLabel}
+    />
 
     <div class={styles.contentArea}>
         {#if pair && registry.length > 0 && (activeTf === 'Mtf' || activeTfObj)}

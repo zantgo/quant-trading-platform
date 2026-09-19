@@ -2,10 +2,12 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 4px 8px;
-    background: rgba(255, 255, 255, 0.02);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    /* v11.12.8: match the canonical page-header band (LayerHeader chrome). */
+    padding: 10px 16px;
+    background: rgba(10, 10, 10, 0.5);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 .toggles-group {
     display: flex;
@@ -13,12 +15,12 @@
     gap: 4px;
 }
 .toggles-label {
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.5);
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono, monospace);
     margin-right: 2px;
 }
 .toggles-separator {
