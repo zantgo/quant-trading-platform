@@ -62,9 +62,33 @@ function tabButton(label: string): HTMLButtonElement {
 }
 
 describe('UnifiedSettings — internal navbar', () => {
-    it('defaults to WORKSPACE: the Timeframes card shows, general section hidden', async () => {
+    it('defaults to GENERAL (first tab): fees show, workspace section hidden', async () => {
         seedPair('BTC');
         const { container } = render(UnifiedSettings);
+        await tick();
+        expect(tabButton('General').getAttribute('aria-pressed')).toBe('true');
+        expect(container.textContent).toContain('Fees & Leverage');
+        const general = container.querySelector('[data-testid="settings-general-section"]') as HTMLElement;
+        const ws = container.querySelector('[data-testid="settings-workspace-section"]') as HTMLElement;
+        expect(general.hidden).toBe(false);
+        expect(ws.hidden).toBe(true);
+    });
+
+    it('the internal navbar order is GENERAL | WORKSPACE | INSTANCE', async () => {
+        seedPair('BTC');
+        const { container } = render(UnifiedSettings);
+        await tick();
+        const labels = Array.from(container.querySelectorAll('nav[aria-label="Settings sections"] button')).map(
+            (b) => b.textContent?.trim(),
+        );
+        expect(labels).toEqual(['General', 'Workspace', 'Instance']);
+    });
+
+    it('WORKSPACE tab shows the Timeframes card and hides the general section', async () => {
+        seedPair('BTC');
+        const { container } = render(UnifiedSettings);
+        await tick();
+        await fireEvent.click(tabButton('Workspace'));
         await tick();
         expect(tabButton('Workspace').getAttribute('aria-pressed')).toBe('true');
         expect(container.textContent).toContain('Timeframes');
@@ -85,16 +109,6 @@ describe('UnifiedSettings — internal navbar', () => {
         // of the filter input (hidden vs removed is asserted at the shell
         // wrapper level in the first test).
         expect(container.querySelector('input[placeholder="Filter parameters…"]')).toBeTruthy();
-    });
-
-    it('GENERAL tab shows Fees & Leverage and hides the workspace section', async () => {
-        seedPair('BTC');
-        const { container } = render(UnifiedSettings);
-        await tick();
-        await fireEvent.click(tabButton('General'));
-        await waitFor(() => expect(container.textContent).toContain('Fees & Leverage'));
-        const ws = container.querySelector('[data-testid="settings-workspace-section"]') as HTMLElement;
-        expect(ws.hidden).toBe(true);
     });
 
     it('with zero instances the INSTANCE tab shows the shared empty state', async () => {
@@ -125,7 +139,6 @@ describe('UnifiedSettings — internal navbar', () => {
         seedPair('BTC');
         const { container } = render(UnifiedSettings);
         await tick();
-        await fireEvent.click(tabButton('General'));
         await waitFor(() => expect(container.textContent).toContain('Fees & Leverage'));
         const saveBtn = screen.getByText('SAVE') as HTMLButtonElement;
         expect(saveBtn.disabled).toBe(true);

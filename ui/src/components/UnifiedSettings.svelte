@@ -4,10 +4,11 @@
     // The old behaviour silently swapped two different editors depending on
     // whether an instance happened to be selected (GeneralSettings vs
     // WorkspaceSettings). Now a single page with an internal navbar hosts:
+    //   GENERAL   — Fees & Leverage / Cost Projection / Share Config
+    //               (entry tab)
     //   WORKSPACE — the duration ladder + per-duration indicator parameters
     //               (`[workspace].timeframes`, workspace-level)
     //   INSTANCE  — Activation / Overlays / Heatmap, chip-scoped per instance
-    //   GENERAL   — Fees & Leverage / Cost Projection / Share Config
     //
     // ONE header mounted SAVE drives all sections (dirty union); drafts
     // survive tab switches because every section stays mounted (inactive
@@ -21,12 +22,14 @@
 
     type SettingsTab = 'workspace' | 'instance' | 'general';
     const TABS: Array<{ key: SettingsTab; label: string }> = [
+        { key: 'general', label: 'General' },
         { key: 'workspace', label: 'Workspace' },
         { key: 'instance', label: 'Instance' },
-        { key: 'general', label: 'General' },
     ];
 
-    let tab = $state<SettingsTab>('workspace');
+    // v11.12.2: navigate order GENERAL | WORKSPACE | INSTANCE with the
+    // first tab (GENERAL) as the entry tab.
+    let tab = $state<SettingsTab>('general');
 
     let wsSection: WorkspaceSettings | undefined = $state();
     let generalSection: GeneralSettings | undefined = $state();
