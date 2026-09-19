@@ -61,8 +61,8 @@
         { view: 'monitor',     label: 'Metrics' },
         { view: 'alignment',   label: 'Alignment' },
         { view: 'analysis',    label: 'Analysis' },
-        { view: 'opportunity', label: 'Opportunities' },
-        { view: 'risk',        label: 'Risks' },
+        { view: 'opportunity', label: 'Opportunity' },
+        { view: 'risk',        label: 'Risk' },
         { view: 'recommendation', label: 'Recommendation' },
     ];
 

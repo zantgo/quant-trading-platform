@@ -339,9 +339,11 @@
 }
 
 .summaryAgreement {
-    /* v11.12.7: owns the badge track only (BULL/BEAR/MIXED). */
-    justify-self: end;
-    padding-right: 4px;
+    /* v11.12.7: owns the badge track only (BULL/BEAR/MIXED).
+       v11.12.12: centered over the full-width badge it labels. */
+    justify-self: stretch;
+    text-align: center;
+    padding-right: 0;
     font-size: 9px;
     font-weight: 700;
     text-transform: uppercase;
@@ -350,9 +352,11 @@
 }
 
 .summaryAvg {
-    /* v11.12.7: owns the average-value track. */
-    justify-self: end;
-    padding-right: 4px;
+    /* v11.12.7: owns the average-value track.
+       v11.12.12: centered over the centered average values. */
+    justify-self: stretch;
+    text-align: center;
+    padding-right: 0;
     font-size: 9px;
     font-weight: 700;
     text-transform: uppercase;
@@ -474,7 +478,8 @@
 }
 
 .agreementNum {
-    text-align: right;
+    /* v11.12.12: centered under the AVG title. */
+    text-align: center;
     font-family: var(--mono, monospace);
     font-feature-settings: "tnum" 1;
     font-size: 10px;
@@ -563,7 +568,8 @@
 }
 
 .tblSummaryTotal {
-    text-align: right;
+    /* v11.12.12: centered over the centered total badge groups. */
+    text-align: center;
 }
 
 .tblBody {
@@ -630,10 +636,11 @@
 .tblTotal {
     display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
+    /* v11.12.12: centered under the TOTAL title. */
+    justify-content: center;
     gap: 3px;
     flex-wrap: wrap;
-    text-align: right;
+    text-align: center;
     font-family: var(--mono, monospace);
     font-feature-settings: "tnum" 1;
     font-size: 10px;
