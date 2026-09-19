@@ -531,6 +531,29 @@
         });
     }
 
+    /// v11.12.2: per-tab exports — the WORKSPACE tab exports the ladder +
+    /// per-duration parameters; the INSTANCE tab exports the chip-scoped
+    /// per-instance behavior (visuals / automation / activation).
+    export function buildWorkspaceExport(): string {
+        if (!pair) return '{}';
+        return buildEngineExport('market_monitor', 'settings.workspace', null, {
+            pair: { symbol: pair.symbol, exchange: pair.exchange },
+            timeframes: Object.fromEntries(activeLadder.map((slot) => [slot, tfDraft[slot]])),
+            active_timeframes: [...activeLadder],
+        });
+    }
+
+    export function buildInstanceExport(): string {
+        if (!pair) return '{}';
+        return buildEngineExport('market_monitor', 'settings.instance', null, {
+            pair: { symbol: pair.symbol, exchange: pair.exchange },
+            identity: { symbol: pair.symbol, exchange: pair.exchange },
+            visuals: draft.visuals,
+            automation: { ...draft.automation, interval_seconds: calculatedAutomationInterval },
+            activation,
+        });
+    }
+
     /// v11.12: exported for the unified shell's single SAVE button. Returns
     /// `true` when every POST succeeded.
     export async function save(): Promise<boolean> {

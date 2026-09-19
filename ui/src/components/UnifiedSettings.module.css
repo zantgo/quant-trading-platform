@@ -65,3 +65,14 @@
 .tabContent[hidden] {
     display: none !important;
 }
+
+/* v11.12.2: SAVE + EXPORT action row — sits directly under the settings
+   navbar (the engine-view content-header position). */
+.actionRow {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06));
+}

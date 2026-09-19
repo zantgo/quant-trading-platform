@@ -17,7 +17,6 @@
     import GeneralSettings from './GeneralSettings.svelte';
     import SettingsSaveButton, { type SettingsSaveState } from './SettingsSaveButton.svelte';
     import ExportDataButton from './ExportDataButton.svelte';
-    import engine from '../styles/engine-dashboard.module.css';
     import styles from './UnifiedSettings.module.css';
 
     type SettingsTab = 'workspace' | 'instance' | 'general';
@@ -56,33 +55,36 @@
         if (ok) setTimeout(() => { saveState = 'idle'; }, 2000);
     }
 
-    function exportAll(): string {
-        return wsSection ? wsSection.buildExport() : '{}';
+    function exportActive(): string {
+        if (tab === 'general') return generalSection ? generalSection.buildExport() : '{}';
+        if (tab === 'instance') return wsSection ? wsSection.buildInstanceExport() : '{}';
+        return wsSection ? wsSection.buildWorkspaceExport() : '{}';
     }
 </script>
 
 <div class={styles.settingsShell}>
-    <header class={engine.unifiedHeader}>
-        <div class={engine.headerTop}>
-            <div class={engine.titleGroup}>
-                <h2 class={engine.title}>Settings</h2>
-            </div>
-            <div class={engine.headerRight}>
-                <SettingsSaveButton state={saveState} onsave={saveAll} />
-                <ExportDataButton onExport={exportAll} title="Copy this workspace configuration as JSON" />
-            </div>
-        </div>
-        <nav class={styles.tabStrip} aria-label="Settings sections">
-            {#each TABS as t (t.key)}
-                <button
-                    type="button"
-                    class="{styles.tabBtn} {tab === t.key ? styles.tabBtnActive : ''}"
-                    aria-pressed={tab === t.key}
-                    onclick={() => (tab = t.key)}
-                >{t.label}</button>
-            {/each}
-        </nav>
-    </header>
+    <!-- v11.12.2: the internal navbar sits FLUSH under the app's engine tab
+         row (no title header between them — the highlighted SETTINGS tab is
+         the title). SAVE + EXPORT live in the action row right below, the
+         same pattern as every other engine view's header. -->
+    <nav class={styles.tabStrip} aria-label="Settings sections">
+        {#each TABS as t (t.key)}
+            <button
+                type="button"
+                class="{styles.tabBtn} {tab === t.key ? styles.tabBtnActive : ''}"
+                aria-pressed={tab === t.key}
+                onclick={() => (tab = t.key)}
+            >{t.label}</button>
+        {/each}
+    </nav>
+
+    <div class={styles.actionRow}>
+        <SettingsSaveButton state={saveState} onsave={saveAll} />
+        <ExportDataButton
+            onExport={exportActive}
+            title="Copy the active settings tab's data as JSON"
+        />
+    </div>
 
     <!-- Every section stays MOUNTED (drafts survive tab switches); the
          inactive ones are hidden via the `hidden` attribute. -->

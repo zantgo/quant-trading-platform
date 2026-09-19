@@ -57,8 +57,8 @@ describe('AppPageRouter — unified settings (v11.12)', () => {
         await tick();
         const text = container.textContent ?? '';
         // v11.12: ONE Settings surface — internal navbar, workspace-level
-        // editors available even with zero instances.
-        expect(text).toContain('Settings');
+        // editors available even with zero instances. (The title header was
+        // removed: the highlighted SETTINGS tab is the title.)
         expect(text).toContain('Workspace');
         expect(text).toContain('Instance');
         expect(text).toContain('General');
