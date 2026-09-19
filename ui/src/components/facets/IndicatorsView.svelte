@@ -528,8 +528,8 @@
                                                         <span class={styles.expSigMeta}>
                                                             <span class={styles.expMetaItem} style="color: {dirColor(sig.direction)}">{sig.direction}</span>
                                                             <span class={styles.expMetaItem}>{sig.status}</span>
-                                                            <span class={styles.expMetaItem}>str {(sig.strength * 100).toFixed(0)}</span>
-                                                            <span class={styles.expMetaItem}>age {ageLabel(sig.age_bars)}</span>
+                                                            <span class={styles.expMetaItem}><span class={styles.metaKey}>STRENGTH</span> <span class={styles.metaVal}>{(sig.strength * 100).toFixed(0)}</span></span>
+                                                            <span class={styles.expMetaItem}><span class={styles.metaKey}>AGE</span> <span class={styles.metaVal}>{ageLabel(sig.age_bars)}</span></span>
                                                         </span>
                                                     </div>
                                                 {/each}

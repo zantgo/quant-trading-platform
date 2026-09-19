@@ -111,9 +111,18 @@
                                 <span class={styles.rowStatus}>{entry.signal.status}</span>
                                 <span class={styles.rowLabel}>{entry.signal.label}</span>
                                 <span class={styles.rowMeta}>
-                                    <span class={styles.metaPill}>str {(entry.signal.strength * 100).toFixed(0)}</span>
-                                    <span class={styles.metaPill}>conf {confidenceOf(entry.indicatorKey)}%</span>
-                                    <span class={styles.metaPill}>age {ageLabel(entry.signal.age_bars)}</span>
+                                    <span class={styles.metaPill}>
+                                        <span class={styles.metaKey}>STRENGTH</span>
+                                        <span class={styles.metaVal}>{(entry.signal.strength * 100).toFixed(0)}</span>
+                                    </span>
+                                    <span class={styles.metaPill}>
+                                        <span class={styles.metaKey}>CONFIDENCE</span>
+                                        <span class={styles.metaVal}>{confidenceOf(entry.indicatorKey)}%</span>
+                                    </span>
+                                    <span class={styles.metaPill}>
+                                        <span class={styles.metaKey}>AGE</span>
+                                        <span class={styles.metaVal}>{ageLabel(entry.signal.age_bars)}</span>
+                                    </span>
                                 </span>
                             </div>
                         {/each}

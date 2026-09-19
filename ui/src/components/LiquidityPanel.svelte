@@ -297,8 +297,8 @@
                                      sig.direction === 'BEARISH' ? styles.signalBearish : styles.signalNeutral)}>
                             <span class={styles.signalKind}>{sig.kind}</span>
                             <span class={styles.signalDir}>{sig.direction}</span>
-                            <span class={styles.signalStrength}>str {sig.strength.toFixed(0)}</span>
-                            <span class={styles.signalConf}>conf {(sig.confidence * 100).toFixed(0)}%</span>
+                            <span class={styles.signalStrength}><span class={styles.metaKey}>STRENGTH</span> <span class={styles.metaVal}>{sig.strength.toFixed(0)}</span></span>
+                            <span class={styles.signalConf}><span class={styles.metaKey}>CONFIDENCE</span> <span class={styles.metaVal}>{(sig.confidence * 100).toFixed(0)}%</span></span>
                             <ul class={styles.signalEvidence}>
                                 {#each sig.evidence as e}
                                     <li>{e}</li>

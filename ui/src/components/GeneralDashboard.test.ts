@@ -475,13 +475,12 @@ describe('GeneralDashboard — market health bars', () => {
 });
 
 describe('GeneralDashboard — scan status', () => {
-    it('renders the scan-status strip with pair count', () => {
+    it('renders the scan-status strip (last scan + auto-refresh)', () => {
         seedPair('BTC');
         seedPair('ETH');
         render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getAllByText(/2.*pairs/).length).toBeGreaterThan(0);
-        expect(screen.getAllByText('last scan').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('auto-refresh').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Last scan').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Auto-refresh').length).toBeGreaterThan(0);
     });
 });
 

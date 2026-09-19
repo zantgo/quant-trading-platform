@@ -405,6 +405,23 @@
     margin-bottom: 10px;
 }
 
+/* v11.12.13: Timeframes card title — replaces the provenance chip +
+   instruction line, naming the two panes (rail = TIMEFRAME, pane = INDICATOR). */
+.tfCardTitle {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #f5f5f7;
+    text-transform: uppercase;
+}
+
+.tfCardTitleSep {
+    color: rgba(255, 255, 255, 0.35);
+    font-weight: 500;
+    padding: 0 2px;
+}
+
 .paneMemory {
     font-size: 9px;
     letter-spacing: 0.06em;

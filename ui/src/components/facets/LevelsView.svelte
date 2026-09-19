@@ -236,7 +236,7 @@
                 <span class="{styles.fibSwing} {swingClass(fibSwing)}">
                     {fibSwing} SWING
                 </span>
-                <span class={styles.fibConfidence}>conf {fibConfidence}%</span>
+                <span class={styles.fibConfidence}><span class={styles.metaKey}>CONFIDENCE</span> <span class={styles.metaVal}>{fibConfidence}%</span></span>
                 <span class={styles.fibPosition}>{fibPosition}</span>
             </header>
             <div class={styles.fibLadder}>
@@ -408,9 +408,9 @@
                                 {row.signal.direction}
                             </span>
                             <span class={styles.status}>{row.signal.status}</span>
-                            <span class={styles.strength}>{row.signal.strength_label ?? 'str ' + (row.signal.strength * 100).toFixed(0)}</span>
-                            <span class={styles.conf}>conf {confidenceOf(row.indicatorKey)}%</span>
-                            <span class={styles.age}>age {ageLabel(row.signal.age_bars)}</span>
+                            <span class={styles.strength}><span class={styles.metaKey}>STRENGTH</span> <span class={styles.metaVal}>{row.signal.strength_label ?? (row.signal.strength * 100).toFixed(0)}</span></span>
+                            <span class={styles.conf}><span class={styles.metaKey}>CONFIDENCE</span> <span class={styles.metaVal}>{confidenceOf(row.indicatorKey)}%</span></span>
+                            <span class={styles.age}><span class={styles.metaKey}>AGE</span> <span class={styles.metaVal}>{ageLabel(row.signal.age_bars)}</span></span>
                         </div>
                     {/each}
                 </div>

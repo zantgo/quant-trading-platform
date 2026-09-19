@@ -1,4 +1,12 @@
-@import '@fontsource/inter';
+/* v11.12.13: load the REAL Inter weights. Previously only the 400 face was
+   imported while `font-synthesis: none` disabled faux bold, so every
+   500-800 declaration (titles, badges, buttons) rendered regular. */
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-700.css';
+@import '@fontsource/inter/latin-800.css';
+@import '@fontsource/inter/latin-400-italic.css';
 
 :root {
   font-synthesis: none;

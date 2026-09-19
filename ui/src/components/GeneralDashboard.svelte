@@ -67,13 +67,6 @@
         error: styles.badgeError,
     };
 
-    const chipCls: Record<ValueState, string> = {
-        valid: styles.metaChipValueValid,
-        neutral: styles.metaChipValueNeutral,
-        empty: styles.metaChipValueEmpty,
-        error: styles.metaChipValueError,
-    };
-
     const statusDotCls: Record<LayerHeaderSpec['status'], string> = {
         live: styles.statusLive,
         stale: styles.statusStale,
@@ -217,10 +210,7 @@
                             {#each headerSpec.meta as chip (chip.label)}
                                 <div class={styles.metaChip} title={chip.title}>
                                     <span class={styles.metaChipLabel}>{chip.label}:</span>
-                                    <span
-                                        class="{styles.metaChipValue} {chipCls[chip.state]}"
-                                        style={chip.state === 'valid' ? `color: ${chip.color};` : ''}
-                                    >{chip.value}</span>
+                                    <span class={styles.metaChipValue}>{chip.value}</span>
                                 </div>
                             {/each}
                         </div>
