@@ -72,12 +72,12 @@ describe('TerminalMonitor — sidebar order (v7.0-prod D7)', () => {
             .slice(0, 15)
             .map((b) => b.querySelector('span')?.textContent?.trim())
             .filter(Boolean);
-        expect(sidebarLabels).toEqual(['MTF', '1s', '3s', '5s', '15s', '30s', '1m', '3m', '5m', '15m', '30m', '1h', '4h', '12h', '1d']);
+        expect(sidebarLabels).toEqual(['Multi-TF', '1s', '3s', '5s', '15s', '30s', '1m', '3m', '5m', '15m', '30m', '1h', '4h', '12h', '1d']);
     });
 });
 
 describe('TerminalMonitor — default active Tf is MTF (v7.0-prod D3)', () => {
-    it('first paint: rail item "MTF" carries the .active class', () => {
+    it('first paint: rail item "Multi-TF" carries the .active class', () => {
         seedInstance();
         const { container } = render(TerminalMonitor, { props: { pairKey: 'BTC-USDT' } });
         const buttons = Array.from(container.querySelectorAll('button'));
@@ -85,7 +85,7 @@ describe('TerminalMonitor — default active Tf is MTF (v7.0-prod D3)', () => {
         const activeRailItems = rail.filter((b) => b.className.split(/\s+/).some((c) => c.includes('active')));
         expect(activeRailItems.length).toBe(1);
         const label = activeRailItems[0].querySelector('span')?.textContent?.trim();
-        expect(label).toBe('MTF');
+        expect(label).toBe('Multi-TF');
     });
 });
 

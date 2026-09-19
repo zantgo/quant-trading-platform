@@ -174,7 +174,9 @@
                         </td>
                         <td class={styles.instanceCell}>
                             <span class={styles.symbol}>{inst.symbol}</span>
-                            <span class={styles.pairKey}>{pairKey}</span>
+                            {#if pairKey !== inst.symbol}
+                                <span class={styles.pairKey}>{pairKey}</span>
+                            {/if}
                         </td>
                         <td class={styles.badgeCell}>
                             <div

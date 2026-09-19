@@ -8,7 +8,6 @@
     interface RailItem {
         key: string | number;
         label: string;
-        secsText: string;
     }
 
     let {
@@ -30,7 +29,6 @@
             onclick={() => onSelect(item.key)}
         >
             <span class={styles.tfLabel}>{item.label}</span>
-            <span class={styles.tfSecs}>{item.secsText}</span>
         </button>
     {/each}
 </aside>
