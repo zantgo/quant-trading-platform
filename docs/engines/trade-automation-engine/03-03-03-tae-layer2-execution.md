@@ -1,6 +1,8 @@
 # TAE Layer ④ — Unified ExecutionEngine
 
-**Version:** 11.11 (2026-09-18) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
+**Version:** 11.12 (2026-09-19) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
+
+> **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
 **Status:** Implemented (v11) — Hyperliquid + Bitget live backends, quantity-first execution model.
 **Previous:** 11.0 (2026-08-26) — v7 redesign + v7.1 Bitget.
 **Engine:** Trade Automation Engine (TAE)
@@ -39,7 +41,7 @@ The v7 engine is built so that **paper and live are the same program**:
 ## 2. ExecutionMode & ExecutionBackend
 
 ```rust
-pub enum ExecutionMode { Paper, Live }
+pub enum ExecutionMode { Observe (default), Paper, Live }
 
 pub trait ExecutionBackend: Send + Sync {
     async fn submit_order(&self, packet: OrderPacket) -> Result<String, String>;
@@ -52,9 +54,9 @@ pub trait ExecutionBackend: Send + Sync {
 | Backend | Status | Behavior |
 |---------|--------|----------|
 | `PaperSimulation` | **v7** | Internal matching against the live mid-price: limit/stop/market fills, spread + slippage, instant marketable-limit fills. No external I/O. |
-| `LiveBroker` | Future phase | Same trait against Hyperliquid / Bitget REST + WS. The engine needs no changes. |
+| `LiveBroker` / `BitgetLiveBroker` | Implemented | Same trait against Hyperliquid / Bitget REST + WS. The engine needs no changes. |
 
-`mode = "paper"` is a per-instance config field (`[[workspace.instances]].mode`), default `Paper`. The engine exposes the mode in every API response so the frontend can render the PAPER/LIVE badge.
+`mode = "paper"` is a per-instance config field (`[[workspace.instances]].mode`), default `Observe`. The engine exposes the mode in every API response so the frontend can render the PAPER/LIVE badge.
 
 ---
 

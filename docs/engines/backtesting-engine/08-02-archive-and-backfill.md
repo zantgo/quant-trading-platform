@@ -1,6 +1,6 @@
 # BTE Layer 1 — Candle Archive & Backfill
 
-**Version:** 11.11 (2026-09-18)
+**Version:** 11.12 (2026-09-19)
 **Engine:** Backtesting Engine
 **Tables:** `candle_archive`, `backfill_jobs`
 **Code:** `crates/database-storage/src/queries/archive.rs`,
@@ -34,7 +34,7 @@ Retention: `prune_candle_archive` deletes rows older than
 | Exchange | Endpoint | Limit behaviour |
 |----------|----------|-----------------|
 | Hyperliquid | `candleSnapshot` (POST `/info`) | **Most recent 5,000 candles per TF** (`[workspace.backtest.hyperliquid].max_candles_per_tf`) — the platform pages conservatively at `page_cap = 1000` candles/request |
-| Bitget | GET `/api/v2/mix/market/candles` | `limit` 1..1000; the platform pages at `page_cap = 200`/request; **per-granularity retention** (measured 2026-08-21): 1m–30m ≈ 30 days, 1H ≈ 45 days, 4H ≈ 180 days, 12H–1D ≈ 365 days — deeper windows return empty pages |
+| Bitget | GET `/api/v2/mix/market/candles` | `limit` 1..1000; the platform pages at `page_cap = 200`/request; **per-granularity retention** (measured 2026-08-21): 1m–30m ≈ 30 days, 1H ≈ 45 days, 4H ≈ 180 days, 12H–1D ≈ 365 days (and any single candle window is capped at 90 days by the venue — the historical fetch clamps its window accordingly) — deeper windows return empty pages |
 
 The practical bound per (exchange, TF):
 

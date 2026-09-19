@@ -523,23 +523,6 @@
     {#if rows.length === 0}
         <div class={styles.placeholder}>No indicators in the registry yet. Awaiting indicator registry…</div>
     {:else}
-        {#if !(collapsed['indicators'] ?? false)}
-            <!-- ── TF summary bar (fastest → slowest) — sits above
-                 the Indicators heading so the column header is the first thing
-                 a reader sees, then the grid below it. -->
-            <div class={styles.summary} style="--tf-count: {SLOTS.length}">
-                <div class={styles.summarySpacer}></div>
-                {#each SLOTS as slot (slot.label)}
-                    <div class={styles.summarySlot}>
-                        <div class={styles.summaryLabel}>{slot.label}</div>
-                        <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
-                    </div>
-                {/each}
-                <div class={styles.summarySpacer}></div>
-                <div class={styles.summarySpacer}></div>
-            </div>
-        {/if}
-
         <!-- ── INDICATORS heading (outside the containers) — unified
              chrome: title + gray count badge + colored agreement badges
              (BULL / BEAR / MIXED) with the dominant category lit. ── -->
@@ -578,15 +561,33 @@
         </div>
 
         {#if !(collapsed['indicators'] ?? false)}
-            {#each groups as g (g.group)}
-                {@const meta = GROUP_META[g.group as keyof typeof GROUP_META]}
-                <section class={styles.section} style="--accent: {meta.accent}">
-                    <header class={styles.sectionHeader}>
-                        <span class={styles.sectionTitle}>{meta.label}</span>
-                        <span class={styles.sectionCount}>{g.items.length}</span>
-                    </header>
-                    <div class={styles.body}>
-                        {#each g.items as r (r.meta.key)}
+            <!-- v11.12.3: the whole indicator grid is ONE table viewport —
+                 the TF column header row lives INSIDE it (sticky at the
+                 top), directly under the INDICATORS heading. The viewport
+                 scrolls BOTH axes; the header can never detach from the
+                 grid when scrolling horizontally or when durations change. -->
+            <div class={styles.tableScroll}>
+                <div class={styles.indTableInner}>
+                    <div class="{styles.summary} {styles.stickyHead}" style="--tf-count: {SLOTS.length}">
+                        <div class={styles.summarySpacer}></div>
+                        {#each SLOTS as slot (slot.label)}
+                            <div class={styles.summarySlot}>
+                                <div class={styles.summaryLabel}>{slot.label}</div>
+                                <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
+                            </div>
+                        {/each}
+                        <div class={styles.summarySpacer}></div>
+                        <div class={styles.summarySpacer}></div>
+                    </div>
+                    {#each groups as g (g.group)}
+                        {@const meta = GROUP_META[g.group as keyof typeof GROUP_META]}
+                        <section class={styles.section} style="--accent: {meta.accent}">
+                            <header class={styles.sectionHeader}>
+                                <span class={styles.sectionTitle}>{meta.label}</span>
+                                <span class={styles.sectionCount}>{g.items.length}</span>
+                            </header>
+                            <div class={styles.body}>
+                                {#each g.items as r (r.meta.key)}
                             {@const hasAny = r.active.some(Boolean)}
                             <div class={styles.row} style="--tf-count: {SLOTS.length}">
                                 <span class={styles.indicatorName}>
@@ -617,9 +618,11 @@
                                 </span>
                             </div>
                         {/each}
-                    </div>
-                </section>
-            {/each}
+                            </div>
+                        </section>
+                    {/each}
+                </div>
+            </div>
         {/if}
 
         <!-- ── Stacked cross-timeframe tables (v6.13 / v6.14) ───────────
@@ -674,6 +677,9 @@
         </div>
         {#if !(collapsed['signals'] ?? false)}
             <section class="{styles.tblSection} {styles.tblSignals}">
+                <!-- v11.12.3: TF header INSIDE the table viewport (sticky). -->
+                <div class={styles.tableScroll}>
+                <div class={styles.tableInner}>
                 {@render tfHeaderRow('KIND')}
                 {#if totalSignalCount === 0}
                     <div class={styles.tblEmpty}>
@@ -723,6 +729,8 @@
                         {/each}
                     </div>
                 {/if}
+                </div>
+                </div>
             </section>
         {/if}
 
@@ -762,6 +770,8 @@
         </div>
         {#if !(collapsed['divergences'] ?? false)}
             <section class="{styles.tblSection} {styles.tblDivergences}">
+                <div class={styles.tableScroll}>
+                <div class={styles.tableInner}>
                 {@render tfHeaderRow('INDICATOR')}
                 {#if totalDivergenceCount === 0}
                     <div class={styles.tblEmpty}>
@@ -802,6 +812,8 @@
                         {/each}
                     </div>
                 {/if}
+                </div>
+                </div>
             </section>
         {/if}
 
@@ -840,6 +852,8 @@
         </div>
         {#if !(collapsed['levels'] ?? false)}
             <section class="{styles.tblSection} {styles.tblLevels}">
+                <div class={styles.tableScroll}>
+                <div class={styles.tableInner}>
                 {@render tfHeaderRow('LEVEL KIND')}
                 {#if totalLevelCount === 0}
                     <div class={styles.tblEmpty}>
@@ -893,6 +907,8 @@
                         {/each}
                     </div>
                 {/if}
+                </div>
+                </div>
             </section>
         {/if}
     {/if}

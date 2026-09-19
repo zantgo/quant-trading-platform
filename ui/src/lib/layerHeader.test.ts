@@ -399,7 +399,7 @@ describe('buildL2AlignmentHeader (L2)', () => {
         expectEmpty(buildL2AlignmentHeader(null));
     });
 
-    it('badge label = prettified mtf_overall_label; TFs chip remains; Score chip erased (v7.0.1 B: moved into the panel hero Score dial)', () => {
+    it('badge label = prettified mtf_overall_label; TFs + Score chips erased (v11.12.3)', () => {
         const spec = buildL2AlignmentHeader(alignmentStub({
             mtf_overall_label: 'WEAK_BULL',
             mtf_overall_score: 21.2,
@@ -409,7 +409,9 @@ describe('buildL2AlignmentHeader (L2)', () => {
         expect(spec.badge.label).toBe('WEAK BULL');
         expect(spec.badge.color).toBe(biasColor('WEAK_BULL'));
         expect(spec.meta.find((c) => c.label === 'Score')).toBeUndefined();
-        expect(spec.meta.find((c) => c.label === 'TFs')!.value).toBe('4 TF');
+        // v11.12.3: the TFs chip was erased from the Alignment header.
+        expect(spec.meta.find((c) => c.label === 'TFs')).toBeUndefined();
+        expect(spec.meta.length).toBe(0);
     });
 
     it('v6.10.19d (A): the Agreement chip is gone — the Timeframe Consensus meter lives in the panel header container', () => {
@@ -427,7 +429,7 @@ describe('buildL3AnalysisHeader (L3)', () => {
         const spec = buildL3AnalysisHeader(a);
         expect(spec.badge.label).toBe('Bullish');
         expect(spec.meta.some((c) => c.label === 'Quality')).toBe(true);
-        expect(spec.meta.some((c) => c.label === 'State Conf')).toBe(true);
+        expect(spec.meta.some((c) => c.label === 'State Confidence')).toBe(true);
         expect(spec.meta.some((c) => c.label === 'Regime')).toBe(false);
     });
 
@@ -441,7 +443,7 @@ describe('buildL3AnalysisHeader (L3)', () => {
     it('confidence 0 renders as 0% amber (neutral)', () => {
         const a = analysisStub({ bias: 'Neutral', state_confidence: 0 });
         const spec = buildL3AnalysisHeader(a);
-        const c = spec.meta.find((m) => m.label === 'State Conf')!;
+        const c = spec.meta.find((m) => m.label === 'State Confidence')!;
         expect(c.state).toBe('neutral');
         expect(c.value).toBe('0%');
     });
@@ -606,7 +608,8 @@ describe('buildL5RiskHeader (L5)', () => {
         const conf = spec.meta[1];
         expect(conf.value).toBe('78%');
         expect(conf.state).toBe('valid');
-        expect(conf.color).toBe(scoreColor(78));
+        // v11.12.3: confidence VALUES are white (values white, labels grey).
+        expect(conf.color).toBe('rgba(255,255,255,0.85)');
     });
 });
 

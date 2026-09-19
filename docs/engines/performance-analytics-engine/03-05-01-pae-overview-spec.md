@@ -1,6 +1,8 @@
 # Performance Analytics Engine — Overview Specification (v7)
 
-**Version:** 11.11 (2026-09-18) — the v7 release adds the **L5 Backtest layer**: recorded MME decisions are replayed through the unchanged setup executor + unified engine (paper only), and every result carries the full statistical treatment (t-test, Monte Carlo, α = 0.05, edge classification).
+**Version:** 11.12 (2026-09-19) — the v7 release adds the **L5 Backtest layer**: recorded MME decisions are replayed through the unchanged setup executor + unified engine (paper only), and every result carries the full statistical treatment (t-test, Monte Carlo, α = 0.05, edge classification).
+
+> **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
 **Status:** Specified — implemented; backtest delivered 2026-08-18.
 **Engine:** Performance Analytics Engine (PAE)
 **Purpose:** This document specifies the boundaries, performance database, scheduled tasks, report templates, and the backtest layer of the Performance Analytics Engine — the engine that evaluates historical trading records to isolate strategy efficacy, quantify the statistical significance of the edge, and answer **"would the setup executor have been profitable over this history?"**
@@ -27,7 +29,7 @@ The PAE is the platform's **retrospective analyst and scoreboard**. It consumes 
 | L5 | [Backtest](03-05-06-pae-layer5-backtest.md) | BacktestResult (trades, stats, NHST verdict, equity curve) |
 
 
-**Dashboard tabs ↔ layers (v7.3).** Overview (landing) · Trades (L1) · Strategy (L2 NHST) · Risk (L3) · Performance (L4, renamed from "Regime Map") · Backtesting (L5) · History · Methodology (cross-cutting last). Observe mode keeps Overview (Edge Validator) · Backtesting · History · Methodology. The significance treatment is config-driven via `[workspace.analytics]` (see [07-07 §2](../../ui-ux/07-07-engine-dashboard-vocabulary.md)).
+**Dashboard tabs ↔ layers (v7.3).** Overview (landing) · Strategy (L2 NHST) · Comparison · History · Methodology · Settings (cross-cutting last). The Backtesting surface moved to BTE in v8; the engine is hidden from the observe sidebar in this build. The significance treatment is config-driven via `[workspace.analytics]` (see [07-07 §2](../../ui-ux/07-07-engine-dashboard-vocabulary.md)).
 
 ---
 

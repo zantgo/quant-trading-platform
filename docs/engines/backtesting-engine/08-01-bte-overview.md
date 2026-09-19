@@ -1,6 +1,8 @@
 # Backtesting Engine — Overview
 
-**Version:** 11.11 (2026-09-18)
+**Version:** 11.12 (2026-09-19)
+
+> **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
 **Status:** Implemented (production-ready) — installer-style launcher, standalone multi-symbol runs, progress + cancel, CLI mode
 **Engine:** Backtesting Engine (BTE) — the sixth logical engine
 **Crate:** `crates/backtesting-engine`
@@ -22,7 +24,7 @@ simulation) differ.
 | Paper   | Data Infrastructure · Market Monitor · Trade Automation · Portfolio Management · Performance Analytics · Profile |
 | Live    | Data Infrastructure · Market Monitor · Trade Automation · Portfolio Management · Performance Analytics · Profile |
 
-The BTE is **observe-only in the UI** (research happens before capital is
+The BTE is hidden from the sidebar in every mode in this build (direct URLs + headless CLI backtests still work) (research happens before capital is
 deployed).
 
 ## 2. The Backtest Launcher (v8.2)
@@ -45,8 +47,7 @@ Rules:
 - **Bound ladder = the instance's ACTIVE ladder ∩ ≥ 60 s (v11.2).** A bound
   run replays `active_secs` (the fastest `[workspace].timeframes`
   slots, see [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md))
-  filtered to the 60-second archive floor. At the default count of 5 (all
-  sub-minute) that set is **empty** and the run is rejected
+  filtered to the 60-second archive floor. With the default ACTIVE set (the fastest eight) the ≥ 60 s intersection is `[60, 180, 300]` — non-empty
   `400 no_active_ladder` ("raise `[workspace].timeframes` past the
   60 s slots to backtest"); raising the count past `1m` (N ≥ 6) makes the
   instance backtestable. A `timeframe_secs` outside the resolved set is
@@ -122,7 +123,7 @@ execution-daemon --backtest --exchange hl|bitget --symbols BTC,ETH \
 ```
 
 `--tf` accepts 1..=14 strictly-ascending values from the standard tiers, all
-≥ 60 s (the archive floor; the sub-minute fixed slots `1s`–`30s` are
+≥ 60 s (the archive floor; the sub-minute durations `1s`–`30s` are
 live-only and can never be backfilled). The default standalone ladder is
 `60,180,300,900,3600` (`1m`…`1h`).
 

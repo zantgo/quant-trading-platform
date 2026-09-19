@@ -1,6 +1,6 @@
 # MME Strategy Configuration — Canonical Spec (v11)
 
-**Version:** 11.11 (2026-09-18) — v11: quantity-first defaults + ladder_roles. See docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — v11: quantity-first defaults + ladder_roles. See docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Market Monitoring Engine (MME) — Layers L1 · L1.5 · L2 · L2.5 · L3 · L4 · L5 · L6 · L7
 **Method:** Spec-driven development — this document is the contract. Code, UI,

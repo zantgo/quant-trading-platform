@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -15,11 +15,11 @@ The viewport is composed of **three independently-mounted navbars** stacked abov
 │ NAVBAR 1 — Top (Global, always on)                                       │
 │  [☰ TRADING PLATFORM ▸] [Hyperliquid · USDC]  ...........  [Instances ▶]  │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ NAVBAR 2 — Middle (Workspace-level)  ·· mounts when !isHome & !isSimple  │
-│  [Workspace] [Overview] [Settings]                                       │
+│ NAVBAR 2 — Middle (Workspace-level)  ·· always mounted (engineTabs.ts)    │
+│  [Overview] [Workspace] [Settings]                                       │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ NAVBAR 3 — Bottom (Instance-level) ··· mounts when Market+Workspace+Sel ·│
-│  [Charts][Metrics][Alignment][Opps][Risks][Analysis][Decision]          │
+│  [Charts][Metrics][Alignment][Analysis][Opps][Risks][Recommendation]   │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │                       MAIN CONTENT AREA                                  │
@@ -30,7 +30,7 @@ The viewport is composed of **three independently-mounted navbars** stacked abov
 LEFT DRAWER (Engines Sidebar)        RIGHT DRAWER (Instances Sidebar)
  · overlay, not in-flow               · overlay, not in-flow
  · slides from left                   · slides from right
- · 6 engine items + Quit Session      · symbol input + instance list
+ · mode-filtered engine items + Quit Session
 ```
 
 **CSS contract:**
@@ -58,7 +58,7 @@ The Top Navbar is always rendered while the session is active. It uses a 4-colum
 
 **Class bindings:** `class="{styles.cell} {styles.cellBrand} {styles.cellNavbar} {styles.cellClickable}"` on the brand cell; `class="{styles.cell} {styles.cellMono} {styles.cellNavbar}"` on the exchange chip; `class="{styles.cell} {styles.cellNavbar} {styles.cellClickable} {isWorkspacePanelOpen ? styles.cellActive : ''}"` on the instances cell.
 
-**Live data:** When an instance is selected, the instances cell replaces the static label with three inline sub-cells — pair (e.g. `BTC/USDC`), `microTerm.priceText` formatted as a price, and the 24 h change percentage computed from `microTerm.latestSnapshot.mid_price` vs `prev_day_px`. The change cell color binds to `styles.changeUp` / `styles.changeDown` / `styles.changeFlat` based on sign.
+**Live data:** When an instance is selected, the instances cell replaces the static label with three inline sub-cells — pair (e.g. `BTC/USDC`), `the live price (`pickInstanceLivePrice` from the ACTIVE-duration `terms[<secs>]` state), and the 24 h change percentage computed from the fastest ACTIVE duration's `latestSnapshot.mid_price` vs `prev_day_px`. The change cell color binds to `styles.changeUp` / `styles.changeDown` / `styles.changeFlat` based on sign.
 
 **Renamed in v6.5:** The workspaces cell and the right drawer panel were renamed from "Workspaces" to "Instances" to better reflect their function as instance lifecycle managers.
 
@@ -66,14 +66,14 @@ The Top Navbar is always rendered while the session is active. It uses a 4-colum
 
 ## 3. Middle Navbar (Workspace-Level)
 
-The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-single-page engine). It is a single horizontal row of tab cells that switch `app.middleTab`.
+The Middle Navbar always mounts; its tabs come from `engineTabs.ts` (per-engine lists). It is a single horizontal row of tab cells that switch `app.middleTab`.
 
 ### 3.1 Mounting Rules
 
 | Engine | Tabs (left-to-right) | Notes |
 |--------|---------------------|-------|
-| *(removed)* | v11.9 erased the standalone Settings page and the exchange-keys engine — there is no `profile`/`exchange_settings` engine anymore. Settings live in the **market_monitor** `Settings` tab (general settings with no instance, workspace settings with one). | |
-| `market_monitor` (Market) | `Workspace` (forced first) · `Overview` · `Settings` | |
+| *(removed)* | v11.9 erased the standalone Settings page and the exchange-keys engine — there is no `profile`/`exchange_settings` engine anymore. Settings live in the **market_monitor** `Settings` tab as ONE unified surface — internal navbar **General | Timeframes | Instance** (entry General), independent of instance selection. | |
+| `market_monitor` (Market) | `Overview` · `Workspace` · `Settings` | |
 | `trade_automation` (Trading) | `Overview` · `Orders` · `Activity` · `Trade History` · `Settings` | |
 | `portfolio` (Portfolio) | `Overview` · `Positions` · `Exposure` · `Capital` · `Safety` · `Settings` | |
 | `performance` (Analytics) | `Overview` · `Trades` · `Strategy` · `Risk Metrics` · `Performance` · `Comparison` · `History` · `Methodology` · `Settings` | |
@@ -81,7 +81,7 @@ The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-s
 
 v10.1: `data_infra` **does** carry a far-right **Connection Settings** tab (`[workspace.api_failover]` editor, moved from Profile in v10.1) — platform config is live-editable via `GET /api/system/platform-config`. The per-mode tab sets are defined in `ui/src/lib/engineTabs.ts` (single source of truth).
 
-`Workspace` is hard-coded for Market because the Market engine is the only one with active workspace instances; the other engines render the generic two-tab pair. Selecting `Workspace` from a non-Market engine is impossible by construction (the tab is not rendered).
+`Workspace` exists only on the Market engine (the only engine with active instances); every other engine renders its own full tab list from `engineTabs.ts`. Selecting `Workspace` from a non-Market engine is impossible by construction (the tab is not rendered).
 
 ### 3.2 Active Tab Behavior
 
@@ -105,12 +105,10 @@ v10.1: `data_infra` **does** carry a far-right **Connection Settings** tab (`[wo
     {:else if app.middleTab === 'overview'}
         <GeneralDashboard />
     {:else}
-        {#if activePair}
-            <WorkspaceSettings pair={activePair} tabKey={app.activeTab} />
-        {:else}
-            <!-- v11.9 (N2): general settings when no instance is selected -->
-            <GeneralSettings sectionSwitch />
-        {/if}
+        <!-- v11.12: ONE unified Settings surface (internal navbar
+             General | Timeframes | Instance) regardless of instance
+             selection; the old selection-driven swap is erased. -->
+        <UnifiedSettings />
     {/if}
 {:else if app.currentEngine === 'performance'}
     <PerformanceDashboard />
@@ -174,25 +172,28 @@ DELETE mappings by reason (for the summary chips):
 
 ### 3.5 Per-Instance Status Table (`InstanceStatusTable`, v11.2)
 
-The Market Monitor Overview renders `InstanceStatusTable.svelte` **directly under
-the unified header** (above the Asset Rankings table). One **collapsed row per
-instance** (ordering follows the L7 `asset_ranking` symbol order when present,
-falling back to map insertion order):
+The Market Monitor Overview renders `InstanceStatusTable.svelte` in the
+definitive container order **Header → Market Status → Asset Rankings →
+Instance Status → KPI strip → 6-card grid → Market Health** (Market Health
+last). One **collapsed row per instance**, ordered **newest-first** (reversed
+`instancesMap` insertion order):
 
 | Column | Content |
 |--------|---------|
 | **Expand chevron** | Toggle button (`aria-expanded`) revealing the per-timeframe sub-rows. |
 | **Instance** | Symbol + pair key (small/dim sub-label). |
 | **Decision badge** | The SAME derivation the chart / Recommendation view uses — `computeDecisionRank` + `buildL6DecisionHeader`'s exact badge palette (direction colors for LONG/SHORT, HOLD/STAND ASIDE neutral) rendered with its probability percentage (e.g. **"SHORT 45%"**). No advisory/decision context yet → the grey `—` empty badge (`emptyBadge()` semantics). |
-| **Probability chips** | Three small dim chips `L x% · H y% · S z%` (only when probabilities exist). |
-| **Mode chip** | `observe` / `paper` / `live` (dim). |
+| **Probabilities** | Three **ring gauges** (v11.11): green LONG / amber HOLD / red SHORT, arc = probability %, sorted by value DESC (biggest LEFT), re-sorting dynamically (`ProbabilityRings.svelte`). |
 
 An **expand-all** toggle in the table header flips every row at once. Expanding an
-instance reveals **N sub-rows — one per ACTIVE timeframe** (`activeSlotKinds`,
-ladder order) — each showing the slot label + duration and the SAME metrics badge
-+ pipeline pill the Alignment tab's `TfStatusTable` shows (`metricsBadgeFor`),
-reusing the `LayerHeader` badge/status CSS classes verbatim. Display-only: no
-state mutation; an instance with no data shows the grey badge and loading pills.
+instance reveals **N sub-rows — one per ACTIVE duration** (`activeDurations`,
+ascending) — each showing the duration label + seconds, the SAME metrics badge
+the Alignment tab's `TfStatusTable` shows (`metricsBadgeFor`) with a flat ghost
+trail, and a **10-square signal histogram** (last 10 completed candles incl. the
+current one, grouped by count, most common LEFT; `SignalSquares.svelte`,
+`badgeHistory` cap 10, localStorage-persisted). The old LIVE/LOADING pipeline
+pill is removed — loading renders as dim skeleton squares. Display-only: no
+state mutation.
 
 ---
 
@@ -213,10 +214,10 @@ It applies an additional CSS class `styles.rowSubTabs` on top of `styles.rowTabs
 | `terminal` | Charts | `LiveTerminal` |
 | `monitor` | Metrics | `TerminalMonitor` |
 | `alignment` | Alignment | `AlignmentPanel` |
+| `analysis` | Analysis | `AnalysisPanel` |
 | `opportunity` | Opportunities | `OpportunitiesPanel` |
 | `risk` | Risks | `RiskPanel` |
-| `analysis` | Analysis | `AnalysisPanel` |
-| `advisory` | Decision | `AdvisoryPanel` |
+| `recommendation` | Recommendation | `RecommendationPanel` |
 
 ### 4.1.1 Alignment — Per-Timeframe Status Table (`TfStatusTable`)
 
@@ -290,7 +291,7 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 
 ### 5.3 Engine Mapping
 
-> **Observe-only build (v11.7).** The Launch Setup wizard offers a single **Observe** mode card — the trading modes (Simulate/Execute) are disabled in the UI for now, and the observe-mode left panel hides the Backtesting engine: observe shows **Data Infrastructure + Market Monitor + Home**. The backend still accepts all three modes via the API/CLI, direct `#/engine/backtesting/...` URLs still render, and headless CLI backtests are unaffected.
+> **Observe-only build (v11.7).** The Launch Setup wizard offers a single **Observe** mode card — the trading modes (Simulate/Execute) are disabled in the UI for now, and the observe-mode left panel hides the Backtesting engine: observe shows **Data Infrastructure + Market Monitor only** (the Home/Profile page was erased; the `exchange_settings` engine is gone — its old hash redirects to the Overview). The backend still accepts all three modes via the API/CLI, direct `#/engine/backtesting/...` URLs still render, and headless CLI backtests are unaffected.
 
 > **Implementation status (v10.1).** All six engine dashboards are **implemented** and read live data: DIE and MME are WS-fed, TAE/PME dashboards fetch `/api/instances/:id/automation`, `/api/instances/:id/portfolio`, and `/api/instances/:id/safety`, the PAE dashboard fetches `/api/dashboard/stats` + `/api/analytics/*` + `/api/analytics/comparison`, and the BTE dashboard is observe-only (`BacktestingDashboard`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
 
@@ -355,7 +356,7 @@ The Instances Sidebar slides out from the **right edge** when `isWorkspacePanelO
 | Row | `styles.wsPanelRow` | Semantic `<a>` tag with `href={buildEngineHash(...)}`. Click selects the instance via `app.enterInstance(pairKey)` and closes the drawer. |
 | Status dot | `styles.statusDot` + variant class | `running` (blue) · `paused` (amber) · `stopped` (grey). |
 | Pair | `styles.wsPanelPair` | `BTC/USDC` display. |
-| Price | `styles.wsPanelPrice` | `microTerm.priceText`. |
+| Price | `styles.wsPanelPrice` | live price from the ACTIVE-duration terms. |
 | Change % | `styles.change` + variant | 24 h change % colored up/down/flat. |
 | Action button | `styles.wsPanelActionBtn` | `<div role="button" tabindex="0">` with keyboard handler. Holds Start (`▶`), Pause (`⏸`), Stop (`⏹`), and Delete (`🗑`) controls. Delete variant adds `styles.danger`. |
 | Inline confirm | `styles.confirmRow` | Replaces the icon when the user clicks an action; shows `Cancel` + `Confirm` buttons. |
@@ -380,9 +381,9 @@ Cancel  Pause      ← pause variant
 Cancel  Delete     ← delete variant (danger)
 ```
 
-This keeps the action reversible with one click and prevents accidental terminations. Confirming the action calls `POST /api/instances/:id/{action}` (pause/start/stop — start resumes a paused instance, stop halts a running/paused one) or `DELETE /api/instances/:id` (delete). On delete, if the deleted pair was `selectedInstance`, the store calls `app.exitInstance()` to drop back to the empty Market view.
+This keeps the action reversible with one click and prevents accidental terminations. Confirming the action calls `POST /api/instances/:id/lifecycle {action: start|pause|terminate}` (v10.1 — the same state machine as the TAE header switch) or `DELETE /api/instances/:id` (delete). On delete, if the deleted pair was `selectedInstance`, the store calls `app.exitInstance()` to drop back to the empty Market view.
 
-> **Lifecycle controls (v6.2).** Each instance row carries a lifecycle badge (RUNNING / lifecycle `PAUSED` / STOPPED) and three lifecycle action icons: `▶ Start` (visible on lifecycle `PAUSED`/STOPPED), `⏸ Pause` (visible on RUNNING), `⏹ Stop` (danger-styled like Delete, visible on RUNNING/lifecycle `PAUSED`). An **automation summary line** lists active `start`/`pause`/`stop` conditions with an inline edit affordance that re-arms any edited condition per [03-03-06 IL-12](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). STOPPED instances remain fully navigable across every analytics page; deleted instances vanish from the list. See [03-03-06 §3/§6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
+> **Lifecycle controls (v10.1).** Each instance row carries a lifecycle badge — display vocabulary ACTIVE / instance PAUSED / FLATTENING / TERMINATED / MONITORING (wire tokens RUNNING / PAUSED / STOPPING / STOPPED; observe sessions show MONITORING) — and lifecycle action icons driving `POST /api/instances/:id/lifecycle`. The automation-condition scheduler was removed in v11.9 (TAE activation is the lifecycle). See [03-03-06 §3/§6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
 
 ---
 
@@ -390,9 +391,9 @@ This keeps the action reversible with one click and prevents accidental terminat
 
 Inside a selected engine page, a **static in-content sub-sidebar** may render a vertical menu of sub-views. This is a layout component of that page — it does **not** slide, does **not** overlay, and is fully contained within the content area.
 
-### 7.1 Canonical Example — `GeneralSettings`
+### 7.1 Canonical Example — `UnifiedSettings`
 
-The Profile engine (`currentEngine === 'profile'`) mounts `GeneralSettings` full-viewport. Its layout is a 2-column grid: a vertical sub-sidebar on the left and the active form on the right.
+`UnifiedSettings` mounts for the MME Settings tab (any selection state). It renders an internal navbar styled like the engine tab rows (General | Timeframes | Instance, entry tab General), an action row with one SAVE + per-tab EXPORT DATA directly below, and the active section; all sections stay mounted so drafts survive tab switches. `GeneralSettings` and `WorkspaceSettings` are embedded sections of this shell.
 
 | Sub-sidebar item | Section key | Form rendered |
 |------------------|-------------|---------------|
@@ -492,13 +493,9 @@ The form is loaded once via `GET /api/config` on mount (`$effect`) and re-loaded
 
 ---
 
-## 9. WorkspaceSettings Grid
+## 9. Unified Settings Surface
 
-The instance-level settings surface (`WorkspaceSettings.svelte`, mounted by `AppPageRouter` when `middleTab === 'settings'` **with an instance selected**; the editor component is `TimeframeSettings.svelte`) renders a left-rail + right-pane shell of timeframe cards — **one card per ACTIVE duration** (v11.9 — the `[workspace].timeframes` set; inactive durations are inert and render no card). With no instance selected the same tab renders **General settings** instead (v11.9, N2: Fees & Leverage / Share Config; the standalone Settings page is erased).
-
-With no instance selected the same tab renders the single **General Settings** page (v11.11:
-Fees & Leverage → Cost Projection → Share Config, plus Exchange in live mode — stacked
-cards, no section switch).
+The MME Settings tab renders **`UnifiedSettings.svelte` the same way for every selection state** (v11.12 — the old selection-driven General↔Workspace swap is erased). Layout: an internal navbar styled exactly like the engine tab rows and sitting flush under them — **General | Timeframes | Instance** (entry tab General; equal-width cells) — an action row directly below with **one SAVE** (dirty union across all sections) immediately left of a per-tab **EXPORT DATA** (`settings.general` / `settings.timeframes` / `settings.instance`), then the active section. All sections stay MOUNTED (inactive tabs hidden) so drafts survive tab switches. General hosts Fees & Leverage → Cost Projection → Share Config; Timeframes hosts the merged rail+pane editor (below); Instance hosts the chip-scoped Activation / Overlays / Heatmap groups (`NoInstanceState` when no instance exists).
 
 ### 9.0 Merged Timeframes Editor (v11.11)
 
@@ -510,10 +507,14 @@ duration), and the right pane renders the target's grouped indicator parameters
 with short per-field descriptions, a parameter filter box, the `Instance Memory:
 Allocated` chip and an `Active: N / 14` footer. Drafts seed from the backend's
 REAL per-duration profile (`GET /api/config` → `duration_profiles`). The rails
-and drafts ride the SAME save flow: toggle changes POST **`/api/config`**
-(`{ timeframes: [secs…] }`, validated 1..=14) while the per-instance parameter
-overrides POST `/api/instances/:id/config`; both live-recharge and force a WS
-reconnect.
+and drafts ride the SAME SAVE: duration toggles are **DRAFT-ONLY** (no POST on
+toggle); SAVE posts **`/api/config` `{ timeframes: [secs…] }`** (validated
+1..=14, recharged concurrently server-side) first, then the canonical nested
+per-instance overrides (`timeframes: { "<secs>": { candles, indicators } }`) to
+`/api/instances/:id/config`; ladder side-effects (WS re-attach + cache clears)
+run immediately after the ladder POST even if the params POST fails. The save
+state machine (`idle → dirty → saving → saved | error`) can never stick in
+"saving".
 
 ### 9.1 Layout
 
@@ -566,18 +567,18 @@ Each input row is a label + numeric input pair (`flex; justify-content: space-be
 
 ### 9.4 Save Behavior
 
-- **Save button:** bottom of the page (outside the grid), single instance-level apply.
-- **Status feedback:** `saveStatus` flows through `idle` → `saving` → `success` / `error`.
-- **On success:** the four `*Term` objects are mutated in-place via `applyTermToTelemetry(...)`; `latestSnapshot` is cleared so the next WS frame re-seeds the chart.
+- **Save button:** ONE SAVE in the unified shell's action row (under the internal navbar), driving the dirty union of every section.
+- **Status feedback:** the shared `SettingsSaveButton` state machine (`idle → dirty → saving → saved | error`).
+- **On success:** the ACTIVE durations' `terms[<secs>]` telemetry is updated via `applyTermToTelemetry(tfDraft[slot], tf)`.
 
 ### 9.5 v7.0-prod — Timeframe Selector + Leverage Tier Picker
 
 Two surgical upgrades landed alongside the v7.0-prod chrome refresh:
 
-1. **Left rail timeframes.** The `WorkspaceSettings` body uses a left-rail (`.tfShell-rail`, 180 px) + right-pane (`.tfShell-body`) layout, mirroring `TerminalMonitor`'s rail so the operator learns one selection pattern and uses it across the dashboard. The rail buttons read **MTF · 1S · 3S · 5S · 15S · 30S · 1M · 3M · 5M · 15M · 1H** top-down (MTF sits in the rail *only* when synthesised as a per-pair override; since v11.2 the editing surface is the ACTIVE fastest-N prefix — the grid iterates `activeSlotKinds`; the 10 fixed-slot labels remain the pool vocabulary).
+1. **Left rail timeframes.** The `WorkspaceSettings` body uses a left-rail (`.tfShell-rail`, 180 px) + right-pane (`.tfShell-body`) layout, mirroring `TerminalMonitor`'s rail so the operator learns one selection pattern and uses it across the dashboard. The rail lists the 14-duration pool (`1s`…`1d`) top-down; the ACTIVE durations carry the `ACTIVE` tag, inactive durations are editable targets. The surface iterates `activeDurations` (`ui/src/lib/terms.ts`).
 2. **Liquidation Heatmap leverage tiers card.** Each selected slot now hosts a `LiquidationHeatmapTierPicker` card — chips (`{tier}×`) with a per-chip remove, plus an integer stepper (`min=1`, `max=100`, integer-only — fractional inputs are rejected). The default seed is `[10]` (a single 10× chip). See `docs/operations-and-compliance/03-liq-heatmap-config.md` for the operator workflow and intensity-amplifier semantics (`clusterInHighlight`).
 
-Persisted per-TF as `tf.heatmapLeverageTiers: number[]` and round-tripped to the daemon config body as `heatmap_leverage_tiers` (one entry per fixed ladder slot — the POST body carries one `<slot>.indicators` section per slot: `1s.indicators`, `3s.indicators`, … `1h.indicators`; v11.1).
+Persisted per-duration as `tfDraft[<secs>].heatmapLeverageTiers: number[]` and round-tripped in the canonical nested body: `timeframes: { "<secs>": { candles: { duration_seconds }, indicators: { heatmap_leverage_tiers, … } } }` (top-level numeric keys are rejected by `deny_unknown_fields`).
 
 ---
 
@@ -617,7 +618,7 @@ The shell uses the **Premium Dark Cockpit** aesthetic (see `brutalist-grid.modul
 |-------|---------|
 | `RiskCalculator.svelte` | Interactive risk sizing form: capital, risk %, entry/stop/target, dynamic ATR toggle → live `RiskCalculation` output. |
 | `CommissionCalculator.svelte` | Fee projection: dual-entry breakdown, viability check, break-even profit %. |
-| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (ticker + allocation % only; since v11.1 the ladder is **displayed**, not picked — no per-TF duration dropdowns and no `TIMEFRAME_OPTIONS` picker; since v11.9 the displayed ladder is the ACTIVE duration set from `[workspace].timeframes`) → Review → Launch. v11.11: Environment defaults to **Bitget + USDT**; launching with staged instances shows a **loading step** ("Preparing your workspace…" with per-instance `waiting → ready ✓` rows) and enters the system only once every staged pair produced a first snapshot (60 s cap → continue-with-note); no staged instances → immediate MME-Overview landing. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
+| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v11.12): four steps — Mode (**Observe only** in this build) → Environment (exchange, currency; defaults Bitget + USDT) → Instances → Review → Launch. Instances are created (venue-validated + pipelines spawned) **at ADD time** on the Instances step with per-chip `creating → waiting → ready ✓ / failed / timeout` states; CONTINUE is gated on every chip; back-nav with staged instances confirms + DELETEs them; a cancel guard deletes an in-flight creation when its POST lands after the chip was removed; the session initializes on the ENVIRONMENT→INSTANCES transition. LAUNCH shows a short readiness confirm and lands on the MME **Overview already populated**. The mandatory **Welcome gate** renders the interrupted-session Recover/Discard card and a per-tab Resume/Quit card for a live session on reload. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). |
 | `QuitDialog.svelte` | Session termination confirmation modal (triggered from Engines Sidebar footer). Lives at `ui/src/QuitDialog.svelte` (top-level, not under `components/`). See [§14.1](#141-quitdialog). |
 
 ---

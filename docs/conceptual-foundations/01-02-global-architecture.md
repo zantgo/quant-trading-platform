@@ -1,9 +1,9 @@
 # Trading Platform Architecture Specification
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the six core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
-> **Implementation status (v10.1).** All six engines are implemented: DIE and MME end-to-end, TAE as a setup executor on the unified execution engine (paper default, live Hyperliquid + Bitget dispatch, v10 lifecycle hardening), PME as an informational portfolio mirror, PAE with live analytics + recorded-decision backtest + significance treatment, and BTE with deep-history pipeline replay + DS persistence. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
+> **Implementation status (v11.12).** All six engines are implemented: DIE and MME end-to-end, TAE as a setup executor on the unified execution engine (paper default, live Hyperliquid + Bitget dispatch, v10 lifecycle hardening), PME as an informational portfolio mirror, PAE with live analytics + recorded-decision backtest + significance treatment, and BTE with deep-history pipeline replay + DS persistence. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
 
 ---
 
@@ -52,7 +52,7 @@ The Data Infrastructure Engine is responsible for the ingest, normalization, val
 *   **Purpose:** Transform raw event-based feeds into structured, uniform temporal boundaries.
 *   **Processing:** Aggregate trade events and book snapshots into standardized OHLCV (Open, High, Low, Close, Volume) bars across target intervals.
 *   **Output (Market Data Matrix):** Uniform, multi-timeframe candle data per symbol (pre-validation, per-layer output; the inter-engine transport name is also Market Data Matrix, but the data here is raw — quality validation applies at L3).
-*   **Strict UTC-Alignment Constraint (Zero-Drift Synchronization):** All time-boundary candle aggregations synchronize strictly with the UTC daily clock. The closing instant of any candle aligns to the exact epoch-duration multiple of UTC, computed deterministically as `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` (so a `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:15:00.000`, `:30:00.000`, `:45:00.000`, or `:00:00.000`). Local server system clocks execute continuous NTP polling to maintain local system time drift under $\le 50 \text{ microseconds}$ of UTC. Drift enforcement is implemented in `crates/network-adapters/src/clock_monitor.rs` (spawned as a continuous background task by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion, polling NTP every 30 s; configured via the `[clock_monitor]` section of `config.toml`). This prevents timezone, socket, or aggregation-time drift, ensuring local indicator values align exactly with exchange historical benchmarks. See [08-06-clock-monitor.md](../operations-and-compliance/08-06-clock-monitor.md) for the full lifecycle and breach handling.
+*   **Strict UTC-Alignment Constraint (Zero-Drift Synchronization):** All time-boundary candle aggregations synchronize strictly with the UTC daily clock. The closing instant of any candle aligns to the exact epoch-duration multiple of UTC, computed deterministically as `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` (so a 60 s candle closes at `:00.000` of the next minute; a 900 s candle closes at `:15:00.000`, `:30:00.000`, `:45:00.000`, or `:00:00.000`). Local server system clocks execute continuous NTP polling to keep drift within the configured UTC budget (default 10 ms — `[clock_monitor].threshold_micros`). Drift enforcement is implemented in `crates/network-adapters/src/clock_monitor.rs` (spawned as a continuous background task by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion, polling NTP every 30 s; configured via the `[clock_monitor]` section of `config.toml`). This prevents timezone, socket, or aggregation-time drift, ensuring local indicator values align exactly with exchange historical benchmarks. See [08-06-clock-monitor.md](../operations-and-compliance/08-06-clock-monitor.md) for the full lifecycle and breach handling.
 
 #### Layer 3: Data Quality Layer
 *   **Purpose:** Enforce data integrity and detect stream anomalies.
@@ -302,7 +302,7 @@ To ensure that an execution profile developed on a local setup runs identically 
 
 ### 4.2 GUI Mode (Exploration and Research)
 *   **Purpose:** The main interface for interactive development, validation, and optimization of trading setups.
-*   **Operation:** Boots all five engines with full graphical visualization modules. Users load assets, visualize indicator axes, paper-trade live streams to prove a statistical edge (alpha), adjust safety guidelines, and export the finalized environment payload.
+*   **Operation:** Boots all six engines with full graphical visualization modules. Users load assets, visualize indicator axes, paper-trade live streams to prove a statistical edge (alpha), adjust safety guidelines, and export the finalized environment payload.
 
 ### 4.3 CLI Mode (Terminal Monitor — `--mode cli`)
 *   **Purpose:** Low-overhead terminal monitoring for cloud environments (v7.2). The retired

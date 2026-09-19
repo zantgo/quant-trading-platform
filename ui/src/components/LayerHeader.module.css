@@ -1,14 +1,31 @@
 /* ── LayerHeader — canonical MME tab chrome (v7.0-prod) ────────────── */
 
+/* v11.12.3: FIXED two-row layout — rows can never interleave. */
 .layerHeader {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    gap: 8px;
     padding: 10px 16px;
     background: rgba(10, 10, 10, 0.5);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    min-height: 48px;
-    flex-wrap: wrap;
+}
+
+/* Row 1 — identity + badge + ghost trail, left corner, never wraps. */
+.headerRowTop {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* Row 2 — context pills left, status + actions right. */
+.headerRowBottom {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
 }
 
 .layerIdentity {

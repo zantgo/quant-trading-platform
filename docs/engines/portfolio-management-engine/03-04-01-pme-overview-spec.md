@@ -1,7 +1,9 @@
 # Portfolio Management Engine — Overview Specification (v7)
 
-**Version:** 11.11 (2026-09-18) — the v7 redesign makes PME **purely informational**: the veto/stance authority was erased; PME reports the portfolio's current state and the TAE setup executor consumes `safety_state` as its single soft entry gate.
-**Status:** Specified — v7 implementation in progress.
+**Version:** 11.12 (2026-09-19) — the v7 redesign makes PME **purely informational**: the veto/stance authority was erased; PME reports the portfolio's current state and the TAE setup executor consumes `safety_state` as its single soft entry gate.
+
+> **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
+**Status:** Implemented — informational mirror (display-only; the optional strategy intake gates can refuse entries from the TAE side).
 **Engine:** Portfolio Management Engine (PME)
 **Purpose:** This document specifies the boundaries, ledger model, layer structure, and safety reporting of the Portfolio Management Engine — the engine that answers **"what is my account doing right now?"** (equity, positions, exposure, capital, risk state) without executing anything.
 

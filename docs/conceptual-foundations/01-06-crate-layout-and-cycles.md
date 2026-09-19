@@ -1,6 +1,6 @@
 # Crate Layout & Cycle-Breaking Design
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 10 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
 
 If you are a new engineer trying to answer "where does the runtime safety state live in the source tree?" or "why does this crate not import that one?", this document is your first stop.
@@ -113,7 +113,7 @@ This is the **canonical pattern**: network-adjacent features that need both live
 
 **Decision:** `invalidate_position` was a **no-op stub** (`Ok(())` regardless of inputs). The decision was to delete the call site in `analyzer::run_single`, leaving the stub function in `portfolio-supervisor` for future re-implementation when a non-stub real implementation exists. **v6.10.27 (completed):** the `database-storage::paper` stub module and the threaded `paper_pool` plumbing were removed entirely (the dead query always returned `None`), so the edge is structurally gone — no hook remains. Reintroducing the hook at a future point would require a `callback` interface, not a direct crate import.
 
-> **Tradeoff.** Lost functionality: when a 1-minute candle closes decisively through a paper-trading position's invalidation level, no automated position-invalidation fires. Since the function was a no-op, this restores behavior to "what the stub did" — i.e. nothing. The paper trading engine **is** implemented today (`crates/portfolio-supervisor/src/paper_trading.rs`, 744 lines, 10 unit tests, with `submit_order` and `evaluate_order_fills`), but it lives in `portfolio-supervisor` rather than a separate crate. Therefore the `market-analyzer → portfolio-supervisor` edge is still avoided; reintroducing the hook at a future point would require a `callback` interface, not a direct crate import.
+> **Tradeoff.** Lost functionality: when a 1-minute candle closes decisively through a paper-trading position's invalidation level, no automated position-invalidation fires. Since the function was a no-op, this restores behavior to "what the stub did" — i.e. nothing. The paper execution path **is** implemented today (the unified `ExecutionEngine` with the `PaperSimulation` backend in `crates/portfolio-supervisor/src/execution/backend.rs`), and it lives in `portfolio-supervisor` rather than a separate crate. Therefore the `market-analyzer → portfolio-supervisor` edge is still avoided; reintroducing the hook at a future point would require a `callback` interface, not a direct crate import.
 
 ### 3.5 Summary table
 

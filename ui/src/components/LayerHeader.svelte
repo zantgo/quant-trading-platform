@@ -55,59 +55,66 @@
 </script>
 
 <div class={styles.layerHeader}>
-    <div class={styles.layerIdentity}>
-        <span class={styles.layerName}>{spec.layerName}</span>
+    <!-- v11.12.3: FIXED two-row layout, stable at any width/zoom:
+         Row 1 — identity + live badge + ghost trail (left corner).
+         Row 2 — context pills (left) + status + trailing (right).
+         The rows can never interleave: previously a single wrapping flex
+         row let the meta pills jump up beside the badge. -->
+    <div class={styles.headerRowTop}>
+        <div class={styles.layerIdentity}>
+            <span class={styles.layerName}>{spec.layerName}</span>
+        </div>
+
+        <div
+            class="{styles.badge} {badgeCls[spec.badge.state]}"
+            style="border-color: {spec.badge.color}; color: {spec.badge.color}; background-color: {spec.badge.background};"
+            aria-label="Layer badge: {spec.badge.label}{spec.badge.sublabel ? `, ${spec.badge.sublabel}` : ''}"
+        >
+            {#if spec.badge.state === 'error'}
+                <span class={styles.errorIcon} aria-hidden="true">⚠</span>
+            {/if}
+            <span>{spec.badge.label}</span>
+            {#if spec.badge.sublabel}
+                <span class={styles.badgeDivider} aria-hidden="true">•</span>
+                <span>{spec.badge.sublabel}</span>
+            {/if}
+        </div>
+        {#if trail && trail.length > 1}
+            <BadgeTrail entries={trail} />
+        {/if}
     </div>
 
-    <div
-        class="{styles.badge} {badgeCls[spec.badge.state]}"
-        style="border-color: {spec.badge.color}; color: {spec.badge.color}; background-color: {spec.badge.background};"
-        aria-label="Layer badge: {spec.badge.label}{spec.badge.sublabel ? `, ${spec.badge.sublabel}` : ''}"
-    >
-        {#if spec.badge.state === 'error'}
-            <span class={styles.errorIcon} aria-hidden="true">⚠</span>
-        {/if}
-        <span>{spec.badge.label}</span>
-        {#if spec.badge.sublabel}
-            <span class={styles.badgeDivider} aria-hidden="true">•</span>
-            <span>{spec.badge.sublabel}</span>
-        {/if}
-    </div>
-    {#if trail && trail.length > 1}
-        <BadgeTrail entries={trail} />
-    {/if}
-
-    {#if spec.meta.length > 0}
-        <div class={styles.metaList}>
-            {#each spec.meta as chip (chip.label)}
-                <div class={styles.metaChip} title={chip.title}>
-                    <span class={styles.metaChipLabel}>{chip.label}:</span>
-                    <span
-                        class="{styles.metaChipValue} {chipCls[chip.state]}"
-                        style={chip.state === 'valid' ? `color: ${chip.color};` : ''}
-                    >{chip.value}</span>
-                </div>
-            {/each}
-        </div>
-    {/if}
-
-    {#snippet statusIndicator()}
-        <div class={styles.statusIndicator} aria-live="polite">
-            <span class="{styles.statusDot} {statusDotCls[spec.status]}"></span>
-            <span>{spec.status}</span>
-        </div>
-    {/snippet}
-
-    <!-- v7.3: the status pill and the trailing slot (panel title +
-         EXPORT DATA) are grouped in a single non-wrapping right block
-         so they can never split apart or drop onto a second line —
-         the identity/badge/chip rail wraps beneath them instead. -->
-    <div class={styles.headerRight}>
-        {@render statusIndicator()}
-        {#if trailing}
-            <div class={styles.trailing}>
-                {@render trailing()}
+    <div class={styles.headerRowBottom}>
+        {#if spec.meta.length > 0}
+            <div class={styles.metaList}>
+                {#each spec.meta as chip (chip.label)}
+                    <div class={styles.metaChip} title={chip.title}>
+                        <span class={styles.metaChipLabel}>{chip.label}:</span>
+                        <span
+                            class="{styles.metaChipValue} {chipCls[chip.state]}"
+                            style={chip.state === 'valid' ? `color: ${chip.color};` : ''}
+                        >{chip.value}</span>
+                    </div>
+                {/each}
             </div>
         {/if}
+
+        {#snippet statusIndicator()}
+            <div class={styles.statusIndicator} aria-live="polite">
+                <span class="{styles.statusDot} {statusDotCls[spec.status]}"></span>
+                <span>{spec.status}</span>
+            </div>
+        {/snippet}
+
+        <!-- The status pill and the trailing slot (pair · TF badge +
+             EXPORT DATA) stay grouped in one non-wrapping right block. -->
+        <div class={styles.headerRight}>
+            {@render statusIndicator()}
+            {#if trailing}
+                <div class={styles.trailing}>
+                    {@render trailing()}
+                </div>
+            {/if}
+        </div>
     </div>
 </div>

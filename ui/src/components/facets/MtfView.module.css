@@ -5,6 +5,38 @@
     overflow: auto both;
 }
 
+/* ── v11.12.3: per-table viewports ─────────────────────────────────────
+   Every table (indicator grid + Signals/Divergences/Levels) scrolls BOTH
+   axes inside its own container; the TF column-header row is the FIRST
+   child of the viewport and sticks to its top, so it can never detach
+   from the columns when scrolling horizontally, vertically, or when the
+   duration ladder changes. */
+.tableScroll {
+    overflow: auto both;
+    max-height: min(62vh, 560px);
+    min-width: 0;
+}
+
+.tableInner {
+    display: flex;
+    flex-direction: column;
+    min-width: max-content;
+}
+
+/* Indicator grid: the group cards get vertical rhythm inside the viewport. */
+.indTableInner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: max-content;
+}
+
+.stickyHead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
 .placeholder {
     padding: 32px 24px;
     text-align: center;
@@ -271,7 +303,7 @@
     grid-template-columns: 240px repeat(var(--tf-count, 4), minmax(90px, 1fr)) 100px 80px;
     gap: 0;
     padding: 6px 12px;
-    background: rgba(0, 0, 0, 0.2);
+    background: #0c0c0c;
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 6px;
     align-items: center;
@@ -472,7 +504,7 @@
     grid-template-columns: 240px repeat(var(--tf-count, 4), minmax(90px, 1fr)) 130px;
     gap: 0;
     padding: 5px 12px;
-    background: rgba(0, 0, 0, 0.2);
+    background: #0c0c0c;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     align-items: center;
 }

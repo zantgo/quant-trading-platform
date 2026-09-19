@@ -1,7 +1,9 @@
 # TAE — Simulation Backend & Persistence (v7)
 
-**Version:** 11.11 (2026-09-18) — v7 redesign: the paper trading engine becomes the `PaperSimulation` backend of the unified ExecutionEngine, and the persistence contract now includes restart recovery.
-**Status:** Specified — v7 implementation in progress.
+**Version:** 11.12 (2026-09-19) — v7 redesign: the paper trading engine becomes the `PaperSimulation` backend of the unified ExecutionEngine, and the persistence contract now includes restart recovery.
+
+> **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
+**Status:** Implemented — the `PaperSimulation` backend of the unified execution engine.
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the simulated execution backend (`PaperSimulation`), the shared cost model, the canonical persistence contract (trades, telemetry, equity, activity log), and the restart-recovery contract that keeps the trader's account intact across daemon restarts.
 
@@ -9,7 +11,7 @@
 
 ## 1. Role
 
-`PaperSimulation` is the default `ExecutionBackend` of the [unified ExecutionEngine](03-03-03-tae-layer2-execution.md). It intercepts order packets and processes them against the live mid-price (from the DIE) to produce synthetic fills, rejections, and cancellations — with the same fee/slippage/funding accounting the live path will use.
+`PaperSimulation` is the default `ExecutionBackend` of the [unified ExecutionEngine](03-03-03-tae-layer2-execution.md). It intercepts order packets and processes them against the live mid-price (from the DIE) to produce synthetic fills, rejections, and cancellations — with the same fee/slippage/funding accounting the live path uses.
 
 ```
 [Setup Executor] ──► [ExecutionEngine] ──► [PaperSimulation] ──► ledgers + persistence

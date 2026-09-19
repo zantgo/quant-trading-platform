@@ -387,14 +387,10 @@ export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): L
             background: hexToRgba(biasColor(label), 0.08),
             state: 'valid',
         },
-        meta: [
-            // v6.10.19d (A): the Agreement chip was removed — the
-            // consensus hero lives in the panel's header container.
-            // v7.0.1: the Score chip is gone too — the panel hero now
-            // carries two circular dials (Agreement + Score); the header
-            // chrome keeps only the badge and the TF-count chip.
-            chip('TFs', tfs != null ? `${tfs} TF` : null, tfs, null, true),
-        ],
+        // v11.12.3: the TFs chip was ERASED from the Alignment header
+        // (operator call) — the badge alone carries the state; the
+        // duration context is in the Timeframe Status section below.
+        meta: [],
         status: tfs != null && tfs >= 3 ? 'live' : tfs != null && tfs >= 1 ? 'stale' : 'loading',
     };
 }
@@ -426,7 +422,7 @@ export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): Lay
 
     const meta: MetaChipSpec[] = [
         chip('Quality', quality, null, () => qualityColor(quality)),
-        chip('State Conf', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
+        chip('State Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, null),
     ];
     if (regime && !redundant) {
         meta.push(chip('Regime', prettifyEnum(regime), null, () => COLORS.textMuted));
@@ -472,7 +468,7 @@ export function buildL4OpportunityHeader(
     const confidencePct =
         analysis?.confidence != null ? Math.round(analysis.confidence * 100) : null;
     const environmentMeta: MetaChipSpec[] = [
-        chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
+        chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, null),
         chip('Timeframes', tfs != null ? `${tfs} TF` : null, tfs, null, true),
     ];
 
@@ -518,7 +514,7 @@ export function buildL4OpportunityHeader(
         // Horizon / Timeframes.
         meta: [
             chip('Score', score, score, scoreColor),
-            chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
+            chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, null),
             chip('Horizon', horizon ? prettifyEnum(horizon) : null, null, () => COLORS.textMuted),
             chip('Timeframes', tfs != null ? `${tfs} TF` : null, tfs, null, true),
         ],
@@ -567,7 +563,7 @@ export function buildL5RiskHeader(r: RiskMatrix | null | undefined): LayerHeader
         },
         meta: [
             chip('Score', score, score, riskDangerColor, false, { zeroIsGood: true }),
-            chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, scoreColor),
+            chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, null),
             chip('Dimensions', `${activeDimCount}/8`, activeDimCount, null, true),
         ],
         status: 'live',

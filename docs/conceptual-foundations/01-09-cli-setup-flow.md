@@ -1,6 +1,6 @@
 # CLI Launch Mode — Flow & Rationale
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators using `execution-daemon --mode cli` for terminal-only monitoring.
 
@@ -141,7 +141,7 @@ execution-daemon --backtest \
     --allocation 10
 ```
 
-- Timeframe values must be one of the 14 standard dropdown tiers; ladder
+- Timeframe values must be one of the 14 supported durations; ladder
   slots below 60 s are rejected (exchange history granularity), and
   Hyperliquid depths beyond the 5,000-candle ceiling fail with a message
   naming the limiting TF.

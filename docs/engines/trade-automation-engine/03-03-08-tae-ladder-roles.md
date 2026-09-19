@@ -1,6 +1,6 @@
 # TAE Ladder Roles — TF-Role Separation for Short-TF Execution
 
-**Version:** 11.11 (2026-09-18) — execution model v11: TF-role separation.
+**Version:** 11.12 (2026-09-19) — execution model v11: TF-role separation.
 **Status:** Implemented.
 **Engine:** Trade Automation Engine (TAE) + Market Monitoring Engine (MME) synthesis.
 **Depends on:** [03-02-01 MME Overview](../market-monitoring-engine/03-02-01-mme-overview-spec.md), [03-03-03 Execution](03-03-03-tae-layer2-execution.md), [01-04 Timeframe Model](../../conceptual-foundations/01-04-timeframe-model.md).
@@ -9,7 +9,7 @@
 
 ## 1. Problem
 
-Running a swing-calibrated default strategy (trend≥75, stance Constructive) on the legacy configurable `1m/3m/5m/15m` ladder produced near-zero trades: the micro-TF (1m) read pullback noise inside a macro bull trend as `bias Neutral`, `volatility` as danger, and `market_stance Cautious` — the L4/L6 gate chain vetoed everything while the 15m macro saw a clean trend (`EMA50>200` 81-100% bullish in the verified 7-day window). The v11.1 14-duration pool (1 s … 1 h) widens the spread further — the fastest slot (`1s`, 1 s) is pure tick noise while the slowest (`1h`, 1 h) carries the trend — making explicit role separation essential rather than optional.
+Running a swing-calibrated default strategy (trend≥75, stance Constructive) on the legacy configurable `1m/3m/5m/15m` ladder produced near-zero trades: the micro-TF (1m) read pullback noise inside a macro bull trend as `bias Neutral`, `volatility` as danger, and `market_stance Cautious` — the L4/L6 gate chain vetoed everything while the 15m macro saw a clean trend (`EMA50>200` 81-100% bullish in the verified 7-day window). The v11.9 14-duration pool (1 s … 1 d) widens the spread further — the fastest slot (`1s`, 1 s) is pure tick noise while the slowest (`1d`, 24 h) carries the trend — making explicit role separation essential rather than optional.
 
 ## 2. Solution — Roles
 
@@ -39,13 +39,13 @@ The N=1 case collapses all four roles onto one snapshot — role separation is a
 ```toml
 [workspace.strategies.default.ladder_roles]
 enabled = true          # explicit — default OFF preserves legacy behavior
-decision_tf = "1h"
+decision_tf = "1d"
 entry_tf = "1s"
-stop_tf = "1h"
+stop_tf = "1d"
 target_tf = "1s"
 ```
 
-Schema-driven: `StrategyForm` renders the four enum selects; validation enforces the fixed slot names (`1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `1h`). The shipped defaults are the **extremes mapping** above — decision/stop read the slowest slot, entry/target read the fastest.
+Schema-driven: `StrategyForm` renders the four enum selects; validation enforces the fixed slot names (`1s`…`1d` — all 14 duration labels; raw seconds also accepted). The shipped defaults are the **extremes mapping** above — decision/stop read the slowest slot, entry/target read the fastest.
 
 ## 4. Stop Floor & TP Reachability (quantity-first)
 

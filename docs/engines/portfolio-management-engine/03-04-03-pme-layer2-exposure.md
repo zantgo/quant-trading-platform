@@ -1,6 +1,6 @@
 # PME Layer 2 — Exposure Layer
 
-**Version:** 11.11 (2026-09-18) — v7: PME is informational; this layer's math is unchanged.
+**Version:** 11.12 (2026-09-19) — v7: PME is informational; this layer's math is unchanged.
 **Status:** Specified — implemented (pure math); v7 surface wiring in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 2 of 4

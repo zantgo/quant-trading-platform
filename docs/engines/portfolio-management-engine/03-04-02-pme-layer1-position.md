@@ -1,7 +1,7 @@
 # PME Layer 1 — Position Layer
 
-**Version:** 11.11 (2026-09-18) — v7: PME is informational; this layer's math is unchanged.
-**Status:** Specified — implemented (pure math); v7 surface wiring in progress.
+**Version:** 11.12 (2026-09-19) — v7: PME is informational; this layer's math is unchanged.
+**Status:** Implemented — pure math + live dashboard surface.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 1 of 4
 **Input Contract:** Exchange execution events and order fill confirmations (from TAE)
@@ -12,7 +12,7 @@
 
 ## 1. Purpose
 
-The Position Layer is the PME's **active position tracker**. It receives execution fill events from the TAE and exchange, initializes position records, continuously updates mark-to-market valuations from live DIE price feeds, computes unrealized PnL and ROI, and manages dynamic stop-loss and take-profit levels.
+The Position Layer is the PME's **active position tracker**. It receives execution fill events from the TAE and exchange, initializes position records, continuously updates mark-to-market valuations from live DIE price feeds, computes unrealized PnL and ROI, and mirrors the dynamic stop-loss and take-profit levels (bracket ownership is TAE's).
 
 ```
 [Exchange Fills] ──► POSITION LAYER (L1) ──► [Position Matrix] ──► [Exposure Layer (L2)]

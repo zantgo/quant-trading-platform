@@ -1,6 +1,6 @@
 # Metrics Matrix Specification
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 1 — Metrics Layer
@@ -57,7 +57,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 |-------|------|----------|-------------|
 | `exchange` | `Exchange` enum | Yes | Originating venue (`Hyperliquid`, `Bitget`). |
 | `symbol` | `string` | No | Unified instrument key, e.g. `BTC-USDT`. |
-| `timeframe_secs` | `u64` | No | Candle duration in seconds (any positive integer; every instance runs the 14-duration pool 1 / 3 / 5 / 15 / 30 / 60 / 180 / 300 / 900 / 3600 s — see [01-04 §1](../conceptual-foundations/01-04-timeframe-model.md) and [03-02-16](../engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md)). |
+| `timeframe_secs` | `u64` | No | Candle duration in seconds (any positive integer; every instance runs its ACTIVE subset of the 14-duration pool (`1`…`86400` s) — see [01-04 §1](../conceptual-foundations/01-04-timeframe-model.md) and [03-02-16](../engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md)). |
 | `timestamp` | `u64` | No | Candle close time (Unix epoch, **seconds** — `start_time_ms / 1000`). |
 | `is_completed` | `bool` | Yes | `true` for a finalized candle; `false`/absent for a real-time "shadow" flicker snapshot. |
 | `timeframe_secs` | `u64` | Yes | Duration identity in seconds (1..86400) stamped on every snapshot — the authoritative wire-side identity (06-01 §3.1). |

@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -151,10 +151,10 @@ A Market Instance represents one monitored entity at one specific venue.
 
 $$\text{Market Instance} = \text{(symbol, exchange)}$$
 
-A Market Instance is a container owning the ACTIVE TimeframePipelines — one per slot of the fixed ladder pool (`1s`…`1h`, 1 s–1 h; v11.1 fixed the pool, v11.9 runs the ACTIVE `[workspace].timeframes` durations) — plus trading state, safety manager, and config. The per-(symbol, timeframe) analytical unit is the TimeframePipeline, the smallest operational unit of the MME.
+A Market Instance is a container owning the ACTIVE TimeframePipelines — one per ACTIVE duration of the 14-duration pool (`1s`…`1d`, 1 s–1 d; v11.1 fixed the pool, v11.9 runs the ACTIVE `[workspace].timeframes` durations) — plus trading state, safety manager, and config. The per-(symbol, timeframe) analytical unit is the TimeframePipeline, the smallest operational unit of the MME.
 
 ### 3.7 Timeframe
-A Timeframe defines the temporal resolution used to analyze an entity. Timeframes are the fixed, ordered 10-slot ladder (`1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `1h` — 1 s → 1 h; not operator-configurable) that together produce multi-timeframe intelligence.
+A Timeframe defines the temporal resolution used to analyze an entity. Timeframes are the duration-keyed register: the 14-duration pool (`1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `4h`, `12h`, `1d` — 1 s → 1 d) with a live-editable ACTIVE subset (`[workspace].timeframes`) that together produce multi-timeframe intelligence.
 
 ### 3.8 Indicator
 An Indicator is a continuous quantitative measurement derived from market data. Rather than returning a single numeric value, an indicator is represented as a structured telemetry object projected across multiple **Indicator Evaluation Axes** to provide immediate mathematical and behavioral context.
@@ -200,7 +200,7 @@ An Evaluation Axis is a standardized analytical dimension used to contextualize 
 *   **Freshness:** The chronological distance (measured in elapsed intervals or candles) since the signal triggered (e.g., Just Triggered, 3 candles ago, Expired).
 *   **Confirmation:** The validation state of the event, indicating whether supporting conditions have validated the trigger (e.g., `Potential`, `Confirmed`, `Active`). `Potential` indicates the geometry is present but unconfirmed (secondary confluence only); `Confirmed` means the confirming condition has fired (full scoring weight); `Active` indicates a confirmed **stateful** signal persisting over subsequent bars and tracked via `age_bars`. Momentary kinds never enter `Active`.
 *   **Market Regime:** The macro regime context in which the signal occurred, determining its localized baseline reliability (e.g., `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`).
-*   **Multi-Timeframe Agreement:** A boolean matrix mapping horizontal consensus across the fixed ladder's time horizons (`1s`…`1h`).
+*   **Multi-Timeframe Agreement:** A boolean matrix mapping horizontal consensus across the ACTIVE durations (`1s`…`1d`).
 *   **Risk:** The localized threat classification associated with entering a trade on this specific trigger (e.g., Low, Medium, High).
 *   **Priority:** The structural execution urgency assigned to the event (e.g., Critical, High, Medium, Low).
 
@@ -1041,7 +1041,7 @@ The platform uses a contract-based, decoupled communication architecture. Engine
 
 ## Chapter 16 — Complete Conceptual Model
 
-The conceptual model integrates all five engines, their respective layers, and the resulting matrices into a single, cohesive quantitative lifecycle.
+The conceptual model integrates all six engines, their respective layers, and the resulting matrices into a single, cohesive quantitative lifecycle.
 
 ```
 [Exchange WS/REST]
@@ -1094,7 +1094,7 @@ The conceptual model integrates all five engines, their respective layers, and t
 
 ## Appendix A — Formal Matrix Definitions
 
-This appendix is an illustrative serialization of the canonical scenario (seed: [02-01-alignment-matrix.md §6](../matrices/02-01-alignment-matrix.md)) for all matrices produced by the Market Monitoring Engine. Normative contracts live in `docs/matrices/02-*`. Field set verified by MANIFEST gate G13. All enum values serialize as `SCREAMING_SNAKE_CASE`. **Note (v11.1):** the worked scenario demonstrates the math on a 4-timeframe subset (`timeframes_present: 4` — a mid-warmup instance); production instances run the full 14-duration pool (`1s`…`1h`), so the live field ranges 0–10. The chain numbers are unchanged.
+This appendix is an illustrative serialization of the canonical scenario (seed: [02-01-alignment-matrix.md §6](../matrices/02-01-alignment-matrix.md)) for all matrices produced by the Market Monitoring Engine. Normative contracts live in `docs/matrices/02-*`. Field set verified by MANIFEST gate G13. All enum values serialize as `SCREAMING_SNAKE_CASE`. **Note (v11.1):** the worked scenario demonstrates the math on a 4-timeframe subset (`timeframes_present: 4` — a mid-warmup instance); production instances run an ACTIVE subset of the 14-duration pool (`1s`…`1d`), so the live field ranges 0–14. The chain numbers are unchanged.
 
 ---
 

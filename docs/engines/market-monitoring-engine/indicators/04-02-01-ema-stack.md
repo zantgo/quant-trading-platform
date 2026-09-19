@@ -1,6 +1,6 @@
 # 📈 Exponential Moving Averages (EMA 10, 50, 100, 200) Protocol
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction

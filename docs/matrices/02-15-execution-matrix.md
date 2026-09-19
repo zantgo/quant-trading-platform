@@ -1,6 +1,6 @@
 # Execution Matrix Specification
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Producing Layer:** Layer 2 — Execution Layer
@@ -10,7 +10,7 @@
 
 ## 1. Conceptual Definition
 
-Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.15, the **Execution Layer** is the platform's order routing authority. It translates validated Policy Layer directives into exchange orders, manages the order state machine, executes the Position Sizing Protocol, and maintains the Execution Matrix as its output contract.
+Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.15, the **Execution Layer** is the platform's order routing authority. It records the unified execution engine's order lifecycle (the policy layer was erased in v7; directives come from the setup executor) into exchange orders, manages the order state machine, executes the Position Sizing Protocol, and maintains the Execution Matrix as its output contract.
 
 Unlike MME matrices (which are JSON DTOs broadcast over WebSocket), the Execution Matrix is **materialized as the `open_orders` SQLite table** (see [Database Schema §3.2](../integration-and-api/06-02-database-schema-spec.md)). It is the single canonical log of every order lifecycle transition from `PENDING` onwards.
 
@@ -64,7 +64,7 @@ The `PRE_DISPATCH` state (Gate 5 manual-review hold) is in-memory only — it is
 
 The Execution Matrix is produced by the TAE Execution Layer on every order state transition:
 
-- **New entries:** sized via the Position Sizing Protocol (`S = E·R / (D_sl / 100)`) from available margin and stop distance.
+- **New entries:** sized via allocation (`notional = equity × allocation_pct/100`).
 - **Exits / reduce-only:** size copied directly from the Position Matrix (bypasses sizing formula — see [TAE Layer 2 §3.5](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
 - **Hard Exit path:** orders tagged `is_emergency_liquidation = true`, bypass pre-trade gates, size copied from Position Matrix.
 - **State transitions:** every ack, fill, cancel, or rejection updates `status`, `filled_size`, `updated_at`, and `slippage_bps`.

@@ -23,8 +23,8 @@
         /** v11.12 unified settings: embedded mode hides the local header and
          *  renders only the card group selected by `sectionTab`. */
         embedded?: boolean;
-        /** 'all' (legacy standalone) | 'workspace' | 'instance' */
-        sectionTab?: 'all' | 'workspace' | 'instance';
+        /** 'all' (legacy standalone) | 'timeframes' | 'instance' */
+        sectionTab?: 'all' | 'timeframes' | 'instance';
         /** Dirty notification for the shell's single SAVE button. */
         onDirtyChange?: ((dirty: boolean) => void) | null;
     } = $props();
@@ -399,18 +399,26 @@
     }
 
     $effect(() => {
-        if (!pair) return;
-        for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
-            (draft.visuals as any)[f] = (pair.terms[1] as any)[f];
+        if (pair) {
+            for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
+                (draft.visuals as any)[f] = (pair.terms[1] as any)[f];
+            }
+            draft.automation.enabled = pair.automationEnabled;
+            draft.automation.intervalValue = pair.automationIntervalValue;
+            draft.automation.intervalUnit = pair.automationIntervalUnit as 'seconds' | 'minutes' | 'hours';
+            for (const slot of activeDurations(pair)) {
+                const tf = pair.terms[slot];
+                tfDraft[slot] = profileTermDraft(slot);
+            }
+            activeDraft = [...activeDurations(pair)];
+        } else {
+            // v11.12.3: the duration ladder is a WORKSPACE knob — it is
+            // editable with no instance selected. Seed the draft from the
+            // canonical workspace set (`GET /api/config` → app.settings).
+            activeDraft = app.settings.timeframes.length > 0
+                ? [...app.settings.timeframes]
+                : [...DURATIONS];
         }
-        draft.automation.enabled = pair.automationEnabled;
-        draft.automation.intervalValue = pair.automationIntervalValue;
-        draft.automation.intervalUnit = pair.automationIntervalUnit as 'seconds' | 'minutes' | 'hours';
-        for (const slot of activeDurations(pair)) {
-            const tf = pair.terms[slot];
-            tfDraft[slot] = profileTermDraft(slot);
-        }
-        activeDraft = [...activeDurations(pair)];
         // v11.11: pristine baseline at load — a toggle landing before the
         // config GET resolves must never be swallowed by the async
         // baseline effect below.
@@ -423,11 +431,10 @@
 
     // ─── Dirty tracking: drafts vs the baseline taken at load ───────────
     function snapshotKey(): string {
-        if (!pair) return '';
         const ladder = activeLadder;
         return JSON.stringify({
-            symbol: pair.symbol,
-            exchange: pair.exchange,
+            symbol: pair?.symbol ?? '',
+            exchange: pair?.exchange ?? '',
             visuals: draft.visuals,
             automation: draft.automation,
             active: ladder,
@@ -443,11 +450,11 @@
         // (those are read inside untrack). Previously this effect tracked
         // `snapshotKey()` → draft, so every keystroke overwrote `baseline`
         // with the new snapshot and `dirty` never became true (Image 2).
-        if (!pair || !cfgLoaded) return;
+        if (!cfgLoaded) return;
         // Use pair.symbol + instanceId as stable identity trigger; reading
         // `pair` reference alone is enough but be explicit.
-        void pair.symbol;
-        void pair.instanceId;
+        void pair?.symbol;
+        void pair?.instanceId;
         untrack(() => {
             // v11.11: a pending edit (dirty) is never re-baselined — the
             // async config GET resolving late must not absorb it. The load
@@ -467,11 +474,11 @@
 
     /// v11.12: the unified shell drives its single SAVE from this.
     export function isDirty(): boolean {
-        return pair != null && dirty;
+        return dirty;
     }
 
     $effect(() => {
-        onDirtyChange?.(pair != null && dirty);
+        onDirtyChange?.(dirty);
     });
 
     let calculatedAutomationInterval = $derived.by(() => {
@@ -536,7 +543,7 @@
     /// per-instance behavior (visuals / automation / activation).
     export function buildWorkspaceExport(): string {
         if (!pair) return '{}';
-        return buildEngineExport('market_monitor', 'settings.workspace', null, {
+        return buildEngineExport('market_monitor', 'settings.timeframes', null, {
             pair: { symbol: pair.symbol, exchange: pair.exchange },
             timeframes: Object.fromEntries(activeLadder.map((slot) => [slot, tfDraft[slot]])),
             active_timeframes: [...activeLadder],
@@ -556,8 +563,13 @@
 
     /// v11.12: exported for the unified shell's single SAVE button. Returns
     /// `true` when every POST succeeded.
+    ///
+    /// v11.12.3: (a) a CLEAN section returns `true` — an idle section must
+    /// never mark the shell's dirty-union save as failed; (b) the ladder is
+    /// an INDEPENDENT workspace knob, so it saves even with no instance
+    /// selected (the per-instance POST is skipped then).
     export async function save(): Promise<boolean> {
-        if (!pair || (saveState !== 'dirty' && saveState !== 'error')) return false;
+        if (saveState !== 'dirty' && saveState !== 'error') return true;
         identityError = null;
 
         const { automation: auto, visuals: vis } = draft;
@@ -567,13 +579,15 @@
         const target = pair;
         const ladder = [...activeLadder];
 
-        for (const slot of ladder) {
-            applyVisualsToTerm(target.terms[slot] as unknown as Record<string, any>, vis);
-        }
+        if (target) {
+            for (const slot of ladder) {
+                applyVisualsToTerm(target.terms[slot] as unknown as Record<string, any>, vis);
+            }
 
-        target.automationEnabled = auto.enabled;
-        target.automationIntervalValue = auto.intervalValue;
-        target.automationIntervalUnit = auto.intervalUnit;
+            target.automationEnabled = auto.enabled;
+            target.automationIntervalValue = auto.intervalValue;
+            target.automationIntervalUnit = auto.intervalUnit;
+        }
 
         saveState = 'saving';
         try {
@@ -583,7 +597,9 @@
             // cache invalidation) run immediately after; a params-POST
             // failure below must never leave sockets bound to the old
             // pipeline set.
-            const ladderChanged = JSON.stringify(ladder) !== JSON.stringify(activeDurations(target));
+            const ladderChanged = target
+                ? JSON.stringify(ladder) !== JSON.stringify(activeDurations(target))
+                : true;
             if (ladderChanged) {
                 const ladderRes = await fetch('/api/config', {
                     method: 'POST',
@@ -596,11 +612,19 @@
                     saveState = 'error';
                     return false;
                 }
-                pair.activeDurations = [...ladder];
+                if (target) target.activeDurations = [...ladder];
                 app.notifyLadderSaved();
                 app.bumpWsVersion();
                 clearHistoryCache();
                 clearCandleCache();
+            }
+
+            if (!target) {
+                // v11.12.3: ladder-only save — nothing else to persist.
+                baseline = snapshotKey();
+                saveState = 'saved';
+                setTimeout(() => { saveState = 'idle'; }, 2000);
+                return true;
             }
 
             // (2) Per-instance params in the canonical nested shape the
@@ -721,7 +745,7 @@
     <section class={styles.tfShellBody}>
         <!-- v11.12 unified settings: card GROUPS driven by `sectionTab`
              ('all' = legacy standalone renders both). -->
-        <div class="{styles.settingsGroup} {embedded && sectionTab !== 'all' && sectionTab !== 'workspace' ? styles.settingsGroupHidden : ''}">
+        <div class="{styles.settingsGroup} {embedded && sectionTab !== 'all' && sectionTab !== 'timeframes' ? styles.settingsGroupHidden : ''}">
         <div class={engine.card}>
             <div class={engine.cardHead}>
                 <h3 class={engine.cardTitle}>Timeframes</h3>
