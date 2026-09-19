@@ -7,6 +7,7 @@
     import SettingsSaveButton, { type SettingsSaveState } from './SettingsSaveButton.svelte';
     import ConfigSourceChip from './ConfigSourceChip.svelte';
     import { costProjection } from '../lib/costProjection';
+    import { buildEngineExport } from '../lib/engineExport';
 
     let { embedded = false, onDirtyChange = null }: {
         /** v11.12 unified settings: embedded mode hides the local header —
@@ -83,6 +84,28 @@
     $effect(() => {
         onDirtyChange?.(feeDirty);
     });
+
+    /// v11.12.2: per-tab export — the GENERAL tab's economics + what-if.
+    export function buildExport(): string {
+        return buildEngineExport('market_monitor', 'settings.general', null, {
+            fees: {
+                maker_fee_pct: Number(feeDraft.maker),
+                taker_fee_pct: Number(feeDraft.taker),
+                funding_rate_8h: Number(feeDraft.funding),
+            },
+            leverage: { cross_leverage: Number(feeDraft.leverage) },
+            projection: {
+                capital: calcCapital,
+                leverage: calcLeverage,
+                hold_periods: holdPeriods,
+                notional: projection.notional,
+                round_trip_fees: projection.roundTripFees,
+                funding_drag: projection.fundingDrag,
+                total_cost: projection.totalCost,
+                min_profit_pct: projection.minProfitPct,
+            },
+        });
+    }
 
     /// v11.12: exported for the unified shell's single SAVE button.
     /// Returns `true` when the POST succeeded.

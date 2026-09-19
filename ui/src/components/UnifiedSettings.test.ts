@@ -157,3 +157,39 @@ describe('UnifiedSettings — internal navbar', () => {
         });
     });
 });
+
+describe('UnifiedSettings — per-tab export (v11.12.2)', () => {
+    it('EXPORT DATA follows the ACTIVE tab payload', async () => {
+        seedPair('BTC');
+        const written: string[] = [];
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { writeText: async (t: string) => { written.push(t); } },
+            configurable: true,
+        });
+        const { container } = render(UnifiedSettings);
+        await tick();
+        // The caption flips to "Copied!" for ~2 s after each click — target
+        // the button by its stable title attribute instead.
+        const exportBtn = container.querySelector<HTMLButtonElement>(
+            'button[title="Copy the active settings tab\'s data as JSON"]',
+        )!;
+        expect(exportBtn).toBeTruthy();
+
+        // Default tab = GENERAL.
+        await fireEvent.click(exportBtn);
+        await waitFor(() => expect(written.length).toBe(1));
+        expect(written[0]).toContain('settings.general');
+
+        await fireEvent.click(tabButton('Workspace'));
+        await tick();
+        await fireEvent.click(exportBtn);
+        await waitFor(() => expect(written.length).toBe(2));
+        expect(written[1]).toContain('settings.workspace');
+
+        await fireEvent.click(tabButton('Instance'));
+        await tick();
+        await fireEvent.click(exportBtn);
+        await waitFor(() => expect(written.length).toBe(3));
+        expect(written[2]).toContain('settings.instance');
+    });
+});
