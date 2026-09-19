@@ -83,13 +83,12 @@
 </script>
 
 <div>
+    <!-- v11.12.10: no duplicate title here — the page title lives in the
+         dashboard header above; this band is the settings action row. -->
     <header class={engine.unifiedHeader}>
         <div class={engine.headerTop}>
-            <div class={engine.titleGroup}>
-                <h2 class={engine.title}>Connection Settings</h2>
-            </div>
             <div class={engine.headerRight}>
-                <span class={engine.tabLabel}>Connection Settings</span>
+                <span class={engine.tabLabel}>Settings</span>
                 <SettingsSaveButton state={failoverSaveState} onsave={saveFailover} />
             </div>
         </div>

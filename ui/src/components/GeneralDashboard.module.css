@@ -44,9 +44,9 @@
 }
 
 .title {
-    /* v11.12.9: unified white title — same font/size as the Charts header
-       group labels. */
-    font-size: 10px;
+    /* v11.12.9: unified white title — same font as the Charts header
+       group labels. v11.12.10: bigger (10px → 12px), everything else kept. */
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.08em;
     color: #f5f5f7;
