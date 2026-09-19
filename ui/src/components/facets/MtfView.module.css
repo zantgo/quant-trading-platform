@@ -2,7 +2,12 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    overflow: auto both;
+    /* v11.12.4: valid overflow — the old `overflow: auto both` was an
+       INVALID declaration (no `both` keyword) and was dropped by the
+       browser, leaving overflow visible: tables painted over the sections
+       below and spilled outside their containers. */
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 /* ── v11.12.3: per-table viewports ─────────────────────────────────────
@@ -12,22 +17,22 @@
    from the columns when scrolling horizontally, vertically, or when the
    duration ladder changes. */
 .tableScroll {
-    overflow: auto both;
+    /* v11.12.4: valid two-axis scroll port (was `overflow: auto both` —
+       dropped as invalid → content escaped the clamped box). */
+    overflow: auto;
     max-height: min(62vh, 560px);
     min-width: 0;
+}
+
+/* Per-group indicator containers are capped lower so the stacked groups
+   remain usable side by side. */
+.tableScrollGroup {
+    max-height: min(50vh, 480px);
 }
 
 .tableInner {
     display: flex;
     flex-direction: column;
-    min-width: max-content;
-}
-
-/* Indicator grid: the group cards get vertical rhythm inside the viewport. */
-.indTableInner {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
     min-width: max-content;
 }
 
@@ -302,10 +307,9 @@
     display: grid;
     grid-template-columns: 240px repeat(var(--tf-count, 4), minmax(90px, 1fr)) 100px 80px;
     gap: 0;
-    padding: 6px 12px;
+    padding: 5px 12px;
     background: #0c0c0c;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     align-items: center;
 }
 

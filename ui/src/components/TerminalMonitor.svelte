@@ -226,7 +226,11 @@
     // `wssState` prop is the input.
     const headerSpec = $derived<LayerHeaderSpec>(
         activeTf === 'Mtf'
-            ? buildL1MtfHeader(pair?.alignment ?? null, pair?.analysis?.market_regime ?? null)
+            ? buildL1MtfHeader(
+                  pair?.alignment ?? null,
+                  pair?.analysis?.market_regime ?? null,
+                  pair ? activeDurations(pair).length : null,
+              )
             : buildL1MetricsHeader(activeTfObj ?? null, wssState)
     );
 </script>

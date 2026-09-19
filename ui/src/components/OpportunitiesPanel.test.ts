@@ -963,8 +963,8 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         // chips (Score / Horizon) plus the two environment pills that
         // used to live at the bottom (v7.3: grouped Score / Confidence /
         // Horizon / Timeframes, no R:R chip).
-        expect(screen.getByText('Timeframes:')).toBeTruthy();
-        expect(screen.getByText('4 TF')).toBeTruthy();
+        // v11.12.4: the Timeframes chip was erased from the L4 header.
+        expect(screen.queryByText('Timeframes:')).toBeNull();
         expect(screen.getByText('Confidence:')).toBeTruthy();
         expect(screen.getByText('60%')).toBeTruthy();
         expect(screen.getByText('Score:')).toBeTruthy();

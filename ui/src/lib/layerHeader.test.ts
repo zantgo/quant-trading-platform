@@ -371,12 +371,12 @@ describe('metricsBadgeFor (single-source L1 badge)', () => {
 });
 
 describe('buildL1MtfHeader (L1 Multi-TF)', () => {
-    it('renders MTF SYNC badge with TFs / Agreement / Cross chips', () => {
+    it('renders MTF SYNC badge with Timeframes N/14 / Agreement / Cross chips', () => {
         const spec = buildL1MtfHeader(alignmentStub({ timeframes_present: 4, trend_agreement_pct: 75, signal_cross_tf_count: 3 }), 'Synchronized');
         expect(spec.badge.label).toBe('MTF SYNC');
         expect(spec.badge.sublabel).toBe('Synchronized');
-        const tfs = spec.meta.find((c) => c.label === 'TFs')!;
-        expect(tfs.value).toBe('4 TF');
+        const tfs = spec.meta.find((c) => c.label === 'Timeframes')!;
+        expect(tfs.value).toBe('4/14');
         const a = spec.meta.find((c) => c.label === 'Agreement')!;
         expect(a.value).toBe('75%');
         expect(spec.status).toBe('live');
@@ -399,7 +399,7 @@ describe('buildL2AlignmentHeader (L2)', () => {
         expectEmpty(buildL2AlignmentHeader(null));
     });
 
-    it('badge label = prettified mtf_overall_label; TFs + Score chips erased (v11.12.3)', () => {
+    it('badge label = prettified mtf_overall_label; Timeframes N/14 chip (v11.12.4)', () => {
         const spec = buildL2AlignmentHeader(alignmentStub({
             mtf_overall_label: 'WEAK_BULL',
             mtf_overall_score: 21.2,
@@ -409,9 +409,9 @@ describe('buildL2AlignmentHeader (L2)', () => {
         expect(spec.badge.label).toBe('WEAK BULL');
         expect(spec.badge.color).toBe(biasColor('WEAK_BULL'));
         expect(spec.meta.find((c) => c.label === 'Score')).toBeUndefined();
-        // v11.12.3: the TFs chip was erased from the Alignment header.
-        expect(spec.meta.find((c) => c.label === 'TFs')).toBeUndefined();
-        expect(spec.meta.length).toBe(0);
+        // v11.12.4: Timeframes N/14 is the Alignment header's only chip.
+        expect(spec.meta.map((m) => m.label)).toEqual(['Timeframes']);
+        expect(spec.meta[0].value).toBe('4/14');
     });
 
     it('v6.10.19d (A): the Agreement chip is gone — the Timeframe Consensus meter lives in the panel header container', () => {
@@ -498,11 +498,11 @@ describe('buildL4OpportunityHeader (L4)', () => {
             'Bullish',
             analysisStub({ timeframes_considered: 4, confidence: 0.26 }),
         );
+        // v11.12.4: the Timeframes chip was erased from Opportunities.
         expect(spec.meta.map((m) => m.label)).toEqual([
             'Score',
             'Confidence',
             'Horizon',
-            'Timeframes',
         ]);
         expect(spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')).toBeUndefined();
     });
@@ -514,14 +514,13 @@ describe('buildL4OpportunityHeader (L4)', () => {
         expect(score.value).toBe('0');
     });
 
-    it('environment cluster: Timeframes + Confidence chips ride the meta rail (top badges)', () => {
+    it('environment cluster: the Confidence chip rides the meta rail (Timeframes erased v11.12.4)', () => {
         const spec = buildL4OpportunityHeader(
             opportunityStub({ primary_opportunity: 'Pullback', opportunity_score: 58.87, time_horizon: 'INTRADAY' }),
             'Bullish',
             analysisStub({ timeframes_considered: 4, confidence: 0.26 }),
         );
-        const tfs = spec.meta.find((m) => m.label === 'Timeframes')!;
-        expect(tfs.value).toBe('4 TF');
+        expect(spec.meta.find((m) => m.label === 'Timeframes')).toBeUndefined();
         const conf = spec.meta.find((m) => m.label === 'Confidence')!;
         expect(conf.value).toBe('26%');
         // The pre-existing bracket chips stay side-by-side in the same rail.
@@ -538,7 +537,7 @@ describe('buildL4OpportunityHeader (L4)', () => {
             analysisStub({ timeframes_considered: 3, confidence: 0.4 }),
         );
         expect(spec.badge.label).toBe('NO CLEAR SETUP');
-        expect(spec.meta.find((m) => m.label === 'Timeframes')!.value).toBe('3 TF');
+        expect(spec.meta.find((m) => m.label === 'Timeframes')).toBeUndefined();
         expect(spec.meta.find((m) => m.label === 'Confidence')!.value).toBe('40%');
         // No bracket-derived chips in the no-clear branch.
         expect(spec.meta.find((m) => m.label === 'Score')).toBeUndefined();
@@ -547,8 +546,7 @@ describe('buildL4OpportunityHeader (L4)', () => {
 
     it('environment chips degrade to em-dashes without an analysis payload', () => {
         const spec = buildL4OpportunityHeader(opportunityStub(), 'Bullish', null);
-        const tfs = spec.meta.find((m) => m.label === 'Timeframes')!;
-        expect(tfs.value).toBe('—');
+        expect(spec.meta.find((m) => m.label === 'Timeframes')).toBeUndefined();
         const conf = spec.meta.find((m) => m.label === 'Confidence')!;
         expect(conf.value).toBe('—');
     });

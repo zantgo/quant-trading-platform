@@ -561,31 +561,32 @@
         </div>
 
         {#if !(collapsed['indicators'] ?? false)}
-            <!-- v11.12.3: the whole indicator grid is ONE table viewport —
-                 the TF column header row lives INSIDE it (sticky at the
-                 top), directly under the INDICATORS heading. The viewport
-                 scrolls BOTH axes; the header can never detach from the
-                 grid when scrolling horizontally or when durations change. -->
-            <div class={styles.tableScroll}>
-                <div class={styles.indTableInner}>
-                    <div class="{styles.summary} {styles.stickyHead}" style="--tf-count: {SLOTS.length}">
-                        <div class={styles.summarySpacer}></div>
-                        {#each SLOTS as slot (slot.label)}
-                            <div class={styles.summarySlot}>
-                                <div class={styles.summaryLabel}>{slot.label}</div>
-                                <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
+            <!-- v11.12.4: EACH group is its own table container, exactly like
+                 the Signals / Divergences / Levels tables below: the accent
+                 title row, then the TF column-header row INSIDE the scroll
+                 port (sticky), then the indicator rows. Every container
+                 scrolls BOTH axes internally — the repeated TF header per
+                 group is intentional. -->
+            {#each groups as g (g.group)}
+                {@const meta = GROUP_META[g.group as keyof typeof GROUP_META]}
+                <section class={styles.section} style="--accent: {meta.accent}">
+                    <header class={styles.sectionHeader}>
+                        <span class={styles.sectionTitle}>{meta.label}</span>
+                        <span class={styles.sectionCount}>{g.items.length}</span>
+                    </header>
+                    <div class="{styles.tableScroll} {styles.tableScrollGroup}">
+                        <div class={styles.tableInner}>
+                            <div class="{styles.summary} {styles.stickyHead}" style="--tf-count: {SLOTS.length}">
+                                <div class={styles.summarySpacer}></div>
+                                {#each SLOTS as slot (slot.label)}
+                                    <div class={styles.summarySlot}>
+                                        <div class={styles.summaryLabel}>{slot.label}</div>
+                                        <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
+                                    </div>
+                                {/each}
+                                <div class={styles.summarySpacer}></div>
+                                <div class={styles.summarySpacer}></div>
                             </div>
-                        {/each}
-                        <div class={styles.summarySpacer}></div>
-                        <div class={styles.summarySpacer}></div>
-                    </div>
-                    {#each groups as g (g.group)}
-                        {@const meta = GROUP_META[g.group as keyof typeof GROUP_META]}
-                        <section class={styles.section} style="--accent: {meta.accent}">
-                            <header class={styles.sectionHeader}>
-                                <span class={styles.sectionTitle}>{meta.label}</span>
-                                <span class={styles.sectionCount}>{g.items.length}</span>
-                            </header>
                             <div class={styles.body}>
                                 {#each g.items as r (r.meta.key)}
                             {@const hasAny = r.active.some(Boolean)}
@@ -617,12 +618,12 @@
                                     {hasAny ? (r.agreement >= 0 ? '+' : '') + r.agreement.toFixed(2) : '·'}
                                 </span>
                             </div>
-                        {/each}
+                                {/each}
                             </div>
-                        </section>
-                    {/each}
-                </div>
-            </div>
+                        </div>
+                    </div>
+                </section>
+            {/each}
         {/if}
 
         <!-- ── Stacked cross-timeframe tables (v6.13 / v6.14) ───────────
@@ -680,7 +681,7 @@
                 <!-- v11.12.3: TF header INSIDE the table viewport (sticky). -->
                 <div class={styles.tableScroll}>
                 <div class={styles.tableInner}>
-                {@render tfHeaderRow('KIND')}
+                {@render tfHeaderRow('SIGNAL KIND')}
                 {#if totalSignalCount === 0}
                     <div class={styles.tblEmpty}>
                         No signals active. Signals are published on each completed candle.

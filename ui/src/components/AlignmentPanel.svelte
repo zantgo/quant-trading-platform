@@ -287,7 +287,7 @@
     const conflictWarning = $derived(
         hasAlignment && alignment!.trend_agreement_pct < 50
     );
-    const headerSpec = $derived<LayerHeaderSpec>(buildL2AlignmentHeader(alignment));
+    const headerSpec = $derived<LayerHeaderSpec>(buildL2AlignmentHeader(alignment, activeDurations(instance).length));
     // v11.5: badge history trail (re-renders on every ring push).
     const badgeTrail = $derived.by(() => {
         void badgeHistoryVersion.v;
