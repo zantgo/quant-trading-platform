@@ -73,6 +73,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# opencode workspace metadata (plans, local agent state)
+.opencode/
+
 # Editor temp files
 *.swp
 
