@@ -28,15 +28,14 @@
 }
 
 .title {
-    /* v11.12.9: unified white title — same font/size as the Charts header
-       group labels. */
-    font-size: 10px;
+    /* v11.12.11: matches the Settings tab section titles
+       (engine-dashboard .title) — 13px sans, 700, .08em, white. */
+    font-size: 13px;
     font-weight: 700;
     letter-spacing: 0.08em;
     color: #f5f5f7;
     margin: 0 0 4px;
     text-transform: uppercase;
-    font-family: var(--mono, monospace);
 }
 
 .subtitle {
