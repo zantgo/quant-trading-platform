@@ -725,6 +725,7 @@ describe('MtfView — indicator group column titles (v11.12.6)', () => {
         for (const h of headers) {
             expect(h.textContent).toContain('INDICATOR');
             expect(h.textContent).toContain('AGREEMENT');
+            expect(h.textContent).toContain('AVG');
         }
     });
 });
