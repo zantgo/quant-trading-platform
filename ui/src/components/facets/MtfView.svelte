@@ -584,7 +584,9 @@
                                         <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
                                     </div>
                                 {/each}
+                                <!-- v11.12.7: one title per trailing column. -->
                                 <span class={styles.summaryAgreement}>AGREEMENT</span>
+                                <span class={styles.summaryAvg}>AVG</span>
                             </div>
                             <div class={styles.body}>
                                 {#each g.items as r (r.meta.key)}

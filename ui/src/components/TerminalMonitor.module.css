@@ -173,6 +173,12 @@
 .facetBody {
     flex: 1;
     min-height: 0;
+    /* v11.12.7: constrain + clip — without this the MTF content overflowed
+       the wrapper and painted over the contentArea's 32px bottom padding,
+       so the bottom breathing room was invisible. */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .featurePlaceholder {

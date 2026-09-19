@@ -2,6 +2,11 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    /* v11.12.7: the internal scroller of the constrained facetBody — the
+       table content scrolls HERE, leaving the container's bottom padding
+       visible as a real empty band. */
+    flex: 1;
+    min-height: 0;
     /* v11.12.4: valid overflow — the old `overflow: auto both` was an
        INVALID declaration (no `both` keyword) and was dropped by the
        browser, leaving overflow visible: tables painted over the sections
@@ -332,7 +337,18 @@
 }
 
 .summaryAgreement {
-    grid-column: span 2;
+    /* v11.12.7: owns the badge track only (BULL/BEAR/MIXED). */
+    justify-self: end;
+    padding-right: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.summaryAvg {
+    /* v11.12.7: owns the average-value track. */
     justify-self: end;
     padding-right: 4px;
     font-size: 9px;

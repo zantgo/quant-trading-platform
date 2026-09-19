@@ -14,11 +14,13 @@
    selected tab. No underlines, no blue accent. */
 .tabStrip {
     display: flex;
-    background-color: var(--bg-elev, #0a0a0a);
+    /* v11.12.7: exact clone of the app's sub-tab row (CHARTS/METRICS row):
+       same band (--bg-elev-2), NO full-width divider — the arrow glow on the
+       selected tab is the only line. */
+    background-color: var(--bg-elev-2, #0f0f0f);
     height: 40px;
     align-items: stretch;
     overflow-x: auto;
-    border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06));
     scrollbar-width: none;
 }
 
@@ -52,6 +54,9 @@
 .tabBtnActive {
     background-color: var(--active, rgba(255, 255, 255, 0.08));
     color: var(--text, #f5f5f7);
+    /* v11.12.7: the bright underline under the selected tab (same as the
+       app's .cellActiveUnderline). */
+    box-shadow: inset 0 -2px 0 0 var(--text, #f5f5f7);
 }
 
 .tabContent {
@@ -76,7 +81,9 @@
     justify-content: space-between;
     gap: 12px;
     padding: 10px 16px;
-    border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06));
+    /* v11.12.7: header sits on pure black with NO separator line — the
+       color step alone divides it from the body. */
+    background: var(--bg, #000000);
 }
 
 /* v11.12.3: SAVE sits immediately LEFT of EXPORT DATA at the far right —
