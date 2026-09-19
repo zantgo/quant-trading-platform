@@ -63,6 +63,8 @@
     gap: 8px;
     margin-top: 12px;
     padding: 0 2px;
+    /* v11.12.9: never shrink — `.view` scrolls instead of squashing rows. */
+    flex-shrink: 0;
 }
 
 .headingRow:first-child {
@@ -378,6 +380,9 @@
     border-left: 3px solid var(--accent, rgba(255, 255, 255, 0.4));
     border-radius: 6px;
     overflow: hidden;
+    /* v11.12.9: `overflow: hidden` zeroes the auto min-height, so without
+       this the flex column crushed every table to a sliver. */
+    flex-shrink: 0;
 }
 
 .sectionHeader {
@@ -485,6 +490,8 @@
     border-left: 3px solid #22d3ee;
     border-radius: 6px;
     overflow: hidden;
+    /* v11.12.9: same guard as `.section`. */
+    flex-shrink: 0;
 }
 
 .tblSignals    { border-left-color: #22d3ee; }

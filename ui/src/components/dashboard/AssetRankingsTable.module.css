@@ -11,10 +11,12 @@
 }
 
 .sectionTitle {
-    font-size: 11px;
+    /* v11.12.9: exact copy of the Instance Status title rule
+       (InstanceStatusTable `.toolbar-title`). */
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.08em;
-    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.1em;
+    color: #64748b;
     text-transform: uppercase;
     margin: 0;
 }
