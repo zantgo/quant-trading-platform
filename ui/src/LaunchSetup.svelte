@@ -180,7 +180,15 @@
             );
             if (!proceed) return;
             for (const draft of instances) {
-                if (draft.instanceId) await deleteInstanceById(draft.instanceId);
+                if (draft.instanceId) {
+                    const ok = await deleteInstanceById(draft.instanceId);
+                    if (!ok) {
+                        console.error(`Discard failed for ${draft.base} — it may still be running.`);
+                    }
+                }
+                // Still-creating drafts have no id yet — they are dropped
+                // from `instances` below, and the resolve-time cancel guard
+                // in addInstance deletes them when their POST lands.
                 app.removeInstance(app.pairKeyFor(draft.base));
             }
             instances = [];
@@ -212,6 +220,20 @@
         // symbols that don't exist on the venue and spawns the full
         // pipeline set inside this call.
         const created = await createInstance(base, app.quote);
+        // v11.12 CANCEL GUARD: the operator may have ✕-removed the chip
+        // while the creation POST was in flight. The backend cannot cancel
+        // an in-flight POST, so chip membership IS the cancel signal: delete
+        // the just-created instance instead of letting it launch anyway.
+        if (!instances.some((i) => i.base === base)) {
+            if (created.instanceId) {
+                const ok = await deleteInstanceById(created.instanceId);
+                if (!ok) {
+                    console.error(`Cancel failed: ${base} is still running — remove it from the workspace panel.`);
+                }
+            }
+            app.removeInstance(app.pairKeyFor(base));
+            return;
+        }
         if (!created.ok) {
             instances = instances.map((i) =>
                 i.base === base ? { ...i, status: 'failed', error: created.error || `Failed to add ${base}.` } : i,
@@ -227,6 +249,8 @@
         const key = app.pairKeyFor(base);
         const deadline = Date.now() + 60_000;
         while (Date.now() < deadline) {
+            // Cancel guard: the chip was ✕-removed mid-warm — stop polling.
+            if (!instances.some((i) => i.base === base)) return;
             const pair = app.instancesMap[key];
             const ready = !!pair
                 && activeDurations(pair).some(
@@ -247,10 +271,26 @@
 
     async function removeInstance(index: number) {
         const draft = instances[index];
+        if (!draft) return;
         instances = instances.filter((_, i) => i !== index);
-        if (draft?.instanceId) {
-            await deleteInstanceById(draft.instanceId);
-            app.removeInstance(app.pairKeyFor(draft.base));
+        // Still `creating`: no id yet — dropping the chip IS the cancel; the
+        // resolve-time guard in addInstance deletes the instance when the
+        // POST lands.
+        if (!draft.instanceId) return;
+        // v11.12: a FAILED delete must not leak silently — re-insert the
+        // chip as failed so the operator knows the instance still runs.
+        const ok = await deleteInstanceById(draft.instanceId);
+        app.removeInstance(app.pairKeyFor(draft.base));
+        if (!ok) {
+            instances = [
+                ...instances,
+                {
+                    base: draft.base,
+                    status: 'failed',
+                    error: 'Removal failed — the instance is still running. Remove it from the workspace panel.',
+                    instanceId: draft.instanceId,
+                },
+            ];
         }
     }
 

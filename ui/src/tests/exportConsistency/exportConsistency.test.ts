@@ -1204,7 +1204,8 @@ describe('export consistency — Overview tab', () => {
 
     // Asset rankings table — header columns + per-row values.
     expect(c.dom).toContain('ASSET RANKINGS');
-    expect(c.dom).toContain('click column to sort');
+    // v11.12: the "click column to sort" hint was erased.
+    expect(c.dom).not.toContain('click column to sort');
     expect(c.dom).toContain('Symbol');
     expect(c.dom).toContain('Price');
     expect(c.dom).toContain('Bias');

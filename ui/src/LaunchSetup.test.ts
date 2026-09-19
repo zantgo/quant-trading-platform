@@ -600,3 +600,127 @@ describe('LaunchSetup — live-session resume gate (v11.12)', () => {
         expect(container.textContent).not.toContain('Resume session');
     });
 });
+
+// ── v11.12: cancel-during-create must delete the leaked instance ─────
+describe('LaunchSetup — cancel during add-time creation (v11.12)', () => {
+    function deferredCreateBackend() {
+        let resolveCreate!: (v: Response) => void;
+        const createPromise = new Promise<Response>((r) => (resolveCreate = r));
+        const fetchMock = vi.fn(async (url: string, opts?: RequestInit) => {
+            if (String(url) === '/api/instances' && opts?.method === 'POST') {
+                return createPromise;
+            }
+            if (String(url).includes('/api/instances/') && opts?.method === 'DELETE') {
+                return new Response(JSON.stringify({ success: true }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                });
+            }
+            if (String(url).includes('/api/session/init')) {
+                return new Response(JSON.stringify({ success: true }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                });
+            }
+            return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        return { resolveCreate, fetchMock };
+    }
+
+    async function addBtcInFlight(container: HTMLElement) {
+        await goToInstances(container);
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        await waitFor(() => expect(container.textContent).toContain('creating'));
+    }
+
+    it('✕ while creating drops the chip; the resolving POST is rolled back with a DELETE', async () => {
+        const app = useAppStore();
+        const { resolveCreate, fetchMock } = deferredCreateBackend();
+        const { container } = await render(LaunchSetup);
+        await addBtcInFlight(container);
+
+        await fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Remove BTC"]')!);
+        await waitFor(() => expect(container.textContent).toContain('No instances configured yet.'));
+
+        // The creation POST resolves AFTER the cancel — the guard must
+        // DELETE the just-created instance instead of launching it.
+        resolveCreate!(new Response(JSON.stringify({ id: 'inst_late' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+        await waitFor(() => {
+            const deletes = fetchMock.mock.calls.filter(
+                ([u, o]: any[]) => String(u).includes('/api/instances/') && o?.method === 'DELETE',
+            );
+            expect(deletes.length).toBe(1);
+        });
+        expect(app.instancesMap['BTC-USDT']).toBeUndefined();
+        vi.unstubAllGlobals();
+    });
+
+    it('back-nav during an in-flight create discards it the same way', async () => {
+        const app = useAppStore();
+        const { resolveCreate, fetchMock } = deferredCreateBackend();
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        const { container } = await render(LaunchSetup);
+        await addBtcInFlight(container);
+
+        await fireEvent.click(screen.getByText('Back'));
+        await waitFor(() => expect(container.textContent).toContain('Exchange'));
+
+        resolveCreate!(new Response(JSON.stringify({ id: 'inst_late' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+        await waitFor(() => {
+            const deletes = fetchMock.mock.calls.filter(
+                ([u, o]: any[]) => String(u).includes('/api/instances/') && o?.method === 'DELETE',
+            );
+            expect(deletes.length).toBe(1);
+        });
+        expect(app.instancesMap['BTC-USDT']).toBeUndefined();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    it('a FAILED delete surfaces a failed chip instead of leaking silently', async () => {
+        const fetchMock = vi.fn(async (url: string, opts?: RequestInit) => {
+            if (String(url) === '/api/instances' && opts?.method === 'POST') {
+                return new Response(JSON.stringify({ id: 'inst_x' }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                });
+            }
+            if (String(url).includes('/api/instances/') && opts?.method === 'DELETE') {
+                return new Response(JSON.stringify({ error: 'still running' }), {
+                    status: 500,
+                    headers: { 'content-type': 'application/json' },
+                });
+            }
+            if (String(url).includes('/api/session/init')) {
+                return new Response(JSON.stringify({ success: true }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                });
+            }
+            return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container);
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        // instanceId assigned once the create resolves (failed DELETE path)
+        await waitFor(() => expect(container.textContent).toContain('waiting for first snapshot'));
+        await fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Remove BTC"]')!);
+        await waitFor(() => {
+            // The failure rides the chip's tooltip (visible state = ✕ unavailable).
+            expect(container.querySelector('span[title^="Removal failed"]')).toBeTruthy();
+        });
+        vi.unstubAllGlobals();
+    });
+});

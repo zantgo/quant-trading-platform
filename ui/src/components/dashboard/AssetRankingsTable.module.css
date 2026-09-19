@@ -19,13 +19,6 @@
     margin: 0;
 }
 
-.sortHint {
-    font-size: 10px;
-    color: rgba(255,255,255,0.3);
-    font-weight: 500;
-    font-style: italic;
-}
-
 .tableWrap {
     overflow-x: auto;
     border: 1px solid rgba(255,255,255,0.06);

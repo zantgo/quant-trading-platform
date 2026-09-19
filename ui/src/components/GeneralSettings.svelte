@@ -8,6 +8,13 @@
     import ConfigSourceChip from './ConfigSourceChip.svelte';
     import { costProjection } from '../lib/costProjection';
 
+    let { embedded = false, onDirtyChange = null }: {
+        /** v11.12 unified settings: embedded mode hides the local header —
+         *  the shell owns the single SAVE button. */
+        embedded?: boolean;
+        onDirtyChange?: ((dirty: boolean) => void) | null;
+    } = $props();
+
     const app = useAppStore();
 
     // v11.11: the single GENERAL SETTINGS page — every general container
@@ -68,8 +75,19 @@
         if (feeDirty && feeSaveState !== 'saving' && feeSaveState !== 'error') feeSaveState = 'dirty';
     });
 
-    async function saveFee() {
-        if (feeSaveState !== 'dirty' && feeSaveState !== 'error') return;
+    /// v11.12: the unified shell drives its single SAVE from this.
+    export function isDirty(): boolean {
+        return feeDirty;
+    }
+
+    $effect(() => {
+        onDirtyChange?.(feeDirty);
+    });
+
+    /// v11.12: exported for the unified shell's single SAVE button.
+    /// Returns `true` when the POST succeeded.
+    export async function save(): Promise<boolean> {
+        if (feeSaveState !== 'dirty' && feeSaveState !== 'error') return true;
         feeError = null;
         feeSaveState = 'saving';
         try {
@@ -89,13 +107,16 @@
                 await loadFeeConfig();
                 feeSaveState = 'saved';
                 setTimeout(() => { feeSaveState = 'idle'; }, 2000);
+                return true;
             } else {
                 feeError = (await res.text()) || 'Save failed';
                 feeSaveState = 'error';
+                return false;
             }
         } catch (e) {
             feeError = e instanceof Error ? e.message : 'Save failed';
             feeSaveState = 'error';
+            return false;
         }
     }
 
@@ -168,6 +189,7 @@
 </script>
 
 <div class={styles.profileLayout}>
+    {#if !embedded}
     <header class={engine.unifiedHeader}>
         <div class={engine.headerTop}>
             <div class={engine.titleGroup}>
@@ -175,10 +197,11 @@
             </div>
             <div class={engine.headerRight}>
                 <span class={engine.tabLabel}>SETTINGS</span>
-                <SettingsSaveButton state={feeSaveState} onsave={saveFee} />
+                <SettingsSaveButton state={feeSaveState} onsave={save} />
             </div>
         </div>
     </header>
+    {/if}
 
     <div class={styles.profileContent}>
         {#if feeError}

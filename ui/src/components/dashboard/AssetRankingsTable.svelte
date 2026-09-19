@@ -24,7 +24,9 @@
 
     type SortKey = 'symbol' | 'price' | 'entry' | 'target' | 'stop' | 'bias' | 'signal' | 'direction' | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label' | 'risk' | 'updated';
     type SortDir = 'asc' | 'desc';
-    let sortKey = $state<SortKey>('score');
+    // v11.12: THREE-state sort — DEFAULT (null: no arrow anywhere, rows in
+    // the server's own asset_ranking order) → ↓ → ↑ → DEFAULT per column.
+    let sortKey = $state<SortKey | null>(null);
     let sortDir = $state<SortDir>('desc');
 
     let tick = $state(0);
@@ -136,11 +138,14 @@
                 updatedMs: r.updated_ts ? r.updated_ts * 1000 : null,
                 connected: r.active,
             }));
-            // Sort, mirroring the local path below.
+            // Sort, mirroring the local path below. v11.12: skipped entirely
+            // in the DEFAULT state — the server order IS the ranking.
+            if (sortKey !== null) {
+            const sk: SortKey = sortKey;
             const sdir = sortDir === 'asc' ? 1 : -1;
             serverOut.sort((a, b) => {
-                const av = sortVal(a, sortKey);
-                const bv = sortVal(b, sortKey);
+                const av = sortVal(a, sk);
+                const bv = sortVal(b, sk);
                 const an = typeof av === 'string' ? Number(av.replace(/,/g, '')) : Number(av);
                 const bn = typeof bv === 'string' ? Number(bv.replace(/,/g, '')) : Number(bv);
                 if (Number.isFinite(an) && Number.isFinite(bn)) {
@@ -154,6 +159,7 @@
                 if (av == null && bv == null) return 0;
                 return (Number(av) - Number(bv)) * sdir;
             });
+            }
             return serverOut;
         }
         // v2026-08 (M4): one Score definition per column — the canonical L7
@@ -242,10 +248,13 @@
         // ("99999.90") — the old localeCompare made magnitude-boundary pairs
         // sort lexicographically ("100000" below "99999"). Sort numerically
         // when both values parse as finite numbers.
+        // v11.12: skipped entirely in the DEFAULT state.
+        if (sortKey !== null) {
+        const sk: SortKey = sortKey;
         const dir = sortDir === 'asc' ? 1 : -1;
         out.sort((a, b) => {
-            const av = sortVal(a, sortKey);
-            const bv = sortVal(b, sortKey);
+            const av = sortVal(a, sk);
+            const bv = sortVal(b, sk);
             const an = typeof av === 'string' ? Number(av.replace(/,/g, '')) : Number(av);
             const bn = typeof bv === 'string' ? Number(bv.replace(/,/g, '')) : Number(bv);
             if (Number.isFinite(an) && Number.isFinite(bn)) {
@@ -259,16 +268,30 @@
             if (av == null && bv == null) return 0;
             return (Number(av) - Number(bv)) * dir;
         });
+        }
         return out;
     });
 
+    /// v11.12: THREE-state cycle — DEFAULT (null) → ↓ (or ↑ for text
+    /// columns) → the other direction → back to DEFAULT. Text columns
+    /// naturally start ascending; numeric start descending.
+    function firstDir(k: SortKey): SortDir {
+        return k === 'symbol' || k === 'bias' || k === 'mtf_label' ? 'asc' : 'desc';
+    }
+
     function toggleSort(k: SortKey) {
-        if (sortKey === k) {
-            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-        } else {
+        if (sortKey !== k) {
             sortKey = k;
-            sortDir = k === 'symbol' || k === 'bias' || k === 'mtf_label' ? 'asc' : 'desc';
+            sortDir = firstDir(k);
+            return;
         }
+        if (sortDir === firstDir(k)) {
+            // Second click: the other direction.
+            sortDir = firstDir(k) === 'desc' ? 'asc' : 'desc';
+            return;
+        }
+        // Third click: back to DEFAULT — no sort, no arrow.
+        sortKey = null;
     }
 
     function arrow(k: SortKey): string {
@@ -286,7 +309,6 @@
 <div class={styles.tableSection}>
     <div class={styles.tableHeader}>
         <h3 class={styles.sectionTitle}>ASSET RANKINGS</h3>
-        <span class={styles.sortHint}>click column to sort</span>
     </div>
     <div class={styles.tableWrap}>
         <table class={styles.table}>

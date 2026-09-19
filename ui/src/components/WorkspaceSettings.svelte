@@ -13,12 +13,34 @@
     import ConfigSourceChip from './ConfigSourceChip.svelte';
     import ModeChip from './ModeChip.svelte';
     import { buildEngineExport } from '../lib/engineExport';
+    import NoInstanceState from './NoInstanceState.svelte';
     import engine from '../styles/engine-dashboard.module.css';
     import styles from './WorkspaceSettings.module.css';
 
-    let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
+    let { pair: pairProp, tabKey, embedded = false, sectionTab = 'all', onDirtyChange = null }: {
+        pair?: InstanceState;
+        tabKey?: string;
+        /** v11.12 unified settings: embedded mode hides the local header and
+         *  renders only the card group selected by `sectionTab`. */
+        embedded?: boolean;
+        /** 'all' (legacy standalone) | 'workspace' | 'instance' */
+        sectionTab?: 'all' | 'workspace' | 'instance';
+        /** Dirty notification for the shell's single SAVE button. */
+        onDirtyChange?: ((dirty: boolean) => void) | null;
+    } = $props();
 
     const app = useAppStore();
+
+    // v11.12 unified settings: the embedded target instance is the chip
+    // selector value (default = the workspace-panel selection).
+    let chipTarget = $state<string | null>(null);
+    const instanceKeys = $derived(Object.keys(app.instancesMap));
+    const effectivePairKey = $derived(
+        pairProp ? (tabKey ?? '') : (chipTarget ?? app.selectedInstance ?? instanceKeys[0] ?? ''),
+    );
+    const pair = $derived<InstanceState | undefined>(
+        pairProp ?? app.instancesMap[effectivePairKey],
+    );
 
     let identityError = $state<string | null>(null);
 
@@ -401,6 +423,7 @@
 
     // ─── Dirty tracking: drafts vs the baseline taken at load ───────────
     function snapshotKey(): string {
+        if (!pair) return '';
         const ladder = activeLadder;
         return JSON.stringify({
             symbol: pair.symbol,
@@ -440,6 +463,15 @@
     $effect(() => {
         if (dirty && saveState !== 'saving' && saveState !== 'error' && saveState !== 'dirty') saveState = 'dirty';
         else if (!dirty && saveState === 'dirty') saveState = 'idle';
+    });
+
+    /// v11.12: the unified shell drives its single SAVE from this.
+    export function isDirty(): boolean {
+        return pair != null && dirty;
+    }
+
+    $effect(() => {
+        onDirtyChange?.(pair != null && dirty);
     });
 
     let calculatedAutomationInterval = $derived.by(() => {
@@ -486,9 +518,10 @@
         tfDraft[slot].heatmapLeverageTiers = cleaned;
     }
 
-    function buildExport(): string {
+    export function buildExport(): string {
+        if (!pair) return '{}';
         return buildEngineExport('market_monitor', 'settings', null, {
-            pair: pair ? { symbol: pair.symbol, exchange: pair.exchange } : null,
+            pair: { symbol: pair.symbol, exchange: pair.exchange },
             identity: { symbol: pair.symbol, exchange: pair.exchange },
             visuals: draft.visuals,
             automation: { ...draft.automation, interval_seconds: calculatedAutomationInterval },
@@ -498,15 +531,17 @@
         });
     }
 
-    async function save() {
-        if (!pair || (saveState !== 'dirty' && saveState !== 'error')) return;
+    /// v11.12: exported for the unified shell's single SAVE button. Returns
+    /// `true` when every POST succeeded.
+    export async function save(): Promise<boolean> {
+        if (!pair || (saveState !== 'dirty' && saveState !== 'error')) return false;
         identityError = null;
 
         const { automation: auto, visuals: vis } = draft;
         // v11.8: the Identity card is removed — the save targets the
         // current instance only (rename/recreate is no longer offered).
-        let targetTabKey = tabKey;
-        let target = pair;
+        const targetTabKey = tabKey ?? effectivePairKey;
+        const target = pair;
         const ladder = [...activeLadder];
 
         for (const slot of ladder) {
@@ -536,7 +571,7 @@
                     const txt = await ladderRes.text().catch(() => '');
                     identityError = txt || `Active timeframes save failed (${ladderRes.status})`;
                     saveState = 'error';
-                    return;
+                    return false;
                 }
                 pair.activeDurations = [...ladder];
                 app.notifyLadderSaved();
@@ -597,14 +632,17 @@
                 baseline = snapshotKey();
                 saveState = 'saved';
                 setTimeout(() => { saveState = 'idle'; }, 2000);
+                return true;
             } else {
                 const txt = await res.text().catch(() => '');
                 identityError = txt || `Instance config save failed (${res.status})`;
                 saveState = 'error';
+                return false;
             }
         } catch (e) {
             console.error('Config save error:', e);
             saveState = 'error';
+            return false;
         }
     }
 </script>
@@ -632,6 +670,7 @@
         {/each}
     {/snippet}
 
+    {#if !embedded}
     <header class={engine.unifiedHeader}>
         <div class={engine.headerTop}>
             <div class={engine.titleGroup}>
@@ -647,6 +686,7 @@
             </div>
         </div>
     </header>
+    {/if}
 
     {#if identityError}
         <div class="{engine.alertBanner} {engine.alertError}" role="alert" style="margin:0 24px">{identityError}</div>
@@ -656,6 +696,9 @@
     {/if}
 
     <section class={styles.tfShellBody}>
+        <!-- v11.12 unified settings: card GROUPS driven by `sectionTab`
+             ('all' = legacy standalone renders both). -->
+        <div class="{styles.settingsGroup} {embedded && sectionTab !== 'all' && sectionTab !== 'workspace' ? styles.settingsGroupHidden : ''}">
         <div class={engine.card}>
             <div class={engine.cardHead}>
                 <h3 class={engine.cardTitle}>Timeframes</h3>
@@ -714,7 +757,25 @@
                 </div>
             </div>
         </div>
+        </div>
 
+        <div class="{styles.settingsGroup} {embedded && sectionTab !== 'all' && sectionTab !== 'instance' ? styles.settingsGroupHidden : ''}">
+        {#if embedded && instanceKeys.length === 0}
+            <NoInstanceState engine="market_monitor" />
+        {:else}
+        {#if embedded && instanceKeys.length > 1}
+            <div class={styles.chipRow}>
+                <span class={styles.chipLabel}>EDITING</span>
+                {#each instanceKeys as key (key)}
+                    <button
+                        type="button"
+                        class="{styles.chip} {effectivePairKey === key ? styles.chipOn : ''}"
+                        aria-pressed={effectivePairKey === key}
+                        onclick={() => (chipTarget = key)}
+                    >{key}</button>
+                {/each}
+            </div>
+        {/if}
         <div class={engine.card}>
             <div class={engine.cardHead}>
                 <h3 class={engine.cardTitle}>Liquidation Heatmap</h3>
@@ -795,6 +856,8 @@
                     </label>
                 </div>
             </div>
+        </div>
+        {/if}
         </div>
     </section>
 </div>
