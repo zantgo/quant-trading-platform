@@ -219,13 +219,12 @@
     /// Derived so a settings save (which narrows/widens `activeDurations`)
     /// re-renders the rail without a remount.
     /// v11.12.8: the rail is the shared `TimeframesRail`, identical to the
-    /// Metrics tab — lowercase labels + derived duration suffix.
+    /// Metrics tab — lowercase labels, single-line (v11.12.15).
     const TERMS = $derived.by(() => {
         const pairState = app.instancesMap[pairKey];
         return activeDurations(pairState).map((slot) => ({
             key: slot as TfKey,
             label: tfLabel(slot) as TfLabel,
-            secsText: durationSuffix(pairState?.terms?.[slot]?.barDurationSec ?? 0),
         }));
     });
 

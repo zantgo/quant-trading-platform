@@ -70,11 +70,11 @@
 
     // v11.12.8: the rail markup moved to the shared TimeframesRail component
     // (same rail as the Charts tab); this only shapes the item payload.
+    // v11.12.15: single-line items — the MTF entry reads `Multi-TF`.
     const railItems = $derived(
         TIMEFRAMES.map((tf) => ({
             key: tf.key,
-            label: tf.label,
-            secsText: tf.secs != null ? formatTimeframeLabel(tf.secs) : (tf.key === 'Mtf' ? 'Multi-TF' : '—'),
+            label: tf.key === 'Mtf' ? 'Multi-TF' : tf.label,
         }))
     );
 

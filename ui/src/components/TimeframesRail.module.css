@@ -52,19 +52,7 @@
     font-weight: 800;
 }
 
-.tfSidebarItem.active .tfSecs {
-    color: rgba(255, 255, 255, 0.65);
-    font-weight: 600;
-}
-
 .tfLabel {
     font-size: 12px;
     font-weight: 700;
-}
-
-.tfSecs {
-    font-size: 10px;
-    font-family: var(--mono, monospace);
-    color: rgba(255, 255, 255, 0.4);
-    font-weight: 500;
 }
