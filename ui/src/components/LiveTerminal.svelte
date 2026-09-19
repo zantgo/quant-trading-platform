@@ -49,6 +49,7 @@
     import KeltnerChart from './KeltnerChart.svelte';
     import DerivativeRibbon from './DerivativeRibbon.svelte';
     import PaneGroupHeader from './PaneGroupHeader.svelte';
+    import TimeframesRail from './TimeframesRail.svelte';
     import FullscreenToolbar from './FullscreenToolbar.svelte';
     import { chartsWithin } from '../chartRegistry.svelte';
     import { composeChartScreenshots } from '../lib/chartScreenshot';
@@ -217,12 +218,14 @@
     /// inactive durations never stream).
     /// Derived so a settings save (which narrows/widens `activeDurations`)
     /// re-renders the rail without a remount.
+    /// v11.12.8: the rail is the shared `TimeframesRail`, identical to the
+    /// Metrics tab — lowercase labels + derived duration suffix.
     const TERMS = $derived.by(() => {
         const pairState = app.instancesMap[pairKey];
         return activeDurations(pairState).map((slot) => ({
             key: slot as TfKey,
-            label: tfLabel(slot).toUpperCase() as TfLabel,
-            secsFn: (p: any) => p.terms[slot].barDurationSec,
+            label: tfLabel(slot) as TfLabel,
+            secsText: durationSuffix(pairState?.terms?.[slot]?.barDurationSec ?? 0),
         }));
     });
 
@@ -289,20 +292,13 @@
         {@const activeLabel = activeLabelFor(activeTf)}
         {@const wsSummary = warmupSummary(activeTerm)}
 
-        <ChartToggles {pairKey} />
-        <div class={styles.workspaceSidebar}>
-            <aside class={styles.tfSidebar}>
-                <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>
-                {#each TERMS as t (t.key)}
-                    <button
-                        class="{styles.tfSidebarItem} {activeTf === t.key ? styles.active : ''}"
-                        onclick={() => setActiveTf(t.key)}
-                    >
-                        <span class={styles.tfLabel}>{t.label}</span>
-                        <span class={styles.tfSecs}>{durationSuffix(t.secsFn(pair))}</span>
-                    </button>
-                {/each}
-            </aside>
+        <TimeframesRail
+            items={TERMS}
+            activeKey={activeTf}
+            onSelect={(k) => setActiveTf(k as TfKey)}
+        />
+        <div class={styles.chartsArea}>
+            <ChartToggles {pairKey} />
 
             <div class={styles.singleColumn}>
                 <div bind:this={expandedColumnEl} class="{styles.timescaleColumn} {expandedTf === activeTf ? styles.expandedTfColumn : ''}">
