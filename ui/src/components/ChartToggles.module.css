@@ -17,7 +17,8 @@
 .toggles-label {
     font-size: 10px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.5);
+    /* v11.12.9: white (was 50% grey) — the reference title style. */
+    color: #f5f5f7;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-family: var(--mono, monospace);

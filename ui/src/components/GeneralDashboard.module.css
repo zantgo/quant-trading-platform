@@ -44,12 +44,15 @@
 }
 
 .title {
-    font-size: 13px;
+    /* v11.12.9: unified white title — same font/size as the Charts header
+       group labels. */
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.08em;
-    color: #94a3b8;
+    color: #f5f5f7;
     margin: 0;
     text-transform: uppercase;
+    font-family: var(--mono, monospace);
 }
 
 /* Right-edge action block: LIVE pill + OVERVIEW label + EXPORT DATA,

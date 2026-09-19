@@ -256,22 +256,24 @@
     <div class={styles.contentArea}>
         {#if pair && registry.length > 0 && (activeTf === 'Mtf' || activeTfObj)}
             <!-- L1 HEADER (v7.0-prod — shared chrome across all MME tabs) -->
-            <LayerHeader spec={headerSpec} trail={l1Trail}>
-                {#snippet trailing()}
-                    <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
-                    <span class={styles.tfBadge}>
-                        {activeTf === 'Mtf'
-                            ? 'MULTI-TIMEFRAME'
-                            : `${activeTfEntry.label} · ${activeTfEntry.secs != null ? formatTimeframeLabel(activeTfEntry.secs) : '—'}`}
-                    </span>
-                    <ExportDataButton
-                        onExport={buildHeaderExport}
-                        title={activeTf === 'Mtf'
-                            ? 'Copy the cross-timeframe grid as JSON'
-                            : "Copy current timeframe's indicators + signals as JSON"}
-                    />
-                {/snippet}
-            </LayerHeader>
+            <div class={styles.headerBleed}>
+                <LayerHeader spec={headerSpec} trail={l1Trail}>
+                    {#snippet trailing()}
+                        <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
+                        <span class={styles.tfBadge}>
+                            {activeTf === 'Mtf'
+                                ? 'MULTI-TIMEFRAME'
+                                : `${activeTfEntry.label} · ${activeTfEntry.secs != null ? formatTimeframeLabel(activeTfEntry.secs) : '—'}`}
+                        </span>
+                        <ExportDataButton
+                            onExport={buildHeaderExport}
+                            title={activeTf === 'Mtf'
+                                ? 'Copy the cross-timeframe grid as JSON'
+                                : "Copy current timeframe's indicators + signals as JSON"}
+                        />
+                    {/snippet}
+                </LayerHeader>
+            </div>
 
             {#if activeTf === 'Mtf'}
                 <!-- Dedicated Cross-Timeframe Grid Workspace (v6.11: unfiltered — every indicator and every signal across all ACTIVE durations) -->
@@ -325,7 +327,7 @@
                 <FacetTabs active={activeFacet} facets={facets} onChange={(id) => activeFacet = id} />
 
                 <!-- ROW 4 — Facet Body (v6.11: unfiltered — every signal is always shown) -->
-                <div class={styles.facetBody}>
+                <div class={styles.facetBodyFlow}>
                     {#if activeFacet === 'indicators'}
                         <IndicatorsView
                             tf={activeTfObj}

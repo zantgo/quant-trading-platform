@@ -6,6 +6,13 @@
     overflow: hidden;
 }
 
+/* v11.12.9: full-bleed LayerHeader band — flush against the TIMEFRAMES rail
+   (same geometry as the Charts tab's ChartToggles), while the content below
+   keeps the contentArea's 14px insets and 32px bottom band. */
+.headerBleed {
+    margin: 0 -14px;
+}
+
 .contentArea {
     flex: 1;
     min-width: 0;
@@ -104,6 +111,14 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+/* v11.12.9: single-TF facet body stays content-height — the contentArea
+   scrolls the page (the capped/clipped `.facetBody` above is MTF-only,
+   where MtfView owns the internal scroller). */
+.facetBodyFlow {
+    display: flex;
+    flex-direction: column;
 }
 
 .featurePlaceholder {
