@@ -4,9 +4,7 @@
 
 > **Single-operator local deployment.** The Trading Platform is built for a single operator and their team: one workspace, one operator identity (`local`), no per-route authentication, and no multi-client/SaaS model. Everything runs on your machine or a VM you control.
 
-The **Trading Platform** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. It computes 52 technical indicators across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data) with 101 signal-kind declarations across 12 SignalKind types (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming), 8 of which support bull/bear divergence detection. All computation runs in Rust, streaming live data to a Svelte 5 dashboard via WebSocket. **The current UI build is observe-only** (market monitoring); paper/live execution remains a backend/CLI/API capability.
-
-> **Implementation status (v11.12).** All six engines are **implemented**: DIE (ingestion/reconstruction/persistence); MME (52 indicators across the ACTIVE duration set, decision layer, liquidity intelligence); TAE as the setup executor on the unified execution engine (Observe is the default posture and the only mode offered by this UI build; paper/live backends — `PaperSimulation`, Hyperliquid `LiveBroker`, `BitgetLiveBroker` — remain available via config/CLI/API); PME as the informational portfolio mirror; PAE with live analytics plus the recorded-decision backtest and the full significance treatment; BTE with deep-history and recorded-decision replay persisted to data-science tables. Observe sessions never dispatch orders. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+The **Trading Platform** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. It computes 52 technical indicators across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data) with 101 signal-kind declarations across 12 SignalKind types (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming), 8 of which support bull/bear divergence detection. All computation runs in Rust, streaming live data to a Svelte 5 dashboard via WebSocket. **The current UI build is observe-only** (market monitoring); paper/live execution remains a backend/CLI/API capability. The platform is designed for traders and market analysis, providing a high-performance interface for monitoring market conditions, identifying technical signals, and interpreting real-time market behavior.
 
 ## Quick Start Workflow
 
@@ -60,7 +58,7 @@ The platform is a 10-crate Cargo workspace + Svelte 5 frontend. The six logical 
 
 ## Documentation
 
-The complete institutional documentation set lives under [`docs/`](docs/), organized into conceptual foundations, matrix data contracts, per-engine specifications, integration/API references, and UI/UX layouts.
+The complete institutional documentation set lives under [`docs/`](docs/), organized into conceptual foundations, matrix data contracts, per-engine specifications, integration/API references, UI/UX layouts, and operations & compliance guides.
 
 | Document | Audience | Description |
 |---|---|---|
@@ -69,10 +67,13 @@ The complete institutional documentation set lives under [`docs/`](docs/), organ
 | **[Systemic Data Flow](docs/conceptual-foundations/01-03-systemic-data-flow.md)** | Developers | Chronological data-flow sequences across all engines |
 | **[Timeframe Model](docs/conceptual-foundations/01-04-timeframe-model.md)** | Developers | Duration-keyed timeframe model: 14-duration pool (`1s`…`1d`) with a live-editable ACTIVE set |
 | **[Matrices](docs/matrices/02-00-matrix-field-ownership.md)** | Developers | Physical schemas and JSON contracts for the matrix family (MME + DIE + BTE) |
+| **[Data Infrastructure Engine](docs/engines/data-infrastructure-engine/03-01-01-die-overview-spec.md)** | Developers | Ingestion, reconstruction, persistence, and data-quality layer specs |
 | **[Market Monitoring Engine](docs/engines/market-monitoring-engine/03-02-01-mme-overview-spec.md)** | Developers | 7 layer specs, indicator guide, signal guide, per-indicator specs |
 | **[Trade Automation Engine](docs/engines/trade-automation-engine/03-03-01-tae-overview-spec.md)** | Developers | Setup executor + unified execution engine specs (Observe default; paper/live backends) |
 | **[Portfolio Management Engine](docs/engines/portfolio-management-engine/03-04-01-pme-overview-spec.md)** | Developers | Position + Exposure + Capital + Portfolio layer specs |
 | **[Performance Analytics Engine](docs/engines/performance-analytics-engine/03-05-01-pae-overview-spec.md)** | Developers | Trade + Strategy + Risk + Performance layer specs |
+| **[Backtesting Engine](docs/engines/backtesting-engine/08-01-bte-overview.md)** | Developers | Candle archive + backfill, historical runner, recorded replay, DS persistence |
 | **[Integration & API](docs/integration-and-api/06-01-api-gateway-contract.md)** | Developers | REST/WebSocket/JSON-RPC contracts and database schema |
 | **[UI/UX](docs/ui-ux/07-01-ui-overview-spec.md)** | Frontend | Svelte 5 state management and dashboard layout specifications |
+| **[Operations & Compliance](docs/operations-and-compliance/08-01-user-manual.md)** | Operators | User manual, pre-trade risk controls, connection resilience/quality, clock monitor |
 | **[AGENTS.md](AGENTS.md)** | Maintainers | Build instructions, runtime details, testing conventions |
