@@ -51,21 +51,21 @@ function renderRouter(overrides: Record<string, unknown> = {}) {
     });
 }
 
-describe('AppPageRouter — MME settings dual-mode (v11.9 N2)', () => {
-    it('no instance selected renders the full General settings page (v11.11)', async () => {
+describe('AppPageRouter — unified settings (v11.12)', () => {
+    it('no instance selected still renders the unified Settings surface', async () => {
         const { container } = renderRouter();
         await tick();
         const text = container.textContent ?? '';
-        // v11.11: ONE stacked page — title, fee card, cost projection and
-        // the share-config container all present without any switch.
-        expect(text).toContain('General Settings');
-        expect(text).toContain('Fees & Leverage');
-        expect(text).toContain('Cost Projection');
-        expect(text).toContain('Download config.toml');
-        expect(screen.queryByText('Share Config')).toBeNull();
+        // v11.12: ONE Settings surface — internal navbar, workspace-level
+        // editors available even with zero instances.
+        expect(text).toContain('Settings');
+        expect(text).toContain('Workspace');
+        expect(text).toContain('Instance');
+        expect(text).toContain('General');
+        expect(text).toContain('Timeframes');
     });
 
-    it('instance selected renders Workspace settings', async () => {
+    it('instance selected renders the same unified Settings surface', async () => {
         const app = useAppStore();
         const { container } = renderRouter({
             selectedInstance: 'BTC-USDT',
@@ -73,7 +73,10 @@ describe('AppPageRouter — MME settings dual-mode (v11.9 N2)', () => {
         });
         await tick();
         const text = container.textContent ?? '';
-        expect(text).toContain('Workspace Settings');
         expect(text).toContain('Timeframes');
+        // General content stays MOUNTED (hidden) so drafts survive tab
+        // switches — reach it via the internal navbar.
+        const generalTab = screen.getByText('General') as HTMLButtonElement;
+        expect(generalTab).toBeTruthy();
     });
 });

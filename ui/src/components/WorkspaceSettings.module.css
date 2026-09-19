@@ -481,3 +481,48 @@
     width: 72px;
     text-align: right;
 }
+
+/* v11.12 unified settings — card groups toggled by the shell's tab strip. */
+.settingsGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.settingsGroupHidden {
+    display: none !important;
+}
+
+/* v11.12 unified settings — the INSTANCE group's chip selector. */
+.chipRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0 6px;
+}
+.chipLabel {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.45);
+    margin-right: 2px;
+}
+.chip {
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.02);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--mono, monospace);
+    cursor: pointer;
+}
+.chip:hover {
+    color: #e2e8f0;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+.chipOn {
+    color: #e2e8f0;
+    border-color: rgba(56, 189, 248, 0.5);
+    background: rgba(56, 189, 248, 0.1);
+}

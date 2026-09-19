@@ -16,13 +16,12 @@
     import RecommendationPanel from '../RecommendationPanel.svelte';
     import GeneralDashboard from '../GeneralDashboard.svelte';
     import InstancePicker from '../InstancePicker.svelte';
-    import GeneralSettings from '../GeneralSettings.svelte';
+    import UnifiedSettings from '../UnifiedSettings.svelte';
     import DataInfraDashboard from '../DataInfraDashboard.svelte';
     import PerformanceDashboard from '../PerformanceDashboard.svelte';
     import TradeAutomationDashboard from '../TradeAutomationDashboard.svelte';
     import PortfolioDashboard from '../PortfolioDashboard.svelte';
     import BacktestingDashboard from '../backtesting/BacktestingDashboard.svelte';
-    import WorkspaceSettings from '../WorkspaceSettings.svelte';
 
     interface Props {
         currentEngine: string;
@@ -109,11 +108,10 @@
         {:else if middleTab === 'overview'}
             <GeneralDashboard {wssMap} />
         {:else}
-            {#if activePair}
-                <WorkspaceSettings pair={activePair} tabKey={activeTab} />
-            {:else}
-                <GeneralSettings />
-            {/if}
+            <!-- v11.12: ONE unified Settings surface (internal navbar:
+                 Workspace / Instance / General) — the old selection-driven
+                 General↔Workspace swap is erased. -->
+            <UnifiedSettings />
         {/if}
     {:else if currentEngine === 'performance'}
         <PerformanceDashboard section={section} />
