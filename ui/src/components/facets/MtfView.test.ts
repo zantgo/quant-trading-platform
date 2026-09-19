@@ -714,3 +714,17 @@ describe('MtfView — per-title section collapse', () => {
         expect(caret.getAttribute('aria-expanded')).toBe('false');
     });
 });
+
+// ── v11.12.6: indicator group table column titles ──────────────────────
+describe('MtfView — indicator group column titles (v11.12.6)', () => {
+    it('every group table header carries INDICATOR + AGREEMENT titles', () => {
+        const terms = makePair();
+        const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
+        const headers = Array.from(container.querySelectorAll('[class^="_summary_"]'));
+        expect(headers.length).toBeGreaterThan(0);
+        for (const h of headers) {
+            expect(h.textContent).toContain('INDICATOR');
+            expect(h.textContent).toContain('AGREEMENT');
+        }
+    });
+});

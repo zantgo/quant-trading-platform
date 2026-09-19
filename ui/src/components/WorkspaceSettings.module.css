@@ -11,7 +11,8 @@
 
 .tf-shell-body {
     flex: 1;
-    padding: 24px;
+    /* v11.12.6: uniform 32px bottom gap. */
+    padding: 24px 24px 32px;
     overflow-y: auto;
     min-width: 0;
     display: flex;
