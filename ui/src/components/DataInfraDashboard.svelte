@@ -77,7 +77,6 @@
     <div class={styles.content}>
         <DashboardHeader
             title={TITLES[section] ?? 'Data Infrastructure'}
-            tabLabel={TITLES[section] ?? 'Data Infrastructure'}
             {status}
         >
             {#snippet trailing()}

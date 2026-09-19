@@ -9,13 +9,15 @@
 
     interface Props {
         title: string;
-        tabLabel: string;
+        /** Optional tab-context label (right edge). Omit when it would
+         *  duplicate the title — e.g. the Data Infrastructure headers. */
+        tabLabel?: string;
         status: 'live' | 'stale' | 'error' | 'loading';
         /** Optional right-edge chrome: instance selector, export button… */
         trailing?: Snippet;
     }
 
-    let { title, tabLabel, status, trailing }: Props = $props();
+    let { title, tabLabel = '', status, trailing }: Props = $props();
 
     const statusCls: Record<Props['status'], string> = {
         live: styles.statusLive,
@@ -35,7 +37,9 @@
             </div>
         </div>
         <div class={styles.headerRight}>
-            <span class={styles.tabLabel}>{tabLabel}</span>
+            {#if tabLabel}
+                <span class={styles.tabLabel}>{tabLabel}</span>
+            {/if}
             {#if trailing}
                 {@render trailing()}
             {/if}
