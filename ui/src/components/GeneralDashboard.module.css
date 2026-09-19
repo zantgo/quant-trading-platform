@@ -94,7 +94,8 @@
     padding: 3px 10px;
     border-radius: 6px;
     border: 1.5px solid;
-    font-size: 13px;
+    /* v11.12.5: a touch larger than the per-tab badges (13px). */
+    font-size: 14px;
     font-weight: 700;
     font-family: var(--mono, 'SF Mono', monospace);
     letter-spacing: 0.02em;
