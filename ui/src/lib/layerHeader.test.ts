@@ -718,7 +718,7 @@ describe('buildL7OverviewHeader (L7)', () => {
 
     it('systemic_risk_score 0 renders GREEN (zero risk = good)', () => {
         const spec = buildL7OverviewHeader(overviewStub({ systemic_risk_score: 0 }), fetchState);
-        const sys = spec.meta.find((m) => m.label === 'Sys Risk')!;
+        const sys = spec.meta.find((m) => m.label === 'Sys risk')!;
         expect(sys.state).toBe('valid');
         expect(sys.color).toBe('#22c55e');
     });

@@ -18,10 +18,11 @@
 }
 
 .title {
-    font-size: 10px;
+    /* v11.12.13: bigger + white (hierarchy above the tile titles). */
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.6);
+    color: #f5f5f7;
     text-transform: uppercase;
     font-family: var(--mono, monospace);
 }
@@ -61,11 +62,12 @@
 }
 
 .tileTitle {
+    /* v11.12.13: cyan → white (size kept: 12px section > 10px tile > 9px content). */
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(34, 211, 238, 0.85);
+    color: #f5f5f7;
 }
 
 .tileCaret {
@@ -110,10 +112,11 @@
 }
 
 .vEmph {
-    color: #22d3ee;
+    /* v11.12.13: neutral emphasis is white, never cyan. */
+    color: #fff;
 }
 
-.vMono { color: #22d3ee; font-family: var(--mono, monospace); }
+.vMono { color: rgba(255, 255, 255, 0.95); font-family: var(--mono, monospace); }
 
 .bull { color: #22c55e; }
 .bear { color: #ef4444; }
@@ -146,8 +149,9 @@
 .distanceBadge {
     font-size: 10px;
     color: rgba(255, 255, 255, 0.65);
-    background: rgba(34, 211, 238, 0.08);
-    border: 1px solid rgba(34, 211, 238, 0.25);
+    /* v11.12.13: neutral pill — no cyan tint. */
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     padding: 3px 8px;
     border-radius: 3px;
     display: flex;
@@ -157,7 +161,7 @@
 
 .distanceVal {
     font-family: var(--mono, monospace);
-    color: #22d3ee;
+    color: #fff;
     font-weight: 700;
 }
 
@@ -303,7 +307,8 @@
 .ladderMagnet {
     font-size: 9px;
     letter-spacing: -1px;
-    color: #22d3ee;
+    /* v11.12.13: neutral marker, not cyan. */
+    color: rgba(255, 255, 255, 0.6);
     text-align: right;
 }
 
@@ -312,10 +317,11 @@
     align-items: center;
     justify-content: space-between;
     padding: 3px 6px;
-    border-top: 1px dashed rgba(34, 211, 238, 0.4);
-    border-bottom: 1px dashed rgba(34, 211, 238, 0.4);
+    /* v11.12.13: neutral highlight — no cyan dashes/tint. */
+    border-top: 1px dashed rgba(255, 255, 255, 0.25);
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.25);
     margin: 4px 0;
-    background: rgba(34, 211, 238, 0.08);
+    background: rgba(255, 255, 255, 0.05);
     font-size: 9px;
     color: rgba(255, 255, 255, 0.7);
     text-transform: uppercase;
@@ -325,7 +331,7 @@
 
 .ladderMidPrice {
     font-size: 11px;
-    color: #22d3ee;
+    color: #fff;
     font-weight: 800;
 }
 

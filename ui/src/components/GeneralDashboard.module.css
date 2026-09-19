@@ -153,36 +153,25 @@
     border-radius: 999px;
     font-size: 11px;
     font-family: var(--mono, 'SF Mono', monospace);
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.06);
     white-space: nowrap;
 }
 
+/* v11.12.13: unified scan-row pill typography — grey sentence-case labels,
+   always-white ALL-CAPS values (no state colours). */
 .metaChipLabel {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     color: rgba(255, 255, 255, 0.45);
-    font-weight: 500;
 }
 
 .metaChipValue {
+    font-size: 11px;
     font-weight: 600;
-}
-
-.metaChipValueValid {
-    /* colour applied via inline style */
-}
-
-.metaChipValueNeutral {
-    color: #f59e0b;
-    opacity: 0.85;
-}
-
-.metaChipValueEmpty {
-    color: rgba(255, 255, 255, 0.25);
-    font-style: italic;
-}
-
-.metaChipValueError {
-    color: #ef4444;
+    color: #f5f5f7;
+    text-transform: uppercase;
 }
 
 /* ── Status indicator (LIVE / stale / error / loading) ── */

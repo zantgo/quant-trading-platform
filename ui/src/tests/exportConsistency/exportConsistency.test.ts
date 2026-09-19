@@ -1126,9 +1126,8 @@ describe('export consistency — Overview tab', () => {
 
     // Header trailing chrome — UTC clock + scan strip + export button.
     expect(c.dom).toContain('UTC');
-    expect(c.dom).toContain('pairs');
-    expect(c.dom).toContain('last scan');
-    expect(c.dom).toContain('auto-refresh');
+    expect(c.dom).toContain('Last scan');
+    expect(c.dom).toContain('Auto-refresh');
     expect(p.clock.zone_display).toBe('UTC');
     expect(p.scan_strip.auto_refresh).toBe('on');
     expect(p.scan_strip.total_pairs).toBeGreaterThan(0);

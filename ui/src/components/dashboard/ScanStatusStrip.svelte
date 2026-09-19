@@ -1,7 +1,7 @@
 <script lang="ts">
     // ScanStatusStrip — right-aligned status line for the Market Overview
-    // header. Shows the pair count, the most recent L7 fetch / scan
-    // freshness, and explicitly states whether the dashboard auto-refreshes.
+    // header. Shows the most recent L7 fetch / scan freshness and explicitly
+    // states whether the dashboard auto-refreshes.
     //
     // Freshness is anchored to `app.overviewMatrix` reactivity: when the
     // polling action assigns a new matrix, the `lastFetchMs` timestamp
@@ -20,10 +20,6 @@
         return () => clearInterval(id);
     });
 
-    const activeCount = $derived(
-        Object.values(app.instancesMap).filter((p) => p.isConnected).length,
-    );
-    const totalCount = $derived(Object.keys(app.instancesMap).length);
     const lastFetchMs = $derived(app.overviewMatrix ? Date.now() : null);
     // Touch `tick` so the derived value re-runs every second.
     const rel = $derived.by(() => {
@@ -35,15 +31,11 @@
 
 <div class={styles.strip}>
     <span class={styles.pill}>
-        <span class={styles.dot} class:active={activeCount > 0}></span>
-        {activeCount}/{totalCount} pairs
-    </span>
-    <span class={styles.pill}>
-        <span class={styles.label}>last scan</span>
+        <span class={styles.label}>Last scan</span>
         <span class={styles.val}>{rel.label}</span>
     </span>
     <span class={styles.pill}>
-        <span class={styles.label}>auto-refresh</span>
+        <span class={styles.label}>Auto-refresh</span>
         <span class={styles.val}>on</span>
     </span>
 </div>

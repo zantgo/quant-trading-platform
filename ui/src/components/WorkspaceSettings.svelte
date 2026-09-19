@@ -749,16 +749,16 @@
         <div class={engine.card}>
             <div class={engine.cardHead}>
                 <!-- v11.12.4: the page title moved to the shell's action
-                     row — the card keeps only its provenance chip. -->
+                     row — the card keeps only its provenance chip.
+                     v11.12.13: chip + instruction line replaced by a clear
+                     two-pane title (rail = durations, pane = indicators). -->
                 {#if !embedded}
                     <h3 class={engine.cardTitle}>Timeframes</h3>
                 {/if}
-                <ConfigSourceChip source="[workspace].timeframes" apply="LIVE" />
+                <h3 class={styles.tfCardTitle}>
+                    TIMEFRAME <span class={styles.tfCardTitleSep}>|</span> INDICATOR
+                </h3>
             </div>
-            <p class={engine.infoLine}>
-                Toggle which durations run (at least one stays) and click a row to edit its
-                parameters. Saving recharges running instances.
-            </p>
             <div class={styles.tfShell}>
                 <aside class={styles.tfShellRail}>
                     {#each DURATIONS as slot (slot)}

@@ -216,7 +216,7 @@
                     <h3 class={styles.inputTitle}>Watchlist symbols</h3>
                     <p class={styles.inputSubtitle}>
                         Add a basket of pairs and keep only those with a clear decision within
-                        the wait window (default {WAIT_WINDOW_DEFAULT} min).
+                        the wait window.
                     </p>
                 </div>
                 <div class={styles.inputBlock}>

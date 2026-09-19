@@ -250,7 +250,7 @@
 
     function signalCellTooltip(cell: MtfSignalCell): string {
         const lines = cell.entries.map((e) =>
-            `${e.displayName} — ${e.signal.label} (${e.signal.strength_label ?? 'str ' + (e.signal.strength * 100).toFixed(0)} · ${e.signal.status} · age ${ageLabel(e.signal.age_bars)})`,
+            `${e.displayName} — ${e.signal.label} (Strength ${e.signal.strength_label ?? (e.signal.strength * 100).toFixed(0)} · ${e.signal.status} · Age ${ageLabel(e.signal.age_bars)})`,
         );
         return lines.length > 0 ? lines.join('\n') : 'no active signals of this kind';
     }
@@ -468,7 +468,7 @@
 
     function levelCellTooltip(cell: MtfLevelCell): string {
         const lines = cell.entries.map((e) =>
-            `${e.displayName} — ${e.levelName} ${e.priceText} (${e.signal.direction} · str ${(e.signal.strength * 100).toFixed(0)} · ${e.signal.status})`,
+            `${e.displayName} — ${e.levelName} ${e.priceText} (${e.signal.direction} · Strength ${(e.signal.strength * 100).toFixed(0)} · ${e.signal.status})`,
         );
         return lines.length > 0 ? lines.join('\n') : 'no active level tests of this kind';
     }
@@ -481,14 +481,6 @@
     }
 
     const MAX_CHIPS_PER_CELL = 3;
-
-    function fmtTimeframe(secs: number): string {
-        if (!secs || secs <= 0) return '--';
-        if (secs >= 86400) return `${secs / 86400}d`;
-        if (secs >= 3600) return `${secs / 3600}h`;
-        if (secs >= 60) return `${secs / 60}m`;
-        return `${secs}s`;
-    }
 
     function agClass(label: 'BULL' | 'BEAR' | 'MIXED'): string {
         if (label === 'BULL') return styles.agBull ?? '';
@@ -581,7 +573,6 @@
                                 {#each SLOTS as slot (slot.label)}
                                     <div class={styles.summarySlot}>
                                         <div class={styles.summaryLabel}>{slot.label}</div>
-                                        <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
                                     </div>
                                 {/each}
                                 <!-- v11.12.7: one title per trailing column. -->
@@ -639,7 +630,6 @@
                 {#each SLOTS as slot (slot.label)}
                     <div class={styles.summarySlot}>
                         <div class={styles.summaryLabel}>{slot.label}</div>
-                        <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
                     </div>
                 {/each}
                 <span class={styles.tblSummaryTotal}>TOTAL</span>
@@ -791,7 +781,7 @@
                                         class="{styles.tblCountCell} {sub ? '' : styles.tblCellEmpty}"
                                         style={sub ? `color: ${divergenceAccent(sub)}; font-weight: 700;` : ''}
                                         title={sub
-                                            ? `${divergenceLabel(sub)} · str ${(cell.strength * 100).toFixed(0)}%`
+                                            ? `${divergenceLabel(sub)} · Strength ${(cell.strength * 100).toFixed(0)}%`
                                             : 'no active divergence'}
                                     >
                                         {sub ? divShort(sub) : '·'}

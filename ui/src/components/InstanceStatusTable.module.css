@@ -24,6 +24,8 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: #64748b;
+    /* v11.12.13: explicit family so parity with ASSET RANKINGS can't drift. */
+    font-family: var(--sans, system-ui, sans-serif);
 }
 
 .expand-all-btn {

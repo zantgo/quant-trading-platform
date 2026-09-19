@@ -751,7 +751,7 @@ export function buildL7OverviewHeader(
         },
         meta: [
             chip('Instances', count, count, null, true),
-            chip('Sys Risk', risk, risk, riskDangerColor, false, { zeroIsGood: true }),
+            chip('Sys risk', risk, risk, riskDangerColor, false, { zeroIsGood: true }),
             chip('Sync', sync ? prettifyEnum(sync) : null, null, () => COLORS.textMuted),
         ],
         status,
