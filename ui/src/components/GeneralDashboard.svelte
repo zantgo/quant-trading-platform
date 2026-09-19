@@ -167,11 +167,13 @@
                 </p>
             </div>
         {:else}
-            <!-- UNIFIED HEADER (v7.4): the L7 header chrome and the scan
-                 bar are merged into ONE block. Row 1 keeps the MARKET
-                 OVERVIEW title + UTC clock on the left and pins the LIVE
-                 pill + OVERVIEW label + EXPORT DATA button top-right
-                 (the same trailing row every other MME tab renders). -->
+            <!-- UNIFIED HEADER (v7.4; order v11.12.5): the L7 header
+                 chrome and the scan bar merged into ONE block. Row 1 =
+                 MARKET OVERVIEW title + UTC clock left, LIVE pill +
+                 OVERVIEW label + EXPORT DATA top-right; row 2 = the L7
+                 badge + ghost trail (badges FIRST, matching every MME
+                 layer header); row 3 = the scan/meta pills (pairs · last
+                 scan · auto-refresh · Instances · Sys Risk · Sync). -->
             <div class={styles.unifiedHeader}>
                 <div class={styles.headerTop}>
                     <div class={styles.titleGroup}>
@@ -186,6 +188,24 @@
                         <span class={styles.tabLabel}>OVERVIEW</span>
                         <ExportDataButton onExport={buildExport} title="Copy all Overview data as JSON" />
                     </div>
+                </div>
+
+                <div class={styles.badgeRow}>
+                    <span
+                        class="{styles.badge} {badgeCls[headerSpec.badge.state]}"
+                        style="border-color: {headerSpec.badge.color}; color: {headerSpec.badge.color}; background-color: {headerSpec.badge.background};"
+                        aria-label="Layer badge: {headerSpec.badge.label}{headerSpec.badge.sublabel ? `, ${headerSpec.badge.sublabel}` : ''}"
+                    >
+                        {#if headerSpec.badge.state === 'error'}
+                            <span class={styles.errorIcon} aria-hidden="true">⚠</span>
+                        {/if}
+                        <span>{headerSpec.badge.label}</span>
+                        {#if headerSpec.badge.sublabel}
+                            <span class={styles.badgeDivider} aria-hidden="true">•</span>
+                            <span>{headerSpec.badge.sublabel}</span>
+                        {/if}
+                    </span>
+                    <BadgeTrail entries={l7Trail} />
                 </div>
 
                 <div class={styles.scanRow}>
@@ -205,24 +225,6 @@
                             {/each}
                         </div>
                     {/if}
-                </div>
-
-                <div class={styles.badgeRow}>
-                    <span
-                        class="{styles.badge} {badgeCls[headerSpec.badge.state]}"
-                        style="border-color: {headerSpec.badge.color}; color: {headerSpec.badge.color}; background-color: {headerSpec.badge.background};"
-                        aria-label="Layer badge: {headerSpec.badge.label}{headerSpec.badge.sublabel ? `, ${headerSpec.badge.sublabel}` : ''}"
-                    >
-                        {#if headerSpec.badge.state === 'error'}
-                            <span class={styles.errorIcon} aria-hidden="true">⚠</span>
-                        {/if}
-                        <span>{headerSpec.badge.label}</span>
-                        {#if headerSpec.badge.sublabel}
-                            <span class={styles.badgeDivider} aria-hidden="true">•</span>
-                            <span>{headerSpec.badge.sublabel}</span>
-                        {/if}
-                    </span>
-                    <BadgeTrail entries={l7Trail} />
                 </div>
             </div>
 

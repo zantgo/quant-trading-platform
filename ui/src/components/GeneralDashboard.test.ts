@@ -556,3 +556,20 @@ describe('GeneralDashboard — market alignment card', () => {
         expect(screen.getByText('Strong consensus')).toBeTruthy();
     });
 });
+
+// ── v11.12.5: header row order — badges FIRST, pills under them ────────
+describe('GeneralDashboard — header row order (v11.12.5)', () => {
+    it('renders title row → badge + ghost trail → scan/meta pills', () => {
+        seedPair('BTC');
+        const { container } = render(GeneralDashboard, { props: { wssMap: {} } });
+        const header = container.querySelector('[class*="unifiedHeader"]')!;
+        const top = header.querySelector('[class*="headerTop"]')!;
+        const badge = header.querySelector('[class*="badgeRow"]')!;
+        const scan = header.querySelector('[class*="scanRow"]')!;
+        expect(top).toBeTruthy();
+        expect(badge).toBeTruthy();
+        expect(scan).toBeTruthy();
+        expect(top.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(badge.compareDocumentPosition(scan) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+});
