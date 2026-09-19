@@ -321,8 +321,25 @@
     text-align: center;
 }
 
-.summarySpacer {
-    /* Empty cell — aligns timeframes with data columns */
+/* v11.12.6: column titles — the name column (left) and the agreement
+   pair (badge + average value, right) were unlabeled. */
+.summaryFirst {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.summaryAgreement {
+    grid-column: span 2;
+    justify-self: end;
+    padding-right: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.4);
 }
 
 .summaryLabel {

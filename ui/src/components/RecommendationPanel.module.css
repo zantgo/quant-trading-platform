@@ -1,4 +1,6 @@
-.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: rgba(255, 255, 255, 0.02); color: #e2e8f0; }
+.panel { height: 100%; overflow-y: auto; padding: 16px 20px 32px; background: rgba(255, 255, 255, 0.02); color: #e2e8f0; }
+/* v11.12.6: uniform 32px bottom gap. */
+.panel > :last-child { margin-bottom: 0; }
 .panelHeader { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0; text-transform: uppercase; }
 

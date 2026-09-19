@@ -84,7 +84,8 @@
 .contentArea {
     flex: 1;
     min-width: 0;
-    padding: 0 14px 14px;
+    /* v11.12.6: bottom breathing room matches every other page (32px). */
+    padding: 0 14px 32px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;

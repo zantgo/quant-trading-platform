@@ -577,15 +577,14 @@
                     <div class="{styles.tableScroll} {styles.tableScrollGroup}">
                         <div class={styles.tableInner}>
                             <div class="{styles.summary} {styles.stickyHead}" style="--tf-count: {SLOTS.length}">
-                                <div class={styles.summarySpacer}></div>
+                                <span class={styles.summaryFirst}>INDICATOR</span>
                                 {#each SLOTS as slot (slot.label)}
                                     <div class={styles.summarySlot}>
                                         <div class={styles.summaryLabel}>{slot.label}</div>
                                         <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
                                     </div>
                                 {/each}
-                                <div class={styles.summarySpacer}></div>
-                                <div class={styles.summarySpacer}></div>
+                                <span class={styles.summaryAgreement}>AGREEMENT</span>
                             </div>
                             <div class={styles.body}>
                                 {#each g.items as r (r.meta.key)}
