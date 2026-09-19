@@ -748,7 +748,11 @@
         <div class="{styles.settingsGroup} {embedded && sectionTab !== 'all' && sectionTab !== 'timeframes' ? styles.settingsGroupHidden : ''}">
         <div class={engine.card}>
             <div class={engine.cardHead}>
-                <h3 class={engine.cardTitle}>Timeframes</h3>
+                <!-- v11.12.4: the page title moved to the shell's action
+                     row — the card keeps only its provenance chip. -->
+                {#if !embedded}
+                    <h3 class={engine.cardTitle}>Timeframes</h3>
+                {/if}
                 <ConfigSourceChip source="[workspace].timeframes" apply="LIVE" />
             </div>
             <p class={engine.infoLine}>

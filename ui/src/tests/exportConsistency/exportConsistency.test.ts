@@ -312,11 +312,10 @@ describe('export consistency — Opportunities tab', () => {
     expect(c.jsonText).toContain('Bullish');
     expect(p.market_position.regime).toBe('TrendingBull');
     expect(p.environment.timeframes_considered_display).toBe('14 Timeframes considered');
-    // The environment pills moved into the L4 header chip rail — the chip
-    // renders label + value ('Timeframes: 10/10') instead of the old
-    // bottom-section sentence.
-    expect(c.dom).toContain('Timeframes:');
-    expect(c.dom).toContain('14 TF');
+    // v11.12.4: the Timeframes chip was ERASED from the Opportunities
+    // header — the L4 rail keeps Score / Confidence / Horizon only; the
+    // environment JSON still carries the TF count.
+    expect(c.dom).not.toContain('Timeframes:');
     expect(p.environment.confidence_pct).toBe(72);
     expect(c.dom).toContain('Confidence: 72%');
   });

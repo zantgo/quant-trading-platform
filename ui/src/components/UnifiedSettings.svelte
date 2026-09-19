@@ -17,6 +17,7 @@
     import GeneralSettings from './GeneralSettings.svelte';
     import SettingsSaveButton, { type SettingsSaveState } from './SettingsSaveButton.svelte';
     import ExportDataButton from './ExportDataButton.svelte';
+    import engine from '../styles/engine-dashboard.module.css';
     import styles from './UnifiedSettings.module.css';
 
     type SettingsTab = 'timeframes' | 'instance' | 'general';
@@ -31,6 +32,15 @@
     // v11.12.2: navigate order GENERAL | WORKSPACE | INSTANCE with the
     // first tab (GENERAL) as the entry tab.
     let tab = $state<SettingsTab>('general');
+
+    // v11.12.4: the container/page titles live OUTSIDE the cards — in the
+    // action row's left corner, styled like the engine panel headers
+    // (e.g. "RISK ASSESSMENT").
+    const SECTION_TITLES: Record<SettingsTab, string> = {
+        general: 'General Settings',
+        timeframes: 'Timeframes and Indicators Settings',
+        instance: 'Instance Settings',
+    };
 
     let wsSection: WorkspaceSettings | undefined = $state();
     let generalSection: GeneralSettings | undefined = $state();
@@ -89,6 +99,7 @@
     </nav>
 
     <div class={styles.actionRow}>
+        <h2 class={engine.title}>{SECTION_TITLES[tab]}</h2>
         <div class={styles.actionGroup}>
             <SettingsSaveButton state={saveState} onsave={saveAll} />
             <ExportDataButton

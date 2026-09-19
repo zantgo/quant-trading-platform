@@ -67,12 +67,14 @@
 }
 
 /* v11.12.2: SAVE + EXPORT action row — sits directly under the settings
-   navbar (the engine-view content-header position). */
+   navbar (the engine-view content-header position).
+   v11.12.4: the active section's title sits at the LEFT corner, styled
+   like the engine panel headers; the action group stays right. */
 .actionRow {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 12px;
     padding: 10px 16px;
     border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06));
 }

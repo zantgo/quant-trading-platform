@@ -268,3 +268,18 @@ describe('UnifiedSettings — save robustness (v11.12.3)', () => {
         }, { timeout: 4000 });
     });
 });
+
+describe('UnifiedSettings — action-row section titles (v11.12.4)', () => {
+    it('shows the active tab\u2019s title at the left corner of the action row', async () => {
+        seedPair('BTC');
+        const { container } = render(UnifiedSettings);
+        await tick();
+        expect(container.textContent).toContain('General Settings');
+        await fireEvent.click(tabButton('Timeframes'));
+        await tick();
+        expect(container.textContent).toContain('Timeframes and Indicators Settings');
+        await fireEvent.click(tabButton('Instance'));
+        await tick();
+        expect(container.textContent).toContain('Instance Settings');
+    });
+});

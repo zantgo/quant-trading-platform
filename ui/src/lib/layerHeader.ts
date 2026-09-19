@@ -13,6 +13,7 @@
 
 import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
+import { DURATIONS } from '../types';
 import { resolveEffectiveDirection } from './opportunityBars';
 import type { AdvisoryMatrix, AlignmentMatrix, AnalysisMatrix, DecisionContext, GlobalBias, MarketBias, OpportunityMatrix, OverviewMatrix, RiskMatrix, TimeframeTelemetry } from '../types';
 
@@ -328,7 +329,13 @@ export function buildL1MetricsHeader(
 // Renders an MTF-specific spec when the operator switches the L1 sidebar
 // to "MTF". The badge is fixed (`MTF SYNC`); the chips show cross-TF
 // agreement + presence so the operator can compare against L2.
-export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, overviewSync: string | null | undefined = null): LayerHeaderSpec {
+export function buildL1MtfHeader(
+    alignment: AlignmentMatrix | null | undefined,
+    overviewSync: string | null | undefined = null,
+    /** v11.12.4: the CONFIGURED ACTIVE-ladder length — the chip reads
+     *  `Timeframes: active/14`. Falls back to `timeframes_present`. */
+    activeCount: number | null = null,
+): LayerHeaderSpec {
     if (!alignment) {
         return {
             layerNumber: 1,
@@ -358,7 +365,13 @@ export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, 
             state: 'valid',
         },
         meta: [
-            chip('TFs', `${tfs} TF`, tfs, null, true),
+            chip(
+                'Timeframes',
+                `${activeCount ?? tfs}/${DURATIONS.length}`,
+                activeCount ?? tfs,
+                null,
+                true,
+            ),
             chip('Agreement', `${agreement.toFixed(0)}%`, agreement, scoreColor),
             chip('Cross', cross, cross, null, true),
         ],
@@ -371,7 +384,11 @@ export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, 
 // ("WEAK BULL", not "WEAK BULL MTF"). M-5 (v6.10.13): status follows the
 // same TF-count rule as the L1 MTF header (≥3 live, ≥1 stale, 0 loading)
 // — two headers reading the same alignment can no longer disagree.
-export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): LayerHeaderSpec {
+export function buildL2AlignmentHeader(
+    a: AlignmentMatrix | null | undefined,
+    /** v11.12.4: the CONFIGURED ACTIVE-ladder length — `Timeframes: N/14`. */
+    activeCount: number | null = null,
+): LayerHeaderSpec {
     const label = a?.mtf_overall_label ?? null;
     const tfs = a?.timeframes_present ?? null;
 
@@ -387,10 +404,17 @@ export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): L
             background: hexToRgba(biasColor(label), 0.08),
             state: 'valid',
         },
-        // v11.12.3: the TFs chip was ERASED from the Alignment header
-        // (operator call) — the badge alone carries the state; the
-        // duration context is in the Timeframe Status section below.
-        meta: [],
+        // v11.12.4: the Timeframes chip is BACK (operator call) with the
+        // unified format — `Timeframes: N/14`, label grey, value white.
+        meta: [
+            chip(
+                'Timeframes',
+                `${activeCount ?? tfs}/${DURATIONS.length}`,
+                activeCount ?? tfs,
+                null,
+                true,
+            ),
+        ],
         status: tfs != null && tfs >= 3 ? 'live' : tfs != null && tfs >= 1 ? 'stale' : 'loading',
     };
 }
@@ -469,7 +493,8 @@ export function buildL4OpportunityHeader(
         analysis?.confidence != null ? Math.round(analysis.confidence * 100) : null;
     const environmentMeta: MetaChipSpec[] = [
         chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, null),
-        chip('Timeframes', tfs != null ? `${tfs} TF` : null, tfs, null, true),
+        // v11.12.4: the Timeframes chip was ERASED from the Opportunities
+        // header (it remains only on Metrics-MTF and Alignment).
     ];
 
     if (noClear) {
@@ -516,7 +541,7 @@ export function buildL4OpportunityHeader(
             chip('Score', score, score, scoreColor),
             chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, null),
             chip('Horizon', horizon ? prettifyEnum(horizon) : null, null, () => COLORS.textMuted),
-            chip('Timeframes', tfs != null ? `${tfs} TF` : null, tfs, null, true),
+            // v11.12.4: Timeframes chip erased from Opportunities.
         ],
         status: 'live',
     };
