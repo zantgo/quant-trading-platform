@@ -1,6 +1,6 @@
 # Candle Buffer Specification
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** network-adapters + portfolio-supervisor + market-analyzer
@@ -36,7 +36,7 @@ The platform now has one canonical behavior per tier. Every exchange, every time
 | **CB-08** | **≥ 1 minute timeframes (`timeframe_secs ≥ 60`) always start with exactly `candle_buffer.size` historical candles.** The platform paginates the exchange REST endpoint until either `size` candles are returned or the exchange's earliest available history is reached, then merges with the SQLite `market_snapshots` cache (newest DB takes precedence on overlap), then caps at `size`. |
 | **CB-09** | A ≥ 1 minute cold start always completes with **all 52 indicators in `IndicatorLifecycleState::Live`** (every indicator's `bars_required ≤ INDICATORS_MAX_BARS_REQUIRED = 300 ≤ size = 500`). The user sees a chart with full history on first paint; the only visible loading state is the brief exchange-REST round-trip. |
 | **CB-10** | Per-exchange REST pagination is the responsibility of the `HistoricalFetchPolicy` trait ([03-01-07](../engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md)). Bitget must paginate against its 200-row limit until `size` rows are returned; Hyperliquid must paginate against its implicit return-size cap using backward `startTime` cursors. Both adapters **must converge to exactly `size`** rows from a cold start whenever the exchange has sufficient history. |
-| **CB-11** | A **single-slot reload** request (`POST /api/instances/:id/reload?slot=<name>`, one of `1s`…`1h`; since v11.1 slot durations are fixed, so the API serves operational recovery — stuck pipeline, warm-handover shortfall — not duration edits) triggers a **single-TF reload** of only the affected pipeline via the `reload_timeframe` API (`portfolio-supervisor`). The other nine pipelines continue uninterrupted. The reload tears down the affected `TimeframePipeline`, re-runs bootstrap against its fixed `timeframe_secs`, and re-emits `INITIALIZING → LOADING → LIVE` on the new pipeline. |
+| **CB-11** | A **single-slot reload** request (`POST /api/instances/:id/reload?tf=<secs|label|all>`, any of the 14 durations `1s`…`1d`; the API serves operational recovery — stuck pipeline, warm-handover shortfall — not duration edits) triggers a **single-TF reload** of only the affected pipeline via the `reload_timeframe` API (`portfolio-supervisor`). The other ACTIVE pipelines continue uninterrupted. The reload tears down the affected `TimeframePipeline`, re-runs bootstrap against its fixed `timeframe_secs`, and re-emits `INITIALIZING → LOADING → LIVE` on the new pipeline. |
 | **CB-12** | SQLite retains its existing **7-day** retention policy unchanged. The `market_snapshots` table is the long-term log; the in-memory `candle_buffer.size` rolling window is the only thing bounded by `size`. On eviction the candle leaves memory; the corresponding SQLite row remains queryable until the 7-day cleanup deletes it. |
 
 ## §3 Configuration schema
@@ -75,9 +75,9 @@ The `reload_timeframe` API is the canonical entry point for all in-place changes
 
 | Trigger | Reload scope | Pipeline state after reload |
 |---------|--------------|-----------------------------|
-| Operator invokes `/api/instances/:id/reload?slot=<name>` (one of `1s|3s|5s|15s|30s|1m|3m|5m|15m|1h`) | that slot only | `INITIALIZING → LOADING → LIVE` (CB-11) |
+| Operator invokes `/api/instances/:id/reload?tf=<secs|label|all>` (any of the 14 durations `1s`…`1d`) | that slot only | `INITIALIZING → LOADING → LIVE` (CB-11) |
 | Operator invokes `/api/instances/:id/reload?slot=all` | every ACTIVE ladder slot (v11.2) | each follows the above |
-| Boot-time instance spawn | every ACTIVE ladder slot (v11.2 — the fastest-N prefix) | `INITIALIZING → LOADING → LIVE` per CB-05/CB-08 |
+| Boot-time instance spawn | every ACTIVE duration (an arbitrary subset of the 14-duration pool) | `INITIALIZING → LOADING → LIVE` per CB-05/CB-08 |
 | Recharge (existing API) | every ACTIVE ladder slot (v11.2) | same |
 
 Slot durations are fixed (v11.1) — there is no operator duration edit that would force a reload; the API remains for operational recovery (stuck pipeline, warm-handover shortfall).
@@ -102,7 +102,7 @@ Tracked in `docs/CHANGELOG.md §Open Items` with `AUDIT-V7-NN` identifiers.
 - `AUDIT-V7-300` — `config-models`: introduce `CandleBufferConfig` struct + `[candle_buffer]` block; remove `analysis_limit` from `TimeframeConfig`; add migration log line for legacy `analysis_limit` keys.
 - `AUDIT-V7-301` — `core-domain`: introduce `CandlePipelineState`, `IndicatorLifecycleState`, `IndicatorLifecycleStatus` (see [03-01-06](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md) §2 and [03-02-15](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md) §2).
 - `AUDIT-V7-302` — `network-adapters`: introduce `HistoricalFetchPolicy` trait; implement `HyperliquidHistoricalFetch` (paginated backward cursor); implement `BitgetHistoricalFetch` (paginated forward cursor with `limit=200` per page).
-- `AUDIT-V7-303` — `market-analyzer`: replace `HIST_BUFFER_MAX = 1000` with `candle_buffer.size`; ensure deque never exceeds `size`; populate `IndicatorLifecycleStatus` for all 50 registry entries; publish `tf.pipeline_state`.
+- `AUDIT-V7-303` — `market-analyzer`: replace `HIST_BUFFER_MAX = 1000` with `candle_buffer.size`; ensure deque never exceeds `size`; populate `IndicatorLifecycleStatus` for all 52 registry entries; publish `tf.pipeline_state`.
 - `AUDIT-V7-304` — `portfolio-supervisor`: rewrite `collect_candles` to use `HistoricalFetchPolicy`; sub-minute returns empty Vec; ≥ 1 minute paginates until `size` then merges DB; expose `reload_timeframe(instance_id, slot, new_config)` API.
 - `AUDIT-V7-305` — `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` clamp to `candle_buffer.size`; add `pipeline_state` + `indicator_lifecycle` to the `/api/history` response.
 - `AUDIT-V7-306` — `execution-daemon`: fix `--web` boot so `init_session` does not deactivate before auto-spawning configured instances (currently `main.rs:261` sets `active = false` immediately).

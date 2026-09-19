@@ -19,10 +19,12 @@
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './UnifiedSettings.module.css';
 
-    type SettingsTab = 'workspace' | 'instance' | 'general';
+    type SettingsTab = 'timeframes' | 'instance' | 'general';
     const TABS: Array<{ key: SettingsTab; label: string }> = [
         { key: 'general', label: 'General' },
-        { key: 'workspace', label: 'Workspace' },
+        // v11.12.3: renamed from "Workspace" — the app navbar already has a
+        // WORKSPACE item; this tab edits the duration ladder + parameters.
+        { key: 'timeframes', label: 'Timeframes' },
         { key: 'instance', label: 'Instance' },
     ];
 
@@ -48,11 +50,19 @@
     async function saveAll(): Promise<void> {
         if (saveState !== 'dirty' && saveState !== 'error') return;
         saveState = 'saving';
-        let ok = true;
-        if (wsSection) ok = (await wsSection.save()) && ok;
-        if (generalSection) ok = (await generalSection.save()) && ok;
-        saveState = ok ? 'saved' : 'error';
-        if (ok) setTimeout(() => { saveState = 'idle'; }, 2000);
+        // v11.12.3: the save state can NEVER stick in "saving" — any
+        // throw resolves to `error` (the previous implementation left the
+        // button in SAVING… forever when a section save rejected).
+        try {
+            let ok = true;
+            if (wsSection) ok = (await wsSection.save()) && ok;
+            if (generalSection) ok = (await generalSection.save()) && ok;
+            saveState = ok ? 'saved' : 'error';
+            if (ok) setTimeout(() => { saveState = 'idle'; }, 2000);
+        } catch (e) {
+            console.error('Settings save failed:', e);
+            saveState = 'error';
+        }
     }
 
     function exportActive(): string {
@@ -79,19 +89,21 @@
     </nav>
 
     <div class={styles.actionRow}>
-        <SettingsSaveButton state={saveState} onsave={saveAll} />
-        <ExportDataButton
-            onExport={exportActive}
-            title="Copy the active settings tab's data as JSON"
-        />
+        <div class={styles.actionGroup}>
+            <SettingsSaveButton state={saveState} onsave={saveAll} />
+            <ExportDataButton
+                onExport={exportActive}
+                title="Copy the active settings tab's data as JSON"
+            />
+        </div>
     </div>
 
     <!-- Every section stays MOUNTED (drafts survive tab switches); the
          inactive ones are hidden via the `hidden` attribute. -->
-    <div class={styles.tabContent} hidden={tab === 'general'} data-testid="settings-workspace-section">
+    <div class={styles.tabContent} hidden={tab === 'general'} data-testid="settings-timeframes-section">
         <WorkspaceSettings
             embedded
-            sectionTab={tab === 'instance' ? 'instance' : 'workspace'}
+            sectionTab={tab === 'instance' ? 'instance' : 'timeframes'}
             bind:this={wsSection}
             onDirtyChange={(d) => (wsDirty = d)}
         />

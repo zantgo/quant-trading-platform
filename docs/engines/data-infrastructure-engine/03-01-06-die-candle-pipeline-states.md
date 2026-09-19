@@ -1,6 +1,6 @@
 # DIE Candle Pipeline State Machine
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** market-analyzer + portfolio-supervisor
@@ -9,7 +9,7 @@
 
 ## §1 Purpose
 
-Defines the operational lifecycle of one per-timeframe candle pipeline. Each `TimeframePipeline` (micro / fast / slow / macro) is a state machine; its state is published on every emitted `MarketSnapshot` so the dashboard, the frontend charts, and the cross-TF synthesis layer can all reason about whether the pipeline's outputs are trustworthy, warming up, or unusable.
+Defines the operational lifecycle of one per-timeframe candle pipeline. Each `TimeframePipeline` (one per ACTIVE duration) is a state machine; its state is published on every emitted `MarketSnapshot` so the dashboard, the frontend charts, and the cross-TF synthesis layer can all reason about whether the pipeline's outputs are trustworthy, warming up, or unusable.
 
 The state machine is **per-TF**, not per-instance. A reload of the micro pipeline does not change the fast / slow / macro pipelines' states (CB-11 in [08-08](../../operations-and-compliance/08-08-candle-buffer-spec.md)).
 

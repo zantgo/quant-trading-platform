@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -10,7 +10,7 @@
 
 This manual is for the operator of the Trading Platform — typically a quantitative trader or quant developer running the platform on a local workstation or a cloud VM. Readers are expected to be comfortable with the Rust toolchain (for the engine), Bun (for the frontend), and basic Linux shell commands.
 
-Hardware target: any 64-bit Linux/macOS machine capable of running a Rust binary and an Axum HTTP server. No GPU is required. Memory footprint at idle is ~150 MB; under live load it scales with the number of active Market Instances (4 timeframe pipelines each).
+Hardware target: any 64-bit Linux/macOS machine capable of running a Rust binary and an Axum HTTP server. No GPU is required. Memory footprint at idle is ~150 MB; under live load it scales with the number of active Market Instances (one pipeline per ACTIVE duration, up to 14).
 
 Software prerequisites:
 - Rust toolchain (stable; `rustup` recommended)
@@ -70,8 +70,8 @@ Headless cloud operation is supported by running the same binary without `--web`
 
 The Svelte 5 dashboard is organized around three levels of navigation:
 
-1. **Sidebar** — Engine selector (Home / Data Infrastructure / Market Monitoring / Trade Automation / Portfolio Management / Performance Analytics) + per-pair workspace list with live price, 24 h change, and pause/delete controls.
-2. **Tab Header** — Contextual tabs per active engine: Workspace / Overview / Settings for the Market engine; for an open Market Instance the tabs are `Charts / Metrics / Alignment / Opportunities / Risks / Analysis / Recommendation`. Liquidation-cluster heatmap and cascade-risk data render **inline on the Charts tab** (the standalone Liquidity tab was removed in v6.0; `07-04` is retained for history only). Connection Quality lives under the **Data Infrastructure** engine's Connectivity panel (see [`08-05-connection-quality.md`](../operations-and-compliance/08-05-connection-quality.md)). The Recommendation tab is the **discretionary-trader view** — it lists the trade setups the engine has identified (one card per qualifying `OpportunityMatrix.profiles` entry) alongside the macro verdict; it never issues a single "best" trade for an automated system (the TAE is out of scope for the Market Monitor).
+1. **Sidebar** — Engine selector, filtered by session mode: **observe = Data Infrastructure + Market Monitor only** (the current UI build); paper/live add Trade Automation / Portfolio Management / Performance Analytics. The Backtesting engine is hidden from the sidebar in every mode (direct URL/CLI still work). Below it, the per-pair workspace list with live price, 24 h change, and pause/delete controls.
+2. **Tab Header** — Contextual tabs per active engine: Overview / Workspace / Settings for the Market engine; for an open Market Instance the tabs are `Charts / Metrics / Alignment / Opportunities / Risks / Analysis / Recommendation`. Liquidation-cluster heatmap and cascade-risk data render **inline on the Charts tab** (the standalone Liquidity tab was removed in v6.0; `07-04` is retained for history only). Connection Quality lives under the **Data Infrastructure** engine's Connectivity panel (see [`08-05-connection-quality.md`](../operations-and-compliance/08-05-connection-quality.md)). The Recommendation tab is the **discretionary-trader view** — it lists the trade setups the engine has identified (one card per qualifying `OpportunityMatrix.profiles` entry) alongside the macro verdict; it never issues a single "best" trade for an automated system.
 3. **Main Viewport** — Renders the active tab. Each panel is a thin Svelte component with a companion CSS module per the project's CSS conventions.
 
 For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) and [Dashboard Layout](../ui-ux/07-02-ui-dashboard-layout.md).
@@ -80,14 +80,15 @@ For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) 
 
 ## 4.5 Running a Backtest (v8.2)
 
-The **Backtesting** engine (observe sessions) opens the **Backtest Launcher**
+The **Backtesting** engine (hidden from the sidebar in this build; reachable by direct URL or CLI) opens the **Backtest Launcher**
 — an installer-style wizard that runs the whole platform over historical
 candles:
 
 1. **Environment** — exchange (Hyperliquid / Bitget), settlement currency, starting capital.
-2. **Instances** — add one or more instances: ticker, the 4 timeframe
-   dropdowns (preseeded 1m/3m/5m/15m), and the **allocation %** per
+2. **Instances** — add one or more instances: ticker + **allocation %** per
    instance (1–100 %; the sum is validated ≤ 100 %, up to 100 instances).
+   Timeframes come from the archive-eligible subset (≥ 60 s) of the
+   14-duration pool — no per-TF dropdowns.
 3. **Historical Data** — archive depth 1–365 days. There are no date
    pickers; the window is "the last N days, minus the warm-up". The
    per-TF readiness chips show whether the archive covers the depth; the
@@ -115,8 +116,8 @@ Backtest results persist to the same tables the GUI History/Study read.
 
 The single source of configuration truth is `config.toml` at the workspace root. It controls:
 
-- `candles.duration_seconds` — base (micro) timeframe
-- `fast_timeframe`, `slow_timeframe`, `macro_timeframe` — additional timeframe tiers, each with `enabled` and `duration_seconds`
+- `[workspace].timeframes` — the ACTIVE duration set (any subset of the 14-duration pool `1s`…`1d`, live-editable in Settings; legacy named keys like `fast_timeframe` are rejected at load)
+- per-duration indicator profiles (`duration_profile`) and optional `[workspace.instances.timeframes.<secs>]` overrides
 - `indicators.<name>.<param>` — per-indicator lookback, threshold, smoothing window, etc.
 - `allocation_pct`, `leverage.cross_leverage`, `safety.*` — allocation, risk and safety settings
 - `symbols` — list of `Exchange:Symbol` instruments to ingest
@@ -130,31 +131,29 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 
 ## 6. Running & Monitoring Trades
 
-**Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.toml`.** `config.toml` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
+**Paper vs Live.** The default posture is **Observe** — the current UI builds observe-only sessions and never dispatches orders. Paper/live remain backend capabilities: paper routes orders to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md); live dispatch requires an active encrypted key. **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.toml`.** `config.toml` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
 
-**Starting a session (Launch Setup wizard, v7.2).** The landing screen is a four-step installer
+**Starting a session (Launch Setup wizard, v11.12).** The landing screen is a four-step installer
 (**Mode → Environment → Instances → Review**):
 
-1. **Mode** — three cards: **Observe** (monitor markets/signals, no orders, safest),
-   **Simulate** (paper trading with a starting capital), **Execute** (live trading with real
-   credentials).
-2. **Environment** — the **exchange** (Bitget or Hyperliquid; v11.11 defaults to **Bitget**)
+1. **Mode** — a single **Observe** card (monitor markets/signals, no orders). The Simulate/Execute
+   modes remain backend capabilities (config/CLI/API) but are not offered by this UI build.
+2. **Environment** — the **exchange** (Bitget or Hyperliquid; defaults to **Bitget**)
    and the **settlement currency** (Bitget = USDT only, Hyperliquid = USDC only; the default
-   follows the exchange). Simulate mode adds the **Starting Capital (USD)** field (prefilled
-   from the previous session). Execute mode collects the exchange credentials inline
-   (Hyperliquid: wallet address + private key; Bitget: API key + secret + passphrase) and
-   stores them encrypted via `POST /api/keys`.
-3. **Instances** — add one or more symbols. There are no timeframe pickers (v11.1): every
-   instance runs the **ACTIVE duration set** (`1s` 1 s … `1d` 86400 s) displayed
-   as read-only chips, or skip and add them later from the
-   workspace panel.
-4. **Review** — a summary table (mode, exchange, currency, capital/credential status,
-   instance list) → **Launch**. v11.11: when instances are staged, the welcome screen shows a
-   **loading step** (per-instance `waiting → ready ✓`) and lets you in only once every staged
-   pair has its first snapshot (60 s cap → continue-with-note); launching without instances
-   lands directly on the Market Monitor **Overview**.
+   follows the exchange). The session initializes on the ENVIRONMENT → INSTANCES transition.
+3. **Instances** — add one or more symbols. There are no timeframe pickers: every
+   instance runs the workspace **ACTIVE duration set** (`1s` 1 s … `1d` 86400 s). Adding a
+   symbol CREATES the instance immediately (venue-validated) — the chip shows
+   `creating → waiting → ready ✓ / failed`; CONTINUE stays locked until every chip is ready;
+   ✕-removing a chip cancels the creation (an in-flight creation is deleted when the POST
+   lands). You may also skip instances and add them later from the workspace panel.
+4. **Review** — a summary table (mode, exchange, currency, instance list) → **Launch**.
+   Launching shows a short readiness confirm and lands on the Market Monitor **Overview**,
+   already populated (instances were created at ADD time).
 
-Observe mode requires no capital and no credentials. The execution mode is chosen **once at launch** (wizard step 1) and fixed for the instance's lifetime — there is no runtime mode toggle. Observe instances run the setup executor in **ghost mode**: the Automation dashboard shows what the executor *would* do (tracked setup, sizing, projection) but no order is ever dispatched. To change mode, edit `mode` in `config.toml` and restart.
+Observe mode requires no capital and no credentials. The execution mode is fixed at launch — there is no runtime mode toggle. Observe instances run the setup executor in **ghost mode**: setups, sizing and projections surface on the radar but no order is ever dispatched. A paper/live mode (backend capability, not exposed in this UI build) is selected by editing `mode` in `config.toml` and restarting.
+
+**Welcome gate.** A fresh `./manage.sh run` after Ctrl+C always lands on the Welcome screen with a **Recover last session / Discard & start fresh** card (an interrupted session is detected at boot). Reloading a browser tab while a session is LIVE shows a per-tab **Resume session / Quit session** card — reload never silently resumes, and other open tabs are never interrupted.
 
 **Going Live (v7.1, step by step).**
 
@@ -215,7 +214,7 @@ portfolio_equity_history_days = 30   # default
 
 A value of `0` disables the cleanup loop for that table (rows accumulate indefinitely; operator is responsible for `VACUUM` and disk usage). Negative values are rejected at startup.
 
-**Until Ops Phase 1 ships:** the hard-coded defaults (7/7/30) are documented above; editing them requires modifying `crates/database-storage/src/logger.rs`.
+**Retention defaults:** the `[retention]` configuration (7/7/30) are documented above; editing them requires modifying `crates/database-storage/src/logger.rs`.
 
 ---
 

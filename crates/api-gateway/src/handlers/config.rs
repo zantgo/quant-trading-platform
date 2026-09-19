@@ -351,17 +351,37 @@ pub async fn update_config(
             .filter(|i| i.status == config_models::InstanceStatus::Running)
             .map(|i| i.symbol.clone())
             .collect();
+        // v11.12.3: recharge CONCURRENTLY — the response waits for every
+        // recharge, so sequential iteration multiplied the wall time by the
+        // instance count (the operator saw SAVE stuck in "saving" for
+        // minutes on multi-instance workspaces). Failures are still
+        // collected and surfaced below.
+        let mut set = tokio::task::JoinSet::new();
         for symbol in symbols {
-            if let Err(e) = portfolio_supervisor::registry::recharge_instance(&ctx, &symbol).await {
-                eprintln!(
-                    "Config update: pipeline recharge failed for {}: {}",
-                    symbol, e
-                );
-                recharge_failures.push(format!("{symbol}: {e}"));
-            } else {
-                let _ = state
-                    .recharge_tx
-                    .send(crate::RechargeNotice { pair_key: symbol });
+            let ctx = ctx.clone();
+            set.spawn(async move {
+                let res = portfolio_supervisor::registry::recharge_instance(&ctx, &symbol).await;
+                (symbol, res)
+            });
+        }
+        while let Some(joined) = set.join_next().await {
+            match joined {
+                Ok((symbol, Ok(()))) => {
+                    let _ = state
+                        .recharge_tx
+                        .send(crate::RechargeNotice { pair_key: symbol });
+                }
+                Ok((symbol, Err(e))) => {
+                    eprintln!(
+                        "Config update: pipeline recharge failed for {}: {}",
+                        symbol, e
+                    );
+                    recharge_failures.push(format!("{symbol}: {e}"));
+                }
+                Err(join_err) => {
+                    eprintln!("Config update: recharge task failed: {join_err}");
+                    recharge_failures.push(format!("recharge task failed: {join_err}"));
+                }
             }
         }
     }

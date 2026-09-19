@@ -1,6 +1,6 @@
 # PAE Strategy Settings — Spec (v9)
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Performance Analytics Engine (PAE)
 

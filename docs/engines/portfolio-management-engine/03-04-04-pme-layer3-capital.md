@@ -1,7 +1,7 @@
 # PME Layer 3 — Capital Layer
 
-**Version:** 11.11 (2026-09-18) — v7: PME is informational; this layer's math is unchanged.
-**Status:** Specified — implemented (pure math); v7 surface wiring in progress.
+**Version:** 11.12 (2026-09-19) — v7: PME is informational; this layer's math is unchanged.
+**Status:** Implemented — pure math + live dashboard surface.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 3 of 4
 **Input Contract:** Position Matrix (L1), Exposure Matrix (L2), exchange balance events

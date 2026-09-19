@@ -58,7 +58,11 @@ afterEach(() => {
 });
 
 function tabButton(label: string): HTMLButtonElement {
-    return screen.getByText(label) as HTMLButtonElement;
+    // Scope to the internal navbar — "Timeframes" now also matches the
+    // card title inside the section.
+    return Array.from(
+        document.querySelectorAll('nav[aria-label="Settings sections"] button'),
+    ).find((b) => b.textContent?.trim() === label) as HTMLButtonElement;
 }
 
 describe('UnifiedSettings — internal navbar', () => {
@@ -69,7 +73,7 @@ describe('UnifiedSettings — internal navbar', () => {
         expect(tabButton('General').getAttribute('aria-pressed')).toBe('true');
         expect(container.textContent).toContain('Fees & Leverage');
         const general = container.querySelector('[data-testid="settings-general-section"]') as HTMLElement;
-        const ws = container.querySelector('[data-testid="settings-workspace-section"]') as HTMLElement;
+        const ws = container.querySelector('[data-testid="settings-timeframes-section"]') as HTMLElement;
         expect(general.hidden).toBe(false);
         expect(ws.hidden).toBe(true);
     });
@@ -81,16 +85,16 @@ describe('UnifiedSettings — internal navbar', () => {
         const labels = Array.from(container.querySelectorAll('nav[aria-label="Settings sections"] button')).map(
             (b) => b.textContent?.trim(),
         );
-        expect(labels).toEqual(['General', 'Workspace', 'Instance']);
+        expect(labels).toEqual(['General', 'Timeframes', 'Instance']);
     });
 
-    it('WORKSPACE tab shows the Timeframes card and hides the general section', async () => {
+    it('TIMEFRAMES tab shows the Timeframes card and hides the general section', async () => {
         seedPair('BTC');
         const { container } = render(UnifiedSettings);
         await tick();
-        await fireEvent.click(tabButton('Workspace'));
+        await fireEvent.click(tabButton('Timeframes'));
         await tick();
-        expect(tabButton('Workspace').getAttribute('aria-pressed')).toBe('true');
+        expect(tabButton('Timeframes').getAttribute('aria-pressed')).toBe('true');
         expect(container.textContent).toContain('Timeframes');
         const general = container.querySelector('[data-testid="settings-general-section"]') as HTMLElement;
         expect(general.hidden).toBe(true);
@@ -180,16 +184,87 @@ describe('UnifiedSettings — per-tab export (v11.12.2)', () => {
         await waitFor(() => expect(written.length).toBe(1));
         expect(written[0]).toContain('settings.general');
 
-        await fireEvent.click(tabButton('Workspace'));
+        await fireEvent.click(tabButton('Timeframes'));
         await tick();
         await fireEvent.click(exportBtn);
         await waitFor(() => expect(written.length).toBe(2));
-        expect(written[1]).toContain('settings.workspace');
+        expect(written[1]).toContain('settings.timeframes');
 
         await fireEvent.click(tabButton('Instance'));
         await tick();
         await fireEvent.click(exportBtn);
         await waitFor(() => expect(written.length).toBe(3));
         expect(written[2]).toContain('settings.instance');
+    });
+});
+
+describe('UnifiedSettings — save robustness (v11.12.3)', () => {
+    function railSwitch(container: HTMLElement, label: string): HTMLButtonElement {
+        return Array.from(
+            container.querySelectorAll('button[aria-label$="activation"]'),
+        ).find((b) => b.getAttribute('aria-label') === label) as HTMLButtonElement;
+    }
+
+    it('saves the ladder with NO instance selected (ladder-only save)', async () => {
+        // No instances seeded — the duration ladder is a workspace knob.
+        const { container } = render(UnifiedSettings);
+        await tick();
+        await fireEvent.click(tabButton('Timeframes'));
+        await tick();
+        const oneMinute = railSwitch(container, '1m activation');
+        await fireEvent.click(oneMinute);
+        const saveBtn = await waitFor(() => {
+            const b = screen.getByText('SAVE') as HTMLButtonElement;
+            expect(b.disabled).toBe(false);
+            return b;
+        });
+        await fireEvent.click(saveBtn);
+        await waitFor(() => {
+            const post = (globalThis.fetch as any).mock.calls.find(
+                ([u, o]: any[]) => String(u) === '/api/config' && o?.method === 'POST',
+            );
+            expect(post).toBeTruthy();
+            expect(JSON.parse(post[1].body).timeframes).not.toContain(60);
+        });
+        // No per-instance POST without an instance.
+        const instPost = (globalThis.fetch as any).mock.calls.find(
+            ([u]: any[]) => String(u).includes('/api/instances/'),
+        );
+        expect(instPost).toBeUndefined();
+    });
+
+    it('a failed ladder save resolves to error — never stuck in SAVING', async () => {
+        seedPair('BTC');
+        vi.stubGlobal('fetch', vi.fn(async (url: string, opts?: RequestInit) => {
+            if (String(url) === '/api/config' && opts?.method === 'POST') {
+                throw new Error('network down');
+            }
+            if (String(url).includes('/api/config') && (!opts?.method || opts.method === 'GET')) {
+                return jsonResponse({
+                    fees: { maker_fee_pct: 0.02, taker_fee_pct: 0.06, funding_rate_8h: 0.01 },
+                    leverage: { cross_leverage: 20 },
+                    instances: [],
+                });
+            }
+            return jsonResponse({ success: true });
+        }) as unknown as typeof fetch);
+        const { container } = render(UnifiedSettings);
+        await tick();
+        await fireEvent.click(tabButton('Timeframes'));
+        await tick();
+        await fireEvent.click(railSwitch(container, '1m activation'));
+        const saveBtn = await waitFor(() => {
+            const b = screen.getByText('SAVE') as HTMLButtonElement;
+            expect(b.disabled).toBe(false);
+            return b;
+        });
+        await fireEvent.click(saveBtn);
+        // The state machine resolves to `error` (enabled "SAVE" retry) —
+        // it must NEVER stay disabled in "SAVING…".
+        await waitFor(() => {
+            expect(screen.queryByText('SAVING…')).toBeNull();
+            const b = screen.getByText('SAVE') as HTMLButtonElement;
+            expect(b.disabled).toBe(false);
+        }, { timeout: 4000 });
     });
 });

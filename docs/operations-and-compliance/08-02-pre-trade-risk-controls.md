@@ -1,6 +1,9 @@
 # Pre-Trade Risk Controls
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+> **Historical framing (v7+).** The Policy Layer / gate chain described below was ERASED in v7. The surviving controls are: instance lifecycle (TAE activation), the safety-state soft gate (`DRAWDOWN_STOP` / `SUSPENDED` refuse new entries), the optional strategy intake/portfolio gates (`pme.*` enforce flags, default OFF), the entry/exit execution dials, and the informational safety resets. Read the gate tables below as the historical v6 design.
+
+
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 

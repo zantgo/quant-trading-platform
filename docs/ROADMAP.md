@@ -1,7 +1,7 @@
 # Implementation Roadmap
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Six engines implemented and production-ready (v10.1 — quant-metrics hardening + UX unification shipped).
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Six engines implemented and production-ready (v11.12 — observe-default truth, observability hardening, unified Settings). The UI build is observe-only; paper/live execution remains a backend/CLI/API capability.
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 
 > **Reading order.** Read §1 for the high-level status picture, §2 for the engine-by-engine reality, §3 for the phased delivery plan, §4 for the retired WIP markers, §5 for the canonical list of known audit items, and §6 for the **verification checklist** that must pass before any of the "WIP" labels can be removed.
@@ -24,11 +24,11 @@
 
 The platform is **not** in two categories ("done" vs. "not started"). It is in three:
 
-1. **Implemented** — wired end-to-end, exercised by integration tests, observable in the running system. **All six engines are in this bucket** (v8 + Unreleased v8.2/v9/v10).
-2. **WIP — code present, verification pending** — real code compiles and runs, but the final verification passes are outstanding. **This bucket is now effectively empty**: the live-REST harnesses (`./manage.sh e2e-backtest` — 26 PASS, `scripts/ds-verification-loop.sh` — DS LOOP GREEN) went green on 2026-08-23. The only remaining item is the corpus re-stamp sweep that releases the Unreleased v8.2/v9/v10 CHANGELOG sections.
+1. **Implemented** — wired end-to-end, exercised by integration tests, observable in the running system. **All six engines are in this bucket** (through v11.12; the observe-only UI hides TAE/PME/PAE/BTE from the sidebar while their backends remain functional).
+2. **WIP — code present, verification pending** — real code compiles and runs, but the final verification passes are outstanding. **This bucket is now effectively empty**: the live-REST harnesses (`./manage.sh e2e-backtest` — 26 PASS, `scripts/ds-verification-loop.sh` — DS LOOP GREEN) went green on 2026-08-23. The corpus is fully released through v11.12 (the v8.2/v9/v10/v11.x sections are all released entries).
 3. **Not yet started** — only the spec exists; no Rust code, no UI, no API surface. **This bucket is empty** (see §5 for the closed audit register).
 
-> **History.** The v7-era "WIP" labels on TAE/PME/PAE (mock dashboards, unwired veto machinery) were retired in 2026-08-18 when the v7 redesign shipped live-fetching dashboards and the unified execution engine. The v8.2 Backtesting Engine, v9 Strategy Platform and v10 Data-Science Layer are delivered in the Unreleased CHANGELOG sections.
+> **History.** The v7-era "WIP" labels on TAE/PME/PAE (mock dashboards, unwired veto machinery) were retired in 2026-08-18 when the v7 redesign shipped live-fetching dashboards and the unified execution engine. The v8.2 Backtesting Engine, v9 Strategy Platform, v10 Data-Science Layer and the v11.x rounds are delivered as released CHANGELOG entries.
 
 ---
 
@@ -48,19 +48,19 @@ The Data Infrastructure dashboard (`ui/src/components/DataInfraDashboard.svelte`
 ### 2.2 MME — Market Monitoring Engine
 
 - **52 indicators** across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data; the v6.6 `mark_index_spread` registry entry moved Derivatives to 8 rows and the total to 51, and the v6.11 `price_trend_sharpe` entry moved Regime to 5 rows and the total to 52 — see [01-01-ontology.md Appendix B §B.2](conceptual-foundations/01-01-ontology.md)).
-- **4 configurable timeframes** (micro / fast / slow / macro), each with its own `TimeframePipeline`.
+- **A live-editable ACTIVE duration set** (`[workspace].timeframes`, any subset 1..=14 of the 14-duration pool `1s`…`1d`), one `TimeframePipeline` per ACTIVE duration.
 - **12 `SignalKind` types** with 100 `(indicator, SignalKind)` declarations.
 - **10-dimension Alignment Matrix**, **Analysis Matrix**, **Opportunity Matrix**, **Risk Matrix**, **Decision Matrix**, **Overview Matrix**.
 - **Liquidity Intelligence Phases 0–2** (derivatives telemetry, liquidation flow, cluster matrix) feeding the L1.5 / L2.5 fractional layers; Phase 3 (cascade-risk aggregation) and Phase 4 (price-chart cluster overlay) are progressively shipping.
 - **Multi-timeframe `MarketContext` synthesis** consumed by the Decision Layer.
 
-The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`) all consume the WebSocket-fed `app.instancesMap[*].microTerm / fastTerm / slowTerm / macroTerm` state — no hardcoded data.
+The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`) all consume the WebSocket-fed per-duration state (`app.instancesMap[*].terms[<secs>]` over the ACTIVE ladder) — no hardcoded data.
 
 ### 2.3 TAE — Trade Automation Engine
 
 **v7 redesign (2026-08-18).** The policy engine was **erased**. The TAE is now a **setup executor** that consumes the MME's top setup directly (best Actionable/READY profile across the ACTIVE duration snapshots) and manages the trade lifecycle (entry limit → TP/SL bracket → LEVEL/SIGNAL invalidation) through a **single unified execution engine** whose only mode-dependent part is the `ExecutionBackend` (`PaperSimulation` today; `LiveBroker` for Hyperliquid + Bitget — same fees/slippage/funding/PnL accounting in both modes). See [03-03-01-tae-overview-spec.md](engines/trade-automation-engine/03-03-01-tae-overview-spec.md).
 
-**v8.2 (Unreleased):** allocation sizing (`allocation_pct` 1–100 %, per-instance override, Σ ≤ 100 %) replaces stop-distance risk sizing. **v9 (Unreleased):** strategy JSON dials — `tae.sizing` (per-setup multipliers, after-loss step-down, vol-scale), intake gates (min score/confidence, direction policy), params-at-entry freeze. **v10 (Unreleased):** lifecycle hardening — tri-state `setup_gone_policy` posture, pending-entry re-pricing + replacement adoption, asymmetric SL/TP ratchet, entry dial (`entry_mode` incl. `chase`, `instant_fill_policy`, spread gate, max setup age) and exit dial (`sl_mode`, `tp_placement`, `min_sl_atr`, `confidence_drop_pct`); TP always closes 100 %. See [03-03-07-tae-strategy-settings.md](engines/trade-automation-engine/03-03-07-tae-strategy-settings.md).
+**v8.2 (released):** allocation sizing (`allocation_pct` 1–100 %, per-instance override, Σ ≤ 100 %) replaces stop-distance risk sizing. **v9 (released):** strategy JSON dials — `tae.sizing` (per-setup multipliers, after-loss step-down, vol-scale), intake gates (min score/confidence, direction policy), params-at-entry freeze. **v10 (released):** lifecycle hardening — tri-state `setup_gone_policy` posture, pending-entry re-pricing + replacement adoption, asymmetric SL/TP ratchet, entry dial (`entry_mode` incl. `chase`, `instant_fill_policy`, spread gate, max setup age) and exit dial (`sl_mode`, `tp_placement`, `min_sl_atr`, `confidence_drop_pct`); TP always closes 100 %. See [03-03-07-tae-strategy-settings.md](engines/trade-automation-engine/03-03-07-tae-strategy-settings.md).
 
 **Backend (real, v7):**
 
@@ -99,7 +99,7 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 - `crates/performance-analytics/src/{stats_compiler,strategy_analytics,risk_analytics,performance_layer,strategy_optimizer,performance_evaluator}.rs` — all layer modules real; the v8 Backtesting Engine crate supersedes the old `backtest.rs` recorded replay (see 2.7 BTE).
 - Strategy analytics grouped by **setup type** (`trigger_source`) with the full NHST treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict).
 - `run_performance_evaluator` — 300-second cadence; `run_strategy_optimizer` — 1-hour cadence with persisted `OptimizationReport`.
-- **v10 (Unreleased):** session-scoped analytics (`GET /api/sessions/:id/analytics`), cross-session Comparison (`GET /api/analytics/comparison`), per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR95/ES95).
+- **v10 (released):** session-scoped analytics (`GET /api/sessions/:id/analytics`), cross-session Comparison (`GET /api/analytics/comparison`), per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR95/ES95).
 
 **Frontend (real):**
 
@@ -107,10 +107,10 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 
 **API (served):** `POST /api/backtest/run`, `GET /api/backtest/:id`, `GET /api/sessions`, `GET /api/sessions/:id/analytics`, `GET /api/analytics/comparison`.
 
-### 2.6 BTE — Backtesting Engine (v8.2, Unreleased)
+### 2.6 BTE — Backtesting Engine (v8.2, released)
 
 - `crates/backtesting-engine` — candle archive (live-warm + on-demand backfill, 1..=365 days, exchange-aware ceilings: Hyperliquid 5,000-candle cap, Bitget paginated), the **historical runner** (full MME pipeline replay over archived candles, simulated safety ladder + funding + end-of-run force-close, multi-symbol k-way tick clock) and the **recorded replay** (recorded decision snapshots through the shared `run_tick`).
-- **v10 (Unreleased):** the run's bound strategy flows into both runners (parity fix); strategy intake/portfolio gates evaluated on the simulated portfolio in historical mode; `backtest_trades` enrichment (`ts_entry_secs`/`hold_secs`/`mfe_pct`/`mae_pct`/`roi_pct`); per-run risk metrics; `GET /api/backtest/:id/input_bars`.
+- **v10 (released):** the run's bound strategy flows into both runners (parity fix); strategy intake/portfolio gates evaluated on the simulated portfolio in historical mode; `backtest_trades` enrichment (`ts_entry_secs`/`hold_secs`/`mfe_pct`/`mae_pct`/`roi_pct`); per-run risk metrics; `GET /api/backtest/:id/input_bars`.
 - **Frontend:** `BacktestingDashboard` (observe-only in the UI) with the Launcher wizard, progress/cancel, Study/Chart/History tabs.
 - **CLI:** headless `--backtest` flags + `--backtest-show <id>` / `--sessions` / `--session-report <id>` DS commands.
 - **Verification:** `scripts/e2e-backtest-matrix.sh` (`./manage.sh e2e-backtest`) + `scripts/ds-verification-loop.sh` — both require live exchange REST.
@@ -123,7 +123,7 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 - **`database-storage`** — 30+ migrations (sessions, backtest DS, enrichment), WAL telemetry logger, query layer, encryption helpers.
 - **`execution-daemon`** — `main.rs` wires the web/CLI modes, the setup-executor loop, the DS exporter and the CLI DS commands.
 - **App shell** (`ui/src/App.svelte`, `state.svelte.ts`, `lib/websocket.svelte.ts`, `lib/api.svelte.ts`, `lib/router.svelte.ts`) — Singleton `AppStore`, WS demux with infinite-loop avoidance, hash-fragment routing, per-tab export builders.
-- **v10 (Unreleased):** session identity (every boot creates a persisted `sessions` row), the `./ds/` NDJSON export layer (one producer, three sinks: DB logger, GUI, DS files), CLI↔GUI parity C14–C16.
+- **v10 (released):** session identity (every boot creates a persisted `sessions` row), the `./ds/` NDJSON export layer (one producer, three sinks: DB logger, GUI, DS files), CLI↔GUI parity C14–C16.
 
 ---
 
@@ -136,7 +136,7 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 | Item | Owner | Acceptance criterion |
 |---|---|---|
 | A1. `TradeAutomationDashboard` fetches live v7 automation state | UI | ✅ Delivered (2026-08-18): the dashboard polls `/api/instances/:id/automation` + `/api/trade-ledger`; no `Placeholder data` comment in source |
-| A2. `PortfolioDashboard` fetches `/api/instances/:id/portfolio`, `/api/instances/:id/safety`, `/api/instances/:id/exposure`, `/api/instances/:id/capital`, `/api/instances/:id/veto` | UI | All five sidebar panels render live data; safety state banner reflects `safety_state` from the API |
+| A2. `PortfolioDashboard` fetches `/api/instances/:id/portfolio`, `/api/instances/:id/safety`, `/api/instances/:id/exposure`, `/api/instances/:id/capital` | UI | All four sidebar panels render live data; safety state banner reflects `safety_state` from the API |
 | A3. Replace `// ── Placeholder data ───` with `// ── Live data ───` and call the relevant `fetch` | UI | grep `'// ── Placeholder data ───'` returns 0 matches in `ui/src/components/TradeAutomationDashboard.svelte` and `ui/src/components/PortfolioDashboard.svelte` |
 | A4. Render Backend integration point sanity tests | UI + Rust | Vitest suite asserts each panel renders API data |
 | A5. Remove "Dashboard → Engine Map" placeholder wording in `docs/ui-ux/07-02-ui-dashboard-layout.md §5.3` | Docs | New wording reflects "live data" for TAE/PME panels |
@@ -203,7 +203,7 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 | F8. PME L4 rename (Overview Layer / `PortfolioOverviewMatrix`) + TAE L2 rename | all crates, docs | Delivered: code + docs renamed; wire JSON keys unchanged; `test-doc` green |
 | F9. E2E matrix harness (`./manage.sh e2e-backtest`, 24+ cases) | scripts | Delivered: `scripts/e2e-backtest-matrix.sh` + `scripts/e2e_backtest_verify.py`; sqlite invariants + determinism double-run |
 
-### Phase G — "Strategy platform + Data-Science layer" ✅ (delivered as Unreleased v9/v10)
+### Phase G — "Strategy platform + Data-Science layer" ✅ (released v9/v10)
 
 | Item | Owner | Acceptance criterion |
 |---|---|---|
@@ -216,7 +216,7 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 | G7. D/I/L ontology + gates | docs, scripts | Delivered (v10): `01-11`/`01-12`/`06-04`/`07-10`; `check_docs.py` gates G18 (DS parity) / G19 (ontology) / G20 (DDL↔doc↔code) |
 | G8. DS verification loop (12 runs) | scripts | Delivered: `scripts/ds-verification-loop.sh` (3 strategies × 2 symbols × 2 depths) — **requires live exchange REST to run** |
 
-> **Release sweep note.** The v8.2/v9/v10 CHANGELOG sections are **Unreleased**: the corpus-wide version re-stamp (G1: README stats, MANIFEST title, 171 numbered-doc stamps) happens in a single sweep when the operator cuts the release. Until then the roadmap's version header stays at v8.0 by design.
+> **Release sweep note.** The v8.2/v9/v10 CHANGELOG sections are **released** (through v10.1); the v11.x rounds are released through v11.12. The corpus is fully re-stamped to v11.12 (README stats, MANIFEST title, all 172 numbered-doc stamps — gate G1 verified).
 
 ---
 
@@ -305,7 +305,7 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 
 **Live trading (v7.1 — served):**
 - [x] **`POST /api/keys`, `GET /api/keys`, `DELETE /api/keys/:id`, `POST /api/keys/rotate`, `GET /api/keys/backup`** — encrypted credential management (both venues)
-- [x] **`POST /api/instances/:id/mode`** — engine-wide paper/live switch (requires a key; persists to config)
+- [x] ~~`POST /api/instances/:id/mode`~~ — **superseded**: removed in v7.2 (the mode is fixed at launch; `POST /api/instances/:id/lifecycle` is the control path)
 - [x] **Hyperliquid + Bitget live dispatch** via `ExecutionBackend` (see [03-03-03 §5b](engines/trade-automation-engine/03-03-03-tae-layer2-execution.md))
 
 **DS layer (v10 — served):**
@@ -333,7 +333,7 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [x] **`docs/README.md` engine table row for each engine reads "Implemented"** (six engines — v10)
 - [x] **Amber UI banners removed from `TradeAutomationDashboard`, `PortfolioDashboard`, `PerformanceDashboard`**
 - [x] **`docs/CHANGELOG.md` carries the v8.2/v9/v10 Unreleased sections with sub-bullets referencing the closed audit IDs**
-- [ ] **Corpus release sweep** — convert the Unreleased v8.2/v9/v10 sections to released `## vX.Y` entries and re-stamp README/MANIFEST + the 171 numbered docs (G1) when the live-REST verifications above go green
+- [x] **Corpus release sweep** — v8.2/v9/v10 released; the corpus is re-stamped to v11.12 (README stats, MANIFEST title, 172 numbered docs; G1 verified)
 
 ---
 

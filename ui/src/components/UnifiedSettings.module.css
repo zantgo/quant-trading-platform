@@ -76,3 +76,12 @@
     padding: 10px 16px;
     border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06));
 }
+
+/* v11.12.3: SAVE sits immediately LEFT of EXPORT DATA at the far right —
+   the group is shrink-to-fit so the export button's margin-left:auto has
+   no free space to absorb (previously it pushed SAVE to the left edge). */
+.actionGroup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}

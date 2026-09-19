@@ -1,6 +1,6 @@
 # Liquidation Heatmap — Leverage Tier Configuration
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 
 **Scope:** Operator workflow for the per-timeframe Liquidation Heatmap tier controls introduced in v7.0-prod (D5 default = 10×, range = [1, 100] integers).
 
@@ -8,7 +8,7 @@
 
 ## 1. Where it lives
 
-`MARKET MONITORING ▸ WORKSPACE ▸ SETTINGS ▸ {pick timeframe on left rail} ▸ LIQUIDATION HEATMAP · {SLOT}`
+`MARKET MONITOR ▸ SETTINGS ▸ Instance ▸ LIQUIDATION HEATMAP · {duration} (unified Settings internal navbar; chip-scoped per instance)`
 
 ```
 ┌──────────────┬──────────────────────────────────────────┐
@@ -52,13 +52,13 @@ The tier chip's remove button is keyboard accessible (`aria-label="Remove {t}x t
 
 - **UI side:** `tf.heatmapLeverageTiers: number[]` on `TimeframeTelemetry` (`ui/src/types.ts` ~line 681). Each TF slot has its own list.
 - **Default seed:** `[10]` (single chip). New pairs / freshly created instances start with this default.
-- **Save flow:** `WorkspaceSettings.svelte::applySettings()` posts a single body that includes `heatmap_leverage_tiers` inside each fixed ladder slot's indicators section — `1s.indicators`, `3s.indicators`, … `1h.indicators` (see `body` builder at `ui/src/components/WorkspaceSettings.svelte::buildIndicators`; v11.1 — one section per fixed ladder slot, no `*_term` groups).
+- **Save flow:** `WorkspaceSettings.svelte::applySettings()` posts a single body that includes `heatmap_leverage_tiers` inside each fixed ladder slot's indicators section — `timeframes."1s".indicators`, `timeframes."3s".indicators`, … `timeframes."1d".indicators` (see `body` builder at `ui/src/components/WorkspaceSettings.svelte::buildIndicators`; v11.1 — one section per fixed ladder slot, no `*_term` groups).
 - **Hydrate flow:** `ui/src/lib/api.svelte.ts::advancedIndicators()` reads `ind.heatmap_leverage_tiers` and defensively filters to integers in [1, 100] before writing the array onto the live TF. Malformed entries fall back to `[10]`.
 
 ## 5. Save / refresh contract
 
 1. Open SETTINGS, pick a slot on the left rail, edit the tier chip rail, click `SAVE WORKSPACE CONFIGURATION`.
-2. The single POST applies to all 10 fixed ladder pool keys (v11.2: the ACTIVE slots pick the tiers up at runtime; inactive slots keep the persisted key for when they are activated); the daemon echoes back the new `heatmap_leverage_tiers` for each slot.
+2. The single POST applies to all ACTIVE duration keys (14-duration pool) (v11.2: the ACTIVE slots pick the tiers up at runtime; inactive slots keep the persisted key for when they are activated); the daemon echoes back the new `heatmap_leverage_tiers` for each slot.
 3. Reload the page; the chips survive.
 4. Toggle the LIQ HEATMAP overlay off and back on — the tier selection is decoupled from visibility, matching the existing `setVisible` + `updateData` decoupling (mirrors `VolumeProfilePrimitive`).
 5. The `bumpWsVersion()` call after save forces each WS connection to reconnect with the freshly-published `timeframe_secs`. The heatmap effect re-runs on the new connection and re-applies the new tier list — no operator intervention required.

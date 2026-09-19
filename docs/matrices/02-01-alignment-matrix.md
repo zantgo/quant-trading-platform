@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer
@@ -121,7 +121,7 @@ Each contributing timeframe is weighted by its duration, favouring higher timefr
 
 $$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0.2,\ 1.0\right)$$
 
-The divisor is the **slowest active** slot's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest slot always weights `1.0`; shorter slots scale down proportionally. With the full active count (v11.9 full 14-duration pool active) the slowest slot is `1h` (3600 s), so `divisor = 3600 s` and the proportional fallback's clamp floor (0.2) leaves `1s`…`5m` (1–300 s) at the 0.20 floor and `15m` at 0.25; at smaller active counts the divisor is the slowest ACTIVE slot (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)).
+The divisor is the **slowest active** slot's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest slot always weights `1.0`; shorter slots scale down proportionally. With the full active count (v11.9 full 14-duration pool active) the slowest duration is `1d` (86400 s), so `divisor = 3600 s` and the proportional fallback's clamp floor (0.2) leaves `1s`…`5m` (1–300 s) at the 0.20 floor and `15m` at 0.25; at smaller active counts the divisor is the slowest ACTIVE slot (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)).
 
 **Divisor rule:** `divisor = max({duration_seconds for slot in active_slots})`. On the fixed ladder with every slot ACTIVE (the full 14-duration pool active): `divisor = 3600 s`; the default count (5) resolves it to `30s` (30 s).
 

@@ -1,6 +1,6 @@
 # Liquidity Phase 0-4 — Architecture Spec
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
 
 ## Overview
@@ -22,7 +22,7 @@ of where the next cascade will come from. The user sees:
 |---|---|---|
 | **0** | Mark price, OI, funding rate on every snapshot | Exchange WS (Hyperliquid activeAssetCtx / Bitget ticker+funding-rate) + REST polling fallback |
 | **1** | `LiquidityFlow` per candle (real liquidation events) | Exchange WS userFills (HL) / fill (Bitget) |
-| **2** | `LiquidationClusterMatrix` per-timeframe (one matrix per ACTIVE ladder slot — up to 10 per pair, v11.2; refreshed at each TF's candle cadence) | Deterministic estimator on (OI + funding + TF-specific price history) |
+| **2** | `LiquidationClusterMatrix` per-timeframe (one matrix per ACTIVE ladder slot — up to 14 per pair; refreshed at each TF's candle cadence) | Deterministic estimator on (OI + funding + TF-specific price history) |
 | **3** | 11 `LiquiditySignalKind` signals per snapshot | Discrete rules on (1s TF's `flow` + 1s TF's `cluster` + funding) |
 | **4** | Frontend `LiquidityPanel` (Flow / Cluster / Context) + per-TF chart overlays (`/ws` frame fields `liquidity` + `cluster` + `liquidity_signals` per snapshot; also `/api/history` returns `clusters`/`volume_profiles` maps) | WebSocket broadcast + REST history |
 
@@ -37,7 +37,7 @@ Exchange WS
     ├─ Mark/Funding/OI → latest_*_px RwLock
     │   └─ On candle close: attach to MarketSnapshot
     │
-    └─ Per-TF cluster refresh task (one per ACTIVE ladder slot — the fastest-N prefix `1s`…, v11.2)
+    └─ Per-TF cluster refresh task (one per ACTIVE duration — any subset of the pool `1s`…`1d`)
         ├─ 1s/3s/5s/15s/30s: refresh at the slot's own sub-minute cadence
         ├─ 1m/3m/5m: refresh at the slot's cadence
         ├─ 15m: refresh at the 900 s cadence

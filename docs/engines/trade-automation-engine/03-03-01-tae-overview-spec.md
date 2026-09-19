@@ -1,7 +1,9 @@
 # Trade Automation Engine — Overview Specification (v7)
 
-**Version:** 11.11 (2026-09-18) — the v7 redesign replaces the policy-driven TAE with a **setup executor** that consumes MME top setups directly.
-**Status:** Specified — v7 implementation in progress.
+**Version:** 11.12 (2026-09-19) — the v7 redesign replaces the policy-driven TAE with a **setup executor** that consumes MME top setups directly.
+
+> **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
+**Status:** Implemented (v11) — observe ghost radar is the current UI posture; paper/live are backend/CLI/API capabilities.
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the boundaries, architecture, trade lifecycle, invalidation semantics, and execution model of the v7 Trade Automation Engine — the engine that **executes what the Market Monitoring Engine recommends** through a single unified execution engine whose only mode-dependent part is the final broker dispatch.
 
@@ -37,8 +39,8 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
                         ▼
                      ④ UNIFIED ExecutionEngine ◄── ExecutionBackend trait
                         │   orders/fills/positions/equity/funding — SHARED
-                        │        ├─ PaperSimulation (now)
-                        │        └─ LiveBroker      (later, same trait)
+                        │        ├─ PaperSimulation (implemented)
+                        │        └─ LiveBroker / BitgetLiveBroker (implemented)
                         ▼
                      ⑤ Risk & Invalidation    bracket, level/signal invalidation,
                                               safety soft gate, lifecycle gate
@@ -62,7 +64,7 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
 | ⑦ | Surface (API + dashboard) | §8 below |
 
 
-**Dashboard tabs ↔ layers (v7.3).** Overview (① + ② + ③ aggregate; observe = Setup Radar, paper = Paper Lab, live = Live Cockpit) · Orders (④ execution order board) · Activity (⑥ telemetry log) · Trade History (⑥ closed trades). Observe mode collapses to Overview + Activity (see [07-07 §3](../../ui-ux/07-07-engine-dashboard-vocabulary.md)).
+**Dashboard tabs ↔ layers (v7.3).** Overview (① + ② + ③ aggregate; observe = Setup Radar, paper = Paper Lab, live = Live Cockpit) · Orders (④ execution order board) · Activity (⑥ telemetry log) · Trade History (⑥ closed trades). Observe mode collapses to Overview + Activity + Settings (see [07-07 §3](../../ui-ux/07-07-engine-dashboard-vocabulary.md)); in the current observe-only build the whole TAE is hidden from the sidebar.
 
 ---
 
@@ -82,7 +84,7 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
 | | - **Price on the approach side** (LONG: mid > zone.high) — resting limit; waits for the pullback into the zone. |
 | | - **Price inside the zone** — fills immediately (paper: at mid with slippage; live: marketable limit crosses). |
 | | - **Price already beyond the far side** (LONG: mid < zone.low) — the limit is marketable; fills immediately at the current mid, i.e. a price **better than the midpoint**. The plan isn't cancelled; the market simply came to us cheaper. |
-| **Top setup** | Per symbol, the best eligible setup among the 4 latest completed candle snapshots (one per timeframe): highest `display_score` among profiles that are `Actionable` (net RR ≥ 1.0), geometry-consistent, `preconditions_met > 0`, with `trade_readiness == READY`. |
+| **Top setup** | Per symbol, the best eligible setup among the latest completed snapshot of every ACTIVE duration: highest `display_score` among profiles that are `Actionable` (net RR ≥ 1.0), geometry-consistent, `preconditions_met > 0`, with `trade_readiness == READY`. |
 | **Tracked setup** | The setup the executor has accepted and is currently acting on (pending entry or open position). |
 | **Setup fingerprint** | Idempotency key for a setup: `symbol + direction + setup_type + candle_timestamp`. The same setup can never be accepted twice. |
 
@@ -105,7 +107,7 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
    - `tp = (target_zone.low + target_zone.high) / 2`
    - `net_rr` from `decision_context.expected_reward_risk_ratio` (risk-discounted), fallback profile `long/short_expected_rr_internal`
 5. **RR filter:** `net_rr >= config.min_net_rr` (default 1.0). Rejected setups logged with reason.
-6. **Aggregation:** among the 4 snapshots' eligible plans, pick highest `score` (ties → faster TF wins).
+6. **Aggregation:** among the ACTIVE snapshots' eligible plans, pick highest `score` (ties → faster TF wins).
 
 ### 4.2 Layer ② — Lifecycle & Adoption Layer (state machine)
 
@@ -236,7 +238,7 @@ Outputs → usage:
 
 ```json
 {
-  "mode": "paper", "enabled": true,
+  "mode": "observe", "enabled": true,
   "tracked_setup": { "symbol", "direction", "setup_type", "score", "source_tf",
                      "entry_mid", "entry_zone": { "low", "high" }, "sl", "tp",
                      "net_rr", "time_horizon" },
@@ -258,7 +260,7 @@ Outputs → usage:
 
 ### 8.2 Dashboard
 
-The `TradeAutomationDashboard` shows: PAPER/LIVE mode badge, automation toggle, instance selector, lifecycle + safety chips; the **Active Setup card** (direction, setup type, score, source TF, entry mid + zone, SL, TP, net R:R) with the **Projected Risk and Return block** (size, notional, entry/exit fees, liquidation, projected +$ at TP / −$ at SL, ROI); the **Order board** (entry order status + reasons, bracket orders); the **Position card** (direction, size, entry, mark, unrealized PnL, TP/SL levels, invalidation banner, manual Close now); the **Activity log**; **Trade history**; and the **Equity strip**.
+The `TradeAutomationDashboard` shows: mode chip (observe/paper/live) + TAE lifecycle start/pause switch + instance selector, lifecycle + safety chips; the **Active Setup card** (direction, setup type, score, source TF, entry mid + zone, SL, TP, net R:R) with the **Projected Risk and Return block** (size, notional, entry/exit fees, liquidation, projected +$ at TP / −$ at SL, ROI); the **Order board** (entry order status + reasons, bracket orders); the **Position card** (direction, size, entry, mark, unrealized PnL, TP/SL levels, invalidation banner, manual Close now); the **Activity log**; **Trade history**; and the **Equity strip**.
 
 ---
 
@@ -275,7 +277,7 @@ entry_mode = "zone_midpoint" # workspace fallback; the strategy dials win
 invalidate_on = "direction_flip"  # strict opposite-flip semantics
 ```
 
-Instance level: `mode = "paper"` per `[[workspace.instances]]` (`ExecutionMode { Paper, Live }`).
+Instance level: `mode = "observe" | "paper" | "live"` per `[[workspace.instances]]` (`ExecutionMode`, default **Observe**; observe boots the lifecycle RUNNING as ghost radar, paper/live boot instance PAUSED).
 
 **v10 lifecycle-hardening dials** live in the bound strategy's `tae` section (per-strategy, params frozen at entry, recharge affects new setups only) — see [03-03-07 TAE Strategy Settings](03-03-07-tae-strategy-settings.md) for the canonical JSON: posture (`setup_gone_policy`), pending re-price (`min_reprice_delta_atr`, `replace_policy`), entry dial (`entry_mode` variants incl. `chase`, `instant_fill_policy`, `spread_gate_bps`, `max_setup_age_bars`, `pending_entry_expiry_bars`), and exit dial (`sl_mode` / `sl_padding_atr` / `atr_anchor_mult` / `min_sl_atr`, `tp_placement`, `tp_refresh_min_rr_delta`, `confidence_drop_pct`).
 

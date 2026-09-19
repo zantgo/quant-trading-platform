@@ -1,6 +1,6 @@
 # MME Layer 7 — Overview Layer
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved — feature status is tracked in [README §Feature Status](../../README.md).
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 7 of 7

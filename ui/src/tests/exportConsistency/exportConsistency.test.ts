@@ -77,8 +77,10 @@ describe('export consistency — Alignment tab', () => {
     expectJsonNumberRenderedAsDom(c, '+31', 30.5);
     expect(c.dom).toContain('82%');
     expect(c.payload.hero.trend_agreement_pct).toBe(82);
-    expect(c.dom).toContain('14 TF');
-    expect(c.jsonText).toContain('14 TF');
+    // v11.12.3: the TFs chip was erased from the Alignment header — the
+    // count still lives in the JSON hero block + the summary prose.
+    expect(c.dom).not.toContain('14 TF');
+    expect(c.payload.hero.timeframes_present).toBe(14);
 
     // Consensus hero (v6.10.20 C): the dial verdict renders as a bold
     // header + grey sub-label — the export's `label_display` mirrors the

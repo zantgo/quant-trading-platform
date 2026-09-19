@@ -1,6 +1,6 @@
 # Candle Reconstruction
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 
 ## Glossary (canonical)
@@ -28,7 +28,7 @@ The strategy is chosen based on candle duration:
 | Duration | Strategy | Source |
 |----------|----------|--------|
 | ≥ 1 minute | **Exchange historical fetch** | Hyperliquid `/info` candle snapshot; Bitget `/api/v2/mix/market/candles` |
-| < 1 minute | **Synthesis from recent history** | EMA of last N=200 micro-candles (preferred) or linear extrapolation of the last 2 closes (fallback) |
+| < 1 minute | **Synthesis from recent history** | EMA of last N=200 sub-minute candles (preferred) or linear extrapolation of the last 2 closes (fallback) |
 
 ## Reconstruction Method Enum
 
@@ -67,7 +67,7 @@ The flat-candle assumption is explicit: with no trade tape to reconstruct from, 
 
 > **EMA warm-up with fewer than 200 bars.** EMA operates with `N = ema_window (default 200)` regardless of available buffer size. With only 50 closes, the smoothing factor `α = 2/(200+1) ≈ 0.00995` is applied over those 50 closes; the reconstructed candle reflects the slower EMA output (heavily weighted toward the most recent close but with substantial inertia from earlier values). The series is effectively **seeded at the first close**: until the buffer reaches `ema_window` size, the EMA value is dominated by its initial seed (which is set to the first observed close per the canonical warm-up convention in `crates/network-adapters/src/adapters/reconstruction.rs::reconstruct_ema`). The `ema_window` is hardcoded to 200 in `CandleReconstructor` (no `[adapters.ema_window]` config exists — corrected 2026-08-17) for faster adaptation at the cost of noise sensitivity.
 >
-> **Volume rollup rule.** Sub-minute reconstructed candles have `volume = 0` (no trade tape) by design. When rolled up to a higher timeframe (e.g. 15s → 1m), the aggregate macro volume is the **sum** of the constituent micro volumes: `aggregated_volume = Σ sub_candle.volume`. A reconstructed sub-candle contributes `0` to the sum (no trade tape), but non-reconstructed constituents retain their original volume. A contamination rule (`aggregated_volume = 0` if *any* constituent was reconstructed) would destroy the volume from non-reconstructed constituents in the same rolled-up interval — the sum rule is the canonical aggregator. Operators should treat volume from intervals containing reconstructed sub-minute candles as informational only when the macro-level volume is entirely from reconstructed constituents; mixed intervals retain the legitimate non-reconstructed portion.
+> **Volume rollup rule.** Sub-minute reconstructed candles have `volume = 0` (no trade tape) by design. When rolled up to a higher timeframe (e.g. 15s → 1m), the aggregate into coarser durations is the **sum** of the constituent micro volumes: `aggregated_volume = Σ sub_candle.volume`. A reconstructed sub-candle contributes `0` to the sum (no trade tape), but non-reconstructed constituents retain their original volume. A contamination rule (`aggregated_volume = 0` if *any* constituent was reconstructed) would destroy the volume from non-reconstructed constituents in the same rolled-up interval — the sum rule is the canonical aggregator. Operators should treat volume from intervals containing reconstructed sub-minute candles as informational only when the macro-level volume is entirely from reconstructed constituents; mixed intervals retain the legitimate non-reconstructed portion.
 >
 > **Cold-start minimums.** The reconstruction engine requires: (a) ≥ 2 recent closes for linear extrapolation fallback (sub-minute), (b) ≥ 50 recent closes for EMA synthesis (sub-minute preferred), (c) ≥ 50 closes per timeframe for indicator warm-up (any timeframe). On cold start with zero history, all indicators emit `state_label = INSUFFICIENT_DATA` and `confidence = 0.0` until the minimum buffer is reached. The minimum warm-up duration is `min_buffer × duration_seconds` — for a 60 s slot (e.g. `1m`) with 50-bar minimum EMA warm-up, this is ~50 minutes.
 
@@ -94,7 +94,7 @@ For 1m candles and longer, the engine delegates to a `ExchangeHistoricalFetcher`
 
 ## Forwarding Through Aggregation
 
-Aggregated macro candles (4h, 1d) built from 1m source candles **forward** the source candle's `reconstructed` flag rather than blanking it. This preserves provenance through aggregation chains: a 1d candle is marked as `reconstructed` if any of its 1,440 1m constituents is reconstructed.
+Aggregated candles for coarser durations (e.g. 4h, 1d) built from 1m source candles **forward** the source candle's `reconstructed` flag rather than blanking it. This preserves provenance through aggregation chains: a 1d candle is marked as `reconstructed` if any of its 1,440 1m constituents is reconstructed.
 
 ## Gap Detection
 

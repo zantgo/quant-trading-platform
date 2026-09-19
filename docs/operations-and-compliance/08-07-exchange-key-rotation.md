@@ -1,6 +1,6 @@
 # Exchange Key Rotation Procedure
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Operator procedure for rotating the `EXCHANGE_SECRET_KEY` (master encryption key for the `exchange_keys` SQLite table) and re-encrypting credentials without losing access to live exchange connections.
 
@@ -18,7 +18,7 @@ If `EXCHANGE_SECRET_KEY` is lost or rotated, all existing `exchange_keys` rows b
 
 1. **Inventory existing keys.** `sqlite3 telemetry.db "SELECT key_id, exchange, created_at, last_rotated_at FROM exchange_keys;"` — record every `key_id`.
 2. **Confirm operator UI access** — keys must be re-entered via `POST /api/keys` if rotation requires re-encryption from scratch.
-3. **Schedule a maintenance window.** Rotation requires a daemon restart (Ops Phase 1+ will support hot-rotation; v6.4 requires restart).
+3. **Schedule a maintenance window.** Rotation is served in-process: `POST /api/keys/rotate` re-encrypts and hot-swaps without a daemon restart (the manual flow below remains a fallback).
 4. **Backup `telemetry.db`.** `cp telemetry.db telemetry.db.backup-pre-rotation-$(date +%Y%m%d)`.
 
 ---

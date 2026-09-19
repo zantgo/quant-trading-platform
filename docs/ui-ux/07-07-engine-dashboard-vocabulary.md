@@ -1,6 +1,6 @@
 # Engine Dashboard Vocabulary (v10.1)
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical specification for the **engine dashboards** — Data Infrastructure (DIE), Trade Automation (TAE), Portfolio Management (PME) and Performance Analytics (PAE) — and the rule that unifies them with the Market Monitor (MME). It defines: the shared design tokens, the shared components, the canonical **tab order = layer order** rule, the per-engine × per-mode tab maps, the Export Data contract, and the config-driven values policy.
 
@@ -61,9 +61,9 @@ Per-engine maps (all config in `ui/src/lib/engineTabs.ts`):
 
 ## 3. Per-mode tab policy
 
-The execution mode (observe / paper / live) is fixed at launch per instance. Observe mode collapses each engine to its data-bearing tabs; paper/live keep the full set. **The Settings tab is always present in every mode for TAE / PME / PAE** (per-engine config is instance-independent); MME and Profile keep theirs in all modes too, while DIE has no Settings tab (v7.4). No mode ever renders fewer than three tabs.
+The execution mode (observe / paper / live) is fixed at launch per instance. Observe mode collapses each engine to its data-bearing tabs; paper/live keep the full set. **The Settings tab is always present in every mode for TAE / PME / PAE** (per-engine config is instance-independent); MME keeps its unified Settings surface (General | Timeframes | Instance) in all modes, while DIE has no Settings tab (v7.4). No mode ever renders fewer than three tabs.
 
-**v8 — left-panel visibility per mode:** observe shows DIE · MME · **Backtesting** · Profile; paper/live show DIE · MME · TAE · PME · PAE · Profile (the Backtesting Engine is observe-only in the UI). The backend keeps computing in every mode — nav visibility is a surface rule, not a compute rule.
+**v8 — left-panel visibility per mode:** observe shows DIE · MME only; paper/live add TAE · PME · PAE. The Backtesting Engine is hidden from the sidebar in every mode (direct URL/CLI only) and the Profile/Home page was erased. The backend keeps computing in every mode — nav visibility is a surface rule, not a compute rule.
 
 | Engine | Observe tabs | Paper / Live tabs |
 |---|---|---|
@@ -122,7 +122,7 @@ Run) with Back/Continue/Cancel and a run progress bar:
 
 **Every settings tab is an editor — there are no read-only settings panels.**
 
-- **Editable surfaces:** MME Workspace Settings (per-instance: identity, visual overlays, automation, timeframes, position sizing, activation) and the TAE / PME / PAE Settings tabs (global `[workspace.*]` sections), plus Profile → Fees & Leverage (the single editor for `fees`/`leverage`). DIE **Connection Settings** (far-right, `[workspace.api_failover]` editor, v10.1) + Profile → Share Config.
+- **Editable surfaces:** the unified MME Settings surface — General (fees/leverage, cost projection, share config) | Timeframes (workspace ladder + per-duration parameters) | Instance (chip-scoped overlays/activation/heatmap) and the TAE / PME / PAE Settings tabs (global `[workspace.*]` sections), the unified MME Settings → General tab (the single editor for `fees`/`leverage`). DIE **Connection Settings** (far-right, `[workspace.api_failover]` editor, v10.1) + Profile → Share Config.
 - **Save control:** exactly **one save button per panel**, mounted in the panel's unified header right side (`headerRight`), immediately before the Export button, via the shared `SettingsSaveButton.svelte`. One state machine everywhere: `idle` (disabled) → `dirty` (enabled "SAVE" + "Unsaved changes") → `saving` (disabled "SAVING…") → `saved` (disabled "SAVED", green, ~2s → idle) | `error` (enabled "SAVE", retry; error rendered as an `alertBanner` at the top of the content). The button is never clickable unless dirty/error, never while saving, never after a successful save.
 - **Dirty tracking:** drafts vs the baseline taken after the initial `GET /api/config` load; any edit flips the panel dirty.
 - **Source chips:** every settings card carries a `ConfigSourceChip` (`config.toml → [workspace.x]`) plus an apply-semantics badge — `LIVE` (green: takes effect on the next cycle), `NEW_PIPELINES` (amber: applies to newly launched instances) or `RESTART` (grey).

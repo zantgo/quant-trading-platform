@@ -314,7 +314,7 @@ describe('MtfView — v6.14 standalone section headings', () => {
         expect(headings).toEqual(['Indicators', 'Signals', 'Divergences', 'Levels']);
     });
 
-    it('renders the duration summary bar ABOVE the Indicators heading (v6.15)', () => {
+    it('v11.12.3: the TF header row lives INSIDE the table viewport, BELOW the Indicators heading', () => {
         const terms = makePair();
         const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
@@ -322,13 +322,17 @@ describe('MtfView — v6.14 standalone section headings', () => {
         expect(text).toContain('5S');
         expect(text).toContain('30S');
         expect(text).toContain('3M');
-        const summary = container.querySelector('[class*="summary"]');
         const heading = Array.from(container.querySelectorAll('h3'))
             .find((h) => h.textContent === 'Indicators');
-        expect(summary).toBeTruthy();
         expect(heading).toBeTruthy();
+        // The TF header row must be inside its table viewport…
+        const viewport = container.querySelector('[class*="tableScroll"]');
+        expect(viewport).toBeTruthy();
+        const summary = viewport!.querySelector('[class*="summary"]');
+        expect(summary).toBeTruthy();
+        // …and sit AFTER the heading in DOM order (under the title).
         expect(
-            (summary as Element).compareDocumentPosition(heading as Element)
+            (heading as Element).compareDocumentPosition(summary as Element)
             & Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
     });

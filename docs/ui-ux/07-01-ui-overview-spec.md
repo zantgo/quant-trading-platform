@@ -1,6 +1,6 @@
 # UI Overview Specification
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the Svelte 5 frontend architecture — state management, rune patterns, WebSocket consumption, store layer, inline shell architecture, hash-based URL routing, chart overlay models, CSS architecture, and performance targets. Companion to the [UI Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -53,7 +53,7 @@ export class AppStore {
 
     instancesMap     = $state<Record<string, InstanceState>>({});
     activeTab        = $state<string>('BTC-USDT');
-    currentEngine    = $state<EngineKey>('profile');
+    currentEngine    = $state<EngineKey>('market_monitor');
     middleTab        = $state<string>('overview');
     activeEngineTab  = $state<'overview' | 'instance'>('overview');
     selectedInstance = $state<string | null>(null);
@@ -67,7 +67,7 @@ export class AppStore {
 - Each `InstanceState` carries **`terms: Record<number, TimeframeTelemetry>`** — one entry per supported duration, keyed by duration seconds (`1`, `3`, `5`, `15`, `30`, `60`, `180`, `300`, `900`, `1800`, `3600`, `14400`, `43200`, `86400`; v11.9). The record covers ALL 14 pool durations, but only the ACTIVE set ever populates. The canonical access is `terms[<secs>]` (e.g. `terms[1]`, `terms[60]`) or the `getTerm(pair, secs)` helper.
 - **`activeDurations?: number[]` (v11.9)** — the ACTIVE set as an ordered array of duration seconds (fastest → slowest), mirrored from the `active_secs` array of `GET /api/instances` (`syncInstanceIdsFromList`). Inactive durations are inert — they never emit snapshots and their sockets are never served — so every "walk the ladder" loop resolves telemetry through `activeDurations(pair)` (`lib/terms.ts`). The helper falls back to the full 14-duration pool until the payload arrives (or on malformed data).
 - Per-TF telemetry fields:
-  - `slot` — the authoritative slot identity (`1s`…`1h`).
+  - `slot` — the authoritative duration identity in SECONDS (`1s`…`1d` derived via `tfLabel()`).
   - `barDurationSec` — the timeframe duration in seconds (e.g. `60` for `1m`).
   - `indicators` — the full `NormalizedIndicatorValue` map for that TF.
   - `priceText`, `volText`, `avgVolText` — formatted display strings.
@@ -122,7 +122,7 @@ All navigation is backed by hash-fragment URLs, enabling browser right-click "Op
 | `engine/{key}` | Target engine: `market_monitor`, `trade_automation`, `portfolio`, `performance`, `data_infra`, `exchange_settings` | `engine/market_monitor` |
 | `{middleTab}` | Workspace-level tab: `workspace`, `overview`, `settings` | `workspace` |
 | `instance/{pairKey}` | Selected trading pair | `instance/BTC-USDT` |
-| `view/{view}` | Per-instance sub-tab: `terminal`, `monitor`, `alignment`, `opportunity`, `risk`, `analysis`, `advisory` | `view/charts` |
+| `view/{view}` | Per-instance sub-tab: `terminal`, `monitor`, `alignment`, `analysis`, `opportunity`, `risk`, `recommendation` | `view/charts` |
 
 > **Engines without middle tabs** (currently `exchange_settings`) omit `{middleTab}` — the `isSimplePage` guard suppresses the Middle Navbar entirely.
 
@@ -276,7 +276,7 @@ The `LiveTerminal` chart workspace supports **drag-to-resize** between adjacent 
 
 ```
 WebSocket → state.svelte.ts (AppStore)
-    → LiveTerminal (derives activeTfObj from pair.{microTerm,fastTerm,slowTerm,macroTerm})
+    → LiveTerminal (derives the active duration state from `pair.terms[<secs>]` over `activeDurations`)
         → PriceChart + 5 indicator charts (props: { pairKey, timeframe })
             → boot phase: GET /api/history → setData()
             → live phase: $effect watching tf.latestSnapshot → series.update()

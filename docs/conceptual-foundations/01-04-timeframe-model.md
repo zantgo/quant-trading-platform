@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:** 11.11 (2026-09-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.12 (2026-09-19) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the **duration-keyed timeframe model** used by the Market Monitoring Engine. A timeframe **is** its duration in seconds — there are no named slots. The supported pool is the closed 14-duration set `1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400, 43200, 86400` seconds; display labels are derived (`1s`, `3s`, `5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `4h`, `12h`, `1d`). The v11.8 named-slot world is **erased** — machine keys are `timeframe_secs: u64` everywhere, and legacy named keys are **hard-rejected at load**. Since **v11.9**, `[workspace].timeframes: Vec<u64>` selects the ACTIVE durations (1..=14 entries, default the fastest eight). Each instance runs exactly one independent pipeline per ACTIVE duration producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer; inactive durations are inert (§2.1).
 
