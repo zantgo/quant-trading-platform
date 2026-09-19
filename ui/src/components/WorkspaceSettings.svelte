@@ -747,19 +747,19 @@
              ('all' = legacy standalone renders both). -->
         <div class="{styles.settingsGroup} {embedded && sectionTab !== 'all' && sectionTab !== 'timeframes' ? styles.settingsGroupHidden : ''}">
         <div class={engine.card}>
-            <div class={engine.cardHead}>
-                <!-- v11.12.4: the page title moved to the shell's action
-                     row — the card keeps only its provenance chip.
-                     v11.12.13: chip + instruction line replaced by a clear
-                     two-pane title (rail = durations, pane = indicators). -->
-                {#if !embedded}
+            {#if !embedded}
+                <div class={engine.cardHead}>
+                    <!-- v11.12.4: the page title moved to the shell's action
+                         row — the card keeps only its provenance chip. -->
                     <h3 class={engine.cardTitle}>Timeframes</h3>
-                {/if}
-                <h3 class={styles.tfCardTitle}>
-                    TIMEFRAME <span class={styles.tfCardTitleSep}>|</span> INDICATOR
-                </h3>
-            </div>
+                </div>
+            {/if}
             <div class={styles.tfShell}>
+                <!-- v11.12.14: the header splits over the real pane columns —
+                     TIMEFRAME over the duration rail, | INDICATOR over the
+                     parameters pane (the shell grid guarantees alignment). -->
+                <h3 class={styles.tfCardTitleRail}>TIMEFRAME</h3>
+                <h3 class={styles.tfCardTitlePane}><span class={styles.tfCardTitleSep}>|</span> INDICATOR</h3>
                 <aside class={styles.tfShellRail}>
                     {#each DURATIONS as slot (slot)}
                         {@const on = activeLadder.includes(slot)}

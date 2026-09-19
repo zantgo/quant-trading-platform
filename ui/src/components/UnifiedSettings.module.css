@@ -86,6 +86,12 @@
     background: var(--bg, #000000);
 }
 
+/* v11.12.14: ONLY the Settings tab titles read bold — synthesis is enabled
+   for this element alone while the rest of the app keeps the 400 face. */
+.sectionTitle {
+    font-synthesis: weight;
+}
+
 /* v11.12.3: SAVE sits immediately LEFT of EXPORT DATA at the far right —
    the group is shrink-to-fit so the export button's margin-left:auto has
    no free space to absorb (previously it pushed SAVE to the left edge). */
