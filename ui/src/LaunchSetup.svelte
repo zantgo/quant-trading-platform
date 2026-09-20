@@ -1,6 +1,6 @@
 <script lang="ts">
     import { useAppStore } from './state.svelte';
-    import { createInstance, deleteInstanceById } from './lib/api.svelte';
+    import { createInstance, deleteInstanceById, deleteInstanceByPair } from './lib/api.svelte';
     import { tfLabel } from './types';
     import { activeDurations } from './lib/terms';
     import styles from './LaunchSetup.module.css';
@@ -12,48 +12,52 @@
     let recovering = $state(false);
     let discarding = $state(false);
     let recoveryError = $state<string | null>(null);
+    // v11.12.22: recovery IS the Instances step. The recovered pairs render
+    // as draft chips (`waiting for first snapshot…` → `ready ✓`) with the
+    // ADD area hidden, no BACK, and CONTINUE blocked until every chip is
+    // ready — or eliminated. A still-spawning instance can be eliminated
+    // immediately (cancel-guard): the chip drops and a watcher deletes the
+    // instance the moment the backend finishes spawning it.
+    let recoveryMode = $state(false);
+    let recoveryStartedAt = $state(0);
+    /// Pairs the operator eliminated before the backend had them (no id).
+    const cancelledPairs = new Set<string>();
 
-    // v11.12.17: recovery runs the SAME preparing gate as a fresh launch.
-    // The daemon re-spawns the interrupted session's instances at boot, but
-    // their first snapshots arrive asynchronously — landing immediately
-    // showed an EMPTY Overview until the WS frames came in.
-    // v11.12.21: one gate row per recovered instance. `instanceId` is the
-    // backend UUID — the eliminate action needs it.
-    type RecoveryRow = {
-        key: string;
-        label: string;
-        ready: boolean;
-        instanceId: string | null;
-        timedOut: boolean;
-        failed: boolean;
-        removing: boolean;
-    };
-
-    async function fetchRecoveredInstances(expected: number): Promise<{ id: string | null; pair: string }[]> {
-        async function readRows(): Promise<{ id: string | null; pair: string }[]> {
+    /// The interrupted session's Running pairs, read from the workspace
+    /// config. The config is loaded before the dashboard serves, so the
+    /// pairs are known immediately — even while the background boot spawn
+    /// is still retrying its venue symbol check (minutes on slow networks).
+    async function fetchRecoveredPairs(expected: number): Promise<string[]> {
+        if (expected <= 0) return [];
+        for (let attempt = 0; attempt < 5; attempt += 1) {
             try {
-                const res = await fetch('/api/instances');
-                if (!res.ok) return [];
-                const data = await res.json();
-                const list: Array<{ id?: string; pair?: string }> = data?.instances ?? [];
-                return list
-                    .filter((i): i is { id?: string; pair: string } => !!i?.pair)
-                    .map((i) => ({ id: i.id ?? null, pair: i.pair }));
+                const res = await fetch('/api/config');
+                if (res.ok) {
+                    const data = await res.json();
+                    const list: Array<{ symbol?: string; status?: string }> =
+                        data?.instances ?? [];
+                    const pairs = list
+                        .filter((i) => !!i?.symbol && (i.status ?? 'Running') === 'Running')
+                        .map((i) => i.symbol!);
+                    if (pairs.length > 0) return pairs;
+                }
             } catch (_) {
-                return [];
+                // fall through to the retry
             }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
         }
-        const first = await readRows();
-        if (expected <= 0 || first.length >= expected) return first;
-        let rows = first;
-        const deadline = Date.now() + 15_000;
-        while (Date.now() < deadline) {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-            const next = await readRows();
-            if (next.length > 0) rows = next;
-            if (next.length >= expected) return next;
+        // Config unavailable — fall back to whatever the runtime reports.
+        try {
+            const res = await fetch('/api/instances');
+            if (res.ok) {
+                const data = await res.json();
+                const list: Array<{ pair?: string }> = data?.instances ?? [];
+                return list.map((i) => i?.pair).filter((p): p is string => !!p);
+            }
+        } catch (_) {
+            // nothing more to try
         }
-        return rows;
+        return [];
     }
 
     async function recoverSession(): Promise<void> {
@@ -63,26 +67,19 @@
         const expected = app.session.interruptedSession?.instance_count ?? 0;
         try {
             await app.session.recoverInterrupted();
-            const rows = await fetchRecoveredInstances(expected);
-            if (rows.length > 0) {
-                loadingSteps = rows.map((row) => ({
-                    key: row.pair,
-                    label: app.pairDisplayFor(row.pair) ?? row.pair,
-                    ready: false,
-                    instanceId: row.id,
-                    timedOut: false,
-                    failed: false,
-                    removing: false,
+            const pairs = await fetchRecoveredPairs(expected);
+            if (pairs.length > 0) {
+                instances = pairs.map((pair) => ({
+                    base: pair.split('-')[0],
+                    status: 'waiting' as const,
+                    pairKey: pair,
                 }));
-                waitTimedOut = false;
-                waiting = true;
-                // v11.12.21: recovery is a HARD gate — it never auto-lands
-                // and never auto-passes. Poll in the background; the
-                // operator presses CONTINUE once every instance loaded (or
-                // eliminated the ones that never arrive).
-                recoveryGate = true;
+                staged = true;
+                recoveryMode = true;
+                recoveryStartedAt = Date.now();
+                step = 3;
                 app.bumpWsVersion();
-                void pollRecoveredInstances();
+                void pollRecoveredDrafts();
                 return;
             }
             // No instances to warm — land directly (same as an empty launch).
@@ -116,6 +113,9 @@
         status: 'creating' | 'waiting' | 'ready' | 'timeout' | 'failed';
         error?: string;
         instanceId?: string;
+        /// v11.12.22: the canonical pair key for RECOVERED rows (the config
+        /// symbol verbatim) — ADD-time drafts derive it from `base`.
+        pairKey?: string;
     }
 
     // The wizard must never unmount mid-flow: the session activates at the
@@ -176,6 +176,12 @@
     let apiSecret = $state('');
     let passphrase = $state('');
     let instances = $state<DraftInstance[]>([]);
+    // v11.12.22: the recovery gate passes ONLY when every recovered chip is
+    // `ready` (a timeout chip keeps blocking — unlike the ADD-time
+    // `stagedReady`, where a warmed-up chip passes with a note).
+    const recoveryReady = $derived(
+        instances.length === 0 || instances.every((i) => i.status === 'ready'),
+    );
     let newBase = $state('');
     let error = $state<string | null>(null);
     let loading = $state(false);
@@ -213,6 +219,9 @@
 
     async function goNext() {
         error = null;
+        // v11.12.22: the recovery gate never walks the wizard — its
+        // CONTINUE lands directly (the footer branches on `recoveryMode`).
+        if (recoveryMode) return;
         if (step === 2 && !staged) {
             // The session activates HERE so instances can be created at
             // ADD time (the backend rejects creation without a session).
@@ -236,6 +245,9 @@
 
     async function goBack() {
         error = null;
+        // v11.12.22: BACK is hidden mid-restore — and must never discard
+        // recovered instances (the delete-loop below is draft-only).
+        if (recoveryMode) return;
         if (step === 3 && instances.length > 0) {
             // Staged instances pin the session's environment — changing
             // exchange/currency requires discarding them first.
@@ -336,6 +348,41 @@
     async function removeInstance(index: number) {
         const draft = instances[index];
         if (!draft) return;
+        const key = draft.pairKey ?? app.pairKeyFor(draft.base);
+        // v11.12.22 recovery: the ✕ eliminates a recovered instance. A
+        // still-spawning one has no backend id yet — cancel-guard parity
+        // with the ADD-time chip: drop the chip NOW and let the poll delete
+        // the instance the moment it materializes.
+        if (recoveryMode) {
+            const instanceId = draft.instanceId ?? app.instancesMap[key]?.instanceId;
+            instances = instances.filter((_, i) => i !== index);
+            if (!instanceId) {
+                cancelledPairs.add(key);
+                void deleteInstanceByPair(key).then((ok) => {
+                    // The instance was already there — the guard is done.
+                    if (ok) cancelledPairs.delete(key);
+                });
+                return;
+            }
+            const ok = await deleteInstanceById(instanceId);
+            if (ok) {
+                app.removeInstance(key);
+            } else {
+                // The instance still runs — re-insert the chip as failed so
+                // the gate stays blocked and honest (the store entry stays
+                // too: the instance is still live).
+                instances = [
+                    ...instances,
+                    {
+                        ...draft,
+                        status: 'failed',
+                        error: 'Removal failed — the instance is still running. Remove it from the workspace panel.',
+                        instanceId,
+                    },
+                ];
+            }
+            return;
+        }
         instances = instances.filter((_, i) => i !== index);
         // Still `creating`: no id yet — dropping the chip IS the cancel; the
         // resolve-time guard in addInstance deletes the instance when the
@@ -379,17 +426,7 @@
     // instances → the wizard lands immediately.
     let waiting = $state(false);
     let waitTimedOut = $state(false);
-    let loadingSteps = $state<RecoveryRow[]>([]);
-    // v11.12.21: the RECOVERY gate (crash-recovery + "Recover last
-    // session") is a hard gate: CONTINUE is blocked until every recovered
-    // instance has its first snapshot, or the operator eliminated the
-    // non-successful ones. The fresh-launch preparing step keeps its own
-    // auto-landing/timeout behavior (recoveryGate stays false there).
-    let recoveryGate = $state(false);
-    const recoveryReady = $derived(
-        loadingSteps.length === 0 || loadingSteps.every((row) => row.ready),
-    );
-    const recoveryPending = $derived(loadingSteps.filter((row) => !row.ready).length);
+    let loadingSteps = $state<{ key: string; label: string; ready: boolean }[]>([]);
 
     // v11.12: mandatory Welcome gate for a LIVE session — a page reload
     // (per tab) must deliberately reconnect (Resume) or explicitly Quit;
@@ -406,7 +443,10 @@
             && !waiting
             // v11.12.17: never flash the Resume/Quit card mid-recovery —
             // the status refetch flips active=true before the gate is up.
-            && !recovering,
+            && !recovering
+            // v11.12.22: nor mid-restore (recovery lives on the Instances
+            // step now — the step check already covers it; belt-and-braces).
+            && !recoveryMode,
     );
     let quitting = $state(false);
     let resumeError = $state<string | null>(null);
@@ -446,50 +486,82 @@
         waitTimedOut = true;
     }
 
-    // v11.12.21: recovery readiness poll — never lands and never passes on
-    // its own. Rows flip to `ready ✓` as snapshots arrive; at the 60 s mark
-    // the still-missing ones turn amber (`timedOut`) but polling continues,
-    // so a late snapshot still clears them. CONTINUE unlocks only when
-    // every row is ready (or was eliminated).
-    async function pollRecoveredInstances(): Promise<void> {
-        const deadline = Date.now() + 60_000;
-        while (waiting && recoveryGate) {
-            const next = loadingSteps.map((entry) => {
-                const pair = app.instancesMap[entry.key];
-                const ready = !!pair
-                    && activeDurations(pair).some(
-                        (secs) => pair.terms[secs]?.latestSnapshot != null,
+    // v11.12.22: the recovery readiness poll. For every pair the runtime
+    // finally reports, seed the store (the ADD-time plumbing) so the WS
+    // attaches and the first snapshot flips the chip to `ready ✓`. After
+    // 60 s the still-waiting chips turn amber — they keep polling, so a
+    // late snapshot still wins; `failed` chips (rejected elimination)
+    // never flip. Cancelled pairs (cancel-guard ✕) are deleted the moment
+    // the backend finishes spawning them — even after landing.
+    async function pollRecoveredDrafts(): Promise<void> {
+        let guard = 0;
+        while (recoveryMode || cancelledPairs.size > 0) {
+            try {
+                const res = await fetch('/api/instances');
+                if (res.ok) {
+                    const data = await res.json();
+                    const list: Array<{ id?: string; pair?: string }> =
+                        data?.instances ?? [];
+                    const runtime = new Map(
+                        list
+                            .filter((i) => !!i?.pair && !!i?.id)
+                            .map((i) => [i.pair!, i.id!] as const),
                     );
-                const timedOut = entry.timedOut || (!ready && Date.now() >= deadline);
-                return ready === entry.ready && timedOut === entry.timedOut
-                    ? entry
-                    : { ...entry, ready, timedOut };
-            });
-            loadingSteps = next;
-            if (next.every((entry) => entry.ready)) return;
+                    for (const pair of [...cancelledPairs]) {
+                        if (runtime.has(pair) && (await deleteInstanceByPair(pair))) {
+                            cancelledPairs.delete(pair);
+                        }
+                    }
+                    if (recoveryMode) {
+                        const now = Date.now();
+                        instances = instances.map((draft) => {
+                            const key = draft.pairKey ?? app.pairKeyFor(draft.base);
+                            const id = runtime.get(key);
+                            // `pairKey` carries the '-' — initInstance keys
+                            // it verbatim, so a quote drift can't mis-seed.
+                            if (id && !app.instancesMap[key]) {
+                                app.initInstance(
+                                    draft.pairKey ?? draft.base,
+                                    app.session.sessionExchange ?? undefined,
+                                    id,
+                                );
+                                app.bumpWsVersion();
+                            }
+                            const withId =
+                                id && !draft.instanceId ? { ...draft, instanceId: id } : draft;
+                            if (withId.status === 'ready' || withId.status === 'failed') {
+                                return withId;
+                            }
+                            const pair = app.instancesMap[key];
+                            const ready = !!pair
+                                && activeDurations(pair).some(
+                                    (secs) => pair.terms[secs]?.latestSnapshot != null,
+                                );
+                            if (ready) return { ...withId, status: 'ready' as const };
+                            if (withId.status === 'waiting' && now - recoveryStartedAt >= 60_000) {
+                                return { ...withId, status: 'timeout' as const };
+                            }
+                            return withId;
+                        });
+                    }
+                }
+            } catch (_) {
+                // transient — retry on the next tick
+            }
+            guard += 1;
+            if (!recoveryMode && guard > 1500) {
+                // ~10 min without the never-spawning pairs materializing —
+                // stop retrying and report the leftovers honestly.
+                for (const pair of cancelledPairs) {
+                    console.warn(
+                        `Cancel guard gave up on ${pair} — it never spawned; remove it from the workspace panel.`,
+                    );
+                }
+                cancelledPairs.clear();
+                return;
+            }
             await new Promise((resolve) => setTimeout(resolve, 400));
         }
-    }
-
-    // v11.12.21: eliminate a recovered instance that never loaded. The row
-    // stays visible (✕ disabled) until the DELETE resolves; a failure keeps
-    // it in place as `removal failed` so the gate stays blocked and honest.
-    async function eliminateRecovered(entry: RecoveryRow): Promise<void> {
-        const pair = app.instancesMap[entry.key];
-        const instanceId = entry.instanceId ?? pair?.instanceId ?? null;
-        loadingSteps = loadingSteps.map((row) =>
-            row.key === entry.key ? { ...row, removing: true } : row,
-        );
-        let ok = true;
-        if (instanceId) ok = await deleteInstanceById(instanceId);
-        if (!ok) {
-            loadingSteps = loadingSteps.map((row) =>
-                row.key === entry.key ? { ...row, removing: false, failed: true } : row,
-            );
-            return;
-        }
-        app.removeInstance(entry.key);
-        loadingSteps = loadingSteps.filter((row) => row.key !== entry.key);
     }
 
     function landOnOverview(): void {
@@ -497,10 +569,11 @@
         // the ack, `!app.sessionAcknowledged` kept LaunchSetup mounted and
         // BOTH launch paths (zero-instance and staged-instance) appeared
         // frozen on the wizard/preparing screen.
-        // v11.12.21: stops the recovery poll loop. `waiting` is left alone
-        // so the fresh-launch preparing section keeps rendering exactly as
-        // before until the ack unmounts the wizard.
-        recoveryGate = false;
+        // v11.12.22: stops the recovery chip poll (the cancel-guard watcher
+        // keeps running until it has cleaned up); `waiting` is left alone so
+        // the fresh-launch preparing section renders as before until the
+        // ack unmounts the wizard.
+        recoveryMode = false;
         app.acknowledgeSession();
         app.wizardActive = false;
         app.currentEngine = 'market_monitor';
@@ -552,10 +625,6 @@
                     key,
                     label: app.pairDisplayFor(key) ?? key,
                     ready: false,
-                    instanceId: null,
-                    timedOut: false,
-                    failed: false,
-                    removing: false,
                 }));
                 waiting = true;
                 loading = false;
@@ -661,8 +730,6 @@
                         Warming {loadingSteps.length} instance{loadingSteps.length === 1 ? '' : 's'} —
                         first snapshots arriving.
                     </p>
-                {:else if recoveryGate}
-                    <p class={styles.sectionSubtitle}>All recovered instances were eliminated.</p>
                 {:else}
                     <p class={styles.sectionSubtitle}>Restoring your instances…</p>
                 {/if}
@@ -670,46 +737,15 @@
                     {#each loadingSteps as entry (entry.key)}
                         <div class={styles.loadingRow}>
                             <span class={styles.loadingName}>{entry.label}</span>
-                            <span class={styles.loadingMeta}>
-                                {#if entry.ready}
-                                    <span class={styles.loadingReady}>ready ✓</span>
-                                {:else if entry.failed}
-                                    <span class={styles.loadingFailed}>removal failed — still running</span>
-                                {:else if entry.timedOut}
-                                    <span class={styles.loadingTimeout}>still warming — remove to continue</span>
-                                {:else}
-                                    <span class={styles.loadingPending}>waiting for first snapshot…</span>
-                                {/if}
-                                {#if recoveryGate && !entry.ready}
-                                    <button
-                                        class={styles.loadingRemove}
-                                        type="button"
-                                        title="Remove instance"
-                                        aria-label="Remove {entry.label}"
-                                        disabled={entry.removing}
-                                        onclick={() => eliminateRecovered(entry)}
-                                    >✕</button>
-                                {/if}
-                            </span>
+                            {#if entry.ready}
+                                <span class={styles.loadingReady}>ready ✓</span>
+                            {:else}
+                                <span class={styles.loadingPending}>waiting for first snapshot…</span>
+                            {/if}
                         </div>
                     {/each}
                 </div>
-                {#if recoveryGate}
-                    {#if recoveryPending > 0}
-                        <p class={styles.loadingNote}>
-                            Waiting for {recoveryPending}
-                            instance{recoveryPending === 1 ? '' : 's'} — CONTINUE unlocks when
-                            every instance has loaded, or eliminate the ones that never arrive.
-                        </p>
-                    {/if}
-                    <button
-                        class={styles.primaryButton}
-                        disabled={!recoveryReady}
-                        onclick={landOnOverview}
-                    >
-                        CONTINUE TO WORKSPACE
-                    </button>
-                {:else if waitTimedOut}
+                {#if waitTimedOut}
                     <p class={styles.loadingNote}>
                         Some instances are still warming — continue and watch live
                         progress in the workspace.
@@ -824,7 +860,14 @@
         {:else if step === 3}
             <section class={styles.section}>
                 <h2 class={styles.sectionTitle}>Instances</h2>
-                <p class={styles.formHint}>Add one or more instances, or skip and add them later from the workspace panel.</p>
+                {#if recoveryMode}
+                    <p class={styles.formHint}>
+                        Restoring your previous session — the workspace opens once every
+                        instance has loaded. Remove any instance that never arrives.
+                    </p>
+                {:else}
+                    <p class={styles.formHint}>Add one or more instances, or skip and add them later from the workspace panel.</p>
+                {/if}
 
                 <div class={styles.instanceList}>
                     {#each instances as inst, i (inst.base)}
@@ -838,7 +881,10 @@
                             {:else if inst.status === 'ready'}
                                 <span class="{styles.instanceStatus} {styles.instanceStatusReady}">ready ✓</span>
                             {:else if inst.status === 'timeout'}
-                                <span class={styles.instanceStatus} title={inst.error}>still warming</span>
+                                <span
+                                    class="{styles.instanceStatus} {recoveryMode ? styles.instanceStatusWarn : ''}"
+                                    title={inst.error}
+                                >{recoveryMode ? 'still warming — remove to continue' : 'still warming'}</span>
                             {:else}
                                 <span class="{styles.instanceStatus} {styles.instanceStatusFailed}" title={inst.error}>✕ unavailable</span>
                             {/if}
@@ -847,20 +893,26 @@
                         </div>
                     {/each}
                     {#if instances.length === 0}
-                        <p class={styles.emptyHint}>No instances configured yet.</p>
+                        <p class={styles.emptyHint}>
+                            {recoveryMode
+                                ? 'All instances were removed — continue to an empty workspace.'
+                                : 'No instances configured yet.'}
+                        </p>
                     {/if}
                 </div>
 
-                <div class={styles.addGroup}>
-                    <label class={styles.formLabel} for="launch-base">Add instance</label>
-                    <p class={styles.formHint}>Every instance runs the {ACTIVE_LADDER_TEXT}</p>
-                    <div class={styles.addRow}>
-                        <input id="launch-base" type="text" maxlength="10"
-                            class="{styles.formInput} {styles.baseInput}" bind:value={newBase}
-                            placeholder="BTC" onkeydown={(e) => e.key === 'Enter' && addInstance()} />
-                        <button class={styles.addBtn} onclick={addInstance}>+ Add</button>
+                {#if !recoveryMode}
+                    <div class={styles.addGroup}>
+                        <label class={styles.formLabel} for="launch-base">Add instance</label>
+                        <p class={styles.formHint}>Every instance runs the {ACTIVE_LADDER_TEXT}</p>
+                        <div class={styles.addRow}>
+                            <input id="launch-base" type="text" maxlength="10"
+                                class="{styles.formInput} {styles.baseInput}" bind:value={newBase}
+                                placeholder="BTC" onkeydown={(e) => e.key === 'Enter' && addInstance()} />
+                            <button class={styles.addBtn} onclick={addInstance}>+ Add</button>
+                        </div>
                     </div>
-                </div>
+                {/if}
             </section>
         {:else}
             <section class={styles.section}>
@@ -902,19 +954,20 @@
             <div class={styles.formError}>{error}</div>
         {/if}
 
-        {#if !waiting}
+        {#if !waiting && !recovering}
         <footer class={styles.footer}>
-            {#if step > 1}
+            {#if step > 1 && !recoveryMode}
                 <button class={styles.backButton} onclick={goBack} disabled={loading}>Back</button>
             {:else}
                 <span></span>
             {/if}
             {#if step < 4}
+                {@const gateBlocked = step === 3 && !(recoveryMode ? recoveryReady : stagedReady)}
                 <button
                     class={styles.primaryButton}
-                    onclick={goNext}
-                    disabled={loading || (step === 3 && !stagedReady)}
-                    title={step === 3 && !stagedReady ? 'Instances are still loading…' : undefined}
+                    onclick={() => (recoveryMode ? landOnOverview() : goNext())}
+                    disabled={loading || gateBlocked}
+                    title={gateBlocked ? 'Instances are still loading…' : undefined}
                 >
                     Continue
                 </button>

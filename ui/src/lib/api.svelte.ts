@@ -272,6 +272,21 @@ export async function deleteInstanceById(instanceId: string): Promise<boolean> {
     }
 }
 
+/** v11.12.22: delete an instance by its canonical pair key
+ *  (e.g. "BTC-USDT"). Used by the recovery cancel-guard for instances the
+ *  backend has not finished spawning yet — a `false` return means it does
+ *  not exist (yet) or could not be deleted, so callers retry. */
+export async function deleteInstanceByPair(pairKey: string): Promise<boolean> {
+    try {
+        const res = await fetch(`/api/instances/by-pair/${encodeURIComponent(pairKey)}`, {
+            method: 'DELETE',
+        });
+        return res.ok;
+    } catch (_) {
+        return false;
+    }
+}
+
 /** Poll a single pair's slots until a **recommendation to any side**
  *  appears (the scanner's `decide()` rule: `trade_readiness === 'READY'`
  *  AND a directional bias — Long / Short of any strength) or the wait
