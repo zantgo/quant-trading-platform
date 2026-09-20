@@ -25,6 +25,7 @@ pub struct ClockMonitorConfig {
     pub warn_on_breach: bool,            // default: true
     pub jitter_window_size: usize,       // default: 20
     pub query_timeout: Duration,         // default: 5s
+    pub max_rtt: Duration,               // default: 1s (v11.12.19 reliability bound)
 }
 
 pub enum BreachAction { Warn, Panic }
@@ -32,6 +33,7 @@ pub enum BreachAction { Warn, Panic }
 pub enum DriftVerdict {
     WithinThreshold { offset_us: i64, rtt_us: u64, server: String },
     BreachThreshold { offset_us: i64, rtt_us: u64, server: String, threshold_us: i64 },
+    Unreliable { offset_us: i64, rtt_us: u64, server: String, max_rtt_us: u64 },
     NetworkError { message: String, retry_after: Duration },
 }
 
@@ -49,6 +51,7 @@ poll_interval_secs = 30
 threshold_micros = 10000   # default: 10 ms (shipped config; tighten for colocation)
 query_timeout_secs = 5
 jitter_window_size = 20
+max_rtt_micros = 1000000      # v11.12.19: samples slower than 1 s → "unreliable", drift not evaluated
 breach_action = "warn"        # or "panic"
 warn_on_breach = true
 ```
@@ -63,6 +66,7 @@ warn_on_breach = true
 | `threshold_micros` | `threshold` | `Duration` (constructed from microsecond count) |
 | `query_timeout_secs` | `query_timeout` | `Duration` (constructed from second count; default `5 s`) |
 | `jitter_window_size` | `jitter_window_size` | `usize` (default `20`) |
+| `max_rtt_micros` | `max_rtt` | `Duration` (constructed from microsecond count; default `1 s`) — samples above it are `Unreliable`, never breaches |
 | `breach_action` | `breach_action` | `BreachAction` enum |
 | `warn_on_breach` | `warn_on_breach` | `bool` |
 
@@ -81,7 +85,11 @@ Uses the [`sntpc`](https://crates.io/crates/sntpc) crate (pure-Rust NTPv4 client
    offset = ((T2 − T1) + (T3 − T4)) / 2
    RTT    = (T4 − T1) − (T3 − T2)
    ```
-4. Compare |offset| against `threshold`.
+4. If `RTT > max_rtt` (default `1 s`), the sample is reported as
+   `DriftVerdict::Unreliable` — the offset uncertainty is ≈ `RTT/2`, so a
+   slow path can neither prove nor disprove a drift (it is logged and never
+   counts as a breach; `breach_action = panic` cannot fire from it).
+5. Otherwise compare |offset| against `threshold`.
 
 If no server is reachable, return `DriftVerdict::NetworkError` and continue polling on the next interval — the monitor never panics on transport errors.
 
@@ -97,19 +105,19 @@ If no server is reachable, return `DriftVerdict::NetworkError` and continue poll
         │  Measure via sntpc          │
         └─────────┬───────────────────┘
                   │
-        ┌─────────┴──────────┬────────────────┐
-        ▼                    ▼                ▼
-  WithinThreshold    BreachThreshold    NetworkError
-        │                    │                │
-  log info!          log error!        log warn!
-        │             if warn_on_breach      │
-        │                    │                │
-        │             if breach_action=Panic  │
-        │                    │                │
-        │                    ▼                │
-        │              panic!                 │
-        │                                     │
-        └──────────────► wait poll_interval ◄─┘
+        ┌─────────┴──────────┬────────────────┬──────────────┐
+        ▼                    ▼                ▼              ▼
+  WithinThreshold    BreachThreshold    Unreliable    NetworkError
+        │                    │                │              │
+  log info!          log error!        log warn!        log warn!
+        │             if warn_on_breach  (never a breach)    │
+        │                    │                │              │
+        │             if breach_action=Panic  │              │
+        │                    │                │              │
+        │                    ▼                │              │
+        │              panic!                 │              │
+        │                                     │              │
+        └──────────────► wait poll_interval ◄─┴──────────────┘
 ```
 
 ## Jitter Window
@@ -159,6 +167,7 @@ If `breach_action = warn` and drift actually exceeds `threshold_micros`, the L2 
 - `rms_jitter_with_known_samples` (verifies [10, 20, 30, 40, 50] → RMS ≈ 14.14)
 - `verdict_from_sample_within_threshold`
 - `verdict_from_sample_breach_threshold`
+- `verdict_from_sample_unreliable_when_rtt_exceeds_max` (v11.12.19)
 - `measure_once_with_unreachable_server_returns_network_error`
 
 ## Cross-References

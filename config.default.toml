@@ -44,6 +44,7 @@ poll_interval_secs = 30
 threshold_micros = 10000
 query_timeout_secs = 5
 jitter_window_size = 20
+max_rtt_micros = 1000000   # samples slower than 1 s are "unreliable" (drift not evaluated)
 breach_action = "warn"
 warn_on_breach = true
 

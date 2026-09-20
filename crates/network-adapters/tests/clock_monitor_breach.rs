@@ -12,6 +12,8 @@ fn config_defaults_are_correct() {
     // (prior 50µs bare default was never used in production and made unit tests 200× stricter).
     assert_eq!(cfg.threshold, Duration::from_micros(10_000));
     assert_eq!(cfg.breach_action, BreachAction::Warn);
+    // v11.12.19: reliability bound — samples slower than 1 s are "unreliable".
+    assert_eq!(cfg.max_rtt, Duration::from_secs(1));
 }
 
 #[test]
@@ -84,7 +86,7 @@ fn within_threshold_verdict() {
         measured_at_ms: 0,
     };
 
-    match verdict_from_sample(&sample, 50) {
+    match verdict_from_sample(&sample, 50, 1_000_000) {
         DriftVerdict::WithinThreshold {
             offset_us,
             rtt_us,
@@ -104,7 +106,7 @@ fn within_threshold_verdict() {
         measured_at_ms: 0,
     };
     assert!(matches!(
-        verdict_from_sample(&sample, 50),
+        verdict_from_sample(&sample, 50, 1_000_000),
         DriftVerdict::WithinThreshold { .. }
     ));
 }
@@ -118,7 +120,7 @@ fn breach_threshold_verdict() {
         measured_at_ms: 0,
     };
 
-    match verdict_from_sample(&sample, 50) {
+    match verdict_from_sample(&sample, 50, 1_000_000) {
         DriftVerdict::BreachThreshold {
             offset_us,
             rtt_us,
@@ -140,7 +142,7 @@ fn breach_threshold_verdict() {
         measured_at_ms: 0,
     };
     assert!(matches!(
-        verdict_from_sample(&sample, 50),
+        verdict_from_sample(&sample, 50, 1_000_000),
         DriftVerdict::BreachThreshold { .. }
     ));
 }

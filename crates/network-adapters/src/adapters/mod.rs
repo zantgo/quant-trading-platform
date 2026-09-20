@@ -8,6 +8,7 @@ pub mod bitget_live;
 pub mod bitget_rest;
 pub mod historical_fetch;
 pub mod hl_derivatives_poller;
+pub mod http;
 pub mod hyperliquid;
 pub mod hyperliquid_historical_fetch;
 pub mod hyperliquid_live;

@@ -2,6 +2,8 @@ use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 
+use super::http;
+
 #[derive(Debug, Deserialize)]
 struct BitgetCandleResponse {
     code: String,
@@ -189,6 +191,11 @@ struct BitgetTickerResponse {
 /// Verify that a Bitget mix (perpetual futures) contract symbol exists for the
 /// given product type by querying the ticker endpoint.
 ///
+/// v11.12.19: the check retries TRANSPORT errors (3 attempts, 30 s per
+/// attempt + connect timeout, 1 s/2 s backoff) — slow networks (cold DNS can
+/// take seconds through a VPN) used to fail the single 10 s request. A
+/// definitive venue answer (`Ok(false)`) is never retried.
+///
 /// Returns `Ok(true)` if the contract is tradeable, `Ok(false)` if the exchange
 /// reports it as unknown, and `Err(..)` only on transport/parse failures so the
 /// caller can distinguish "not available" from "couldn't check".
@@ -198,30 +205,56 @@ pub async fn symbol_exists(
     ticker_url: &str,
 ) -> Result<bool, String> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(http::PROBE_CONNECT_TIMEOUT)
+        .timeout(http::PROBE_TOTAL_TIMEOUT)
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
-    let response = client
-        .get(ticker_url)
-        .query(&[("symbol", symbol), ("productType", product_type)])
-        .send()
-        .await
-        .map_err(|e| format!("Symbol check request failed for {}: {}", symbol, e))?;
+    let mut last_err = String::new();
+    for attempt in 0..http::PROBE_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(http::probe_backoff(attempt)).await;
+        }
+        match client
+            .get(ticker_url)
+            .query(&[("symbol", symbol), ("productType", product_type)])
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    // A 400 here typically means the symbol/productType pair is invalid.
+                    return Ok(false);
+                }
 
-    if !response.status().is_success() {
-        // A 400 here typically means the symbol/productType pair is invalid.
-        return Ok(false);
+                let parsed: BitgetTickerResponse = response
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse ticker JSON for {}: {}", symbol, e))?;
+
+                // "00000" with a non-empty data array => the contract exists.
+                let ok =
+                    parsed.code == "00000" && parsed.data.as_ref().is_some_and(|d| !d.is_empty());
+                return Ok(ok);
+            }
+            Err(e) => {
+                last_err = http::describe_reqwest_error(&e);
+                eprintln!(
+                    "Symbol check attempt {}/{} failed for {}: {}",
+                    attempt + 1,
+                    http::PROBE_ATTEMPTS,
+                    symbol,
+                    last_err
+                );
+            }
+        }
     }
-
-    let parsed: BitgetTickerResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse ticker JSON for {}: {}", symbol, e))?;
-
-    // "00000" with a non-empty data array => the contract exists.
-    let ok = parsed.code == "00000" && parsed.data.as_ref().is_some_and(|d| !d.is_empty());
-    Ok(ok)
+    Err(format!(
+        "Symbol check request failed for {} after {} attempts: {}",
+        symbol,
+        http::PROBE_ATTEMPTS,
+        last_err
+    ))
 }
 
 /// Map an internal timeframe duration in seconds to the Bitget V2 **mix**

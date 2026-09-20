@@ -25,6 +25,15 @@ pub enum DriftVerdict {
         server: String,
         threshold_us: i64,
     },
+    /// v11.12.19: the sample's round-trip exceeded the reliability bound, so
+    /// the offset cannot be trusted (uncertainty ≈ rtt/2) — drift is NOT
+    /// evaluated and `breach_action=panic` never fires from it.
+    Unreliable {
+        offset_us: i64,
+        rtt_us: u64,
+        server: String,
+        max_rtt_us: u64,
+    },
     NetworkError {
         message: String,
         retry_after: Duration,
@@ -48,6 +57,10 @@ pub struct ClockMonitorConfig {
     pub warn_on_breach: bool,
     pub jitter_window_size: usize,
     pub query_timeout: Duration,
+    /// v11.12.19: samples with a round-trip above this bound are reported as
+    /// `Unreliable` instead of being judged — a slow network path must never
+    /// masquerade as clock drift.
+    pub max_rtt: Duration,
 }
 
 impl Default for ClockMonitorConfig {
@@ -63,6 +76,9 @@ impl Default for ClockMonitorConfig {
             warn_on_breach: true,
             jitter_window_size: 20,
             query_timeout: Duration::from_secs(5),
+            // 1 s: an NTP sample with a round-trip beyond this cannot resolve
+            // a 10 ms budget (offset uncertainty ≈ rtt/2) — reported, not judged.
+            max_rtt: Duration::from_secs(1),
         }
     }
 }
@@ -91,6 +107,7 @@ impl ClockMonitor {
     /// `NetworkError`. Never panics on transport errors.
     pub async fn measure_once(&self) -> DriftVerdict {
         let threshold_us = clamp_threshold_to_i64(self.config.threshold);
+        let max_rtt_us = self.config.max_rtt.as_micros().min(u64::MAX as u128) as u64;
 
         for server in &self.config.ntp_servers {
             let addr = format!("{}:123", server);
@@ -102,7 +119,7 @@ impl ClockMonitor {
                         server: server.clone(),
                         measured_at_ms: now_ms(),
                     };
-                    let verdict = verdict_from_sample(&sample, threshold_us);
+                    let verdict = verdict_from_sample(&sample, threshold_us, max_rtt_us);
                     self.record_sample(sample);
                     return verdict;
                 }
@@ -183,6 +200,21 @@ impl ClockMonitor {
                     std::process::exit(1);
                 }
             }
+            DriftVerdict::Unreliable {
+                offset_us,
+                rtt_us,
+                server,
+                max_rtt_us,
+            } => {
+                // v11.12.19: informational only — never a breach, never a
+                // panic, never a breach_count increment.
+                if self.config.warn_on_breach {
+                    eprintln!(
+                        "ClockMonitor: NTP sample UNRELIABLE — rtt={}µs > max {}µs (offset={}µs, server={}); drift not evaluated",
+                        rtt_us, max_rtt_us, offset_us, server
+                    );
+                }
+            }
             DriftVerdict::NetworkError {
                 message,
                 retry_after,
@@ -256,7 +288,22 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-pub fn verdict_from_sample(sample: &ClockSample, threshold_us: i64) -> DriftVerdict {
+pub fn verdict_from_sample(
+    sample: &ClockSample,
+    threshold_us: i64,
+    max_rtt_us: u64,
+) -> DriftVerdict {
+    // v11.12.19: a sample taken over a slow path cannot prove a drift — the
+    // offset uncertainty is ≈ rtt/2. Report it as unreliable (no breach, no
+    // breach_count, no panic) instead of blaming the clock.
+    if sample.rtt_us > max_rtt_us {
+        return DriftVerdict::Unreliable {
+            offset_us: sample.offset_us,
+            rtt_us: sample.rtt_us,
+            server: sample.server.clone(),
+            max_rtt_us,
+        };
+    }
     let abs_offset = sample.offset_us.unsigned_abs() as i64;
     if abs_offset > threshold_us {
         DriftVerdict::BreachThreshold {
@@ -334,6 +381,11 @@ mod tests {
             cfg.jitter_window_size >= 2,
             "jitter_window_size must allow at least 2 samples for RMS"
         );
+        assert_eq!(
+            cfg.max_rtt,
+            Duration::from_secs(1),
+            "max_rtt default must be 1s (unreliable-sample bound)"
+        );
         assert_eq!(cfg.breach_action, BreachAction::Warn);
         assert!(cfg.warn_on_breach);
     }
@@ -407,7 +459,7 @@ mod tests {
     fn verdict_from_sample_within_threshold() {
         let threshold_us = 50;
         let s = sample(40);
-        match verdict_from_sample(&s, threshold_us) {
+        match verdict_from_sample(&s, threshold_us, 1_000_000) {
             DriftVerdict::WithinThreshold {
                 offset_us,
                 rtt_us,
@@ -423,7 +475,7 @@ mod tests {
         // exactly at threshold counts as within (strictly greater would breach)
         let s = sample(-50);
         assert!(matches!(
-            verdict_from_sample(&s, threshold_us),
+            verdict_from_sample(&s, threshold_us, 1_000_000),
             DriftVerdict::WithinThreshold { .. }
         ));
     }
@@ -432,7 +484,7 @@ mod tests {
     fn verdict_from_sample_breach_threshold() {
         let threshold_us = 50;
         let s = sample(75);
-        match verdict_from_sample(&s, threshold_us) {
+        match verdict_from_sample(&s, threshold_us, 1_000_000) {
             DriftVerdict::BreachThreshold {
                 offset_us,
                 rtt_us,
@@ -449,7 +501,39 @@ mod tests {
 
         let s = sample(-75);
         assert!(matches!(
-            verdict_from_sample(&s, threshold_us),
+            verdict_from_sample(&s, threshold_us, 1_000_000),
+            DriftVerdict::BreachThreshold { .. }
+        ));
+    }
+
+    #[test]
+    fn verdict_from_sample_unreliable_when_rtt_exceeds_max() {
+        // v11.12.19: the offset uncertainty is ≈ rtt/2, so a sample measured
+        // over a multi-second round-trip cannot prove a drift and must be
+        // reported as Unreliable (never a breach → never breach_action=panic).
+        let mut slow = sample(4_200_000);
+        slow.rtt_us = 8_601_938;
+        assert!(matches!(
+            verdict_from_sample(&slow, 10_000, 1_000_000),
+            DriftVerdict::Unreliable {
+                max_rtt_us: 1_000_000,
+                ..
+            }
+        ));
+
+        // The same offset over a fast sample is still a real breach.
+        let mut fast = sample(4_200_000);
+        fast.rtt_us = 1_000;
+        assert!(matches!(
+            verdict_from_sample(&fast, 10_000, 1_000_000),
+            DriftVerdict::BreachThreshold { .. }
+        ));
+
+        // Exactly at the bound is still judged (strictly greater is unreliable).
+        let mut edge = sample(4_200_000);
+        edge.rtt_us = 1_000_000;
+        assert!(matches!(
+            verdict_from_sample(&edge, 10_000, 1_000_000),
             DriftVerdict::BreachThreshold { .. }
         ));
     }
