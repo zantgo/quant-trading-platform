@@ -18,6 +18,7 @@
     import { buildTradeMarkers } from '../lib/tradeMarkerHelper';
     import styles from './PriceChart.module.css';
     import { getTerm } from '../lib/terms';
+    import EmptyChartOverlay from './EmptyChartOverlay.svelte';
     
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -92,6 +93,12 @@
     let _bootstrapComplete = $state(false);
     let _lastHistoryTime = $state(-Infinity);
     let _lastBarSpacing = 0;
+    /// v11.12.20: the seeded history had NO overlay series for this >=60s
+    /// timeframe (cold warm + no local fallback) — the chart shows a
+    /// "NO HISTORICAL DATA" note instead of silently starting the lines at
+    /// the live edge. Sub-minute timeframes are live-only by design and
+    /// never show it.
+    let overlayHistoryMissing = $state(false);
 
     onMount(() => {
         chart = createChart(container, {
@@ -278,6 +285,12 @@
         if (stdMid.length > 0 && stddevMiddleSeries) stddevMiddleSeries.setData(recent(stdMid));
         if (stdLo.length > 0 && stddevLowerSeries) stddevLowerSeries.setData(recent(stdLo));
         if (psarPts.length > 0 && psarSeries) psarSeries.setData(recent(psarPts.filter(p => p.value > 0)));
+
+        // v11.12.20: did this payload carry ANY EMA history? If not (and the
+        // slot is >=60s), the overlay lines will only start at the live edge
+        // — surface that instead of drawing misleading short lines.
+        overlayHistoryMissing =
+            emaFast.length === 0 && emaMed.length === 0 && emaSlow.length === 0 && emaLong.length === 0;
     }
 
     /// Stable logical range anchored to the last candle so gap-fill
@@ -1213,6 +1226,12 @@
         }
         obPrim.updateData(dto);
     });
+
+    // v11.12.20: once live EMA data lands, the overlays render from the
+    // live edge — the missing-history note has served its purpose.
+    $effect(() => {
+        if (tf?.emaFastVal != null) overlayHistoryMissing = false;
+    });
 </script>
 
 <div class={styles.chartWrapper}>
@@ -1232,6 +1251,9 @@
             </span>
         {:else}
             <span class={styles.smcFooter}>SMC: AWAITING SWING</span>
+        {/if}
+        {#if timeframe >= 60 && overlayHistoryMissing}
+            <EmptyChartOverlay reason="no_history" />
         {/if}
     {/if}
     <div class={styles.chartContainer} bind:this={container}></div>

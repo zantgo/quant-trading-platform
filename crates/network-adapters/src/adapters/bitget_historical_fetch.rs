@@ -194,9 +194,24 @@ impl HistoricalFetchPolicy for BitgetHistoricalFetch {
 
         while collected.len() < request.target_count {
             if started.elapsed() >= timeout {
-                return Err(HistoricalFetchError::Timeout(
-                    started.elapsed().as_millis() as u64
-                ));
+                // v11.12.20: a timeout must NOT discard the pages already
+                // fetched — keep the partial warm (the bootstrap's
+                // min-warmup gate logs the shortfall). An EMPTY result
+                // still reports Timeout so the caller's cold-start path
+                // is unchanged.
+                if collected.is_empty() {
+                    return Err(HistoricalFetchError::Timeout(
+                        started.elapsed().as_millis() as u64
+                    ));
+                }
+                eprintln!(
+                    "⚠️  Historical fetch [{}] timed out after {} ms with {}/{} candles — keeping the partial history.",
+                    request.internal_symbol,
+                    started.elapsed().as_millis(),
+                    collected.len(),
+                    request.target_count,
+                );
+                break;
             }
 
             // HFP-04..HFP-06: paginate, asking for at most the page cap.
@@ -205,23 +220,39 @@ impl HistoricalFetchPolicy for BitgetHistoricalFetch {
             let remaining = request.target_count - collected.len();
             let desired = remaining.min(BITGET_PAGE_LIMIT as usize);
 
-            let page = self
-                .fetch_page(
-                    &request.exchange_symbol,
-                    &request.internal_symbol,
-                    &self.product_type,
-                    granularity,
-                    start_ts,
-                    end_ts,
-                    desired as u32,
-                    &self.rest_url,
-                )
-                .await
-                .map_err(|e| HistoricalFetchError::Http {
-                    status: 0,
-                    attempts: pages + 1,
-                    body: e,
-                })?;
+            // v11.12.20: retry a failed page (slow networks) before giving
+            // up — 2 retries with 1 s / 2 s backoff.
+            let mut fetched: Option<Vec<NormalizedCandle>> = None;
+            let mut fetch_err = String::new();
+            for attempt in 0..3u32 {
+                if attempt > 0 {
+                    tokio::time::sleep(Duration::from_millis(1000 << (attempt - 1))).await;
+                }
+                match self
+                    .fetch_page(
+                        &request.exchange_symbol,
+                        &request.internal_symbol,
+                        &self.product_type,
+                        granularity,
+                        start_ts,
+                        end_ts,
+                        desired as u32,
+                        &self.rest_url,
+                    )
+                    .await
+                {
+                    Ok(p) => {
+                        fetched = Some(p);
+                        break;
+                    }
+                    Err(e) => fetch_err = e,
+                }
+            }
+            let page = fetched.ok_or_else(|| HistoricalFetchError::Http {
+                status: 0,
+                attempts: pages + 1,
+                body: fetch_err,
+            })?;
 
             // HFP-06 / HFP-07 short-page detection: capture the raw
             // page length BEFORE the open-candle filter. Bitget caps at

@@ -60,9 +60,22 @@ impl HistoricalFetchPolicy for HyperliquidHistoricalFetch {
 
         while collected.len() < request.target_count {
             if started.elapsed() >= timeout {
-                return Err(HistoricalFetchError::Timeout(
-                    started.elapsed().as_millis() as u64
-                ));
+                // v11.12.20: keep the pages already fetched on timeout
+                // (partial warm beats a blank chart); an empty result still
+                // reports Timeout so the cold-start path is unchanged.
+                if collected.is_empty() {
+                    return Err(HistoricalFetchError::Timeout(
+                        started.elapsed().as_millis() as u64
+                    ));
+                }
+                eprintln!(
+                    "⚠️  Historical fetch [{}] timed out after {} ms with {}/{} candles — keeping the partial history.",
+                    request.internal_symbol,
+                    started.elapsed().as_millis(),
+                    collected.len(),
+                    request.target_count,
+                );
+                break;
             }
 
             // Compute the desired page size: either the page cap, or whatever
@@ -76,19 +89,35 @@ impl HistoricalFetchPolicy for HyperliquidHistoricalFetch {
             // what we get; we filter the open candle and continue.
             let start_ts = end_ts.saturating_sub((desired as u64) * request.timeframe_secs * 1000);
 
-            let mut page = fetch_historical_candles(
-                &request.exchange_symbol,
-                &request.internal_symbol,
-                interval,
-                start_ts,
-                end_ts,
-                &self.info_url,
-            )
-            .await
-            .map_err(|e| HistoricalFetchError::Http {
+            // v11.12.20: retry a failed page (slow networks) before giving
+            // up — 2 retries with 1 s / 2 s backoff.
+            let mut fetched: Option<Vec<NormalizedCandle>> = None;
+            let mut fetch_err = String::new();
+            for attempt in 0..3u32 {
+                if attempt > 0 {
+                    tokio::time::sleep(Duration::from_millis(1000 << (attempt - 1))).await;
+                }
+                match fetch_historical_candles(
+                    &request.exchange_symbol,
+                    &request.internal_symbol,
+                    interval,
+                    start_ts,
+                    end_ts,
+                    &self.info_url,
+                )
+                .await
+                {
+                    Ok(p) => {
+                        fetched = Some(p);
+                        break;
+                    }
+                    Err(e) => fetch_err = e,
+                }
+            }
+            let mut page = fetched.ok_or_else(|| HistoricalFetchError::Http {
                 status: 0,
                 attempts: pages + 1,
-                body: e,
+                body: fetch_err,
             })?;
 
             // HFP-07: drop currently-open candles.

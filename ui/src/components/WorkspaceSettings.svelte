@@ -4,7 +4,7 @@
     import { createInstance } from '../lib/api.svelte';
     import type { InstanceState, TimeframeTelemetry } from '../types';
     import { DURATIONS, tfLabel } from '../types';
-    import { activeDurations } from '../lib/terms';
+    import { activeDurations, overlayRepTerm } from '../lib/terms';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
@@ -390,8 +390,12 @@
 
     $effect(() => {
         if (pair) {
+            // v11.12.20: baseline the overlay chips on the FASTEST ACTIVE
+            // duration (not the 1s slot) — same source the Charts pills use.
+            const rep = overlayRepTerm(pair);
+            if (!rep) return;
             for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
-                (draft.visuals as any)[f] = (pair.terms[1] as any)[f];
+                (draft.visuals as any)[f] = (rep as any)[f];
             }
             draft.automation.enabled = pair.automationEnabled;
             draft.automation.intervalValue = pair.automationIntervalValue;

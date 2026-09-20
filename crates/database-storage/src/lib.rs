@@ -33,8 +33,8 @@ pub use queries::profiles::{
 };
 pub use queries::snapshots::{
     insert_snapshot_internal, query_backtest_coverage, query_backtest_snapshots,
-    query_closest_close_price, query_latest_snapshot, query_recent_candles, BacktestCoverageRow,
-    RecordedSnapshot,
+    query_closest_close_price, query_latest_snapshot, query_recent_candles,
+    query_recent_overlay_rows, BacktestCoverageRow, RecentOverlayRow, RecordedSnapshot,
 };
 pub use queries::stats::{
     dash_trade_detail, dash_trade_timestamps, get_daily_pnl, query_all_closed_trades,

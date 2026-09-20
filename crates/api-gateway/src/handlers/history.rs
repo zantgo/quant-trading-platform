@@ -13,6 +13,117 @@ use rust_decimal::Decimal;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
+/// v11.12.20: attach the persisted chart-overlay values (EMA stack,
+/// Bollinger, VWAP) to DB-fallback snapshots for >=60s timeframes — the
+/// chart's main overlay series keep a real historical tail when the
+/// in-memory warm is cold. Warm snapshots (already carrying indicators)
+/// are left untouched; sub-minute timeframes are deliberately NOT served
+/// (live-only by design).
+async fn attach_db_overlay_indicators(
+    state: &AppState,
+    pair_key: &str,
+    tf_secs: u64,
+    snaps: &mut [core_domain::models::MarketSnapshot],
+) {
+    if tf_secs < 60 || snaps.is_empty() {
+        return;
+    }
+    let rows = database_storage::query_recent_overlay_rows(
+        &state.pool,
+        pair_key,
+        tf_secs,
+        snaps.len() as u32,
+    )
+    .await;
+    if rows.is_empty() {
+        return;
+    }
+    let by_ts: HashMap<i64, database_storage::RecentOverlayRow> =
+        rows.into_iter().map(|r| (r.timestamp, r)).collect();
+    for snap in snaps.iter_mut() {
+        if !snap.indicators.is_empty() {
+            continue;
+        }
+        if let Some(row) = by_ts.get(&(snap.timestamp as i64)) {
+            snap.indicators = overlay_indicators_from_db(row);
+        }
+    }
+}
+
+fn overlay_indicators_from_db(
+    row: &database_storage::RecentOverlayRow,
+) -> HashMap<String, core_domain::indicator_dtos::NormalizedIndicatorValue> {
+    use core_domain::indicator_dtos::NormalizedIndicatorValue;
+    let parse = |s: &Option<String>| {
+        s.as_deref()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| v.is_finite())
+    };
+    let mk = |raw: f64, values: Option<HashMap<String, f64>>| NormalizedIndicatorValue {
+        raw_value: raw,
+        normalized: 0.0,
+        // Never "WARMING" — the history builder masks that label.
+        state_label: "HISTORICAL".to_string(),
+        values,
+        signals: Vec::new(),
+        confidence: 0.0,
+    };
+    let mut out: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+
+    let (fast, medium, slow, long) = (
+        parse(&row.ema_fast),
+        parse(&row.ema_medium),
+        parse(&row.ema_slow),
+        parse(&row.ema_long),
+    );
+    if fast.is_some() || medium.is_some() || slow.is_some() || long.is_some() {
+        let mut values = HashMap::new();
+        if let Some(v) = fast {
+            values.insert("fast".to_string(), v);
+        }
+        if let Some(v) = medium {
+            values.insert("medium".to_string(), v);
+        }
+        if let Some(v) = slow {
+            values.insert("slow".to_string(), v);
+        }
+        if let Some(v) = long {
+            values.insert("long".to_string(), v);
+        }
+        out.insert(
+            "ema_stack".to_string(),
+            mk(fast.unwrap_or(0.0), Some(values)),
+        );
+    }
+
+    let (upper, middle, lower) = (
+        parse(&row.bb_upper),
+        parse(&row.bb_middle),
+        parse(&row.bb_lower),
+    );
+    if upper.is_some() || middle.is_some() || lower.is_some() {
+        let mut values = HashMap::new();
+        if let Some(v) = upper {
+            values.insert("upper".to_string(), v);
+        }
+        if let Some(v) = middle {
+            values.insert("middle".to_string(), v);
+        }
+        if let Some(v) = lower {
+            values.insert("lower".to_string(), v);
+        }
+        out.insert(
+            "bollinger".to_string(),
+            mk(middle.unwrap_or(0.0), Some(values)),
+        );
+    }
+
+    if let Some(v) = parse(&row.vwap) {
+        out.insert("vwap".to_string(), mk(v, None));
+    }
+    out
+}
+
 pub async fn serve_history(
     State(state): State<Arc<AppState>>,
     Query(query): Query<HistoryQuery>,
@@ -87,6 +198,7 @@ pub async fn serve_history(
                             ..Default::default()
                         })
                         .collect();
+                    attach_db_overlay_indicators(&state, &pair_key, tf_secs, &mut db_snaps).await;
                     snap_hist.append(&mut db_snaps);
                 }
             } else if snap_hist.len() < 50 && tf_secs >= 60 {
@@ -130,6 +242,7 @@ pub async fn serve_history(
                     }
                     let mut merged: Vec<core_domain::models::MarketSnapshot> =
                         map.into_values().collect();
+                    attach_db_overlay_indicators(&state, &pair_key, tf_secs, &mut merged).await;
                     // Keep most recent `limit`.
                     if merged.len() > limit {
                         merged = merged.split_off(merged.len() - limit);
