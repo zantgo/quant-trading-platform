@@ -13,16 +13,58 @@
     let discarding = $state(false);
     let recoveryError = $state<string | null>(null);
 
+    // v11.12.17: recovery runs the SAME preparing gate as a fresh launch.
+    // The daemon re-spawns the interrupted session's instances at boot, but
+    // their first snapshots arrive asynchronously — landing immediately
+    // showed an EMPTY Overview until the WS frames came in.
+    async function fetchRecoveredKeys(expected: number): Promise<string[]> {
+        async function readKeys(): Promise<string[]> {
+            try {
+                const res = await fetch('/api/instances');
+                if (!res.ok) return [];
+                const data = await res.json();
+                const list: Array<{ pair?: string }> = data?.instances ?? [];
+                return list.map((i) => i?.pair).filter((p): p is string => !!p);
+            } catch (_) {
+                return [];
+            }
+        }
+        const first = await readKeys();
+        if (expected <= 0 || first.length >= expected) return first;
+        let keys = first;
+        const deadline = Date.now() + 15_000;
+        while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            const next = await readKeys();
+            if (next.length > 0) keys = next;
+            if (next.length >= expected) return next;
+        }
+        return keys;
+    }
+
     async function recoverSession(): Promise<void> {
         recovering = true;
         recoveryError = null;
+        // Capture BEFORE the status refetch clears `interruptedSession`.
+        const expected = app.session.interruptedSession?.instance_count ?? 0;
         try {
             await app.session.recoverInterrupted();
-            // The session is live and the operator acted — release the
-            // Welcome gate (same fix as landOnOverview; without the ack the
-            // recovered workspace never rendered).
-            app.acknowledgeSession();
-            app.wizardActive = false;
+            const keys = await fetchRecoveredKeys(expected);
+            if (keys.length > 0) {
+                loadingSteps = keys.map((key) => ({
+                    key,
+                    label: app.pairDisplayFor(key) ?? key,
+                    ready: false,
+                }));
+                waitTimedOut = false;
+                waiting = true;
+                app.bumpWsVersion();
+                await waitForInstances(keys);
+                if (!waitTimedOut) landOnOverview();
+                return;
+            }
+            // No instances to warm — land directly (same as an empty launch).
+            landOnOverview();
         } catch (e) {
             recoveryError = e instanceof Error ? e.message : String(e);
         } finally {
@@ -329,7 +371,10 @@
             && !app.session.sessionInterrupted
             && step === 1
             && !staged
-            && !waiting,
+            && !waiting
+            // v11.12.17: never flash the Resume/Quit card mid-recovery —
+            // the status refetch flips active=true before the gate is up.
+            && !recovering,
     );
     let quitting = $state(false);
     let resumeError = $state<string | null>(null);
@@ -473,7 +518,7 @@
                 {/if}
             </div>
         {:else}
-        {#if app.session.sessionInterrupted && app.session.interruptedSession}
+        {#if !recovering && app.session.sessionInterrupted && app.session.interruptedSession}
             <div class={styles.recoveryCard} role="alertdialog" aria-label="Interrupted session detected">
                 <div class={styles.recoveryTitle}>⚠ Interrupted session detected</div>
                 <p class={styles.recoveryCopy}>
@@ -522,13 +567,17 @@
             </nav>
         </header>
 
-        {#if waiting}
+        {#if waiting || recovering}
             <section class={styles.section} aria-label="Loading instances">
                 <h2 class={styles.sectionTitle}>Preparing your workspace…</h2>
-                <p class={styles.sectionSubtitle}>
-                    Warming {loadingSteps.length} instance{loadingSteps.length === 1 ? '' : 's'} —
-                    first snapshots arriving.
-                </p>
+                {#if loadingSteps.length > 0}
+                    <p class={styles.sectionSubtitle}>
+                        Warming {loadingSteps.length} instance{loadingSteps.length === 1 ? '' : 's'} —
+                        first snapshots arriving.
+                    </p>
+                {:else}
+                    <p class={styles.sectionSubtitle}>Restoring your instances…</p>
+                {/if}
                 <div class={styles.loadingList}>
                     {#each loadingSteps as entry (entry.key)}
                         <div class={styles.loadingRow}>
