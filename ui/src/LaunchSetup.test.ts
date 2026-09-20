@@ -487,8 +487,15 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         expect(container.textContent).not.toContain('Interrupted session detected');
     });
 
-    it('Recover shows the Instances screen and blocks CONTINUE until every snapshot arrives', async () => {
+    it('Recover shows the Instances screen with the real environment and blocks CONTINUE until every snapshot arrives', async () => {
         const app = seedInterrupted();
+        // The real case: a Bitget/USDT session with BTC-USDT / ETH-USDT —
+        // and the wire serializes the instance status as lowercase.
+        app.session.interruptedSession = {
+            ...app.session.interruptedSession!,
+            exchange: 'Bitget',
+            currency: 'USDT',
+        };
         // The daemon re-spawns the boot instances in the background —
         // /api/instances stays empty until a spawn passes its symbol check.
         let runtimeUp = false;
@@ -499,8 +506,8 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
             if (url === '/api/session/status') {
                 return {
                     ok: true, status: 200, json: async () => ({
-                        active: true, currency: 'USDC', exchange: 'Hyperliquid',
-                        instance_count: 2, mode: 'paper', interrupted: false,
+                        active: true, currency: 'USDT', exchange: 'Bitget',
+                        instance_count: 2, mode: 'observe', interrupted: false,
                     }),
                 } as unknown as Response;
             }
@@ -508,8 +515,8 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
                 return {
                     ok: true, status: 200, json: async () => ({
                         instances: [
-                            { symbol: 'BTC-USDC', status: 'Running' },
-                            { symbol: 'ETH-USDC', status: 'Running' },
+                            { symbol: 'BTC-USDT', status: 'running' },
+                            { symbol: 'ETH-USDT', status: 'running' },
                         ],
                     }),
                 } as unknown as Response;
@@ -518,7 +525,7 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
                 return {
                     ok: true, status: 200, json: async () => ({
                         instances: runtimeUp
-                            ? [{ id: 'i1', pair: 'BTC-USDC' }, { id: 'i2', pair: 'ETH-USDC' }]
+                            ? [{ id: 'i1', pair: 'BTC-USDT' }, { id: 'i2', pair: 'ETH-USDT' }]
                             : [],
                     }),
                 } as unknown as Response;
@@ -531,26 +538,30 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
             .find((b) => b.textContent?.includes('Recover last session'))!;
         await fireEvent.click(btn);
         await waitFor(() => expect(app.session.sessionActive).toBe(true));
-        // v11.12.22: recovery IS the Instances screen — chips in `waiting`,
-        // no separate preparing section, no BACK out of the gate.
+        // v11.12.23: recovery IS the Instances screen — the recovered
+        // environment is visible, BACK is kept, and the chips start as
+        // `creating…` while the backend is still spawning them.
         await waitFor(() => expect(container.textContent).toContain('Restoring your previous session'));
-        expect(container.textContent).toContain('waiting for first snapshot');
+        expect(container.textContent).toContain('Bitget');
+        expect(container.textContent).toContain('USDT');
+        expect(container.textContent).toContain('creating…');
         expect(container.textContent).not.toContain('Preparing your workspace');
         expect(Array.from(container.querySelectorAll('button'))
-            .some((b) => b.textContent?.trim() === 'Back')).toBe(false);
+            .some((b) => b.textContent?.trim() === 'Back')).toBe(true);
         const cont = Array.from(container.querySelectorAll('button'))
             .find((b) => b.textContent?.trim() === 'Continue')!;
         expect(cont.disabled).toBe(true);
         expect(app.sessionAcknowledged).toBe(false);
         const recoverCall = fetchMock.mock.calls.filter(([u]) => String(u) === '/api/session/recover');
         expect(recoverCall.length).toBe(1);
-        // Backend finishes spawning → the poll seeds the store → first
-        // snapshots arrive → chips turn ready and CONTINUE unlocks.
+        // Backend finishes spawning → the chip advances to the snapshot
+        // wait → the poll seeds the store → snapshots → ready + unlock.
         runtimeUp = true;
-        await waitFor(() => expect(app.instancesMap['BTC-USDC']).toBeTruthy(), { timeout: 3000 });
-        await waitFor(() => expect(app.instancesMap['ETH-USDC']).toBeTruthy(), { timeout: 3000 });
-        app.instancesMap['BTC-USDC'].terms[1].latestSnapshot = {} as never;
-        app.instancesMap['ETH-USDC'].terms[1].latestSnapshot = {} as never;
+        await waitFor(() => expect(container.textContent).toContain('waiting for first snapshot'), { timeout: 3000 });
+        await waitFor(() => expect(app.instancesMap['BTC-USDT']).toBeTruthy(), { timeout: 3000 });
+        await waitFor(() => expect(app.instancesMap['ETH-USDT']).toBeTruthy(), { timeout: 3000 });
+        app.instancesMap['BTC-USDT'].terms[1].latestSnapshot = {} as never;
+        app.instancesMap['ETH-USDT'].terms[1].latestSnapshot = {} as never;
         await waitFor(() => expect(container.textContent).toContain('ready ✓'), { timeout: 3000 });
         await waitFor(() => expect(cont.disabled).toBe(false), { timeout: 3000 });
         expect(app.sessionAcknowledged).toBe(false);
@@ -578,8 +589,8 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
                 return {
                     ok: true, status: 200, json: async () => ({
                         instances: [
-                            { symbol: 'BTC-USDC', status: 'Running' },
-                            { symbol: 'ETH-USDC', status: 'Running' },
+                            { symbol: 'BTC-USDC', status: 'running' },
+                            { symbol: 'ETH-USDC', status: 'running' },
                         ],
                     }),
                 } as unknown as Response;
@@ -644,8 +655,8 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
                 return {
                     ok: true, status: 200, json: async () => ({
                         instances: [
-                            { symbol: 'BTC-USDC', status: 'Running' },
-                            { symbol: 'ETH-USDC', status: 'Running' },
+                            { symbol: 'BTC-USDC', status: 'running' },
+                            { symbol: 'ETH-USDC', status: 'running' },
                         ],
                     }),
                 } as unknown as Response;
@@ -684,7 +695,7 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         vi.unstubAllGlobals();
     });
 
-    it('Recover with no instances lands immediately (no preparing gate)', async () => {
+    it('Recover with no instances shows the Instances screen with CONTINUE unlocked', async () => {
         const app = seedInterrupted();
         app.session.interruptedSession = { ...app.session.interruptedSession!, instance_count: 0 };
         const fetchMock = vi.fn(async (url: string) => {
@@ -699,6 +710,9 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
                     }),
                 } as unknown as Response;
             }
+            if (url === '/api/config') {
+                return { ok: true, status: 200, json: async () => ({ instances: [] }) } as unknown as Response;
+            }
             if (url === '/api/instances') {
                 return { ok: true, status: 200, json: async () => ({ instances: [] }) } as unknown as Response;
             }
@@ -709,9 +723,76 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         const btn = Array.from(container.querySelectorAll('button'))
             .find((b) => b.textContent?.includes('Recover last session'))!;
         await fireEvent.click(btn);
+        // v11.12.23: the Instances screen ALWAYS shows on recovery — an
+        // empty session renders it (no ADD area) with an unlocked CONTINUE
+        // instead of auto-landing on the empty workspace.
+        await waitFor(() => expect(container.textContent).toContain('Restoring your previous session'));
+        expect(container.textContent).toContain('no running instances');
+        expect(container.textContent).not.toContain('Add instance');
+        expect(container.textContent).not.toContain('Preparing your workspace');
+        const cont = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.trim() === 'Continue')!;
+        expect(cont.disabled).toBe(false);
+        expect(app.sessionAcknowledged).toBe(false);
+        await fireEvent.click(cont);
         await waitFor(() => expect(app.sessionAcknowledged).toBe(true));
         expect(app.wizardActive).toBe(false);
-        expect(container.textContent).not.toContain('Preparing your workspace…');
+        vi.unstubAllGlobals();
+    });
+
+    it('recovery keeps BACK and never discards recovered instances', async () => {
+        const app = seedInterrupted();
+        const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+            if (url === '/api/session/recover') {
+                return { ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response;
+            }
+            if (url === '/api/session/status') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        active: true, currency: 'USDC', exchange: 'Hyperliquid',
+                        instance_count: 2, mode: 'observe', interrupted: false,
+                    }),
+                } as unknown as Response;
+            }
+            if (url === '/api/config') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        instances: [
+                            { symbol: 'BTC-USDC', status: 'running' },
+                            { symbol: 'ETH-USDC', status: 'running' },
+                        ],
+                    }),
+                } as unknown as Response;
+            }
+            if (url === '/api/instances') {
+                return { ok: true, status: 200, json: async () => ({ instances: [] }) } as unknown as Response;
+            }
+            return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        const btn = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('Recover last session'))!;
+        await fireEvent.click(btn);
+        await waitFor(() => expect(container.textContent).toContain('Restoring your previous session'));
+        // BACK walks to the (read-only) Environment step — the recovered
+        // session pins the environment, and nothing may be deleted.
+        const back = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.trim() === 'Back')!;
+        await fireEvent.click(back);
+        await waitFor(() => expect(container.textContent).toContain('Environment —'));
+        const select = container.querySelector('#launch-exchange') as HTMLSelectElement;
+        expect(select.disabled).toBe(true);
+        expect(fetchMock.mock.calls.filter(
+            ([, i]) => (i as RequestInit)?.method === 'DELETE',
+        ).length).toBe(0);
+        // Forward again — the chips are intact and still block CONTINUE.
+        const cont = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.trim() === 'Continue')!;
+        await fireEvent.click(cont);
+        await waitFor(() => expect(container.textContent).toContain('BTC'));
+        expect(container.textContent).toContain('ETH');
+        expect(container.textContent).toContain('creating…');
         vi.unstubAllGlobals();
     });
 
