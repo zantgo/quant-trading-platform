@@ -487,7 +487,7 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         expect(container.textContent).not.toContain('Interrupted session detected');
     });
 
-    it('Recover calls the endpoint, shows the preparing gate and lands after the first snapshots', async () => {
+    it('Recover shows the preparing gate and blocks CONTINUE until the first snapshots', async () => {
         const app = seedInterrupted();
         // Boot already re-spawned the session's instances (store sync).
         app.initInstance('BTC', 'Hyperliquid', 'i1');
@@ -525,14 +525,127 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         expect(container.textContent).toContain('BTC-USDC');
         expect(container.textContent).toContain('ETH-USDC');
         expect(container.textContent).toContain('waiting for first snapshot');
+        // v11.12.21: the operator always presses CONTINUE — blocked while
+        // any recovered instance still lacks its first snapshot.
+        const cont = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('CONTINUE TO WORKSPACE'))!;
+        expect(cont.disabled).toBe(true);
         expect(app.sessionAcknowledged).toBe(false);
         const recoverCall = fetchMock.mock.calls.filter(([u]) => String(u) === '/api/session/recover');
         expect(recoverCall.length).toBe(1);
-        // First snapshots arrive → the wizard lands on the Overview.
+        // First snapshots arrive → CONTINUE unlocks; landing needs the click.
         app.instancesMap['BTC-USDC'].terms[1].latestSnapshot = {} as never;
         app.instancesMap['ETH-USDC'].terms[1].latestSnapshot = {} as never;
-        await waitFor(() => expect(app.sessionAcknowledged).toBe(true), { timeout: 3000 });
+        await waitFor(() => expect(cont.disabled).toBe(false), { timeout: 3000 });
+        expect(app.sessionAcknowledged).toBe(false);
+        await fireEvent.click(cont);
+        await waitFor(() => expect(app.sessionAcknowledged).toBe(true));
         expect(app.wizardActive).toBe(false);
+        vi.unstubAllGlobals();
+    });
+
+    it('keeps CONTINUE blocked until a non-loaded instance is eliminated', async () => {
+        const app = seedInterrupted();
+        app.initInstance('BTC', 'Hyperliquid', 'i1');
+        app.initInstance('ETH', 'Hyperliquid', 'i2');
+        const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+            if (url === '/api/session/recover') {
+                return { ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response;
+            }
+            if (url === '/api/session/status') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        active: true, currency: 'USDC', exchange: 'Hyperliquid',
+                        instance_count: 2, mode: 'paper', interrupted: false,
+                    }),
+                } as unknown as Response;
+            }
+            if (url === '/api/instances/i2' && init?.method === 'DELETE') {
+                return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+            }
+            if (url === '/api/instances') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        instances: [{ id: 'i1', pair: 'BTC-USDC' }, { id: 'i2', pair: 'ETH-USDC' }],
+                    }),
+                } as unknown as Response;
+            }
+            return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        const btn = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('Recover last session'))!;
+        await fireEvent.click(btn);
+        await waitFor(() => expect(container.textContent).toContain('Preparing your workspace…'));
+        // BTC loads, ETH never does → the gate stays blocked.
+        app.instancesMap['BTC-USDC'].terms[1].latestSnapshot = {} as never;
+        await waitFor(() => expect(container.textContent).toContain('ready ✓'));
+        const cont = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('CONTINUE TO WORKSPACE'))!;
+        expect(cont.disabled).toBe(true);
+        // Eliminate the instance that never loaded → the gate unlocks.
+        const remove = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.getAttribute('aria-label') === 'Remove ETH-USDC')!;
+        expect(remove).toBeTruthy();
+        await fireEvent.click(remove);
+        await waitFor(() => expect(container.textContent).not.toContain('ETH-USDC'));
+        expect(app.instancesMap['ETH-USDC']).toBeUndefined();
+        const del = fetchMock.mock.calls.filter(
+            ([u, i]) => String(u) === '/api/instances/i2' && (i as RequestInit)?.method === 'DELETE',
+        );
+        expect(del.length).toBe(1);
+        await waitFor(() => expect(cont.disabled).toBe(false));
+        await fireEvent.click(cont);
+        await waitFor(() => expect(app.sessionAcknowledged).toBe(true));
+        vi.unstubAllGlobals();
+    });
+
+    it('a failed elimination keeps the gate blocked and the row visible', async () => {
+        const app = seedInterrupted();
+        app.initInstance('BTC', 'Hyperliquid', 'i1');
+        app.initInstance('ETH', 'Hyperliquid', 'i2');
+        const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+            if (url === '/api/session/recover') {
+                return { ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response;
+            }
+            if (url === '/api/session/status') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        active: true, currency: 'USDC', exchange: 'Hyperliquid',
+                        instance_count: 2, mode: 'paper', interrupted: false,
+                    }),
+                } as unknown as Response;
+            }
+            if (url === '/api/instances/i2' && init?.method === 'DELETE') {
+                return { ok: false, status: 500, json: async () => ({}) } as unknown as Response;
+            }
+            if (url === '/api/instances') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        instances: [{ id: 'i1', pair: 'BTC-USDC' }, { id: 'i2', pair: 'ETH-USDC' }],
+                    }),
+                } as unknown as Response;
+            }
+            return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        const btn = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('Recover last session'))!;
+        await fireEvent.click(btn);
+        await waitFor(() => expect(container.textContent).toContain('Preparing your workspace…'));
+        app.instancesMap['BTC-USDC'].terms[1].latestSnapshot = {} as never;
+        await waitFor(() => expect(container.textContent).toContain('ready ✓'));
+        const cont = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('CONTINUE TO WORKSPACE'))!;
+        const remove = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.getAttribute('aria-label') === 'Remove ETH-USDC')!;
+        await fireEvent.click(remove);
+        await waitFor(() => expect(container.textContent).toContain('removal failed — still running'));
+        expect(container.textContent).toContain('ETH-USDC');
+        expect(app.instancesMap['ETH-USDC']).toBeDefined();
+        expect(cont.disabled).toBe(true);
         vi.unstubAllGlobals();
     });
 
