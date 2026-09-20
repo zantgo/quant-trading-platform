@@ -208,8 +208,11 @@ describe('InstanceStatusTable — expand / collapse', () => {
         const subText = table.textContent!;
         expect(subText).toContain('1S');
         expect(subText).toContain('5S');
-        expect(subText).toContain('1s');
-        expect(subText).toContain('5s');
+        // v11.12.18: the duration renders once — no `· 1s` / `· 5s` sub-label.
+        expect(subText).not.toContain('· 1s');
+        expect(subText).not.toContain('· 5s');
+        const tfNames = Array.from(table.querySelectorAll(`.${styles.tfName}`)).map((el) => el.textContent);
+        expect(tfNames).toEqual(['1S', '5S']);
 
         // v11.11 badge hierarchy: the symbol decision badge is LARGE, the
         // per-timeframe badges are SMALL.

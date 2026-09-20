@@ -274,12 +274,12 @@ describe('UnifiedSettings — action-row section titles (v11.12.4)', () => {
         seedPair('BTC');
         const { container } = render(UnifiedSettings);
         await tick();
-        expect(container.textContent).toContain('General Settings');
+        expect(container.textContent).toContain('General Configuration');
         await fireEvent.click(tabButton('Timeframes'));
         await tick();
-        expect(container.textContent).toContain('Timeframes and Indicators Settings');
+        expect(container.textContent).toContain('Timeframes and Indicators Management');
         await fireEvent.click(tabButton('Instance'));
         await tick();
-        expect(container.textContent).toContain('Instance Settings');
+        expect(container.textContent).toContain('Instance Configuration');
     });
 });

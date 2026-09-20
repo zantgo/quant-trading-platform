@@ -77,7 +77,7 @@ describe('AppWorkspacePanel — simplified UI', () => {
             },
         });
 
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         // Exactly one Delete button per row.
         const deleteBtn = container.querySelector('[title="Delete"]');
@@ -109,7 +109,7 @@ describe('AppWorkspacePanel — simplified UI', () => {
             },
         });
 
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         // Click the row body (the `<a>`). Using the status dot's
         // neighbour — the pair text — keeps us off the Delete button
@@ -147,7 +147,7 @@ describe('AppWorkspacePanel — simplified UI', () => {
             },
         });
 
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         const deleteBtn = container.querySelector('[title="Delete"]') as HTMLElement | null;
         expect(deleteBtn).toBeTruthy();
@@ -166,12 +166,12 @@ describe('AppWorkspacePanel — simplified UI', () => {
             props: {
                 isOpen: true,
                 wssMap: {},
-                errorMessage: 'Cannot delete BTC/USDT: HTTP 500',
+                errorMessage: 'Cannot delete BTC-USDT: HTTP 500',
                 onclose: () => {},
                 onrequestConfirm: () => {},
             },
         });
-        expect(await screen.findByText('Cannot delete BTC/USDT: HTTP 500')).toBeTruthy();
+        expect(await screen.findByText('Cannot delete BTC-USDT: HTTP 500')).toBeTruthy();
     });
 
     it('renders the empty-state message when the workspace has no instances', async () => {
@@ -241,7 +241,7 @@ describe('AppWorkspacePanel — state_unsafe_mutation regression', () => {
         // Wait for the initial fetch to settle. The first
         // $effect-driven `fetchWorkspaces()` must NOT have thrown the
         // unsafe-mutation error.
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
         expect(hasUnsafeMutationError(), 'initial panel mount must not throw state_unsafe_mutation').toBe(false);
 
         // Drive the effect chain again by bumping sessionInstanceCount
@@ -368,7 +368,7 @@ describe('AppWorkspacePanel — close / re-open cycle does not throw', () => {
             },
         });
 
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         // Simulate the user closing the panel.
         await rerender({
@@ -388,7 +388,7 @@ describe('AppWorkspacePanel — close / re-open cycle does not throw', () => {
             onrequestConfirm: () => {},
         });
 
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         const errs = consoleErrorSpy.mock.calls
             .map((args: unknown[]) => (args as unknown[]).map((a: unknown) => (typeof a === 'string' ? a : String(a))).join(' '))
@@ -417,7 +417,7 @@ describe('AppWorkspacePanel — close / re-open cycle does not throw', () => {
             },
         });
 
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         const app = useAppStore();
         // Toggle selectedInstance through several values; each

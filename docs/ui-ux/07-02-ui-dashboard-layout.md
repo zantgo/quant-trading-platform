@@ -226,12 +226,12 @@ with its own section title and container (v11.11 — **always expanded**, no col
 bar), positioned **below Metrics and above Score** (order: header → Summary →
 Metrics → Timeframe Status → Score). One row per **ACTIVE** duration (v11.9 —
 N rows, `[workspace].timeframes`; inactive durations are inert and have no status
-to show), in canonical order (`1S` up, each with its duration label — `1s`, `3s`,
-`5s`, `15s`, `30s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `4h`, `12h`, `1d`):
+to show), in canonical order — the duration label itself (`1S`, `3S`, `5S`, `15S`,
+`30S`, `1M`, `3M`, `5M`, `15M`, `30M`, `1H`, `4H`, `12H`, `1D`):
 
 | Column | Content |
 |--------|---------|
-| **Timeframe** | Duration label (`tfLabel(secs).toUpperCase()`) + `· <duration>` sub-label. |
+| **Timeframe** | Duration label (`tfLabel(secs).toUpperCase()`). |
 | **Status** | The SAME badge the Metrics (L1) tab header shows for that TF — single-sourced through `metricsBadgeFor` (`lib/layerHeader.ts`) so the two surfaces can never disagree. Bias label + regime sublabel, tinted via `biasColor`; reuses the `LayerHeader` badge CSS classes verbatim (pixel-identical chrome). |
 | **Pipeline** | The same live/stale/loading/error pipeline pill as the Metrics header (`CandlePipelineState`-derived status dot + label). |
 

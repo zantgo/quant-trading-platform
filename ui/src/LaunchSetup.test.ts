@@ -522,8 +522,8 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         // v11.12.17: the SAME preparing gate as a fresh launch — one row per
         // recovered instance, and the Welcome gate must NOT release early.
         await waitFor(() => expect(container.textContent).toContain('Preparing your workspace…'));
-        expect(container.textContent).toContain('BTC/USDC');
-        expect(container.textContent).toContain('ETH/USDC');
+        expect(container.textContent).toContain('BTC-USDC');
+        expect(container.textContent).toContain('ETH-USDC');
         expect(container.textContent).toContain('waiting for first snapshot');
         expect(app.sessionAcknowledged).toBe(false);
         const recoverCall = fetchMock.mock.calls.filter(([u]) => String(u) === '/api/session/recover');
