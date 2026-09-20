@@ -153,6 +153,11 @@
                     {@const rank = decisionRank(inst)}
                     {@const hasData = badge.state !== 'empty'}
                     {@const decisionTrail = (() => { void trailVersion; return getBadgeTrail(layerKey('l6', pairKey)); })()}
+                    <!-- v11.12.16: the bold label is ALWAYS the base symbol
+                         (derived from the canonical pair key), the dim label
+                         the full pair — regardless of what `inst.symbol`
+                         holds (bare `BTC` or full `BTC-USDT`). -->
+                    {@const baseSymbol = pairKey.includes('-') ? pairKey.split('-')[0] : inst.symbol}
                     <tr
                         class={styles.instRow}
         style="cursor: pointer;"
@@ -173,8 +178,8 @@
                             </button>
                         </td>
                         <td class={styles.instanceCell}>
-                            <span class={styles.symbol}>{inst.symbol}</span>
-                            {#if pairKey !== inst.symbol}
+                            <span class={styles.symbol}>{baseSymbol}</span>
+                            {#if pairKey !== baseSymbol}
                                 <span class={styles.pairKey}>{pairKey}</span>
                             {/if}
                         </td>
