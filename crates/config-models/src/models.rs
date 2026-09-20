@@ -1534,6 +1534,10 @@ pub struct ClockMonitorTomlConfig {
     pub query_timeout_secs: u64,
     #[serde(default = "default_clock_monitor_jitter_window")]
     pub jitter_window_size: usize,
+    /// v11.12.19: samples with a round-trip above this bound are reported as
+    /// unreliable (drift not evaluated) instead of breaching.
+    #[serde(default = "default_clock_monitor_max_rtt_micros")]
+    pub max_rtt_micros: u64,
     #[serde(default = "default_clock_monitor_breach_action")]
     pub breach_action: ClockMonitorBreachAction,
     #[serde(default = "default_clock_monitor_warn_on_breach")]
@@ -1549,6 +1553,7 @@ impl Default for ClockMonitorTomlConfig {
             threshold_micros: default_clock_monitor_threshold_micros(),
             query_timeout_secs: default_clock_monitor_query_timeout_secs(),
             jitter_window_size: default_clock_monitor_jitter_window(),
+            max_rtt_micros: default_clock_monitor_max_rtt_micros(),
             breach_action: default_clock_monitor_breach_action(),
             warn_on_breach: default_clock_monitor_warn_on_breach(),
         }
@@ -1586,6 +1591,9 @@ fn default_clock_monitor_query_timeout_secs() -> u64 {
 }
 fn default_clock_monitor_jitter_window() -> usize {
     20
+}
+fn default_clock_monitor_max_rtt_micros() -> u64 {
+    1_000_000
 }
 fn default_clock_monitor_breach_action() -> ClockMonitorBreachAction {
     ClockMonitorBreachAction::Warn

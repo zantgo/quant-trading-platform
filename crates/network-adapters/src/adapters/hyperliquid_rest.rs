@@ -5,6 +5,8 @@ use core_domain::normalized::{
 use rust_decimal::Decimal;
 use serde::Deserialize;
 
+use super::http;
+
 #[derive(Debug, Deserialize)]
 struct CandleSnapshot {
     #[serde(rename = "t")]
@@ -143,39 +145,69 @@ struct HlMeta {
 /// Verify that a Hyperliquid perpetual coin exists by querying the `meta`
 /// endpoint and checking the asset universe.
 ///
+/// v11.12.19: the check retries TRANSPORT errors (3 attempts, 30 s per
+/// attempt + connect timeout, 1 s/2 s backoff) — slow networks (cold DNS can
+/// take seconds through a VPN) used to fail the single 10 s request. A
+/// definitive venue answer is never retried.
+///
 /// Returns `Ok(true)` if the coin is listed, `Ok(false)` if not, and `Err(..)`
 /// only on transport/parse failures.
 pub async fn symbol_exists(coin: &str, info_url: &str) -> Result<bool, String> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(http::PROBE_CONNECT_TIMEOUT)
+        .timeout(http::PROBE_TOTAL_TIMEOUT)
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
-    let response = client
-        .post(info_url)
-        .json(&serde_json::json!({ "type": "meta" }))
-        .send()
-        .await
-        .map_err(|e| format!("Symbol check request failed for {}: {}", coin, e))?;
+    let mut last_err = String::new();
+    for attempt in 0..http::PROBE_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(http::probe_backoff(attempt)).await;
+        }
+        match client
+            .post(info_url)
+            .json(&serde_json::json!({ "type": "meta" }))
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    return Err(format!(
+                        "Hyperliquid meta endpoint returned HTTP {}",
+                        response.status()
+                    ));
+                }
 
-    if !response.status().is_success() {
-        return Err(format!(
-            "Hyperliquid meta endpoint returned HTTP {}",
-            response.status()
-        ));
+                let meta: HlMeta = response
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse Hyperliquid meta JSON: {}", e))?;
+
+                let target = coin.to_uppercase();
+                let ok = meta
+                    .universe
+                    .iter()
+                    .any(|a| a.name.to_uppercase() == target);
+                return Ok(ok);
+            }
+            Err(e) => {
+                last_err = http::describe_reqwest_error(&e);
+                eprintln!(
+                    "Symbol check attempt {}/{} failed for {}: {}",
+                    attempt + 1,
+                    http::PROBE_ATTEMPTS,
+                    coin,
+                    last_err
+                );
+            }
+        }
     }
-
-    let meta: HlMeta = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Hyperliquid meta JSON: {}", e))?;
-
-    let target = coin.to_uppercase();
-    let ok = meta
-        .universe
-        .iter()
-        .any(|a| a.name.to_uppercase() == target);
-    Ok(ok)
+    Err(format!(
+        "Symbol check request failed for {} after {} attempts: {}",
+        coin,
+        http::PROBE_ATTEMPTS,
+        last_err
+    ))
 }
 
 // =============================================================================

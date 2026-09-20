@@ -1646,6 +1646,8 @@ async fn async_main() {
                 warn_on_breach: clock_cfg.warn_on_breach,
                 jitter_window_size: clock_cfg.jitter_window_size,
                 query_timeout: std::time::Duration::from_secs(clock_cfg.query_timeout_secs),
+                // v11.12.19: samples slower than this are "unreliable", not breaches.
+                max_rtt: std::time::Duration::from_micros(clock_cfg.max_rtt_micros),
             };
             let monitor = Arc::new(ClockMonitor::new(monitor_cfg));
             Arc::get_mut(&mut app_state)
