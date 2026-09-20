@@ -210,6 +210,23 @@ impl AppState {
             .active
             .store(true, std::sync::atomic::Ordering::Relaxed);
 
+        // v11.12.23: persist the operator's ACTUAL environment — the row was
+        // written at boot with the workspace defaults and was never updated,
+        // so crash recovery restored the wrong exchange/base currency (and
+        // the boot spawn forced that quote onto every persisted instance).
+        if let Some(sid) = *self.session_id.read().await {
+            if let Err(e) = database_storage::queries::sessions::update_session_environment(
+                &self.pool,
+                sid,
+                exchange.as_str(),
+                currency.as_str(),
+            )
+            .await
+            {
+                eprintln!("⚠️  Could not persist session environment: {e}");
+            }
+        }
+
         println!(
             "✅ Session initialized: {} on {}",
             currency.as_str(),

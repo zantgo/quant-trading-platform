@@ -44,6 +44,26 @@ pub async fn create_session(
     Ok(row.last_insert_rowid())
 }
 
+/// v11.12.23: persist the operator's ACTUAL session environment on the
+/// current row. `create_session` writes the boot-time workspace defaults;
+/// without this update a crash + recovery restored the wrong exchange /
+/// base currency (and the boot spawn forced that quote onto every
+/// persisted instance).
+pub async fn update_session_environment(
+    pool: &SqlitePool,
+    id: i64,
+    exchange: &str,
+    currency: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE sessions SET exchange = ?2, currency = ?3 WHERE id = ?1")
+        .bind(id)
+        .bind(exchange)
+        .bind(currency)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Close the active session (graceful shutdown / quit).
 pub async fn close_session(
     pool: &SqlitePool,

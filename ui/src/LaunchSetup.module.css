@@ -282,6 +282,29 @@
 .form-hint strong {
     color: #8b93a1;
 }
+/* v11.12.23: the recovered session's environment, shown under the
+   Instances title (compact chip-style mono line). */
+.recovery-env {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.15rem 0 0.25rem;
+    padding: 0.2rem 0.6rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    width: fit-content;
+}
+.recovery-env-value {
+    color: #fff;
+    font-size: 0.72rem;
+    font-family: var(--mono, monospace);
+    letter-spacing: 0.05em;
+}
+.recovery-env-sep {
+    color: #5f6672;
+    font-size: 0.72rem;
+}
 .form-error {
     background: rgba(255, 69, 58, 0.06);
     border: 1px solid rgba(255, 69, 58, 0.2);

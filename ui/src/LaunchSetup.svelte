@@ -20,6 +20,13 @@
     // instance the moment the backend finishes spawning it.
     let recoveryMode = $state(false);
     let recoveryStartedAt = $state(0);
+    /// The interrupted session's ACTUAL environment, shown on the recovery
+    /// screen (persisted by the backend at init — v11.12.23).
+    let recoveryExchange = $state('');
+    let recoveryCurrency = $state('');
+    /// How many instances the interrupted session reported (0 = the
+    /// continue affordance with an empty list).
+    let recoveryExpected = $state(0);
     /// Pairs the operator eliminated before the backend had them (no id).
     const cancelledPairs = new Set<string>();
 
@@ -37,7 +44,16 @@
                     const list: Array<{ symbol?: string; status?: string }> =
                         data?.instances ?? [];
                     const pairs = list
-                        .filter((i) => !!i?.symbol && (i.status ?? 'Running') === 'Running')
+                        .filter(
+                            (i) =>
+                                !!i?.symbol
+                                // The wire serializes `InstanceStatus`
+                                // lowercase (`#[serde(rename_all =
+                                // "lowercase")]`) — never compare case-
+                                // sensitively here (that bug skipped the
+                                // whole recovery screen).
+                                && (i.status ?? 'running').toLowerCase() === 'running',
+                        )
                         .map((i) => i.symbol!);
                     if (pairs.length > 0) return pairs;
                 }
@@ -64,28 +80,48 @@
         recovering = true;
         recoveryError = null;
         // Capture BEFORE the status refetch clears `interruptedSession`.
-        const expected = app.session.interruptedSession?.instance_count ?? 0;
+        const info = app.session.interruptedSession;
+        const expected = info?.instance_count ?? 0;
+        // v11.12.23: recovery IS the Instances step from the first frame —
+        // no separate preparing screen. The interrupted session's REAL
+        // environment comes from its row (the backend persists it at init)
+        // with the live store as the post-recover truth.
+        recoveryExpected = expected;
+        recoveryExchange = info?.exchange ?? app.session.sessionExchange ?? '';
+        recoveryCurrency = info?.currency ?? app.session.sessionCurrency ?? '';
+        recoveryMode = true;
+        step = 3;
+        instances = [];
         try {
             await app.session.recoverInterrupted();
-            const pairs = await fetchRecoveredPairs(expected);
-            if (pairs.length > 0) {
-                instances = pairs.map((pair) => ({
-                    base: pair.split('-')[0],
-                    status: 'waiting' as const,
-                    pairKey: pair,
-                }));
-                staged = true;
-                recoveryMode = true;
-                recoveryStartedAt = Date.now();
-                step = 3;
-                app.bumpWsVersion();
-                void pollRecoveredDrafts();
-                return;
+            recoveryExchange = app.session.sessionExchange ?? recoveryExchange;
+            recoveryCurrency = app.session.sessionCurrency ?? recoveryCurrency;
+            const recoveredMode = app.session.sessionMode;
+            if (recoveredMode === 'observe' || recoveredMode === 'paper' || recoveredMode === 'live') {
+                mode = recoveredMode;
             }
-            // No instances to warm — land directly (same as an empty launch).
-            landOnOverview();
+            exchange = app.session.sessionExchange ?? exchange;
+            currency = app.session.sessionCurrency ?? currency;
+            const pairs = await fetchRecoveredPairs(expected);
+            instances = pairs.map((pair) => {
+                const [base, quote] = pair.split('-');
+                return {
+                    base: base ?? pair,
+                    quote: quote ?? app.quote,
+                    status: 'creating' as const,
+                    pairKey: pair,
+                };
+            });
+            staged = true;
+            recoveryStartedAt = Date.now();
+            app.bumpWsVersion();
+            void pollRecoveredDrafts();
         } catch (e) {
             recoveryError = e instanceof Error ? e.message : String(e);
+            // Back to the interrupted card so the operator can retry.
+            step = 1;
+            recoveryMode = false;
+            instances = [];
         } finally {
             recovering = false;
         }
@@ -113,6 +149,10 @@
         status: 'creating' | 'waiting' | 'ready' | 'timeout' | 'failed';
         error?: string;
         instanceId?: string;
+        /// v11.12.23: the RECOVERED pair's own quote (the config symbol
+        /// verbatim, e.g. `USDT`) — ADD-time drafts derive it from the
+        /// session (`app.quote`).
+        quote?: string;
         /// v11.12.22: the canonical pair key for RECOVERED rows (the config
         /// symbol verbatim) — ADD-time drafts derive it from `base`.
         pairKey?: string;
@@ -182,6 +222,16 @@
     const recoveryReady = $derived(
         instances.length === 0 || instances.every((i) => i.status === 'ready'),
     );
+    // v11.12.23: the step-3 empty-state copy (recovery has its own cases).
+    const emptyHintText = $derived(
+        recoveryMode
+            ? recovering
+                ? 'Restoring your instances…'
+                : recoveryExpected === 0
+                    ? 'The interrupted session had no running instances — continue below.'
+                    : 'All instances were removed — continue to an empty workspace.'
+            : 'No instances configured yet.',
+    );
     let newBase = $state('');
     let error = $state<string | null>(null);
     let loading = $state(false);
@@ -219,9 +269,11 @@
 
     async function goNext() {
         error = null;
-        // v11.12.22: the recovery gate never walks the wizard — its
-        // CONTINUE lands directly (the footer branches on `recoveryMode`).
-        if (recoveryMode) return;
+        // v11.12.23: recovery never reaches REVIEW — its CONTINUE at the
+        // Instances step lands directly (the footer branches). BACK/forward
+        // between steps 1..3 stays walkable for inspection; the session is
+        // already active, so no re-init (staged) happens.
+        if (recoveryMode && step >= 3) return;
         if (step === 2 && !staged) {
             // The session activates HERE so instances can be created at
             // ADD time (the backend rejects creation without a session).
@@ -245,9 +297,13 @@
 
     async function goBack() {
         error = null;
-        // v11.12.22: BACK is hidden mid-restore — and must never discard
-        // recovered instances (the delete-loop below is draft-only).
-        if (recoveryMode) return;
+        // v11.12.23: BACK walks the wizard for inspection during recovery
+        // — it must NEVER discard recovered instances (that delete-loop is
+        // draft-only) and the environment stays read-only.
+        if (recoveryMode) {
+            if (step > 1) step -= 1;
+            return;
+        }
         if (step === 3 && instances.length > 0) {
             // Staged instances pin the session's environment — changing
             // exchange/currency requires discarding them first.
@@ -538,6 +594,12 @@
                                     (secs) => pair.terms[secs]?.latestSnapshot != null,
                                 );
                             if (ready) return { ...withId, status: 'ready' as const };
+                            // The backend has spawned it — now it waits on
+                            // the first snapshot (mirrors the ADD-time
+                            // `creating…` → `waiting…` sequence).
+                            if (id && withId.status === 'creating') {
+                                return { ...withId, status: 'waiting' as const };
+                            }
                             if (withId.status === 'waiting' && now - recoveryStartedAt >= 60_000) {
                                 return { ...withId, status: 'timeout' as const };
                             }
@@ -782,10 +844,15 @@
         {:else if step === 2}
             <section class={styles.section}>
                 <h2 class={styles.sectionTitle}>Environment — {MODE_META[mode].title}</h2>
+                {#if recoveryMode}
+                    <p class={styles.formHint}>
+                        Fixed by the recovered session — shown for reference only.
+                    </p>
+                {/if}
 
                 <div class={styles.formGroup}>
                     <label class={styles.formLabel} for="launch-exchange">Exchange</label>
-                    <select id="launch-exchange" class={styles.formSelect} bind:value={exchange}>
+                    <select id="launch-exchange" class={styles.formSelect} bind:value={exchange} disabled={recoveryMode}>
                         <option value="Hyperliquid">Hyperliquid</option>
                         <option value="Bitget">Bitget</option>
                     </select>
@@ -795,14 +862,14 @@
                     <span class={styles.formLabel}>Settlement Currency</span>
                     <div class={styles.radioGroup}>
                         <label class="{styles.radioOption} {!currencyAvailable('USDT') ? styles.disabled : ''} {currency === 'USDT' ? styles.active : ''}">
-                            <input type="radio" name="currency" value="USDT" bind:group={currency} disabled={!currencyAvailable('USDT')} />
+                            <input type="radio" name="currency" value="USDT" bind:group={currency} disabled={!currencyAvailable('USDT') || recoveryMode} />
                             <span class={styles.radioLabel}>USDT</span>
                             <span class="{styles.radioBadge} {currencyAvailable('USDT') ? styles.enabled : styles.disabled}">
                                 {currencyAvailable('USDT') ? 'Available' : 'Not available'}
                             </span>
                         </label>
                         <label class="{styles.radioOption} {!currencyAvailable('USDC') ? styles.disabled : ''} {currency === 'USDC' ? styles.active : ''}">
-                            <input type="radio" name="currency" value="USDC" bind:group={currency} disabled={!currencyAvailable('USDC')} />
+                            <input type="radio" name="currency" value="USDC" bind:group={currency} disabled={!currencyAvailable('USDC') || recoveryMode} />
                             <span class={styles.radioLabel}>USDC</span>
                             <span class="{styles.radioBadge} {currencyAvailable('USDC') ? styles.enabled : styles.disabled}">
                                 {currencyAvailable('USDC') ? 'Available' : 'Not available'}
@@ -815,7 +882,7 @@
                     <div class={styles.formGroup}>
                         <label class={styles.formLabel} for="launch-capital">Portfolio Capital (USD)</label>
                         <input id="launch-capital" type="number" min="100" step="100"
-                            class={styles.formInput} bind:value={capital} />
+                            class={styles.formInput} bind:value={capital} disabled={recoveryMode} />
                         <p class={styles.formHint}>The paper balance for instances created in this session.</p>
                     </div>
                 {:else if mode === 'observe'}
@@ -830,11 +897,11 @@
                             <label class={styles.formLabel} for="launch-wallet">Wallet Address</label>
                             <input id="launch-wallet" type="text" autocomplete="off"
                                 class={styles.formInput} bind:value={walletAddress}
-                                placeholder="0x…" />
+                                placeholder="0x…" disabled={recoveryMode} />
                             <label class={styles.formLabel} for="launch-private-key">Private Key</label>
                             <input id="launch-private-key" type="password" autocomplete="off"
                                 class={styles.formInput} bind:value={privateKey}
-                                placeholder="••••••••••••••••••••••••" />
+                                placeholder="••••••••••••••••••••••••" disabled={recoveryMode} />
                             <p class={styles.formHint}>
                                 Stored encrypted (AES-256-GCM under EXCHANGE_SECRET_KEY). Live trading uses
                                 the balance of your Hyperliquid account — there is no paper balance.
@@ -842,13 +909,13 @@
                         {:else}
                             <label class={styles.formLabel} for="launch-api-key">API Key</label>
                             <input id="launch-api-key" type="text" autocomplete="off"
-                                class={styles.formInput} bind:value={apiKey} />
+                                class={styles.formInput} bind:value={apiKey} disabled={recoveryMode} />
                             <label class={styles.formLabel} for="launch-api-secret">API Secret</label>
                             <input id="launch-api-secret" type="password" autocomplete="off"
-                                class={styles.formInput} bind:value={apiSecret} />
+                                class={styles.formInput} bind:value={apiSecret} disabled={recoveryMode} />
                             <label class={styles.formLabel} for="launch-passphrase">Passphrase</label>
                             <input id="launch-passphrase" type="password" autocomplete="off"
-                                class={styles.formInput} bind:value={passphrase} />
+                                class={styles.formInput} bind:value={passphrase} disabled={recoveryMode} />
                             <p class={styles.formHint}>
                                 Stored encrypted (AES-256-GCM under EXCHANGE_SECRET_KEY). Live trading uses
                                 the balance of your Bitget USDT-M account.
@@ -861,6 +928,11 @@
             <section class={styles.section}>
                 <h2 class={styles.sectionTitle}>Instances</h2>
                 {#if recoveryMode}
+                    <div class={styles.recoveryEnv}>
+                        <span class={styles.recoveryEnvValue}>{recoveryExchange || '—'}</span>
+                        <span class={styles.recoveryEnvSep}>·</span>
+                        <span class={styles.recoveryEnvValue}>{recoveryCurrency || '—'}</span>
+                    </div>
                     <p class={styles.formHint}>
                         Restoring your previous session — the workspace opens once every
                         instance has loaded. Remove any instance that never arrives.
@@ -872,7 +944,7 @@
                 <div class={styles.instanceList}>
                     {#each instances as inst, i (inst.base)}
                         <div class={styles.instanceRow}>
-                            <span class={styles.instancePair}>{inst.base} <span class={styles.instanceQuote}>{app.quote}</span></span>
+                            <span class={styles.instancePair}>{inst.base} <span class={styles.instanceQuote}>{inst.quote ?? app.quote}</span></span>
                             <span class={styles.instanceTfs}>{ACTIVE_LADDER_TEXT}</span>
                             {#if inst.status === 'creating'}
                                 <span class={styles.instanceStatus} title="Creating the instance and warming its pipelines…">creating…</span>
@@ -893,11 +965,7 @@
                         </div>
                     {/each}
                     {#if instances.length === 0}
-                        <p class={styles.emptyHint}>
-                            {recoveryMode
-                                ? 'All instances were removed — continue to an empty workspace.'
-                                : 'No instances configured yet.'}
-                        </p>
+                        <p class={styles.emptyHint}>{emptyHintText}</p>
                     {/if}
                 </div>
 
@@ -956,7 +1024,7 @@
 
         {#if !waiting && !recovering}
         <footer class={styles.footer}>
-            {#if step > 1 && !recoveryMode}
+            {#if step > 1}
                 <button class={styles.backButton} onclick={goBack} disabled={loading}>Back</button>
             {:else}
                 <span></span>
@@ -965,7 +1033,7 @@
                 {@const gateBlocked = step === 3 && !(recoveryMode ? recoveryReady : stagedReady)}
                 <button
                     class={styles.primaryButton}
-                    onclick={() => (recoveryMode ? landOnOverview() : goNext())}
+                    onclick={() => (recoveryMode && step === 3 ? landOnOverview() : goNext())}
                     disabled={loading || gateBlocked}
                     title={gateBlocked ? 'Instances are still loading…' : undefined}
                 >

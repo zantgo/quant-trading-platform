@@ -175,3 +175,45 @@ async fn invalid_mode_is_rejected() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+/// v11.12.23: `POST /api/session/init` persists the operator's REAL
+/// exchange/currency onto the current sessions row. The row is written at
+/// boot with the workspace defaults; without this update a crash + recovery
+/// would restore the wrong environment (and the boot spawn would force the
+/// wrong quote onto every persisted instance).
+#[tokio::test]
+async fn session_init_persists_the_environment_on_the_session_row() {
+    let state = build_state().await;
+    let sid = database_storage::queries::sessions::create_session(
+        &state.pool,
+        "observe",
+        Some("Hyperliquid"),
+        Some("USDC"),
+        Some(1000.0),
+        1_700_000_000_000,
+        None,
+    )
+    .await
+    .expect("create session row");
+    *state.session_id.write().await = Some(sid);
+
+    let (status, _body) = init_session(
+        state.clone(),
+        serde_json::json!({
+            "exchange": "Bitget",
+            "currency": "USDT",
+            "mode": "observe",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (exchange, currency): (String, String) =
+        sqlx::query_as("SELECT exchange, currency FROM sessions WHERE id = ?1")
+            .bind(sid)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(exchange, "Bitget");
+    assert_eq!(currency, "USDT");
+}
