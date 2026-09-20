@@ -487,8 +487,11 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         expect(container.textContent).not.toContain('Interrupted session detected');
     });
 
-    it('Recover calls the endpoint, refreshes status and leaves the wizard', async () => {
+    it('Recover calls the endpoint, shows the preparing gate and lands after the first snapshots', async () => {
         const app = seedInterrupted();
+        // Boot already re-spawned the session's instances (store sync).
+        app.initInstance('BTC', 'Hyperliquid', 'i1');
+        app.initInstance('ETH', 'Hyperliquid', 'i2');
         const fetchMock = vi.fn(async (url: string) => {
             if (url === '/api/session/recover') {
                 return { ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response;
@@ -501,6 +504,13 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
                     }),
                 } as unknown as Response;
             }
+            if (url === '/api/instances') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        instances: [{ id: 'i1', pair: 'BTC-USDC' }, { id: 'i2', pair: 'ETH-USDC' }],
+                    }),
+                } as unknown as Response;
+            }
             return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
         });
         vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
@@ -509,8 +519,51 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
             .find((b) => b.textContent?.includes('Recover last session'))!;
         await fireEvent.click(btn);
         await waitFor(() => expect(app.session.sessionActive).toBe(true));
+        // v11.12.17: the SAME preparing gate as a fresh launch — one row per
+        // recovered instance, and the Welcome gate must NOT release early.
+        await waitFor(() => expect(container.textContent).toContain('Preparing your workspace…'));
+        expect(container.textContent).toContain('BTC/USDC');
+        expect(container.textContent).toContain('ETH/USDC');
+        expect(container.textContent).toContain('waiting for first snapshot');
+        expect(app.sessionAcknowledged).toBe(false);
         const recoverCall = fetchMock.mock.calls.filter(([u]) => String(u) === '/api/session/recover');
         expect(recoverCall.length).toBe(1);
+        // First snapshots arrive → the wizard lands on the Overview.
+        app.instancesMap['BTC-USDC'].terms[1].latestSnapshot = {} as never;
+        app.instancesMap['ETH-USDC'].terms[1].latestSnapshot = {} as never;
+        await waitFor(() => expect(app.sessionAcknowledged).toBe(true), { timeout: 3000 });
+        expect(app.wizardActive).toBe(false);
+        vi.unstubAllGlobals();
+    });
+
+    it('Recover with no instances lands immediately (no preparing gate)', async () => {
+        const app = seedInterrupted();
+        app.session.interruptedSession = { ...app.session.interruptedSession!, instance_count: 0 };
+        const fetchMock = vi.fn(async (url: string) => {
+            if (url === '/api/session/recover') {
+                return { ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response;
+            }
+            if (url === '/api/session/status') {
+                return {
+                    ok: true, status: 200, json: async () => ({
+                        active: true, currency: 'USDC', exchange: 'Hyperliquid',
+                        instance_count: 0, mode: 'observe', interrupted: false,
+                    }),
+                } as unknown as Response;
+            }
+            if (url === '/api/instances') {
+                return { ok: true, status: 200, json: async () => ({ instances: [] }) } as unknown as Response;
+            }
+            return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+        const { container } = await render(LaunchSetup);
+        const btn = Array.from(container.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('Recover last session'))!;
+        await fireEvent.click(btn);
+        await waitFor(() => expect(app.sessionAcknowledged).toBe(true));
+        expect(app.wizardActive).toBe(false);
+        expect(container.textContent).not.toContain('Preparing your workspace…');
         vi.unstubAllGlobals();
     });
 
