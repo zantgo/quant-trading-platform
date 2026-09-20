@@ -306,16 +306,6 @@
         DURATIONS.map((slot) => [slot, tfLabel(slot)]),
     ) as Record<TfSlot, string>;
 
-    function durationSuffixOf(sec: number): string {
-        if (sec % 3600 === 0 && sec > 0) return `${sec / 3600}h`;
-        if (sec % 60 === 0 && sec > 0) return `${sec / 60}m`;
-        return `${sec}s`;
-    }
-
-    function slotSecsLabel(slot: TfSlot): string {
-        return durationSuffixOf((slot));
-    }
-
     // ─── Visual overlay toggles (grouped for the trader) ────────────────
     const VISUAL_GROUPS: { title: string; keys: { key: string; label: string }[] }[] = [
         {
@@ -756,10 +746,10 @@
             {/if}
             <div class={styles.tfShell}>
                 <!-- v11.12.14: the header splits over the real pane columns —
-                     TIMEFRAME over the duration rail, | INDICATOR over the
+                     TIMEFRAME over the duration rail, INDICATOR over the
                      parameters pane (the shell grid guarantees alignment). -->
                 <h3 class={styles.tfCardTitleRail}>TIMEFRAME</h3>
-                <h3 class={styles.tfCardTitlePane}><span class={styles.tfCardTitleSep}>|</span> INDICATOR</h3>
+                <h3 class={styles.tfCardTitlePane}>INDICATOR</h3>
                 <aside class={styles.tfShellRail}>
                     {#each DURATIONS as slot (slot)}
                         {@const on = activeLadder.includes(slot)}
@@ -780,8 +770,7 @@
                                 class={styles.railTarget}
                                 onclick={() => (selectedSlot = slot)}
                             >
-                                <span class={styles.tfShellRailLabel}>{tfLabel(slot)}</span>
-                                <span class={styles.tfShellRailSecs}>· {slot}s</span>
+                                <span>{tfLabel(slot)}</span>
                                 {#if on}<span class={styles.railActiveTag}>ACTIVE</span>{/if}
                             </button>
                         </div>
@@ -790,7 +779,7 @@
 
                 <div class={styles.tfShellPane}>
                     <div class={styles.paneHead}>
-                        <h4 class={styles.tfCardSubTitle}>{tfLabel(paneSlot)} · {paneSlot}s — INDICATOR PARAMETERS</h4>
+                        <h4 class={styles.tfCardSubTitle}>{tfLabel(paneSlot)} — INDICATOR PARAMETERS</h4>
                         <span class={styles.paneMemory}>● Instance Memory: Allocated</span>
                         <input
                             class={styles.paneFilter}

@@ -216,7 +216,7 @@
     <header class={engine.unifiedHeader}>
         <div class={engine.headerTop}>
             <div class={engine.titleGroup}>
-                <h2 class={engine.title}>General Settings</h2>
+                <h2 class={engine.title}>General Configuration</h2>
             </div>
             <div class={engine.headerRight}>
                 <span class={engine.tabLabel}>SETTINGS</span>

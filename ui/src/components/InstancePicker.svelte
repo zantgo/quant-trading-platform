@@ -87,17 +87,13 @@
             return (
                 symbol.includes(query) ||
                 pair.includes(query) ||
-                pairDisplay(inst.pair).toLowerCase().includes(query)
+                pair.includes(query.replace(/\//g, '-'))
             );
         }),
     );
 
     const totalCount = $derived(instances.length);
     const shownCount = $derived(filtered.length);
-
-    function pairDisplay(pairKey: string): string {
-        return pairKey.replace('-', '/');
-    }
 
     function priceFor(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
@@ -212,7 +208,7 @@
                 >
                     <span class="{styles.statusDot} {statusClass(inst.status)}"></span>
                     <div class={styles.rowInfo}>
-                        <span class={styles.symbol}>{pairDisplay(pk)}</span>
+                        <span class={styles.symbol}>{pk}</span>
                         <span class={styles.price}>{priceFor(pk)}</span>
                     </div>
                     {#if inst.mode}
@@ -226,7 +222,7 @@
                         title="Delete"
                         role="button"
                         tabindex="0"
-                        aria-label="Delete {pairDisplay(pk)}"
+                        aria-label="Delete {pk}"
                         onclick={(e) => { e.stopPropagation(); onrequestConfirm(inst.id, 'delete', pk); }}
                         onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onrequestConfirm(inst.id, 'delete', pk); } }}
                     >

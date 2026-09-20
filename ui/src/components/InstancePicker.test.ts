@@ -5,7 +5,8 @@
 // What these tests assert:
 //   - rows render from GET /api/instances
 //   - the search bar live-filters rows case-insensitively ("btc" finds
-//     "BTC-USDT", "btc/usdt" and "BTC-USDT" queries both match)
+//     "BTC-USDT"; a slash-form "btc/usdt" query still matches because the
+//     query is normalized to the canonical hyphen pair)
 //   - a filter with no matches shows the dedicated empty state with a
 //     clear-filter button
 //   - the per-row Delete button fires `onrequestConfirm(id, 'delete', pair)`
@@ -80,8 +81,8 @@ describe('InstancePicker — list rendering', () => {
 
         renderPicker();
 
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
-        expect(screen.getByText('ETH/USDT')).toBeTruthy();
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
+        expect(screen.getByText('ETH-USDT')).toBeTruthy();
         // One Delete button per row.
         expect(screen.getAllByTitle('Delete')).toHaveLength(2);
     });
@@ -95,8 +96,8 @@ describe('InstancePicker — list rendering', () => {
 
     it('renders an inline error when errorMessage is set (shared with right panel)', async () => {
         vi.stubGlobal('fetch', mockFetch([]));
-        renderPicker({ errorMessage: 'Cannot delete BTC/USDT: HTTP 500' });
-        expect(await screen.findByText('Cannot delete BTC/USDT: HTTP 500')).toBeTruthy();
+        renderPicker({ errorMessage: 'Cannot delete BTC-USDT: HTTP 500' });
+        expect(await screen.findByText('Cannot delete BTC-USDT: HTTP 500')).toBeTruthy();
     });
 });
 
@@ -110,13 +111,13 @@ describe('InstancePicker — live search filter', () => {
         seedInstance('ETH-USDT');
 
         renderPicker();
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         const input = screen.getByLabelText('Filter instances by name') as HTMLInputElement;
         await fireEvent.input(input, { target: { value: 'btc' } });
 
-        expect(screen.getByText('BTC/USDT')).toBeTruthy();
-        expect(screen.queryByText('ETH/USDT')).toBeNull();
+        expect(screen.getByText('BTC-USDT')).toBeTruthy();
+        expect(screen.queryByText('ETH-USDT')).toBeNull();
     });
 
     it('matches on UPPERCASE query against the stored symbol (symbols are always caps)', async () => {
@@ -128,13 +129,31 @@ describe('InstancePicker — live search filter', () => {
         seedInstance('ETH-USDT');
 
         renderPicker();
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         const input = screen.getByLabelText('Filter instances by name') as HTMLInputElement;
         await fireEvent.input(input, { target: { value: 'BTC' } });
 
-        expect(screen.getByText('BTC/USDT')).toBeTruthy();
-        expect(screen.queryByText('ETH/USDT')).toBeNull();
+        expect(screen.getByText('BTC-USDT')).toBeTruthy();
+        expect(screen.queryByText('ETH-USDT')).toBeNull();
+    });
+
+    it('v11.12.18: a slash-form query still matches the canonical hyphen pair', async () => {
+        vi.stubGlobal('fetch', mockFetch([
+            row('BTC-USDT'),
+            row('ETH-USDT'),
+        ]));
+        seedInstance('BTC-USDT');
+        seedInstance('ETH-USDT');
+
+        renderPicker();
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
+
+        const input = screen.getByLabelText('Filter instances by name') as HTMLInputElement;
+        await fireEvent.input(input, { target: { value: 'btc/usdt' } });
+
+        expect(screen.getByText('BTC-USDT')).toBeTruthy();
+        expect(screen.queryByText('ETH-USDT')).toBeNull();
     });
 
     it('shows the no-match state and clears the filter from it', async () => {
@@ -144,16 +163,16 @@ describe('InstancePicker — live search filter', () => {
         seedInstance('BTC-USDT');
 
         renderPicker();
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         const input = screen.getByLabelText('Filter instances by name') as HTMLInputElement;
         await fireEvent.input(input, { target: { value: 'sol' } });
 
-        expect(screen.queryByText('BTC/USDT')).toBeNull();
+        expect(screen.queryByText('BTC-USDT')).toBeNull();
         expect(screen.getByText(/No instances match/)).toBeTruthy();
 
         await fireEvent.click(screen.getByText('Clear filter'));
-        expect(screen.getByText('BTC/USDT')).toBeTruthy();
+        expect(screen.getByText('BTC-USDT')).toBeTruthy();
     });
 
     it('renders the count chip showing filtered / total when a filter is active', async () => {
@@ -165,7 +184,7 @@ describe('InstancePicker — live search filter', () => {
         seedInstance('ETH-USDT');
 
         renderPicker();
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         const input = screen.getByLabelText('Filter instances by name') as HTMLInputElement;
         await fireEvent.input(input, { target: { value: 'btc' } });
@@ -187,11 +206,11 @@ describe('InstancePicker — row interactions', () => {
 
         const app = useAppStore();
         renderPicker();
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         // v11.4: rows are semantic <a> links (right-click → open in a new
         // tab); a plain click still prevents default and enters the instance.
-        const rowEl = screen.getByText('BTC/USDT').closest('a') as HTMLAnchorElement;
+        const rowEl = screen.getByText('BTC-USDT').closest('a') as HTMLAnchorElement;
         expect(rowEl).toBeTruthy();
         expect(rowEl.getAttribute('href')).toContain('instance/BTC-USDT');
         await fireEvent.click(rowEl);
@@ -209,7 +228,7 @@ describe('InstancePicker — row interactions', () => {
         const app = useAppStore();
         const onrequestConfirm = vi.fn();
         renderPicker({ onrequestConfirm });
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
         const deleteBtn = screen.getByTitle('Delete');
         await fireEvent.click(deleteBtn);
@@ -234,15 +253,15 @@ describe('InstancePicker — sync after delete', () => {
         seedInstance('ETH-USDT');
 
         renderPicker();
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
-        expect(screen.getByText('ETH/USDT')).toBeTruthy();
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
+        expect(screen.getByText('ETH-USDT')).toBeTruthy();
 
         // Simulate the App-level delete: instance removed server-side,
         // `executeDelete` bumps the session instance count.
         instances = [row('BTC-USDT')];
         useAppStore().sessionInstanceCount = 1;
-        await waitFor(() => expect(screen.queryByText('ETH/USDT')).toBeNull());
-        await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+        await waitFor(() => expect(screen.queryByText('ETH-USDT')).toBeNull());
+        await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
     });
 
     it('mount effect does not throw state_unsafe_mutation', async () => {
@@ -254,7 +273,7 @@ describe('InstancePicker — sync after delete', () => {
             seedInstance('BTC-USDT');
 
             renderPicker();
-            await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
+            await waitFor(() => expect(screen.getByText('BTC-USDT')).toBeTruthy());
 
             const unsafe = consoleErrorSpy.mock.calls.some((args: unknown[]) => {
                 const msg = (args as unknown[]).map((a: unknown) => (typeof a === 'string' ? a : String(a))).join(' ');

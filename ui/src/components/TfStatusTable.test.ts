@@ -13,6 +13,7 @@ import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import TfStatusTable from './TfStatusTable.svelte';
 import headerStyles from './LayerHeader.module.css';
+import styles from './TfStatusTable.module.css';
 import { useAppStore } from '../state.svelte';
 import { biasColor } from '../lib/dashboardColors';
 import { tfLabel, DURATIONS } from '../types';
@@ -55,15 +56,16 @@ describe('TfStatusTable — ladder rows', () => {
         });
     });
 
-    it('each Timeframe cell shows the derived duration label (e.g. 1S · 1s)', () => {
+    it('each Timeframe cell shows the derived duration label exactly once', () => {
         renderTable();
         const table = screen.getByRole('table');
-        const first = table.querySelector('tbody tr')!.textContent!;
-        expect(first).toContain('1S');
-        expect(first).toContain('1s');
-        const last = table.querySelectorAll('tbody tr')[DURATIONS.length - 1].textContent!;
-        expect(last).toContain('1D');
-        expect(last).toContain('1d');
+        const firstRow = table.querySelector('tbody tr')!;
+        const lastRow = table.querySelectorAll('tbody tr')[DURATIONS.length - 1];
+        // v11.12.18: a timeframe IS its duration — one label, no `· 1s` sub-label.
+        expect(firstRow.querySelector(`.${styles.tfName}`)!.textContent).toBe('1S');
+        expect(firstRow.querySelector(`.${styles.tfDuration}`)).toBeNull();
+        expect(lastRow.querySelector(`.${styles.tfName}`)!.textContent).toBe('1D');
+        expect(lastRow.querySelector(`.${styles.tfDuration}`)).toBeNull();
     });
 
     it('renders only the ACTIVE durations when the instance narrows its ladder', () => {

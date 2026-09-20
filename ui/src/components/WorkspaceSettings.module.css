@@ -38,7 +38,7 @@
 
 /* ─── Timeframe shell (inside the Timeframes & Indicators card) ────── */
 .tf-shell {
-    /* v11.12.14: grid (was flex) so the TIMEFRAME | INDICATOR header row
+    /* v11.12.14: grid (was flex) so the TIMEFRAME / INDICATOR header row
        tracks the real rail/pane columns exactly. */
     display: grid;
     grid-template-columns: max-content 1fr;
@@ -86,18 +86,6 @@
     background: rgba(255, 255, 255, 0.08);
     font-weight: 600;
     box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.5);
-}
-
-.tf-shell-rail-secs {
-    font-size: 0.65rem;
-    color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-family: var(--mono);
-}
-
-.tf-shell-rail-item.active .tf-shell-rail-secs {
-    color: rgba(255, 255, 255, 0.55);
 }
 
 .tf-shell-pane {
@@ -410,7 +398,7 @@
 }
 
 /* v11.12.14: two-pane header — TIMEFRAME tracks the rail column,
-   | INDICATOR the pane column (the shell grid rows guarantee alignment). */
+   INDICATOR the pane column (the shell grid rows guarantee alignment). */
 .tf-card-title-rail,
 .tf-card-title-pane {
     margin: 0;
@@ -419,12 +407,6 @@
     letter-spacing: 0.1em;
     color: #f5f5f7;
     text-transform: uppercase;
-}
-
-.tf-card-title-sep {
-    color: rgba(255, 255, 255, 0.35);
-    font-weight: 500;
-    padding-right: 2px;
 }
 
 .paneMemory {

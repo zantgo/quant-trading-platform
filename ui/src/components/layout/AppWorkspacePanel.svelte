@@ -65,10 +65,6 @@
         return styles.changeFlat;
     }
 
-    function pairDisplay(pairKey: string): string {
-        return pairKey.replace('-', '/');
-    }
-
     function priceFor(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
         if (!inst) return '--';
@@ -229,7 +225,7 @@
                     <a href={buildEngineHash('market_monitor', 'workspace', pk)} class={styles.wsPanelRow} onclick={(e) => { handleNavClick(e); app.enterInstance(pk); app.middleTab = 'workspace'; onclose(); }}>
                         <div class={styles.wsPanelPair}>
                             <span class="{styles.statusDot} {statusClass(inst.status)}"></span>
-                            <span class={styles.wsPanelSym}>{pairDisplay(pk)}</span>
+                            <span class={styles.wsPanelSym}>{pk}</span>
                             <span class={styles.wsPanelPrice}>{priceFor(pk)}</span>
                             <span class={styles.lifecycleChip} style="color:{lifecyclePresentation(inst.lifecycle, inst.mode).color}; border-color:{lifecyclePresentation(inst.lifecycle, inst.mode).color}">{lifecyclePresentation(inst.lifecycle, inst.mode).label}</span>
                             {#if chg}

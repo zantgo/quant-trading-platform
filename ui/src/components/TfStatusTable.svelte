@@ -78,7 +78,6 @@
             <tr class={styles.tfRow}>
                 <td class={styles.tfCell}>
                     <span class={styles.tfName}>{slotLabel(row.slot)}</span>
-                    <span class={styles.tfDuration}>· {tfLabel(row.slot)}</span>
                 </td>
                 <td class={styles.badgeCell}>
                     <div

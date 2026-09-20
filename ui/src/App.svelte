@@ -476,7 +476,7 @@
 
     function closeConfirmModal() { confirmModal = null; }
 
-    function pairDisplay(pairKey: string): string { return pairKey.replace('-', '/'); }
+    function pairDisplay(pairKey: string): string { return pairKey; }
 </script>
 
 {#if !app.sessionChecked}

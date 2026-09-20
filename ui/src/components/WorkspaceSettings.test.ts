@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import WorkspaceSettings from './WorkspaceSettings.svelte';
+import styles from './WorkspaceSettings.module.css';
 import { useAppStore } from '../state.svelte';
 import { makeTerms } from '../tests/makeTerms';
 import { DURATIONS, tfLabel } from '../types';
@@ -104,7 +105,26 @@ describe('WorkspaceSettings — Timeframes CRUD (v11.8)', () => {
         expect(rows.length).toBeGreaterThan(0);
         await fireEvent.click(rows[0]);
         await tick();
-        expect(container.textContent).toContain('15s · 15s — INDICATOR PARAMETERS');
+        // v11.12.18: the pane sub-title is the duration label alone.
+        const subTitle = container.querySelector(`.${styles.tfCardSubTitle}`);
+        expect(subTitle?.textContent).toBe('15s — INDICATOR PARAMETERS');
+    });
+
+    it('v11.12.18: pane/rail labels render once — no pipe, no `· secs` sub-label', async () => {
+        const { pair } = seedPair();
+        const { container } = render(WorkspaceSettings, { props: { pair, tabKey: 'BTC-USDT' } });
+        await tick();
+        // Two-pane header reads TIMEFRAME / INDICATOR (the decorative `|` is gone).
+        const headers = Array.from(container.querySelectorAll('h3')).map((h) => h.textContent?.trim());
+        expect(headers).toContain('TIMEFRAME');
+        expect(headers).toContain('INDICATOR');
+        expect(headers.some((h) => h?.includes('|'))).toBe(false);
+        // Rail + pane sub-title show the duration label alone — no `15s · 15s`
+        // / `3m · 180s` repetition (a timeframe IS its duration).
+        const text = container.textContent ?? '';
+        expect(text).not.toContain('15s · 15s');
+        expect(text).not.toContain('3m · 180s');
+        expect(text).not.toContain('1m · 60s');
     });
 
     it('v11.11: toggling is draft-only — UI updates, no POST until SAVE', async () => {

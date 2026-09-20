@@ -116,12 +116,6 @@
         return tfLabel(slot).toUpperCase();
     }
 
-    function durationLabel(secs: number): string {
-        if (secs % 3600 === 0) return `${secs / 3600}h`;
-        if (secs % 60 === 0) return `${secs / 60}m`;
-        return `${secs}s`;
-    }
-
     function ariaExpandedLabel(pairKey: string, isExpanded: boolean): string {
         return `${isExpanded ? 'Collapse' : 'Expand'} ${pairKey}`;
     }
@@ -220,7 +214,6 @@
                                 <td class={styles.toggleCell} aria-hidden="true"></td>
                                 <td class={styles.tfCell}>
                                     <span class={styles.tfName}>{slotLabel(slot)}</span>
-                                    <span class={styles.tfDuration}>· {tfLabel(slot)}</span>
                                 </td>
                                 <td class={styles.badgeCell}>
                                     <div

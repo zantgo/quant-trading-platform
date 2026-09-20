@@ -85,20 +85,13 @@
         return () => window.removeEventListener('keydown', handleExpandedKeydown);
     });
 
-    /// Format the `(suffix)` portion of a column header. Always pairs with the
-    /// duration label (fastest → slowest) from the column's duration.
+    /// Duration suffix used by the column screenshot filename
+    /// (`…_<pair>_<label>_<suffix>_column`).
     function durationSuffix(sec: number): string {
         if (sec >= 86400) return `${sec / 86400}d`;
         if (sec >= 3600) return `${sec / 3600}h`;
         if (sec >= 60) return `${sec / 60}m`;
         return `${sec}s`;
-    }
-
-    /// Column label = positional slot name + the duration suffix. The name
-    /// is derived from `tf.slot`, never from duration bands, so the ten
-    /// columns always read fastest → slowest in canonical order.
-    function termLabel(name: TfLabel, tf: TimeframeTelemetry): string {
-        return `${name} (${durationSuffix(tf.barDurationSec)})`;
     }
 
     function toggleExpand(key: number) {
@@ -302,7 +295,7 @@
             <div class={styles.singleColumn}>
                 <div bind:this={expandedColumnEl} class="{styles.timescaleColumn} {expandedTf === activeTf ? styles.expandedTfColumn : ''}">
                     <div class={styles.timescaleHeader} class:styles.tfHeaderHidden={expandedTf === activeTf}>
-                        <span class={styles.timescaleTitle}>{termLabel(activeLabel, activeTerm)}</span>
+                        <span class={styles.timescaleTitle}>{activeLabel}</span>
                         <div class={styles.headerActions}>
                             <span class="{styles.warmupBadge} {styles[wsSummary.cls]}" title={wsSummary.detail}>{wsSummary.label}{wsSummary.detail ? ` · ${wsSummary.detail}` : ''}</span>
                             <span class={styles.timescalePrice}>{activeTerm.priceText}</span>

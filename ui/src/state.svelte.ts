@@ -823,7 +823,7 @@ export class AppStore {
     // ─── Quote-asset abstraction ─────────────────────────────────────
     get quote(): string { return this.sessionCurrency || 'USDT'; }
     pairKeyFor(symbol: string): string { return symbol.includes('-') ? symbol : `${symbol}-${this.quote}`; }
-    pairDisplayFor(symbol: string): string { return symbol.includes('-') ? symbol.replace('-', '/') : `${symbol}/${this.quote}`; }
+    pairDisplayFor(symbol: string): string { return this.pairKeyFor(symbol); }
 
     initInstance(symbol: string, _exchange?: string, instanceId?: string) {
         const key = this.pairKeyFor(symbol);

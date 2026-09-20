@@ -37,9 +37,9 @@
     // action row's left corner, styled like the engine panel headers
     // (e.g. "RISK ASSESSMENT").
     const SECTION_TITLES: Record<SettingsTab, string> = {
-        general: 'General Settings',
-        timeframes: 'Timeframes and Indicators Settings',
-        instance: 'Instance Settings',
+        general: 'General Configuration',
+        timeframes: 'Timeframes and Indicators Management',
+        instance: 'Instance Configuration',
     };
 
     let wsSection: WorkspaceSettings | undefined = $state();
