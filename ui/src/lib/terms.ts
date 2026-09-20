@@ -16,6 +16,21 @@ export function getTerm(
 }
 
 /**
+ * v11.12.20: the timeframe that owns a pair's SHARED overlay-flag state —
+ * the FASTEST ACTIVE duration (`terms[1]` only when 1s actually runs; the
+ * first active duration otherwise). The overlay pills sync their flags
+ * across every active duration, so reading/writing a hardcoded 1s slot
+ * silently froze the pills on ladders without 1s. Mirrors `AppStore.micro()`.
+ */
+export function overlayRepTerm(
+    pair: InstanceState | null | undefined,
+): TimeframeTelemetry | undefined {
+    if (!pair) return undefined;
+    const fastest = pair.activeDurations?.[0] ?? 1;
+    return pair.terms[fastest] ?? pair.terms[1];
+}
+
+/**
  * The ACTIVE durations of an instance's ladder, in canonical order
  * (fastest → slowest). v11.9: the active set is an arbitrary subset of
  * the 14-duration pool (`[workspace].timeframes`); the backend publishes

@@ -54,7 +54,8 @@
 }
 .toggle-pill.ema-fast.active { border-color: #fdd835; color: #fdd835; background: rgba(253, 216, 53, 0.1); }
 .toggle-pill.ema-medium.active { border-color: #ff9800; color: #ff9800; background: rgba(255, 152, 0, 0.1); }
-.toggle-pill.ema-slow.active { border-color: #e91e63; color: #e91e63; background: rgba(233, 30, 99, 0.1); }
+/* v11.12.20: MEDIUM lights the colour of its line (ema100 = #ef5350). */
+.toggle-pill.ema-slow.active { border-color: #ef5350; color: #ef5350; background: rgba(239, 83, 80, 0.1); }
 .toggle-pill.ema-long.active { border-color: #9c27b0; color: #9c27b0; background: rgba(156, 39, 156, 0.1); }
 .toggle-pill.vwap-pill.active { border-color: #2962ff; color: #2962ff; background: rgba(41, 98, 255, 0.1); }
 .toggle-pill.avwap-pill.active { border-color: #ffab40; color: #ffab40; background: rgba(255, 171, 64, 0.1); }

@@ -385,6 +385,88 @@ pub async fn query_recent_candles(
     candles
 }
 
+/// v11.12.20: the persisted chart-overlay values (EMA stack, Bollinger,
+/// VWAP) for a pair + timeframe, keyed by timestamp seconds. Used ONLY by
+/// the `/api/history` DB fallback for >=60s timeframes so the chart's main
+/// overlay series keep a real historical tail when the in-memory warm is
+/// cold. Sub-minute timeframes are deliberately NOT served (live-only).
+pub struct RecentOverlayRow {
+    pub timestamp: i64,
+    pub ema_fast: Option<String>,
+    pub ema_medium: Option<String>,
+    pub ema_slow: Option<String>,
+    pub ema_long: Option<String>,
+    pub bb_upper: Option<String>,
+    pub bb_middle: Option<String>,
+    pub bb_lower: Option<String>,
+    pub vwap: Option<String>,
+}
+
+pub async fn query_recent_overlay_rows(
+    pool: &SqlitePool,
+    symbol: &str,
+    timeframe_secs: u64,
+    limit: u32,
+) -> Vec<RecentOverlayRow> {
+    type OverlayRow = (
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+
+    let rows = sqlx::query_as::<_, OverlayRow>(
+        "SELECT timestamp, ema_fast, ema_medium, ema_slow, ema_long,
+                bb_upper, bb_middle, bb_lower, vwap
+         FROM market_snapshots
+         WHERE symbol = ?1
+           AND timeframe_secs = ?2
+           AND close IS NOT NULL
+         ORDER BY timestamp DESC
+         LIMIT ?3",
+    )
+    .bind(symbol)
+    .bind(timeframe_secs as i64)
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_else(|e| {
+        eprintln!("Database Error: Failed to query recent overlay rows: {}", e);
+        vec![]
+    });
+
+    rows.into_iter()
+        .map(
+            |(
+                timestamp,
+                ema_fast,
+                ema_medium,
+                ema_slow,
+                ema_long,
+                bb_upper,
+                bb_middle,
+                bb_lower,
+                vwap,
+            )| RecentOverlayRow {
+                timestamp,
+                ema_fast,
+                ema_medium,
+                ema_slow,
+                ema_long,
+                bb_upper,
+                bb_middle,
+                bb_lower,
+                vwap,
+            },
+        )
+        .collect()
+}
+
 pub async fn query_latest_snapshot(
     pool: &SqlitePool,
     symbol: &str,

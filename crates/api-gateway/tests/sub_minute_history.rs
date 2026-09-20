@@ -692,3 +692,133 @@ async fn history_aligns_indicator_arrays_to_gap_filled_axis() {
     .await
     .expect("history axis alignment test timed out");
 }
+
+/// v11.12.20: when the in-memory warm is cold (no snapshot_history), the
+/// DB fallback for >=60s timeframes must carry the persisted chart-overlay
+/// values (EMA stack, Bollinger, VWAP) so the chart's overlay series keep
+/// a real HISTORICAL tail instead of starting at the live edge. Sub-minute
+/// timeframes stay live-only — the same DB row must NOT surface overlay
+/// arrays for them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_db_fallback_carries_overlay_indicators_for_above_minute() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        use core_domain::indicator_dtos::NormalizedIndicatorValue;
+
+        // Cold in-memory history — the handler must use the DB fallback.
+        let (_router, state) = build_router_with_snapshots(300, vec![]).await;
+
+        let mk_overlay_snap = |secs: u64, ts: u64| {
+            let mut snap = make_snapshot(secs, ts, 65000.0);
+            let mut ind = std::collections::HashMap::new();
+
+            let mut ema_vals = std::collections::HashMap::new();
+            ema_vals.insert("fast".to_string(), 64000.0);
+            ema_vals.insert("medium".to_string(), 63500.0);
+            ema_vals.insert("slow".to_string(), 63000.0);
+            ema_vals.insert("long".to_string(), 62000.0);
+            let mut ema =
+                NormalizedIndicatorValue::scalar(64000.0, 0.0, "CONSOLIDATED_BULLISH_STACK");
+            ema.values = Some(ema_vals);
+            ind.insert("ema_stack".to_string(), ema);
+
+            let mut bb_vals = std::collections::HashMap::new();
+            bb_vals.insert("upper".to_string(), 66000.0);
+            bb_vals.insert("middle".to_string(), 65000.0);
+            bb_vals.insert("lower".to_string(), 64000.0);
+            let mut bb = NormalizedIndicatorValue::scalar(65000.0, 0.0, "INSIDE_BANDS");
+            bb.values = Some(bb_vals);
+            ind.insert("bollinger".to_string(), bb);
+
+            // `MarketSnapshot::vwap()` reads the `vwap.vwap` sub-value.
+            let mut vwap_vals = std::collections::HashMap::new();
+            vwap_vals.insert("vwap".to_string(), 64500.0);
+            let mut vwap = NormalizedIndicatorValue::scalar(64500.0, 0.0, "EQUILIBRIUM");
+            vwap.values = Some(vwap_vals);
+            ind.insert("vwap".to_string(), vwap);
+
+            snap.indicators = ind;
+            snap
+        };
+
+        // Persisted rows (the DB holds the indicator columns).
+        let snap_5m = mk_overlay_snap(300, 1_718_000_400);
+        let snap_5s = mk_overlay_snap(5, 1_718_000_405);
+        database_storage::insert_snapshot_internal(&state.pool, &snap_5m).await;
+        database_storage::insert_snapshot_internal(&state.pool, &snap_5s).await;
+
+        let addr = serve_for(state.clone()).await;
+        let client = reqwest::Client::new();
+
+        // ── >=60s: the overlay arrays must be present with the DB values.
+        let body: serde_json::Value = client
+            .get(format!(
+                "http://{addr}/api/history?symbol={PAIR_KEY}&timeframe_secs=300&limit=50"
+            ))
+            .send()
+            .await
+            .expect("history request")
+            .json()
+            .await
+            .expect("json");
+
+        let ih = body
+            .get("indicator_history")
+            .expect("indicator_history present");
+        let fast = ih
+            .get("indicators")
+            .and_then(|v| v.get("ema_stack"))
+            .and_then(|v| v.get("values"))
+            .and_then(|v| v.get("fast"))
+            .and_then(|v| v.as_array())
+            .expect("ema_stack.values.fast from the DB fallback");
+        assert!(
+            fast.iter().any(|v| v.as_f64() == Some(64000.0)),
+            "DB-fallback EMA fast series must carry the persisted value: {fast:?}"
+        );
+        let middle = ih
+            .get("indicators")
+            .and_then(|v| v.get("bollinger"))
+            .and_then(|v| v.get("values"))
+            .and_then(|v| v.get("middle"))
+            .and_then(|v| v.as_array())
+            .expect("bollinger.values.middle from the DB fallback");
+        assert!(
+            middle.iter().any(|v| v.as_f64() == Some(65000.0)),
+            "DB-fallback Bollinger middle must carry the persisted value: {middle:?}"
+        );
+        let vwap_raw = ih
+            .get("indicators")
+            .and_then(|v| v.get("vwap"))
+            .and_then(|v| v.get("raw"))
+            .and_then(|v| v.as_array())
+            .expect("vwap.raw from the DB fallback");
+        assert!(
+            vwap_raw.iter().any(|v| v.as_f64() == Some(64500.0)),
+            "DB-fallback VWAP raw series must carry the persisted value: {vwap_raw:?}"
+        );
+
+        // ── <60s: live-only by design — the same DB row must NOT grow
+        // overlay arrays for sub-minute timeframes.
+        let body_5s: serde_json::Value = client
+            .get(format!(
+                "http://{addr}/api/history?symbol={PAIR_KEY}&timeframe_secs=5&limit=50"
+            ))
+            .send()
+            .await
+            .expect("history request")
+            .json()
+            .await
+            .expect("json");
+        let has_ema_5s = body_5s
+            .get("indicator_history")
+            .and_then(|v| v.get("indicators"))
+            .and_then(|v| v.get("ema_stack"))
+            .is_some();
+        assert!(
+            !has_ema_5s,
+            "sub-minute DB fallback must stay live-only (no overlay arrays): {body_5s:?}"
+        );
+    })
+    .await
+    .expect("DB-fallback overlay indicator test timed out");
+}
