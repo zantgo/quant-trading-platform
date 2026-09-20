@@ -653,6 +653,49 @@
     font-size: 0.75rem;
 }
 
+.loading-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.loading-timeout {
+    color: #f59e0b;
+    font-size: 0.75rem;
+}
+
+.loading-failed {
+    color: #ef4444;
+    font-size: 0.75rem;
+}
+
+.loading-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.55rem;
+    height: 1.55rem;
+    padding: 0;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.68rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.loading-remove:hover:not(:disabled) {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.loading-remove:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 .loading-note {
     font-size: 0.75rem;
     color: #ffd60a;

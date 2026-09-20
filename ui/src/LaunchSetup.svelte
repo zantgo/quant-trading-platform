@@ -17,29 +17,43 @@
     // The daemon re-spawns the interrupted session's instances at boot, but
     // their first snapshots arrive asynchronously — landing immediately
     // showed an EMPTY Overview until the WS frames came in.
-    async function fetchRecoveredKeys(expected: number): Promise<string[]> {
-        async function readKeys(): Promise<string[]> {
+    // v11.12.21: one gate row per recovered instance. `instanceId` is the
+    // backend UUID — the eliminate action needs it.
+    type RecoveryRow = {
+        key: string;
+        label: string;
+        ready: boolean;
+        instanceId: string | null;
+        timedOut: boolean;
+        failed: boolean;
+        removing: boolean;
+    };
+
+    async function fetchRecoveredInstances(expected: number): Promise<{ id: string | null; pair: string }[]> {
+        async function readRows(): Promise<{ id: string | null; pair: string }[]> {
             try {
                 const res = await fetch('/api/instances');
                 if (!res.ok) return [];
                 const data = await res.json();
-                const list: Array<{ pair?: string }> = data?.instances ?? [];
-                return list.map((i) => i?.pair).filter((p): p is string => !!p);
+                const list: Array<{ id?: string; pair?: string }> = data?.instances ?? [];
+                return list
+                    .filter((i): i is { id?: string; pair: string } => !!i?.pair)
+                    .map((i) => ({ id: i.id ?? null, pair: i.pair }));
             } catch (_) {
                 return [];
             }
         }
-        const first = await readKeys();
+        const first = await readRows();
         if (expected <= 0 || first.length >= expected) return first;
-        let keys = first;
+        let rows = first;
         const deadline = Date.now() + 15_000;
         while (Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 400));
-            const next = await readKeys();
-            if (next.length > 0) keys = next;
+            const next = await readRows();
+            if (next.length > 0) rows = next;
             if (next.length >= expected) return next;
         }
-        return keys;
+        return rows;
     }
 
     async function recoverSession(): Promise<void> {
@@ -49,18 +63,26 @@
         const expected = app.session.interruptedSession?.instance_count ?? 0;
         try {
             await app.session.recoverInterrupted();
-            const keys = await fetchRecoveredKeys(expected);
-            if (keys.length > 0) {
-                loadingSteps = keys.map((key) => ({
-                    key,
-                    label: app.pairDisplayFor(key) ?? key,
+            const rows = await fetchRecoveredInstances(expected);
+            if (rows.length > 0) {
+                loadingSteps = rows.map((row) => ({
+                    key: row.pair,
+                    label: app.pairDisplayFor(row.pair) ?? row.pair,
                     ready: false,
+                    instanceId: row.id,
+                    timedOut: false,
+                    failed: false,
+                    removing: false,
                 }));
                 waitTimedOut = false;
                 waiting = true;
+                // v11.12.21: recovery is a HARD gate — it never auto-lands
+                // and never auto-passes. Poll in the background; the
+                // operator presses CONTINUE once every instance loaded (or
+                // eliminated the ones that never arrive).
+                recoveryGate = true;
                 app.bumpWsVersion();
-                await waitForInstances(keys);
-                if (!waitTimedOut) landOnOverview();
+                void pollRecoveredInstances();
                 return;
             }
             // No instances to warm — land directly (same as an empty launch).
@@ -357,7 +379,17 @@
     // instances → the wizard lands immediately.
     let waiting = $state(false);
     let waitTimedOut = $state(false);
-    let loadingSteps = $state<{ key: string; label: string; ready: boolean }[]>([]);
+    let loadingSteps = $state<RecoveryRow[]>([]);
+    // v11.12.21: the RECOVERY gate (crash-recovery + "Recover last
+    // session") is a hard gate: CONTINUE is blocked until every recovered
+    // instance has its first snapshot, or the operator eliminated the
+    // non-successful ones. The fresh-launch preparing step keeps its own
+    // auto-landing/timeout behavior (recoveryGate stays false there).
+    let recoveryGate = $state(false);
+    const recoveryReady = $derived(
+        loadingSteps.length === 0 || loadingSteps.every((row) => row.ready),
+    );
+    const recoveryPending = $derived(loadingSteps.filter((row) => !row.ready).length);
 
     // v11.12: mandatory Welcome gate for a LIVE session — a page reload
     // (per tab) must deliberately reconnect (Resume) or explicitly Quit;
@@ -414,11 +446,61 @@
         waitTimedOut = true;
     }
 
+    // v11.12.21: recovery readiness poll — never lands and never passes on
+    // its own. Rows flip to `ready ✓` as snapshots arrive; at the 60 s mark
+    // the still-missing ones turn amber (`timedOut`) but polling continues,
+    // so a late snapshot still clears them. CONTINUE unlocks only when
+    // every row is ready (or was eliminated).
+    async function pollRecoveredInstances(): Promise<void> {
+        const deadline = Date.now() + 60_000;
+        while (waiting && recoveryGate) {
+            const next = loadingSteps.map((entry) => {
+                const pair = app.instancesMap[entry.key];
+                const ready = !!pair
+                    && activeDurations(pair).some(
+                        (secs) => pair.terms[secs]?.latestSnapshot != null,
+                    );
+                const timedOut = entry.timedOut || (!ready && Date.now() >= deadline);
+                return ready === entry.ready && timedOut === entry.timedOut
+                    ? entry
+                    : { ...entry, ready, timedOut };
+            });
+            loadingSteps = next;
+            if (next.every((entry) => entry.ready)) return;
+            await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+    }
+
+    // v11.12.21: eliminate a recovered instance that never loaded. The row
+    // stays visible (✕ disabled) until the DELETE resolves; a failure keeps
+    // it in place as `removal failed` so the gate stays blocked and honest.
+    async function eliminateRecovered(entry: RecoveryRow): Promise<void> {
+        const pair = app.instancesMap[entry.key];
+        const instanceId = entry.instanceId ?? pair?.instanceId ?? null;
+        loadingSteps = loadingSteps.map((row) =>
+            row.key === entry.key ? { ...row, removing: true } : row,
+        );
+        let ok = true;
+        if (instanceId) ok = await deleteInstanceById(instanceId);
+        if (!ok) {
+            loadingSteps = loadingSteps.map((row) =>
+                row.key === entry.key ? { ...row, removing: false, failed: true } : row,
+            );
+            return;
+        }
+        app.removeInstance(entry.key);
+        loadingSteps = loadingSteps.filter((row) => row.key !== entry.key);
+    }
+
     function landOnOverview(): void {
         // v11.12 FIX: the landing must release the Welcome gate — without
         // the ack, `!app.sessionAcknowledged` kept LaunchSetup mounted and
         // BOTH launch paths (zero-instance and staged-instance) appeared
         // frozen on the wizard/preparing screen.
+        // v11.12.21: stops the recovery poll loop. `waiting` is left alone
+        // so the fresh-launch preparing section keeps rendering exactly as
+        // before until the ack unmounts the wizard.
+        recoveryGate = false;
         app.acknowledgeSession();
         app.wizardActive = false;
         app.currentEngine = 'market_monitor';
@@ -470,6 +552,10 @@
                     key,
                     label: app.pairDisplayFor(key) ?? key,
                     ready: false,
+                    instanceId: null,
+                    timedOut: false,
+                    failed: false,
+                    removing: false,
                 }));
                 waiting = true;
                 loading = false;
@@ -575,6 +661,8 @@
                         Warming {loadingSteps.length} instance{loadingSteps.length === 1 ? '' : 's'} —
                         first snapshots arriving.
                     </p>
+                {:else if recoveryGate}
+                    <p class={styles.sectionSubtitle}>All recovered instances were eliminated.</p>
                 {:else}
                     <p class={styles.sectionSubtitle}>Restoring your instances…</p>
                 {/if}
@@ -582,15 +670,46 @@
                     {#each loadingSteps as entry (entry.key)}
                         <div class={styles.loadingRow}>
                             <span class={styles.loadingName}>{entry.label}</span>
-                            {#if entry.ready}
-                                <span class={styles.loadingReady}>ready ✓</span>
-                            {:else}
-                                <span class={styles.loadingPending}>waiting for first snapshot…</span>
-                            {/if}
+                            <span class={styles.loadingMeta}>
+                                {#if entry.ready}
+                                    <span class={styles.loadingReady}>ready ✓</span>
+                                {:else if entry.failed}
+                                    <span class={styles.loadingFailed}>removal failed — still running</span>
+                                {:else if entry.timedOut}
+                                    <span class={styles.loadingTimeout}>still warming — remove to continue</span>
+                                {:else}
+                                    <span class={styles.loadingPending}>waiting for first snapshot…</span>
+                                {/if}
+                                {#if recoveryGate && !entry.ready}
+                                    <button
+                                        class={styles.loadingRemove}
+                                        type="button"
+                                        title="Remove instance"
+                                        aria-label="Remove {entry.label}"
+                                        disabled={entry.removing}
+                                        onclick={() => eliminateRecovered(entry)}
+                                    >✕</button>
+                                {/if}
+                            </span>
                         </div>
                     {/each}
                 </div>
-                {#if waitTimedOut}
+                {#if recoveryGate}
+                    {#if recoveryPending > 0}
+                        <p class={styles.loadingNote}>
+                            Waiting for {recoveryPending}
+                            instance{recoveryPending === 1 ? '' : 's'} — CONTINUE unlocks when
+                            every instance has loaded, or eliminate the ones that never arrive.
+                        </p>
+                    {/if}
+                    <button
+                        class={styles.primaryButton}
+                        disabled={!recoveryReady}
+                        onclick={landOnOverview}
+                    >
+                        CONTINUE TO WORKSPACE
+                    </button>
+                {:else if waitTimedOut}
                     <p class={styles.loadingNote}>
                         Some instances are still warming — continue and watch live
                         progress in the workspace.
