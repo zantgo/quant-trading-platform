@@ -60,10 +60,7 @@ show_help() {
 
 build() {
     echo "📦 Building Svelte 5 Frontend..."
-    cd "$FRONTEND_DIR"
-    bun install --frozen-lockfile
-    bun run build
-    cd - > /dev/null
+    (cd "$FRONTEND_DIR" && bun install --frozen-lockfile && bun run build)
 
     echo "🦀 Verifying Rust Workspace Compilation..."
     cargo check
@@ -216,32 +213,32 @@ run_tests() {
     echo "═══════════════════════════════════════════════════════════"
     echo "  STAGE 1/6: TEST-CORE — Pure math, indicators, serialization"
     echo "═══════════════════════════════════════════════════════════"
-    test_core || { ((failures++)); echo "❌ TEST-CORE failed"; }
+    test_core || { failures=$((failures + 1)); echo "❌ TEST-CORE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
     echo "  STAGE 2/6: TEST-GOLDEN — Golden-vector conformance"
     echo "═══════════════════════════════════════════════════════════"
-    test_golden || { ((failures++)); echo "❌ TEST-GOLDEN failed"; }
+    test_golden || { failures=$((failures + 1)); echo "❌ TEST-GOLDEN failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
     echo "  STAGE 3/6: TEST-INDICATORS — Per-indicator e2e"
     echo "═══════════════════════════════════════════════════════════"
-    test_indicators || { ((failures++)); echo "❌ TEST-INDICATORS failed"; }
+    test_indicators || { failures=$((failures + 1)); echo "❌ TEST-INDICATORS failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
     echo "  STAGE 4/6: TEST-ENGINE — DB + server + e2e"
     echo "═══════════════════════════════════════════════════════════"
-    test_engine || { ((failures++)); echo "❌ TEST-ENGINE failed"; }
+    test_engine || { failures=$((failures + 1)); echo "❌ TEST-ENGINE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
     echo "  STAGE 5/6: TEST-UI — Svelte 5 components, state, snapshots"
     echo "═══════════════════════════════════════════════════════════"
-    test_ui || { ((failures++)); echo "❌ TEST-UI failed"; }
+    test_ui || { failures=$((failures + 1)); echo "❌ TEST-UI failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
     echo "  STAGE 6/6: TEST-DOC — Documentation corpus consistency"
     echo "═══════════════════════════════════════════════════════════"
-    test_doc || { ((failures++)); echo "❌ TEST-DOC failed"; }
+    test_doc || { failures=$((failures + 1)); echo "❌ TEST-DOC failed"; }
     echo ""
     if [ $failures -eq 0 ]; then
         echo "✅ All 6 test suites passed"
@@ -286,9 +283,11 @@ test_golden() {
 
 test_ui() {
     echo "🧪 TEST-UI: Running Svelte 5 frontend Vitest tests..."
-    cd "$FRONTEND_DIR"
-    bun run test
-    cd - > /dev/null
+    if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
+        echo "📦 ui/node_modules missing — installing frontend dependencies..."
+        (cd "$FRONTEND_DIR" && bun install --frozen-lockfile)
+    fi
+    (cd "$FRONTEND_DIR" && bun run test)
 }
 
 clean_workspace() {
@@ -348,7 +347,7 @@ lint() {
     echo "═══════════════════════════════════════════════════════════"
     echo "  LINT 1/3: cargo fmt --check"
     echo "═══════════════════════════════════════════════════════════"
-    cargo fmt --all -- --check || { ((failures++)); echo "❌ cargo fmt check failed"; }
+    cargo fmt --all -- --check || { failures=$((failures + 1)); echo "❌ cargo fmt check failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
     echo "  LINT 2/3: cargo clippy (correctness lints)"
@@ -357,14 +356,14 @@ lint() {
         -D clippy::await_holding_lock \
         -D static_mut_refs \
         -D clippy::items_after_test_module \
-        || { ((failures++)); echo "❌ cargo clippy failed"; }
+        || { failures=$((failures + 1)); echo "❌ cargo clippy failed"; }
     echo ""
     if [ -d "$FRONTEND_DIR" ]; then
         echo "═══════════════════════════════════════════════════════════"
         echo "  LINT 3/3: svelte-check (svelte + tsc)"
         echo "═══════════════════════════════════════════════════════════"
         (cd "$FRONTEND_DIR" && bun run check) \
-            || { ((failures++)); echo "❌ svelte-check failed"; }
+            || { failures=$((failures + 1)); echo "❌ svelte-check failed"; }
     fi
     echo ""
     if [ $failures -eq 0 ]; then
