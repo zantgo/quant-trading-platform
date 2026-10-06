@@ -150,8 +150,13 @@ pub async fn serve_history(
             // AUDIT-AIU-121: resolve by `?slot=` when provided — two slots
             // sharing one duration previously both got the micro pipeline's
             // history via the duration-only shim.
+            //
+            // v11.12.24 (memory): take the TAIL only. The retained window
+            // is rolled at `[candle_buffer].size` (500) and the request
+            // ceiling is also 500, so a bounded clone here is what keeps a
+            // `?limit=10` request from allocating the whole window first.
             let mut snap_hist = pair
-                .snapshot_history_vec_for_label_or_secs(query.slot.as_deref(), tf_secs)
+                .snapshot_history_tail_vec_for_label_or_secs(query.slot.as_deref(), tf_secs, limit)
                 .await;
             // When the in-memory snapshot_history is empty (e.g. fresh daemon
             // startup, bootstrap fetch failed, or no completed candles yet),
@@ -492,11 +497,21 @@ pub async fn serve_history(
                     clusters.insert(slot_label.clone(), m.clone());
                 }
             }
-            // Volume profile is per-completed-candle and lives on the
-            // most recent snapshot in `snapshot_history`. We take the
-            // latest completed snapshot for this TF.
-            let snap_hist = pipe.snapshot_history.read().await;
-            if let Some(last) = snap_hist.back() {
+            // v11.12.24 (memory): the volume profile and the liquidity flow
+            // are the two heavyweight fields the retained-history
+            // projection drops (the flow's `recent_real_buckets` map alone
+            // reaches 2 000 entries at the shipped 24 h retention). Both
+            // are per-candle *latest* values, so `latest_snapshot` is the
+            // authoritative — and fresher — source; the retained window is
+            // only the fallback for a pipeline whose latest slot is still
+            // empty (sub-minute before its first completed candle, where
+            // neither source has data yet).
+            let latest = pipe.latest_snapshot.read().await.clone();
+            let newest = match latest {
+                Some(snap) => Some(snap),
+                None => pipe.snapshot_history.read().await.back().cloned(),
+            };
+            if let Some(last) = newest {
                 if let Some(vp) = last.volume_profile.as_ref() {
                     volume_profiles.insert(slot_label.clone(), vp.clone());
                 }

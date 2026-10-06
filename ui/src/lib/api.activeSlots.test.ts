@@ -3,13 +3,16 @@
 // syncInstanceIdsFromList — v11.9 `active_secs` mapping contract:
 //   • each `/api/instances` entry's `active_secs: number[]` maps onto
 //     `InstanceState.activeDurations` (canonical ascending order),
-//   • a missing/empty `active_secs` leaves the store's full-pool default
-//     untouched (defensive no-op),
+//   • a missing/empty `active_secs` leaves the ladder UNKNOWN (`[]`) — since
+//     v11.12.24 an unknown ladder is deliberately distinct from "all 14
+//     active", so socket management opens nothing until the ladder is
+//     published (rendering still falls back to the full pool),
 //   • `/api/config`'s `timeframes` seeds the settings store.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup } from '@testing-library/svelte';
 import { useAppStore } from '../state.svelte';
 import { syncInstanceIdsFromList, applyConfigToStore } from './api.svelte';
+import { activeDurations, socketDurations } from './terms';
 import { DURATIONS } from '../types';
 
 function jsonResponse(body: unknown): Response {
@@ -43,14 +46,26 @@ describe('syncInstanceIdsFromList — active_secs → activeDurations', () => {
         expect(app.instancesMap['BTC-USDT'].activeDurations).toEqual(DURATIONS.slice(0, 5));
     });
 
-    it('keeps the full-pool default when the payload omits active_secs', async () => {
+    it('leaves the ladder UNKNOWN (empty) when the payload omits active_secs', async () => {
+        // v11.12.24: an unknown ladder must be distinguishable from "all 14
+        // active". The previous `[...DURATIONS]` seed made the two identical,
+        // so `connectWebsocket` opened a socket per pool duration — including
+        // durations outside the ACTIVE ladder, which the backend can never
+        // serve, and `onclose` re-opened them forever.
+        //
+        // Rendering still falls back to the full pool via `activeDurations()`
+        // (dim idle cards); only socket management uses the strict
+        // `socketDurations()`.
         const app = useAppStore();
         app.initInstance('BTC');
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
             instances: [{ id: 'inst_1', pair: 'BTC-USDT', mode: 'observe' }],
         })));
         await syncInstanceIdsFromList(app);
-        expect(app.instancesMap['BTC-USDT'].activeDurations).toEqual([...DURATIONS]);
+        const pair = app.instancesMap['BTC-USDT'];
+        expect(pair.activeDurations).toEqual([]);
+        expect(socketDurations(pair)).toEqual([]);
+        expect(activeDurations(pair)).toEqual([...DURATIONS]);
     });
 });
 

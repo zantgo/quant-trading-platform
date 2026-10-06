@@ -54,6 +54,9 @@ jitter_window_size = 20
 max_rtt_micros = 1000000      # v11.12.19: samples slower than 1 s → "unreliable", drift not evaluated
 breach_action = "warn"        # or "panic"
 warn_on_breach = true
+servers_per_poll = 3             # v11.12.24: how many servers to ask per poll; the lowest-RTT answer wins
+breach_consecutive_threshold = 3 # v11.12.24: consecutive breaches before the drift LINE prints (panic stays immediate)
+breach_log_interval_secs = 600   # v11.12.24: minimum gap between drift lines while a streak persists
 ```
 
 **JSON-key ↔ Rust-struct mapping.** The TOML reader in `crates/config-models/src/models.rs::ClockMonitorTomlConfig` parses each key into the matching typed field of `ClockMonitorConfig`:
@@ -69,6 +72,25 @@ warn_on_breach = true
 | `max_rtt_micros` | `max_rtt` | `Duration` (constructed from microsecond count; default `1 s`) — samples above it are `Unreliable`, never breaches |
 | `breach_action` | `breach_action` | `BreachAction` enum |
 | `warn_on_breach` | `warn_on_breach` | `bool` |
+| `servers_per_poll` | `servers_per_poll` | `usize` (default `3`; clamped to the configured server count; `1` = legacy first-answer-wins) — v11.12.24 |
+| `breach_consecutive_threshold` | `breach_consecutive_threshold` | `u32` (default `3`; `1` restores an immediate line) — v11.12.24 |
+| `breach_log_interval_secs` | `breach_log_interval` | `Duration` (constructed from second count; default `600 s`) — v11.12.24 |
+
+### Lowest-RTT sample selection (v11.12.24)
+
+`measure_once` queries up to `servers_per_poll` configured servers and returns the **lowest-RTT** sample. NTP offset uncertainty grows with the round trip (≈ `rtt/2`), so the fastest reply is the most trustworthy. This replaces the legacy first-answer-wins loop, which returned whatever `pool.ntp.org` happened to route the query to — a 64 ms round trip carries ≈ ±32 ms of uncertainty against the shipped 10 ms budget and produced drift breaches that a better server disproved. Only the winning sample is recorded in the jitter window; recording the losers would pollute RMS jitter with the very samples that were just rejected. A transport failure on one server is logged and the poll continues with the rest; a failure on all of them still yields `NetworkError`.
+
+### Drift-line debounce (v11.12.24)
+
+`breach_count` is the observability counter and increments on **every** breach. The printed LINE is separately gated:
+
+| Gate | Effect |
+|------|--------|
+| `breach_consecutive_threshold` (default 3) | The line only prints once the streak is reached. Any clean verdict (`WithinThreshold`), unusable sample (`Unreliable`) or transport failure (`NetworkError`) resets the streak — an unusable sample says nothing about drift, so it must not build a streak. |
+| `breach_log_interval` (default 600 s) | While the streak persists, at most one line per interval. The printed line carries the consecutive count so a debounced line is self-describing. |
+| `breach_action = panic` | **Not debounced.** An operator who chose a hard stop gets it on the first proof of a breach, not the third. |
+
+Set `breach_consecutive_threshold = 1` (and/or `breach_log_interval_secs = 0`) to restore the pre-v11.12.24 every-breach line.
 
 All fields are exposed via `config.toml`; keys omitted from the `[clock_monitor]` section fall back to the runtime defaults applied by `ClockMonitorConfig::default()` — see `crates/network-adapters/src/clock_monitor.rs`.
 

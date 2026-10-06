@@ -51,6 +51,32 @@ export function activeDurations(
 }
 
 /**
+ * v11.12.24: the durations that may hold a live WebSocket — **strict**.
+ *
+ * `activeDurations()` above falls back to the full 14-duration pool when the
+ * ladder is not known yet, which is correct for RENDERING (a dim idle card
+ * beats a missing one). It is wrong for SOCKET management: the backend only
+ * ever installs pipelines for the ACTIVE ladder, so a socket opened for an
+ * inactive duration can never resolve. It waits, the server closes it, and
+ * `onclose` re-opens it — forever. On a ladder of `[5,15,…,14400]` that is
+ * four permanently doomed sockets per instance per tab, each holding a
+ * server task for 60 s per attempt and logging
+ * `WS: no pipeline for <secs>s … waiting for a recharge to install it`.
+ *
+ * This helper returns `[]` while the ladder is unknown, so a freshly created
+ * `InstanceState` opens no sockets at all until `reconcileInstances` has read
+ * `GET /api/config.timeframes` (or the per-instance `active_secs` fallback).
+ */
+export function socketDurations(
+    pair: InstanceState | null | undefined,
+): number[] {
+    const active = pair?.activeDurations;
+    if (!Array.isArray(active) || active.length === 0) return [];
+    const set = new Set(active);
+    return DURATIONS.filter((secs) => set.has(secs));
+}
+
+/**
  * Heal a wire `active_secs` list: keep supported durations only,
  * duplicates collapse, and the result is re-ordered to the canonical
  * ascending (fastest → slowest) order regardless of the wire order.

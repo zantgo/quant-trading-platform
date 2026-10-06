@@ -568,9 +568,20 @@ pub(crate) async fn populate_single(
             {
                 let mut sh = snapshot_history.write().await;
                 sh.clear();
+                // v11.12.24 (memory): the warm seed is the single largest
+                // allocation burst in the process — one retained snapshot per
+                // warmed candle per ≥60 s duration, all at once. Store the
+                // retained-history projection (what `/api/history` reads) and
+                // charge it against the process-wide byte budget, exactly like
+                // a live close. Measured on the shipped corpus this is
+                // 31.8 KB → 7.3 KB per seeded frame; before the change a
+                // 6-instance workspace allocated well over a gigabyte of
+                // warm seed alone, before the first candle closed.
                 for snap in &w.snapshot_history {
-                    sh.push_back(snap.clone());
+                    sh.push_back(snap.history_projection());
                 }
+                let weight: usize = sh.iter().map(|s| s.history_weight_bytes()).sum();
+                market_analyzer::analyzer::history_budget::charge(weight);
             }
         } else {
             // PRI-08 + AUDIT-AIU-117: sub-minute slots warm STATE only.

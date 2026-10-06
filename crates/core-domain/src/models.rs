@@ -387,6 +387,97 @@ impl MarketSnapshot {
         self.indicators.get(key)
     }
 
+    /// v11.12.24 (memory): the **retained-history projection** of this
+    /// snapshot — the subset `GET /api/history` actually reads.
+    ///
+    /// `TimeframePipeline.snapshot_history` keeps a rolling window of
+    /// completed snapshots per (instance × duration) and exists for
+    /// exactly one consumer: `serve_history`, which reads
+    /// `timestamp`, the OHLCV block, `quality_envelope.is_gap_filled`
+    /// and `indicators.{raw_value, normalized, state_label, values}`.
+    /// Everything else on a completed frame — the eight synthesis
+    /// matrices, the cluster matrix, the liquidity flow (whose
+    /// `recent_real_buckets` map alone reaches 2 000 entries under the
+    /// shipped 24 h retention), the volume profile, the 52-entry
+    /// lifecycle map and the per-bar indicator signals — is pure
+    /// retained weight that no reader ever touches.
+    ///
+    /// Measured on the DS export corpus (176 completed AEON-USDT 5 s
+    /// frames): a full frame serializes to **54.9 KB**; this projection
+    /// to **8.4 KB** (6.5×). Multiplied by the retention change from
+    /// 1 000 to `[candle_buffer].size` (500) that is ~13× less retained
+    /// history per (instance × duration).
+    ///
+    /// The **live** surface is untouched: `latest_snapshot` and the
+    /// broadcast payload both keep the full snapshot, so WS bootstrap,
+    /// the CLI monitor, the panels and every matrix read exactly as
+    /// before. The two consumers of the dropped heavyweight fields are
+    /// redirected in the same change — `serve_history` reads
+    /// `volume_profile` / `liquidity` from `latest_snapshot` first.
+    pub fn history_projection(&self) -> Self {
+        let mut out = self.clone();
+        out.indicators = self
+            .indicators
+            .iter()
+            .map(|(k, v)| (k.clone(), v.history_projection()))
+            .collect();
+        out.context = None;
+        out.alignment = None;
+        out.analysis = None;
+        out.risk = None;
+        out.advisory = None;
+        out.decision_context = None;
+        out.opportunity = None;
+        out.statistical_context = None;
+        out.cluster = None;
+        out.liquidity = None;
+        out.liquidity_signals = Vec::new();
+        out.volume_profile = None;
+        out.indicator_lifecycle = IndicatorLifecycleMap::new();
+        out.pipeline_state = CandlePipelineState::default();
+        out.metrics_config = None;
+        out.open_interest = None;
+        out.oi_delta_pct = None;
+        out.oi_delta_window_secs = None;
+        out.mark_price = None;
+        out.index_price = None;
+        out.mark_index_spread_pct = None;
+        out.funding_rate = None;
+        out.prev_day_px = None;
+        out.risk_profile = None;
+        out
+    }
+
+    /// Cheap structural weight estimate (bytes) for the retained-history
+    /// byte budget. Deliberately an approximation — serializing to measure
+    /// would cost more than the accounting saves. Calibrated against the
+    /// measured 8.4 KB projected / 54.9 KB full JSON frames.
+    pub fn history_weight_bytes(&self) -> usize {
+        let mut n = 256 + self.symbol.len();
+        // HashMap head + per-entry (String key + projected value)
+        n += 48 + self.indicators.len() * 96;
+        for v in self.indicators.values() {
+            n += v.history_weight_bytes();
+        }
+        if !self.indicator_lifecycle.is_empty() {
+            n += 48 + self.indicator_lifecycle.len() * 80;
+        }
+        if let Some(vp) = self.volume_profile.as_ref() {
+            n += 64 + vp.bins.len() * 48;
+        }
+        if let Some(liq) = self.liquidity.as_ref() {
+            n += 96 + liq.recent_real_buckets.len() * 96;
+        }
+        if let Some(cl) = self.cluster.as_ref() {
+            n += 128 + cl.short_clusters.len() * 96 + cl.long_clusters.len() * 96;
+        }
+        // Slot head-room for the eight synthesis matrices — present on a
+        // live frame, `None` after projection.
+        n += 512;
+        n += self.liquidity_signals.len() * 128;
+        n
+    }
+
     /// Fetch an indicator's primary raw scalar.
     pub fn ind_raw(&self, key: &str) -> Option<f64> {
         self.indicators.get(key).map(|v| v.raw_value)

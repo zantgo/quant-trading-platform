@@ -562,11 +562,16 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
 
     // 2. Drain the per-TF history buffers so the in-memory footprint
     //    is reclaimed immediately, not on the next session restart.
+    //    v11.12.24: `history_budget::drain` (not a bare `clear`) so the
+    //    global retained-snapshot byte counter is refunded in step with
+    //    the freed memory — otherwise a delete/recharge cycle would leak
+    //    budget credit and start evicting live chart history for nothing.
     {
         for buf in instance.buffers() {
             buf.history.write().await.clear();
             buf.latest.write().await.take();
-            buf.snapshot_history.write().await.clear();
+            let mut snaps = buf.snapshot_history.write().await;
+            market_analyzer::analyzer::history_budget::drain(&mut snaps);
         }
     }
 
@@ -617,12 +622,14 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     old_instance.cancel.cancel();
 
     // Drain old buffers (all ACTIVE durations; the recharged instance
-    // gets fresh buffers from `build_pipelines`).
+    // gets fresh buffers from `build_pipelines`). v11.12.24: refunds the
+    // retained-snapshot byte budget alongside the free.
     {
         for buf in old_instance.buffers() {
             buf.history.write().await.clear();
             buf.latest.write().await.take();
-            buf.snapshot_history.write().await.clear();
+            let mut snaps = buf.snapshot_history.write().await;
+            market_analyzer::analyzer::history_budget::drain(&mut snaps);
         }
     }
 

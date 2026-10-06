@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '../state.svelte';
 import { connectWebsocket, createWsState, shouldReconnect } from './websocket.svelte';
+import { activeDurations, socketDurations } from './terms';
 import { DURATIONS, tfLabel } from '../types';
 
 class FakeWebSocket {
@@ -96,6 +97,99 @@ describe('inactive durations never reconnect', () => {
             for (const secs of DURATIONS) {
                 if (secs !== 1) expect(appState.sockets[secs]).toBeNull();
             }
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+// ── v11.12.24: the unknown-ladder contract ───────────────────────────
+//
+// A fresh InstanceState seeded all 14 durations, so `connectWebsocket`
+// opened a socket per pool member. The 4 outside the ACTIVE ladder could
+// never resolve (the backend installs no pipeline for them), the server
+// waited 60 s and closed, and `onclose` re-opened them forever — the
+// recurring `WS: no pipeline for 43200s … waiting for a recharge` churn.
+
+describe('unknown ladder opens no sockets', () => {
+    it('a fresh instance (activeDurations empty) opens ZERO sockets', () => {
+        const app = seedPair([]);
+        const appState = createWsState();
+        connectWebsocket(app, appState, 'BTC-USDT');
+        expect(
+            FakeWebSocket.instances.length,
+            'an unknown ladder must not open sockets for the whole pool',
+        ).toBe(0);
+    });
+
+    it('rendering still falls back to the full pool (dim idle cards)', () => {
+        const app = seedPair([]);
+        expect(activeDurations(app.instancesMap['BTC-USDT'])).toEqual([...DURATIONS]);
+        expect(socketDurations(app.instancesMap['BTC-USDT'])).toEqual([]);
+    });
+
+    it('shouldReconnect expects nothing while the ladder is unknown', () => {
+        const app = seedPair([]);
+        const appState = createWsState();
+        expect(shouldReconnect(app, appState, 'BTC-USDT')).toBe(false);
+    });
+
+    it('sockets attach once reconcileInstances publishes the ladder', () => {
+        const app = seedPair([]);
+        const appState = createWsState();
+        connectWebsocket(app, appState, 'BTC-USDT');
+        expect(FakeWebSocket.instances.length).toBe(0);
+        // What `reconcileInstances` does with GET /api/config.timeframes.
+        app.instancesMap['BTC-USDT'].activeDurations = [5, 60];
+        connectWebsocket(app, appState, 'BTC-USDT');
+        expect(FakeWebSocket.instances.length).toBe(2);
+    });
+});
+
+describe('a slot that leaves the ladder never reconnects', () => {
+    it('server close on a deactivated duration is terminal', () => {
+        vi.useFakeTimers();
+        try {
+            const app = seedPair([1, 5]);
+            const appState = createWsState();
+            connectWebsocket(app, appState, 'BTC-USDT');
+            expect(FakeWebSocket.instances.length).toBe(2);
+
+            // The ladder loses 5s (operator edit / other tab). The 5s socket
+            // is closed by the server — which can never serve it.
+            app.instancesMap['BTC-USDT'].activeDurations = [1];
+            const ws5 = FakeWebSocket.instances[1];
+            expect(ws5.url).toContain('timeframe_secs=5');
+            ws5.onclose?.();
+            vi.advanceTimersByTime(120_000);
+
+            const fiveSecondAttempts = FakeWebSocket.instances.filter((w) =>
+                w.url.includes('timeframe_secs=5'),
+            );
+            expect(
+                fiveSecondAttempts.length,
+                'a duration outside the ladder must not be re-opened — that was the endless loop',
+            ).toBe(1);
+            expect(appState.sockets[5]).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('an UNKNOWN ladder still reconnects (a failed /api/config must not freeze charts)', () => {
+        vi.useFakeTimers();
+        try {
+            const app = seedPair([1, 5]);
+            const appState = createWsState();
+            connectWebsocket(app, appState, 'BTC-USDT');
+            // Ladder momentarily unknown (config endpoint unreachable).
+            app.instancesMap['BTC-USDT'].activeDurations = [];
+            FakeWebSocket.instances[1].onclose?.();
+            vi.advanceTimersByTime(2200);
+            expect(
+                FakeWebSocket.instances.filter((w) => w.url.includes('timeframe_secs=5')).length,
+                'suppressing the reconnect on an unknown ladder would silently freeze the chart',
+            ).toBe(2);
         } finally {
             vi.useRealTimers();
         }

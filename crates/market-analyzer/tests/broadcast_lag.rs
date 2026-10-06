@@ -97,3 +97,60 @@ async fn resubscribe_starts_at_current_head() {
     let got = fresh.recv().await.expect("head frame");
     assert_eq!(got.start_time_ms, 1_000 * 60_000);
 }
+
+/// v11.12.24 (memory): the per-duration WS fan-out ring is 32, not 200.
+///
+/// The WS handler treats `Lagged` as "resume at the newest frame" — it never
+/// replays the backlog — so the ring only needs to cover a brief consumer
+/// stall. At 200 the worst case was 200 retained snapshots per subscribed
+/// channel, and the dashboard subscribes one channel per (instance ×
+/// duration): ~24 MB × 30 channels ≈ 700 MB of pure ring retention on a
+/// 2.8 GB host. This pins that a consumer stalling past 32 frames is told so
+/// (and recovers) rather than being allowed to pin the memory.
+#[tokio::test]
+async fn production_ring_capacity_bounds_retained_frames_per_channel() {
+    const PRODUCTION_RING: usize = 32;
+    let (tx, mut slow_rx) = broadcast::channel::<NormalizedCandle>(PRODUCTION_RING);
+
+    // A tab stalls for far longer than the ring can hold (e.g. backgrounded).
+    for i in 0..500u64 {
+        tx.send(candle(i)).expect("send never blocks");
+    }
+
+    // It is told it fell behind rather than silently drifting.
+    match slow_rx.recv().await {
+        Err(broadcast::error::RecvError::Lagged(n)) => {
+            assert!(n >= 1, "lag is signalled, got {n}");
+        }
+        other => panic!("expected Lagged after a long stall, got {other:?}"),
+    }
+
+    // The ring holds AT MOST `capacity` frames — the ceiling is real, not
+    // proportional to how long the consumer slept.
+    let mut retained = Vec::new();
+    while let Ok(c) = slow_rx.try_recv() {
+        retained.push(c.start_time_ms / 60_000);
+    }
+    assert!(
+        retained.len() <= PRODUCTION_RING,
+        "ring must retain at most {PRODUCTION_RING} frames, got {}",
+        retained.len()
+    );
+    assert_eq!(
+        *retained.last().unwrap(),
+        499,
+        "the consumer still lands on the newest frame"
+    );
+}
+
+/// Zero receivers must retain nothing (tokio returns `SendError` before the
+/// ring is touched), so a pair with no open tab costs no snapshot memory.
+#[tokio::test]
+async fn channel_without_receivers_retains_nothing() {
+    let (tx, _rx_dropped) = broadcast::channel::<NormalizedCandle>(32);
+    drop(_rx_dropped);
+    for i in 0..1_000u64 {
+        // Err(SendError) — the value is handed back, never parked in the ring.
+        assert!(tx.send(candle(i)).is_err(), "no receiver ⇒ no retention");
+    }
+}
