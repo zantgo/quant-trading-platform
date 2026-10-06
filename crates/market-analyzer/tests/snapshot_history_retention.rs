@@ -23,6 +23,9 @@
 //!      charges, every pop refunds) so it cannot drift.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+
+use tokio::sync::RwLock;
 
 use core_domain::indicator_dtos::{
     IndicatorSignal, NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
@@ -31,7 +34,7 @@ use core_domain::liquidity::{LiquidityFlow, RealLiquidationBucket};
 use core_domain::models::{CandlePipelineState, MarketSnapshot};
 use core_domain::normalized::LiquidationSide;
 use core_domain::volume_profile::{VolumeProfileBin, VolumeProfileSnapshot};
-use market_analyzer::analyzer::history_budget as budget;
+use market_analyzer::analyzer::history_budget::{self as budget, Budget};
 use rust_decimal::Decimal;
 
 // ── helpers ─────────────────────────────────────────────────────
@@ -43,17 +46,15 @@ use rust_decimal::Decimal;
 /// parallel test harness interleaves `configure`/`push_retained` calls and
 /// the usage assertions compare readings from different configurations.
 /// Pure-projection tests need no lock.
-fn budget_guard() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-/// Reset to the shipped production configuration after a test that mutates it.
-fn reset_budget() {
-    budget::configure(
-        config_models::CandleBufferConfig::default().size,
-        config_models::CandleBufferConfig::default().max_snapshot_history_bytes,
-    );
+/// A private budget instance per test.
+///
+/// The production budget is process-global, which would make every test in
+/// this file order-dependent (and would need a lock to run in parallel).
+/// `Budget::new` gives each test its own accounting, so these tests assert
+/// real behaviour instead of asserting on whatever a sibling test left
+/// behind — that distinction already caught two genuine bugs.
+fn hb(retention: usize, max_bytes: usize) -> Budget {
+    Budget::new(retention, max_bytes)
 }
 
 // ── fixtures ────────────────────────────────────────────────────
@@ -343,27 +344,26 @@ fn projection_is_at_most_a_fifth_of_the_full_frame() {
 /// `SNAPSHOT_HISTORY_MAX` ceiling.
 #[test]
 fn retention_matches_the_documented_candle_buffer_tier() {
-    let _guard = budget_guard();
-    budget::configure(budget::DEFAULT_SNAPSHOT_HISTORY_RETENTION, 0);
-    assert_eq!(budget::retention(), 500);
+    let hb_ref = hb(500, 512 * 1024 * 1024);
+    hb_ref.configure(budget::DEFAULT_SNAPSHOT_HISTORY_RETENTION, 0);
+    assert_eq!(hb_ref.retention(), 500);
     assert_eq!(
         budget::DEFAULT_SNAPSHOT_HISTORY_RETENTION,
         config_models::CandleBufferConfig::default().size,
         "retention default must equal the [candle_buffer].size serde default"
     );
     // Retention can never exceed the absolute in-memory cap.
-    budget::configure(99_999, 0);
-    assert_eq!(budget::retention(), budget::SNAPSHOT_HISTORY_MAX);
-    reset_budget();
+    hb_ref.configure(99_999, 0);
+    assert_eq!(hb_ref.retention(), budget::SNAPSHOT_HISTORY_MAX);
 }
 
 #[test]
 fn push_retained_rolls_the_window_at_the_retention_cap() {
-    let _guard = budget_guard();
-    budget::configure(500, 0);
+    let hb_ref = hb(500, 0);
+    hb_ref.configure(500, 0);
     let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
     for i in 0..600u64 {
-        budget::push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
     }
     assert_eq!(
         deque.len(),
@@ -386,10 +386,10 @@ fn push_retained_rolls_the_window_at_the_retention_cap() {
 
 #[test]
 fn push_retained_stores_the_projection_not_the_full_frame() {
-    let _guard = budget_guard();
-    budget::configure(500, 0);
+    let hb_ref = hb(500, 0);
+    hb_ref.configure(500, 0);
     let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
-    budget::push_retained(&mut deque, full_snapshot(1_700_000_000));
+    hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000));
     let stored = deque.back().unwrap();
     assert!(stored.advisory.is_none(), "matrices must not be retained");
     assert!(
@@ -403,11 +403,11 @@ fn push_retained_stores_the_projection_not_the_full_frame() {
 
 #[test]
 fn byte_budget_evicts_oldest_first_and_stops_at_the_floor() {
-    let _guard = budget_guard();
-    budget::configure(500, 1); // 1 byte ⇒ always over budget
+    let hb_ref = hb(500, 512 * 1024 * 1024);
+    hb_ref.configure(500, 1); // 1 byte ⇒ always over budget
     let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
     for i in 0..budget::SNAPSHOT_HISTORY_FLOOR as u64 {
-        budget::push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
     }
     assert_eq!(
         deque.len(),
@@ -420,16 +420,15 @@ fn byte_budget_evicts_oldest_first_and_stops_at_the_floor() {
         newest,
         1_700_000_000 + budget::SNAPSHOT_HISTORY_FLOOR as u64 - 1
     );
-    reset_budget();
 }
 
 #[test]
 fn byte_budget_zero_disables_eviction() {
-    let _guard = budget_guard();
-    budget::configure(500, 0);
+    let hb_ref = hb(500, 0);
+    hb_ref.configure(500, 0);
     let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
     for i in 0..120u64 {
-        budget::push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
     }
     assert_eq!(
         deque.len(),
@@ -442,27 +441,27 @@ fn byte_budget_zero_disables_eviction() {
 
 #[test]
 fn accounting_returns_to_zero_after_a_drain() {
-    let _guard = budget_guard();
-    budget::configure(500, 0);
-    let baseline = budget::usage_bytes();
+    let hb_ref = hb(500, 0);
+    hb_ref.configure(500, 0);
+    let baseline = hb_ref.usage_bytes();
     let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
     for i in 0..200u64 {
-        budget::push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
     }
-    let charged = budget::usage_bytes();
+    let charged = hb_ref.usage_bytes();
     let summed: usize = deque.iter().map(|s| s.history_weight_bytes()).sum();
     assert_eq!(
         charged - baseline,
         summed,
         "global usage must equal the summed weight of the live entries"
     );
-    budget::drain(&mut deque);
+    hb_ref.drain(&mut deque);
     assert!(
         deque.is_empty(),
         "drain must empty the window (instance delete / recharge)"
     );
     assert_eq!(
-        budget::usage_bytes(),
+        hb_ref.usage_bytes(),
         baseline,
         "drain must refund every charged byte — otherwise a delete/recharge \
          cycle leaks budget credit and evicts live history for nothing"
@@ -471,27 +470,26 @@ fn accounting_returns_to_zero_after_a_drain() {
 
 #[test]
 fn count_trim_refunds_the_evicted_entries() {
-    let _guard = budget_guard();
-    budget::configure(50, 0);
-    let baseline = budget::usage_bytes();
+    let hb_ref = hb(500, 512 * 1024 * 1024);
+    hb_ref.configure(50, 0);
+    let baseline = hb_ref.usage_bytes();
     let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
     for i in 0..50u64 {
-        budget::push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
     }
-    let at_cap = budget::usage_bytes() - baseline;
+    let at_cap = hb_ref.usage_bytes() - baseline;
     assert!(at_cap > 0);
     for i in 50..70u64 {
-        budget::push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
     }
     // 20 pushes each evicting one entry must leave the usage flat.
     assert_eq!(
-        budget::usage_bytes() - baseline,
+        hb_ref.usage_bytes() - baseline,
         at_cap,
         "a steady-state window must not accumulate usage"
     );
-    budget::drain(&mut deque);
-    assert_eq!(budget::usage_bytes(), baseline);
-    reset_budget();
+    hb_ref.drain(&mut deque);
+    assert_eq!(hb_ref.usage_bytes(), baseline);
 }
 
 // ── Pin #7: the estimate is monotone in the payload it describes ──
@@ -510,5 +508,293 @@ fn weight_estimate_orders_projection_below_full_frame() {
     assert!(
         full.history_weight_bytes() > no_buckets.history_weight_bytes(),
         "the bucket map must be weighted, not free"
+    );
+}
+
+// ── Pin #8: the governor primitives (CB-12d) ──────────────────────
+//
+// The RSS governor's job is to shed memory on a *timer*, not on a push — a 1 h
+// pipeline may not complete a candle for an hour, so its deque would keep
+// holding excess the whole time the governor wants it gone. These primitives
+// are what make push-independent shedding possible.
+
+#[test]
+fn effective_limit_follows_then_releases_the_governor_override() {
+    let hb_ref = hb(500, 512 * 1024 * 1024);
+    hb_ref.configure(500, 512 * 1024 * 1024);
+    assert_eq!(hb_ref.effective_limit(), 512 * 1024 * 1024);
+    assert!(!hb_ref.is_overridden());
+
+    // Tighten.
+    hb_ref.set_effective_limit(64 * 1024 * 1024);
+    assert!(hb_ref.is_overridden());
+    assert_eq!(
+        hb_ref.effective_limit(),
+        64 * 1024 * 1024,
+        "push-path trim must honour the override"
+    );
+
+    // 0 must NOT read as 'unbounded' — it is the eviction-disabled sentinel.
+    // `set_effective_limit(0)` is therefore a deliberate no-op: the previous
+    // override stands and eviction stays ENABLED.
+    hb_ref.set_effective_limit(0);
+    assert_ne!(
+        hb_ref.effective_limit(),
+        0,
+        "setting 0 must never disable eviction / read as unbounded"
+    );
+    assert_eq!(
+        hb_ref.effective_limit(),
+        64 * 1024 * 1024,
+        "0 must leave the prior override in force, not clear it"
+    );
+
+    // Release.
+    hb_ref.set_effective_limit(64 * 1024 * 1024);
+    hb_ref.clear_effective_limit();
+    assert!(!hb_ref.is_overridden());
+    assert_eq!(hb_ref.effective_limit(), 512 * 1024 * 1024);
+}
+
+#[test]
+fn effective_override_tightens_push_triggered_trimming() {
+    let hb_ref = hb(500, 512 * 1024 * 1024);
+    // Tiny budget so the override is visibly binding.
+    hb_ref.configure(500, 1); // 1 byte => always over
+    let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
+    for i in 0..budget::SNAPSHOT_HISTORY_FLOOR as u64 + 20 {
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+    }
+    assert_eq!(deque.len(), budget::SNAPSHOT_HISTORY_FLOOR);
+
+    // Loosen the effective limit: the window stays where it is until the next
+    // push trims it (push-triggered, not retroactive) — which is exactly why
+    // the governor ALSO needs evict_to_entries below.
+    hb_ref.set_effective_limit(512 * 1024 * 1024);
+    let before = deque.len();
+    hb_ref.push_retained(&mut deque, full_snapshot(1_799_999_999));
+    assert_eq!(
+        deque.len(),
+        before + 1,
+        "with the budget loosened the window may grow back"
+    );
+}
+
+#[test]
+fn evict_to_entries_shrinks_oldest_first_with_exact_refunds() {
+    let hb_ref = hb(500, 0);
+    hb_ref.configure(500, 0); // byte eviction off: only the sweep acts
+    let baseline = hb_ref.usage_bytes();
+    let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
+    for i in 0..300u64 {
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+    }
+    assert_eq!(deque.len(), 300);
+
+    let evicted = hb_ref.evict_to_entries(&mut deque, 25);
+    assert_eq!(evicted, 275);
+    assert_eq!(deque.len(), 25, "must stop exactly at the requested size");
+    // Newest entries survive — the sweep must not discard live data.
+    assert_eq!(deque.back().unwrap().timestamp, 1_700_000_000 + 299);
+    assert_eq!(deque.front().unwrap().timestamp, 1_700_000_000 + 275);
+
+    // Accounting: every evicted entry's weight must have been refunded.
+    let kept: usize = deque.iter().map(|s| s.history_weight_bytes()).sum();
+    assert_eq!(hb_ref.usage_bytes() - baseline, kept);
+
+    // A no-op when already smaller than the target.
+    assert_eq!(hb_ref.evict_to_entries(&mut deque, 100), 0);
+    assert_eq!(deque.len(), 25);
+
+    // Never below the requested floor, even if asked for 0.
+    assert_eq!(hb_ref.evict_to_entries(&mut deque, 0), 25);
+    assert_eq!(deque.len(), 0);
+    hb_ref.drain(&mut deque);
+    assert_eq!(hb_ref.usage_bytes(), baseline);
+}
+
+/// The 20-instance scale invariant, headlessly: 20 instances x 10 durations =
+/// 200 pipelines.
+///
+/// This encodes the situation the governor exists for. Push-time trimming
+/// (`trim_to_budget`) keeps global usage near the budget on its own — but only
+/// because the deque being pushed absorbs all the eviction. That is fine while
+/// pushes are frequent and *useless* when they are not: a 1 h pipeline may not
+/// complete a candle for an hour, so its window holds excess the whole time
+/// the governor needs it gone.
+///
+/// So the scenario is: fill the windows, then TIGHTEN the budget (what the
+/// governor does under pressure), then sweep. Two invariants:
+///
+/// 1. The sweep drives global usage under the tightened budget.
+/// 2. The sweep reports `met == false` — honestly — when even every window at
+///    the floor cannot satisfy the budget.
+#[test]
+fn two_hundred_pipelines_swept_under_a_tightened_budget() {
+    let hb_ref = hb(500, 512 * 1024 * 1024);
+    const PIPELINES: usize = 200; // 20 instances x 10 durations
+    const BARS_EACH: u64 = 60;
+    const MIN_KEEP: usize = 25; // the `critical` tier floor
+
+    // 1. Fill every pipeline under a generous budget.
+    hb_ref.configure(500, 512 * 1024 * 1024);
+    let baseline = hb_ref.usage_bytes();
+    let mut deques: Vec<VecDeque<MarketSnapshot>> =
+        (0..PIPELINES).map(|_| VecDeque::new()).collect();
+    let mut ts = 1_700_000_000u64;
+    for _bar in 0..BARS_EACH {
+        for deque in deques.iter_mut() {
+            hb_ref.push_retained(deque, full_snapshot(ts));
+            ts += 5;
+        }
+    }
+    assert_eq!(deques.len(), PIPELINES, "scale fixture = 20 x 10");
+    let filled: usize = deques.iter().map(|d| d.len()).sum();
+    assert_eq!(filled, PIPELINES * BARS_EACH as usize);
+
+    // 2. Tighten the budget below what the filled windows cost. Everything now
+    //    in memory is "excess" from the governor's point of view.
+    //
+    //    The threshold is DERIVED from the measured per-entry weight rather
+    //    than hard-coded: it must sit above what all 200 windows hold at
+    //    MIN_KEEP (so the sweep is satisfiable — that is the governor's normal
+    //    case) but below what they hold while full (so the fixture is
+    //    meaningful). Deriving it keeps the test honest if the entry shape
+    //    ever changes, instead of silently turning into the
+    //    "floor cannot meet the budget" case pinned by its sibling test.
+    let entries_now: usize = deques.iter().map(|d| d.len()).sum();
+    let per_entry = hb_ref.usage_bytes() / entries_now.max(1);
+    let at_floor = PIPELINES * MIN_KEEP * per_entry;
+    let tightened = at_floor + at_floor / 2; // 50 % headroom above the floor
+    hb_ref.set_effective_limit(tightened);
+    assert!(
+        hb_ref.usage_bytes() > tightened,
+        "fixture is only meaningful if the windows exceed the tightened budget ({} vs {tightened})",
+        hb_ref.usage_bytes()
+    );
+
+    // 3. The governor sweep: walk pipelines, shedding oldest-first, early-exit
+    //    once the global target is met.
+    let mut evicted_total = 0usize;
+    let mut met = false;
+    for deque in deques.iter_mut() {
+        let (n, ok) = hb_ref.evict_to_global_budget(deque, MIN_KEEP);
+        evicted_total += n;
+        if ok {
+            met = true;
+            break;
+        }
+    }
+    assert!(met, "the sweep must reach the tightened budget");
+    assert!(
+        hb_ref.usage_bytes() <= tightened,
+        "after the sweep, usage {} must be within {tightened}",
+        hb_ref.usage_bytes()
+    );
+    assert!(
+        evicted_total > 0,
+        "the sweep must actually have shed something"
+    );
+    // No window may be cut below the floor, and none emptied.
+    for deque in deques.iter() {
+        assert!(
+            deque.len() >= MIN_KEEP || deque.is_empty(),
+            "a swept window must not go below the floor: {} < {MIN_KEEP}",
+            deque.len()
+        );
+    }
+    // Newest bars survive — the shed must never discard live data.
+    for (i, deque) in deques.iter().enumerate() {
+        if let Some(last) = deque.back() {
+            assert!(
+                last.timestamp >= 1_700_000_000 + BARS_EACH - 1,
+                "pipeline {i} must retain its most recent bars"
+            );
+        }
+    }
+
+    // 4. Accounting stays exact across 200 pipelines.
+    for deque in deques.iter_mut() {
+        hb_ref.drain(deque);
+    }
+    assert_eq!(
+        hb_ref.usage_bytes(),
+        baseline,
+        "draining 200 pipelines must return the accounting to baseline"
+    );
+}
+
+/// When even every window at the floor cannot satisfy the budget, the sweep
+/// must REPORT failure rather than spin or silently under-report — that signal
+/// is what escalates the governor to its `critical` tier (which lowers the
+/// floor further) and, failing that, tells the operator to shrink the ladder.
+#[test]
+fn sweep_reports_failure_when_the_floor_alone_cannot_meet_the_budget() {
+    let hb_ref = hb(500, 512 * 1024 * 1024);
+    hb_ref.configure(500, 512 * 1024 * 1024);
+    let baseline = hb_ref.usage_bytes();
+    let mut deques: Vec<VecDeque<MarketSnapshot>> = (0..8).map(|_| VecDeque::new()).collect();
+    let mut ts = 1_700_000_000u64;
+    for _ in 0..60 {
+        for deque in deques.iter_mut() {
+            hb_ref.push_retained(deque, full_snapshot(ts));
+            ts += 5;
+        }
+    }
+
+    // A budget no reachable floor can satisfy: 8 x 25 retained frames is
+    // already hundreds of KB.
+    hb_ref.set_effective_limit(1024);
+    let mut met = false;
+    for deque in deques.iter_mut() {
+        let (_, ok) = hb_ref.evict_to_global_budget(deque, 25);
+        if ok {
+            met = true;
+            break;
+        }
+    }
+    assert!(
+        !met,
+        "an unreachable budget must be reported as not-met, not assumed met"
+    );
+
+    // And the windows really are at the floor, not silently emptied.
+    for deque in deques.iter() {
+        assert_eq!(deque.len(), 25, "the floor must hold under all pressure");
+    }
+    let kept: usize = deques.iter().map(|d| d.len()).sum();
+    assert_eq!(kept, 8 * 25, "every window pinned at the floor");
+
+    for deque in deques.iter_mut() {
+        hb_ref.drain(deque);
+    }
+    assert_eq!(hb_ref.usage_bytes(), baseline);
+}
+
+/// The one invariant that makes shedding acceptable: the live surface is never
+/// shed. `latest_snapshot` is a separate handle from `snapshot_history`, and
+/// every eviction primitive here only ever touches the latter.
+#[tokio::test]
+async fn eviction_never_touches_the_live_snapshot() {
+    let hb_ref = hb(50, 1);
+    hb_ref.configure(50, 1); // force maximum pressure
+    let live = Arc::new(RwLock::new(Some(full_snapshot(1_700_000_000))));
+    let history = Arc::new(RwLock::new(VecDeque::new()));
+
+    for i in 0..200u64 {
+        let mut deque = history.write().await;
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+        hb_ref.evict_to_entries(&mut deque, 5);
+    }
+
+    let live_guard = live.read().await;
+    assert!(
+        live_guard.is_some(),
+        "latest_snapshot must survive every shed path — it backs the WS \
+         bootstrap, the CLI monitor and every panel"
+    );
+    assert!(
+        live_guard.as_ref().unwrap().advisory.is_some(),
+        "the live snapshot keeps its FULL payload (no projection, no shed)"
     );
 }

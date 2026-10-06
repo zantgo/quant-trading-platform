@@ -111,6 +111,10 @@ struct OnDiskConfig {
     /// absent.
     #[serde(default)]
     server: Option<ServerConfig>,
+    /// v11.12.24 RSS-aware memory governor (CB-12d). Absent section ⇒
+    /// `MemoryGovernorConfig::default()` (enabled, 75/88/60 watermarks).
+    #[serde(default)]
+    memory: Option<MemoryGovernorConfig>,
     workspace: WorkspaceConfig,
 }
 
@@ -127,6 +131,7 @@ impl OnDiskConfig {
                 candle_buffer: self.candle_buffer,
                 snapshot_export: self.snapshot_export.unwrap_or_default(),
                 server: self.server.unwrap_or_default(),
+                memory: self.memory.unwrap_or_default(),
             },
             self.workspace,
         )
@@ -199,6 +204,10 @@ pub struct PlatformConfig {
     /// sessions run side by side on one machine.
     #[serde(default)]
     pub server: ServerConfig,
+    /// v11.12.24 RSS-aware memory governor (CB-12d) — see
+    /// `MemoryGovernorConfig`.
+    #[serde(default)]
+    pub memory: MemoryGovernorConfig,
 }
 
 /// Status of a single trading-pair instance. Persisted in the workspace file
@@ -1365,6 +1374,7 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
         candle_buffer: on_disk.candle_buffer,
         snapshot_export: on_disk.snapshot_export,
         server: on_disk.server,
+        memory: on_disk.memory,
         workspace: workspace.clone(),
     };
     let serialized = toml::to_string_pretty(&new_raw)?;

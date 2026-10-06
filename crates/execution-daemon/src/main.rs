@@ -2331,67 +2331,186 @@ async fn async_main() {
         }));
     }
 
-    // ── Retained-snapshot memory telemetry (v11.12.24) ─────────────
+    // ── RSS-aware memory governor + retained-snapshot telemetry (v11.12.24, CB-12d)
     //
-    // The daemon was OOM-killed at ~1.8–2.1 GB RSS on a 2.8 GB host with
-    // three instances, and the cause was invisible until the kernel said so.
-    // This task makes the dominant retainer legible: every 60 s it reports
-    // the process RSS against the host's total and the retained-snapshot
-    // budget against its ceiling, so a many-instance workspace degrades
-    // observably (warning) rather than terminally (SIGKILL).
+    // The daemon was OOM-killed at ~1.8-2.1 GB RSS on a 2.75 GiB host. Bounding
+    // the retained snapshot history fixed the dominant cause, but the OOM killer
+    // targets the LARGEST PROCESS, so bounding one structure cannot by itself
+    // guarantee survival. This task closes that gap: it reads the process RSS
+    // against the host total every `governor_interval_secs` and, above the
+    // watermarks, sheds memory in a fixed order before the daemon becomes the
+    // kill candidate.
+    //
+    // Shedding order (least user-visible first), decided in
+    // `execution_daemon::memory_governor` (unit-tested there):
+    //   high     -> tighten the byte budget, evict retained history oldest-first
+    //                to the 50-entry floor, clear the derived cluster cache
+    //   critical -> tighten further, evict to `critical_floor_entries` (25)
+    //   recovery -> after `recovery_hold_secs` under low-water, restore the
+    //                operator's configured budget
+    //
+    // NEVER shed: `latest_snapshot` (the live surface every panel reads) and the
+    // per-pipeline `history` candle deque. NEVER evict below the floor, so a
+    // chart always renders something.
     {
         let workspace = workspace_state.clone();
+        let governor_cfg = platform_arc.read().await.memory.clone();
         let cancel = CancellationToken::new();
+        let interval = governor_cfg.governor_interval_secs.clamp(1, 300);
+        let log_every = (60 / interval).max(1);
+        if !governor_cfg.is_active() {
+            println!(
+                "🧠 Memory governor: DISABLED by config (high_water_pct={}%)",
+                governor_cfg.high_water_pct
+            );
+        } else {
+            println!(
+                "🧠 Memory governor: active — every {}s, shed at RSS ≥ {}%, aggressive at ≥ {}%, recover below {}% for {}s",
+                interval,
+                governor_cfg.watermarks().1,
+                governor_cfg.watermarks().2,
+                governor_cfg.watermarks().0,
+                governor_cfg.recovery_hold_secs,
+            );
+        }
         handles.push(tokio::spawn(async move {
-            let mut last_evict_note = 0usize;
+            use market_analyzer::analyzer::history_budget as hb;
+            use execution_daemon::memory_governor::{self as gov, Tier};
+
+            let mut tier = Tier::Normal;
+            let mut below_low_secs: u64 = 0;
+            let mut tick: u64 = 0;
+            let mut last_evict_note: u64 = 0;
+            let mut elapsed: u64 = 0;
+
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => break,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(interval)) => {}
                 }
-                let instances = workspace.list().await;
-                let mut entries = 0usize;
-                for inst in &instances {
-                    for pipe in inst.active_pair.all() {
-                        entries += pipe.snapshot_history.read().await.len();
-                    }
-                }
+                tick = tick.wrapping_add(1);
+                elapsed = elapsed.wrapping_add(interval);
+
+                // ── decide ──────────────────────────────────────────────
                 let rss_kb = read_resident_set_kb();
                 let total_kb = read_total_memory_kb();
-                let budget = market_analyzer::analyzer::history_budget::max_bytes();
-                let used = market_analyzer::analyzer::history_budget::usage_bytes();
-                let pct = if budget == 0 {
-                    0.0
+                let measurable = rss_kb > 0 && total_kb > 0;
+                let rss_pct = if measurable {
+                    ((rss_kb as u64 * 100) / total_kb as u64).min(100)
                 } else {
-                    (used as f64 / budget as f64 * 100.0).min(999.0)
+                    0
                 };
-                let rss_mb = rss_kb / 1024;
-                let total_mb = total_kb / 1024;
-                println!(
-                    "🧠 Memory: RSS {} MiB / {} MiB ({:.0}%) · snapshot history {} MiB / {} MiB ({:.0}%) · {} entries across {} instance(s) × {} duration(s)",
-                    rss_mb,
-                    total_mb,
-                    if total_kb == 0 { 0.0 } else { rss_kb as f64 / total_kb as f64 * 100.0 },
-                    used / (1024 * 1024),
-                    budget / (1024 * 1024),
-                    pct,
-                    entries,
-                    instances.len(),
-                    instances
-                        .iter()
-                        .map(|i| i.active_pair.active_secs.len())
-                        .max()
-                        .unwrap_or(0),
+                let decision = gov::decide(
+                    &governor_cfg,
+                    gov::Pressure { rss_pct, measurable },
+                    tier,
+                    below_low_secs,
+                    interval,
                 );
-                // Rate-limit the budget-pressure note to once per 10 minutes
-                // so a long pressure window stays legible in the log.
-                let streak = market_analyzer::analyzer::history_budget::eviction_streak();
-                if streak > 0 {
-                    let now = std::time::Instant::now().elapsed().as_secs() as usize;
-                    if now.saturating_sub(last_evict_note) >= 600 {
-                        last_evict_note = now;
-                        market_analyzer::analyzer::history_budget::note_quiet_period();
+                let prev_tier = tier;
+                tier = decision.tier;
+                below_low_secs = decision.below_low_secs;
+                let keep = gov::floor_for(tier, &governor_cfg);
+
+                // ── act ────────────────────────────────────────────────
+                let instances = workspace.list().await;
+                let (mut entries, mut evicted, mut clusters_cleared) = (0usize, 0usize, 0usize);
+                let mut over_budget_at_floor = false;
+                if governor_cfg.is_active() && tier != Tier::Normal {
+                    gov::byte_budget_for(tier);
+                    // Sweep until the GLOBAL budget is met; the first few
+                    // pipelines carry the shed and the rest become no-ops, so
+                    // 200 pipelines cost 200 cheap checks, not a second pass.
+                    let mut met = false;
+                    'pipelines: for inst in &instances {
+                        for pipe in inst.active_pair.all() {
+                            // 2. evict retained history oldest-first, down to the
+                            //    tier floor and no further. `latest_snapshot` is
+                            //    NOT touched — the live surface is never shed.
+                            let mut deque = pipe.snapshot_history.write().await;
+                            entries += deque.len();
+                            let (n, ok) = hb::evict_to_global_budget(&mut deque, keep);
+                            evicted += n;
+                            met = ok;
+                            drop(deque);
+                            // 3. clear the derived cluster cache (the Phase 2 task
+                            //    refreshes it on its own cadence, so this is free).
+                            let mut cluster = pipe.cluster_matrix.write().await;
+                            if cluster.take().is_some() {
+                                clusters_cleared += 1;
+                            }
+                            if met {
+                                break 'pipelines;
+                            }
+                        }
                     }
+                    if !met && evicted == 0 {
+                        // Every window is already at the floor and we are still
+                        // over budget — the floor itself is the problem, which is
+                        // what the `critical` tier exists for.
+                        over_budget_at_floor = true;
+                    }
+                } else {
+                    gov::byte_budget_for(Tier::Normal);
+                    for inst in &instances {
+                        for pipe in inst.active_pair.all() {
+                            entries += pipe.snapshot_history.read().await.len();
+                        }
+                    }
+                }
+
+                // ── report ──────────────────────────────────────────────
+                if decision.changed {
+                    println!(
+                        "⚠️  Memory governor: tier {} → {} (RSS {}% of {} MiB; {} entries retained)",
+                        prev_tier.as_str(),
+                        tier.as_str(),
+                        rss_pct,
+                        total_kb / 1024,
+                        entries,
+                    );
+                    if tier != Tier::Normal {
+                        eprintln!(
+                            "⚠️  Memory governor at {}%: evicted {} retained snapshot(s) to a {}-entry floor and cleared {} cluster cache(s).{} Raise [memory].high_water_pct or lower [workspace].timeframes if charts get too short.",
+                            tier.as_str(),
+                            evicted,
+                            keep,
+                            clusters_cleared,
+                            if over_budget_at_floor {
+                                " STILL OVER BUDGET at the floor — every window is as short as it may go."
+                            } else {
+                                ""
+                            },
+                        );
+                    }
+                }
+                if tick % log_every == 0 {
+                    let budget_now = hb::effective_limit();
+                    let used = hb::usage_bytes();
+                    let pct = if budget_now == 0 {
+                        0.0
+                    } else {
+                        (used as f64 / budget_now as f64 * 100.0).min(999.0)
+                    };
+                    println!(
+                        "🧠 Memory: RSS {} MiB / {} MiB ({:.0}%) · snapshot history {} MiB / {} MiB ({:.0}%) · {} entries across {} instance(s) × {} duration(s) · governor {}",
+                        rss_kb / 1024,
+                        total_kb / 1024,
+                        rss_pct,
+                        used / (1024 * 1024),
+                        budget_now / (1024 * 1024),
+                        pct,
+                        entries,
+                        instances.len(),
+                        instances.iter().map(|i| i.active_pair.active_secs.len()).max().unwrap_or(0),
+                        tier.as_str(),
+                    );
+                }
+                // Rate-limit the budget-pressure note to once per 10 minutes so a
+                // long pressure window stays legible instead of spamming.
+                if hb::eviction_streak() > 0 && elapsed.saturating_sub(last_evict_note) >= 600 {
+                    last_evict_note = elapsed;
+                    hb::note_quiet_period();
                 }
             }
         }));

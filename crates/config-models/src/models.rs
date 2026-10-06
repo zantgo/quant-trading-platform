@@ -1532,6 +1532,117 @@ fn default_staleness_threshold_secs() -> u64 {
     600
 }
 
+// ─── RSS-aware memory governor (v11.12.24, CB-12d) ────
+
+/// v11.12.24: process-level memory governor.
+///
+/// The daemon was OOM-killed by the kernel at ~1.8–2.1 GB RSS on a 2.75 GiB
+/// host. `[candle_buffer].max_snapshot_history_bytes` bounds the retained
+/// snapshot history, but the OOM killer targets the **biggest process** — so
+/// bounding one structure is not the same as bounding the process. This
+/// governor closes that gap: it reads the process RSS against the host's
+/// total and sheds memory in a fixed, documented order *before* the daemon
+/// becomes the kill candidate.
+///
+/// The shedding order is least-user-visible-first, and two invariants make it
+/// safe:
+///
+/// 1. **`latest_snapshot` is never shed.** The live surface (WS bootstrap, the
+///    CLI monitor, every panel and matrix) keeps full frames; only the
+///    *retained history* and the derived cluster cache are dropped.
+/// 2. **Eviction never goes below a floor** (50 entries normally, 25 under
+///    critical pressure), so a chart always renders something.
+///
+/// Hysteresis (`high_water_pct` > `low_water_pct`) prevents oscillation, and
+/// `recovery_hold_secs` prevents flapping on a brief dip.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryGovernorConfig {
+    /// Master switch. Default `true`.
+    #[serde(default = "default_memory_enabled")]
+    pub enabled: bool,
+    /// Seconds between governor ticks. Default **10**.
+    #[serde(default = "default_governor_interval_secs")]
+    pub governor_interval_secs: u64,
+    /// RSS fraction of host memory at which the first shedding tier engages.
+    /// Default **75**. Set to **100** to disable shedding entirely without a
+    /// rebuild (the emergency off-switch).
+    #[serde(default = "default_high_water_pct")]
+    pub high_water_pct: u64,
+    /// RSS fraction at which the aggressive tier engages. Default **88**.
+    #[serde(default = "default_critical_pct")]
+    pub critical_pct: u64,
+    /// RSS fraction below which the governor relaxes again. Default **60**.
+    /// Must be lower than `high_water_pct` or the governor cannot de-escalate.
+    #[serde(default = "default_low_water_pct")]
+    pub low_water_pct: u64,
+    /// Seconds RSS must stay under the low-water mark before the configured
+    /// budget is restored. Default **60**.
+    #[serde(default = "default_recovery_hold_secs")]
+    pub recovery_hold_secs: u64,
+    /// Retained entries each pipeline is cut to under critical pressure.
+    /// Default **25** (vs the 50-entry normal floor).
+    #[serde(default = "default_critical_floor_entries")]
+    pub critical_floor_entries: usize,
+}
+
+impl Default for MemoryGovernorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_memory_enabled(),
+            governor_interval_secs: default_governor_interval_secs(),
+            high_water_pct: default_high_water_pct(),
+            critical_pct: default_critical_pct(),
+            low_water_pct: default_low_water_pct(),
+            recovery_hold_secs: default_recovery_hold_secs(),
+            critical_floor_entries: default_critical_floor_entries(),
+        }
+    }
+}
+
+impl MemoryGovernorConfig {
+    /// Clamped, internally consistent view of the watermarks. A config with
+    /// `low_water_pct >= high_water_pct` would deadlock the tier machine (the
+    /// governor could never relax), so `low` is forced below `high`; `high`
+    /// is clamped to 100 so a nonsensical value cannot demand shedding at
+    /// impossible pressure.
+    pub fn watermarks(&self) -> (u64, u64, u64) {
+        let high = self.high_water_pct.clamp(1, 100);
+        let critical = self.critical_pct.clamp(1, 100).max(high);
+        let low = self
+            .low_water_pct
+            .clamp(1, 100)
+            .min(high.saturating_sub(1).max(1));
+        (low, high, critical)
+    }
+
+    /// True when the governor should act at all.
+    pub fn is_active(&self) -> bool {
+        self.enabled && self.high_water_pct <= 100
+    }
+}
+
+fn default_memory_enabled() -> bool {
+    true
+}
+fn default_governor_interval_secs() -> u64 {
+    10
+}
+fn default_high_water_pct() -> u64 {
+    75
+}
+fn default_critical_pct() -> u64 {
+    88
+}
+fn default_low_water_pct() -> u64 {
+    60
+}
+fn default_recovery_hold_secs() -> u64 {
+    60
+}
+fn default_critical_floor_entries() -> usize {
+    25
+}
+
 // ─── Clock Drift Monitor (NTP-based UTC alignment enforcement) ────
 
 /// Configuration block for the runtime `ClockMonitor`. Maps to the TOML
