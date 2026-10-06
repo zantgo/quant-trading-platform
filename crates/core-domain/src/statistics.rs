@@ -164,6 +164,13 @@ impl StatisticsEngine {
         if self.prev_close > 0.0 && close > 0.0 {
             let change = (close - self.prev_close) / self.prev_close;
             self.price_changes.push(change);
+            // v11.12.25: ring the window. This was an unbounded push — a real
+            // leak (~8 B per completed candle, forever, per pipeline) and the
+            // reason the Monte-Carlo clone grew without limit.
+            if self.price_changes.len() > Self::MC_CHANGE_WINDOW {
+                let excess = self.price_changes.len() - Self::MC_CHANGE_WINDOW;
+                self.price_changes.drain(..excess);
+            }
         }
         self.prev_close = close;
 
@@ -205,6 +212,21 @@ impl StatisticsEngine {
         self.bar_count
     }
 
+    /// v11.12.25: how many recent returns the Monte-Carlo sign-randomization
+    /// actually samples.
+    ///
+    /// `price_changes` used to grow forever (one push per completed candle,
+    /// never trimmed), which made both the retained memory and the simulation
+    /// cost grow without bound: `run_monte_carlo` cloned the whole vector and
+    /// then ran `monte_carlo_samples` × `len` sign draws. At the 1 s duration
+    /// that is a ~700 KB clone and ~86 M draws *per call*.
+    ///
+    /// The statistical content of a sign-randomized return distribution is
+    /// captured by the magnitude distribution of recent returns; a longer
+    /// window adds nothing that the rolling `RollingStat` windows do not
+    /// already carry. 2 000 samples is far more than the 1 000 simulations use.
+    const MC_CHANGE_WINDOW: usize = 2_000;
+
     /// Perform Monte Carlo simulation using sign-randomized returns.
     pub fn run_monte_carlo(&mut self, _close: f64, _atr: f64) -> Option<MonteCarloOutput> {
         if self.price_changes.len() < 30 {
@@ -216,9 +238,15 @@ impl StatisticsEngine {
             return self.cached_mc.clone();
         }
 
-        let n = self.price_changes.len();
         let samples = self.config.monte_carlo_samples as usize;
-        let changes_snapshot = self.price_changes.clone();
+        // Copy only the bounded tail (≤ 2 000 × 8 B = 16 KB) rather than the
+        // whole vector as before. The copy is needed because `random_f64`
+        // takes `&mut self` while the sample window is borrowed — but with the
+        // ring in place this is a fixed 16 KB, not a vector that grew all day.
+        let window = self.price_changes.len().min(Self::MC_CHANGE_WINDOW);
+        let start = self.price_changes.len() - window;
+        let changes_snapshot = self.price_changes[start..].to_vec();
+        let n = changes_snapshot.len();
 
         let mut final_returns: Vec<f64> = Vec::with_capacity(samples);
 

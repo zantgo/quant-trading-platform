@@ -1702,9 +1702,9 @@ pub async fn run_single(
                             // `reconstructed` column keeps the provenance.
                             send_telemetry(
                                 &telemetry_tx,
-                                database_storage::TelemetryMsg::InsertSnapshot(Box::new(
-                                    doji_snap.clone(),
-                                )),
+                                database_storage::TelemetryMsg::InsertSnapshot(
+                                    std::sync::Arc::new(doji_snap.clone()),
+                                ),
                             );
                             // AUDIT-V8-004 (history continuity): synthetic
                             // dojis are pushed to the in-memory snapshot
@@ -1868,9 +1868,9 @@ pub async fn run_single(
                                 // the doji-fill path — restart continuity).
                                 send_telemetry(
                                     &telemetry_tx,
-                                    database_storage::TelemetryMsg::InsertSnapshot(Box::new(
-                                        idle_snap.clone(),
-                                    )),
+                                    database_storage::TelemetryMsg::InsertSnapshot(
+                                        std::sync::Arc::new(idle_snap.clone()),
+                                    ),
                                 );
                                 push_history_snapshot(&snapshot_history, idle_snap).await;
                                 cursor += duration_ms;
@@ -2229,9 +2229,9 @@ pub async fn run_single(
                                 // them the same way.
                                 send_telemetry(
                                     &telemetry_tx,
-                                    database_storage::TelemetryMsg::InsertSnapshot(Box::new(
-                                        gap_snap.clone(),
-                                    )),
+                                    database_storage::TelemetryMsg::InsertSnapshot(
+                                        std::sync::Arc::new(gap_snap.clone()),
+                                    ),
                                 );
                                 // AUDIT-V8-004: keep the in-memory snapshot
                                 // history continuous across reconnect gaps.
@@ -3841,7 +3841,9 @@ async fn synthesize_completed_candle(
     // when the SQLite logger stalled — drop instead of blocking.
     send_telemetry(
         telemetry_tx,
-        database_storage::TelemetryMsg::InsertSnapshot(Box::new(completed_snapshot.clone())),
+        database_storage::TelemetryMsg::InsertSnapshot(std::sync::Arc::new(
+            completed_snapshot.clone(),
+        )),
     );
 
     latency_tracker.record_observation_latency(
