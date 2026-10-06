@@ -65,11 +65,24 @@ export function buildEngineHash(
 ): string {
     const parts = ['#', 'engine', engine];
     if (middleTab) parts.push(middleTab);
-    if (instance) { parts.push('instance'); parts.push(instance); }
+    // v11.12.26: percent-encode the pair key. A non-ASCII ticker written raw
+    // into `location.hash` comes back PERCENT-ENCODED from the browser, so
+    // `龙虾-USDT` could never match the `instancesMap` key and a deep-link
+    // reload silently lost the instance selection.
+    if (instance) { parts.push('instance'); parts.push(encodeURIComponent(instance)); }
     if (view) { parts.push('view'); parts.push(view); }
     if (tf) { parts.push('tf'); parts.push(tf); }
     if (run) { parts.push('run'); parts.push(run); }
     return parts.join('/');
+}
+
+/** `decodeURIComponent` that degrades to the raw segment on malformed input. */
+function safeDecode(segment: string): string {
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
 }
 
 export function parseEngineHash(hash: string): RouteParams | null {
@@ -90,7 +103,9 @@ export function parseEngineHash(hash: string): RouteParams | null {
     while (i < segments.length) {
         const key = segments[i];
         if (key === 'instance' && i + 1 < segments.length) {
-            params.instance = segments[i + 1];
+            // Browsers hand back `location.hash` percent-encoded; decode so the
+            // value matches the `instancesMap` key exactly.
+            params.instance = safeDecode(segments[i + 1]);
             i += 2;
         } else if (key === 'view' && i + 1 < segments.length) {
             params.view = segments[i + 1];

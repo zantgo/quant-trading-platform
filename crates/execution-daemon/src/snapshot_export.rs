@@ -287,13 +287,35 @@ fn build_tab_payload(tab: &str, snap: &MarketSnapshot) -> serde_json::Value {
     }
 }
 
-/// Sanitise a pair-key for use as a filename. Replaces any non-
-/// alphanumeric character with `_` (pair-keys already use `-` as
-/// the only non-alphanumeric character, but be defensive).
+/// Sanitise a pair-key for use as a filename.
+///
+/// v11.12.26: this replaced every non-ASCII-alphanumeric char with `_`, so two
+/// DIFFERENT non-English tickers collapsed to the SAME filename
+/// (`龙虾-USDT` → `____USDT`, `龙虾币-USDT` → `_____USDT`) and silently
+/// overwrote each other's exported snapshots.
+///
+/// Unicode letters and numbers are now kept as-is — they are perfectly legal in
+/// a filename — and only separators are replaced. A non-ASCII key additionally
+/// carries a short FNV suffix, because the transformation is lossy and two
+/// distinct keys must never share a destination directory.
+///
+/// Pure-ASCII keys keep their historical filename exactly: the retry/retention
+/// walk operates on already-exported directories, so renaming them would strand
+/// every previously exported day.
 fn sanitize(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect()
+    let cleaned: String = s
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    if cleaned == s || s.is_ascii() {
+        return cleaned;
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{cleaned}-{:08x}", hash as u32)
 }
 
 /// Walk `<output_root>/*/*` (the `YYYY-MM-DD/HHhMMmSS/` tree) and
@@ -365,6 +387,17 @@ mod tests {
         assert_eq!(sanitize("BTC-USDT"), "BTC_USDT");
         assert_eq!(sanitize("eth/usdt"), "eth_usdt");
         assert_eq!(sanitize("BTCUSDT"), "BTCUSDT");
+    }
+
+    #[test]
+    fn non_ascii_pair_keys_never_collide() {
+        // The data-loss regression: both keys used to become `____USDT`.
+        assert_ne!(sanitize("龙虾-USDT"), sanitize("龙虾币-USDT"));
+        assert_ne!(sanitize("龙虾-USDT"), sanitize("龙虾-USDC"));
+        // Stable across calls, so retries reuse one directory.
+        assert_eq!(sanitize("龙虾-USDT"), sanitize("龙虾-USDT"));
+        // The ticker itself survives in the name for readability.
+        assert!(sanitize("龙虾-USDT").starts_with("龙虾_USDT"));
     }
 
     #[test]
