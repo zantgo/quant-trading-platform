@@ -11,4 +11,5 @@
 
 pub mod cli_renderer;
 pub mod ds_exporter;
+pub mod memory_governor;
 pub mod snapshot_export;
