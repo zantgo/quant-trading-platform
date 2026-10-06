@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from './watchlistScanner';
+import { MAX_SYMBOL_CHARS as MAX_SYMBOL_LEN } from './symbol';
 import type { AdvisoryMatrix, DecisionContext } from '../types';
 
 function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
@@ -59,8 +60,18 @@ describe('parseSymbols', () => {
         expect(parseSymbols('BTC   ETH')).toEqual(['BTC', 'ETH']);
     });
 
-    it('drops tokens longer than 10 chars', () => {
-        expect(parseSymbols('BTC LONGNAMETOKENHERE')).toEqual(['BTC']);
+    // The budget is shared with the wizard (v11.12.26) so the scanner cannot
+    // reject a ticker the add-instance step would accept, or vice versa.
+    it('drops tokens longer than the shared character budget', () => {
+        expect(MAX_SYMBOL_LEN).toBe(20);
+        expect(parseSymbols(`BTC ${'X'.repeat(MAX_SYMBOL_LEN + 1)}`)).toEqual(['BTC']);
+        expect(parseSymbols(`BTC ${'X'.repeat(MAX_SYMBOL_LEN)}`)).toEqual([
+            'BTC',
+            'X'.repeat(MAX_SYMBOL_LEN),
+        ]);
+        // A non-ASCII ticker is measured in characters, so it is NOT silently
+        // dropped for being "too long" the way it used to be.
+        expect(parseSymbols('BTC 龙虾合约')).toEqual(['BTC', '龙虾合约']);
     });
 
     it('dedupes while preserving order', () => {

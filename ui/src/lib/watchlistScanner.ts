@@ -21,7 +21,11 @@
 
 import type { AdvisoryMatrix, DecisionContext, DirectionalGuidance } from '../types';
 
-export const MAX_SYMBOL_LEN = 10;
+// v11.12.26: the scanner used to drop any token over 10 CHARACTERS silently
+// (no error at all), which was the worst failure mode for a non-ASCII ticker —
+// it vanished with no feedback. The budget is now shared with the wizard.
+import { MAX_SYMBOL_CHARS } from './symbol';
+export { MAX_SYMBOL_CHARS as MAX_SYMBOL_LEN };
 
 /// Wait-window bounds for the scanner's recommendation grace period — a
 /// pair is kept when a recommendation to any side appears within the
@@ -85,7 +89,7 @@ export function parseSymbols(text: string): string[] {
     for (const raw of text.split(/\s+/g)) {
         const tok = raw.trim().toUpperCase();
         if (!tok) continue;
-        if (tok.length > MAX_SYMBOL_LEN) continue;
+        if ([...tok].length > MAX_SYMBOL_CHARS) continue;
         if (seen.has(tok)) continue;
         seen.add(tok);
         out.push(tok);
