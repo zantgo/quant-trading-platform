@@ -124,10 +124,31 @@ fn overlay_indicators_from_db(
     out
 }
 
+/// v11.12.24: bound concurrent history work.
+///
+/// Each request clones up to `limit` retained frames out of the pipeline deque.
+/// With the retained-history projection that is ~8 KB per frame, so a request
+/// at the 500-bar ceiling carries ~4 MB of live clones plus the JSON response —
+/// and a 20-pair dashboard that mounts a chart per pair can have a dozen of
+/// those in flight at once (tens of MB of transient, and the work is
+/// single-threaded per request regardless).
+///
+/// A module-level semaphore (rather than a field on `AppState`) keeps this out
+/// of the 26 `AppState` literal construction sites, and mirrors the existing
+/// rate-limiter pattern in `lib.rs`. Four permits is far more than any real
+/// fan-out needs — it exists to stop a pathological burst, not to throttle a
+/// single user.
+const HISTORY_PERMITS: usize = 4;
+static HISTORY_GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(HISTORY_PERMITS);
+
 pub async fn serve_history(
     State(state): State<Arc<AppState>>,
     Query(query): Query<HistoryQuery>,
 ) -> impl IntoResponse {
+    // Acquire BEFORE any cloning. The permit is held for the whole handler, so
+    // the peak number of simultaneously-materialised history payloads is the
+    // permit count rather than the number of open tabs × pairs × durations.
+    let _permit = HISTORY_GATE.acquire().await;
     let pair_key = if query.symbol.is_empty() {
         let first = state
             .workspace
