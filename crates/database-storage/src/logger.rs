@@ -1,10 +1,16 @@
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::Exchange;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum TelemetryMsg {
-    InsertSnapshot(Box<MarketSnapshot>),
+    /// One completed snapshot, shared by every sink.
+    ///
+    /// v11.12.25: this was `Box<MarketSnapshot>` and the fan-out task cloned it
+    /// per sink, so the DB and DS queues each held their own ~110 KB frame.
+    /// `Arc` makes the fan-out a refcount bump. The contents are unchanged.
+    InsertSnapshot(Arc<MarketSnapshot>),
     InsertIndividualLog {
         master_record_id: i64,
         indicator_name: String,

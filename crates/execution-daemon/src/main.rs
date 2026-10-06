@@ -749,6 +749,43 @@ fn canonical_overall_risk(micro_risk: Option<f64>, risk_count: u32, risk_sum: f6
     })
 }
 
+// v11.12.25 (memory): return freed heap to the OS.
+//
+//
+// The daemon allocates and frees in large bursts — most of all during boot,
+// where the warm state used to be cloned several times per instance spawn.
+// glibc `ptmalloc` hands freed pages back to the kernel only when the arena is
+// trimmed, and with up to `8 × ncores` per-thread arenas a boot spike could
+// ratchet RSS to its peak and never give the memory back. That is exactly the
+// shape of the failure being chased: RSS sitting near 2 GB while the live
+// working set was far smaller.
+//
+// Two mechanisms, because one alone is not enough:
+//
+// 1. `MALLOC_ARENA_MAX` / `MALLOC_TRIM_THRESHOLD_` are read by glibc before the
+//    Rust runtime allocates anything, so they must come from the environment —
+//    `./manage.sh` exports them ahead of `exec`. Setting them from inside
+//    `main` is too late to matter.
+// 2. `malloc_trim(0)` returns what the arena heuristics decide to keep. It runs
+//    on the governor's tick (only when not already shedding, since shedding
+//    has its own allocation churn) and is the part that actually works from
+//    inside a running process.
+#[cfg(target_env = "gnu")]
+extern "C" {
+    fn malloc_trim(pad: usize) -> i32;
+}
+
+/// Best-effort heap trim. No-op (returns false) where glibc is not the
+/// allocator or the symbol is unavailable.
+fn trim_heap() -> bool {
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        malloc_trim(0) == 0
+    }
+    #[cfg(not(target_env = "gnu"))]
+    false
+}
+
 fn main() {
     // v11.1: the 14-duration pool multiplies the per-pipeline future
     // state (per-slot arrays inside `build_pipelines`/`spawn_tasks`), which
@@ -2364,12 +2401,17 @@ async fn async_main() {
                 governor_cfg.high_water_pct
             );
         } else {
+            let (a_low, a_high, a_crit) = governor_cfg.available_watermarks();
+            let (r_low, r_high, r_crit) = governor_cfg.rss_watermarks();
             println!(
-                "🧠 Memory governor: active — every {}s, shed at RSS ≥ {}%, aggressive at ≥ {}%, recover below {}% for {}s",
+                "🧠 Memory governor: active — every {}s. PRIMARY: host memory available ≤ {}% (shed) / ≤ {}% (aggressive), recover above {}%. SECONDARY: own RSS ≥ {}% / ≥ {}%, recover below {}%. Hold {}s.",
                 interval,
-                governor_cfg.watermarks().1,
-                governor_cfg.watermarks().2,
-                governor_cfg.watermarks().0,
+                a_low,
+                a_crit,
+                a_high,
+                r_high,
+                r_crit,
+                r_low,
                 governor_cfg.recovery_hold_secs,
             );
         }
@@ -2394,15 +2436,30 @@ async fn async_main() {
                 // ── decide ──────────────────────────────────────────────
                 let rss_kb = read_resident_set_kb();
                 let total_kb = read_total_memory_kb();
+                // v11.12.25: `MemAvailable` is the kernel's own headroom signal
+                // and is the PRIMARY trigger. The daemon's RSS percentage is
+                // the secondary backstop. Triggering on RSS alone demonstrably
+                // failed — the kernel killed the daemon at 71 % of `MemTotal`
+                // while the old 75 % RSS watermark had never fired.
+                let available_kb = read_available_memory_kb();
                 let measurable = rss_kb > 0 && total_kb > 0;
                 let rss_pct = if measurable {
                     ((rss_kb as u64 * 100) / total_kb as u64).min(100)
                 } else {
                     0
                 };
+                let available_pct = if measurable {
+                    ((available_kb.min(total_kb) as u64) * 100 / total_kb as u64).min(100)
+                } else {
+                    100
+                };
                 let decision = gov::decide(
                     &governor_cfg,
-                    gov::Pressure { rss_pct, measurable },
+                    gov::Pressure {
+                        available_pct,
+                        rss_pct,
+                        measurable,
+                    },
                     tier,
                     below_low_secs,
                     interval,
@@ -2462,9 +2519,10 @@ async fn async_main() {
                 // ── report ──────────────────────────────────────────────
                 if decision.changed {
                     println!(
-                        "⚠️  Memory governor: tier {} → {} (RSS {}% of {} MiB; {} entries retained)",
+                        "⚠️  Memory governor: tier {} → {} (available {}% · own RSS {}% of {} MiB; {} entries retained)",
                         prev_tier.as_str(),
                         tier.as_str(),
+                        available_pct,
                         rss_pct,
                         total_kb / 1024,
                         entries,
@@ -2487,24 +2545,42 @@ async fn async_main() {
                 if tick % log_every == 0 {
                     let budget_now = hb::effective_limit();
                     let used = hb::usage_bytes();
+                    // v11.12.25: `RSS − accounted` is the number that tells us
+                    // where memory actually is. Two rounds of fixes targeted the
+                    // retained-history term and still hit the OOM wall, because
+                    // the bulk was elsewhere. Logging the remainder makes the
+                    // next diagnosis a measurement instead of an estimate.
+                    let unattributed_mb = (rss_kb.saturating_sub(
+                        used.min(rss_kb) / 1024,
+                    )) / 1024;
                     let pct = if budget_now == 0 {
                         0.0
                     } else {
                         (used as f64 / budget_now as f64 * 100.0).min(999.0)
                     };
                     println!(
-                        "🧠 Memory: RSS {} MiB / {} MiB ({:.0}%) · snapshot history {} MiB / {} MiB ({:.0}%) · {} entries across {} instance(s) × {} duration(s) · governor {}",
+                        "🧠 Memory: RSS {} MiB ({:.0}% of {}) MiB · available {} MiB ({:.0}%) · snapshot history {} MiB / {} MiB ({:.0}%) · {} entries across {} instance(s) × {} duration(s) · unattributed {} MiB · governor {}",
                         rss_kb / 1024,
-                        total_kb / 1024,
                         rss_pct,
+                        total_kb / 1024,
+                        available_kb / 1024,
+                        available_pct,
                         used / (1024 * 1024),
                         budget_now / (1024 * 1024),
                         pct,
                         entries,
                         instances.len(),
                         instances.iter().map(|i| i.active_pair.active_secs.len()).max().unwrap_or(0),
+                        unattributed_mb,
                         tier.as_str(),
                     );
+                }
+                // v11.12.25: hand freed heap back to the OS while we are
+                // comfortable. Under pressure the sweep's own churn makes a trim
+                // counterproductive, so it only runs when the governor is not
+                // already shedding.
+                if tier == Tier::Normal && !decision.changed {
+                    trim_heap();
                 }
                 // Rate-limit the budget-pressure note to once per 10 minutes so a
                 // long pressure window stays legible instead of spamming.
@@ -2521,6 +2597,31 @@ async fn async_main() {
     /// to the budget-only reading rather than failing.
     fn read_resident_set_kb() -> usize {
         read_proc_statm_kb()
+    }
+
+    /// Memory the host can still hand out, in kibibytes (`/proc/meminfo`
+    /// `MemAvailable`).
+    ///
+    /// v11.12.25: this — not the daemon's RSS percentage — is the governor's
+    /// PRIMARY trigger. `MemAvailable` is the kernel's own estimate of what it
+    /// can still allocate, so it accounts for everything competing for the box
+    /// (the browser, the host OS under WSL2, other processes). The daemon was
+    /// OOM-killed at 71 % of `MemTotal` with an RSS-based 75 % watermark that
+    /// never fired, which is exactly the failure this reading fixes.
+    fn read_available_memory_kb() -> usize {
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            for line in meminfo.lines() {
+                if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                    return rest
+                        .trim()
+                        .trim_end_matches("kB")
+                        .trim()
+                        .parse()
+                        .unwrap_or(0);
+                }
+            }
+        }
+        0
     }
 
     /// Total physical memory available to the host in kibibytes
