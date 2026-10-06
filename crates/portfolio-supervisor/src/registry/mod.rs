@@ -296,9 +296,12 @@ pub async fn add_instance(
         stale_threshold_secs,
     };
 
-    let artifacts =
-        pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
-            .await;
+    let artifacts = pipelines::build_pipelines(
+        &pipeline_ctx,
+        state,
+        warmed_states.as_ref().ok().map(|v| v.as_slice()),
+    )
+    .await;
     artifacts.instance.set_execution_mode(execution_mode).await;
     artifacts.instance.boot_lifecycle(execution_mode).await;
 
@@ -306,8 +309,9 @@ pub async fn add_instance(
     if let Ok(ref warmed) = warmed_states {
         // Ascending fastest → slowest, aligned with the ACTIVE durations.
         let slot_buffers = artifacts.instance.buffers();
-        let warmed_opts: Vec<Option<market_analyzer::analyzer::WarmedPipelineState>> =
-            warmed.iter().map(|w| Some(w.clone())).collect();
+        // v11.12.25: borrow, not clone — `populate_buffers` only reads.
+        let warmed_opts: Vec<Option<&market_analyzer::analyzer::WarmedPipelineState>> =
+            warmed.iter().map(Some).collect();
         bootstrap::populate_buffers(
             &warmed_opts,
             &slot_buffers
@@ -768,9 +772,12 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         stale_threshold_secs,
     };
 
-    let artifacts =
-        pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
-            .await;
+    let artifacts = pipelines::build_pipelines(
+        &pipeline_ctx,
+        state,
+        warmed_states.as_ref().ok().map(|v| v.as_slice()),
+    )
+    .await;
     artifacts.instance.set_execution_mode(pair_cfg.mode).await;
     artifacts.instance.boot_lifecycle(pair_cfg.mode).await;
 
@@ -778,8 +785,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     if let Ok(ref warmed) = warmed_states {
         // Ascending fastest → slowest, aligned with the ACTIVE durations.
         let slot_buffers = artifacts.instance.buffers();
-        let warmed_opts: Vec<Option<market_analyzer::analyzer::WarmedPipelineState>> =
-            warmed.iter().map(|w| Some(w.clone())).collect();
+        // v11.12.25: borrow, not clone — `populate_buffers` only reads.
+        let warmed_opts: Vec<Option<&market_analyzer::analyzer::WarmedPipelineState>> =
+            warmed.iter().map(Some).collect();
         bootstrap::populate_buffers(
             &warmed_opts,
             &slot_buffers
