@@ -28,6 +28,25 @@ describe('buildEngineHash / parseEngineHash round-trip', () => {
         expect(parsed).toEqual({ engine: 'market_monitor', middleTab: 'workspace' });
     });
 
+    // v11.12.26: a non-ASCII pair key was written raw into `location.hash`, and
+    // browsers return `location.hash` PERCENT-ENCODED — so the parsed key never
+    // matched the `instancesMap` entry and a reload lost the selection.
+    it('round-trips a non-ASCII pair key through percent-encoding', () => {
+        const hash = buildEngineHash('market_monitor', 'workspace', '龙虾-USDT', 'monitor');
+        expect(hash).not.toContain('龙虾');
+        expect(hash).toContain(encodeURIComponent('龙虾-USDT'));
+
+        const parsed = parseEngineHash(hash);
+        expect(parsed?.instance).toBe('龙虾-USDT');
+
+        // A reload hands back exactly the encoded form written above, which is
+        // what assertion 2 parses — a browser does NOT re-encode the `%`.
+        expect(parseEngineHash(hash.replace('#/', '#/'))?.instance).toBe('龙虾-USDT');
+
+        // Malformed escapes degrade to the raw segment instead of throwing.
+        expect(parseEngineHash('#/engine/market_monitor/instance/%E9%')?.instance).toBe('%E9%');
+    });
+
     it('round-trips engine + middleTab + instance + view', () => {
         const hash = buildEngineHash('market_monitor', 'workspace', 'BTC-USDT', 'monitor');
         expect(hash).toBe('#/engine/market_monitor/workspace/instance/BTC-USDT/view/monitor');
