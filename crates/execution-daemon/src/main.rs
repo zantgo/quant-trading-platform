@@ -39,6 +39,7 @@
 //! canonical design document.
 
 use rust_decimal::prelude::ToPrimitive;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -797,6 +798,22 @@ async fn async_main() {
             std::process::exit(1);
         }
     };
+    // v11.12.24 (memory): configure the retained-snapshot retention depth and
+    // the process-wide byte budget BEFORE any pipeline is built, so the boot
+    // warm seed is charged against the same budget as every live close.
+    // Retention is the documented `[candle_buffer] size` tier (CB-03);
+    // `max_snapshot_history_bytes` is the global safety valve (0 disables
+    // byte-budget eviction, leaving the per-duration cap alone).
+    market_analyzer::analyzer::history_budget::configure(
+        platform.candle_buffer.size,
+        platform.candle_buffer.max_snapshot_history_bytes,
+    );
+    println!(
+        "🧠 Snapshot history: retaining {} entries per duration, budget {} MiB process-wide.",
+        market_analyzer::analyzer::history_budget::retention(),
+        market_analyzer::analyzer::history_budget::max_bytes() / (1024 * 1024),
+    );
+
     let workspace = match load_workspace() {
         Ok(w) => w,
         Err(e) => {
@@ -1165,11 +1182,20 @@ async fn async_main() {
         }
     }
 
-    let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
+    // v11.12.24 (memory): the three telemetry sinks each queue FULL
+    // `Box<MarketSnapshot>` clones. At the previous 10 000-slot cap that is
+    // 30 000 retained snapshots — roughly 3.6 GB at ~120 KB each, so a
+    // sustained SQLite/DS stall could OOM the daemon on its own. 1 024 slots
+    // keeps ~370 MB of headroom across all three sinks while still covering
+    // any realistic burst (the writer drains serially and the producers
+    // already drop on a full queue via `market_analyzer::send_telemetry`).
+    const TELEMETRY_QUEUE_SLOTS: usize = 1024;
+    let (telemetry_tx, telemetry_rx) =
+        mpsc::channel::<database_storage::TelemetryMsg>(TELEMETRY_QUEUE_SLOTS);
     // v10 fan-out: one producer → DB logger + DS exporter (three sinks:
     // DB, WS/GUI, ./ds files).
-    let (db_tx, db_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
-    let (ds_tx, ds_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
+    let (db_tx, db_rx) = mpsc::channel::<database_storage::TelemetryMsg>(TELEMETRY_QUEUE_SLOTS);
+    let (ds_tx, ds_rx) = mpsc::channel::<database_storage::TelemetryMsg>(TELEMETRY_QUEUE_SLOTS);
     // Read the liquidation-event retention window from the user's
     // `[workspace.liquidity]` config. The legacy hardcoded `7u32` was
     // 5x shorter than the configured 90 days and prematurely aged out
@@ -1177,11 +1203,46 @@ async fn async_main() {
     let liq_retention_days = workspace.liquidity.event_retention_days.max(1);
     // BTE archive retention from [workspace.backtest].archive_depth_days.
     let archive_depth_days = workspace.backtest.archive_depth_days.max(1);
+    // v11.12.24: the fan-out drops instead of applying back-pressure. With
+    // `.await`, one stalled sink (a long retention `DELETE`, a slow DS
+    // append) parked the fan-out task while holding every message it had
+    // already accepted — the queues were then filled by the next producers
+    // and nothing drained. `try_send` makes the two sinks independent: the
+    // DB keeps its rows while the DS mirror sheds them under pressure, and
+    // the loss is counted + logged rather than silent.
+    let db_dropped = Arc::new(AtomicU64::new(0));
+    let ds_dropped = Arc::new(AtomicU64::new(0));
+    let db_drop_log = db_dropped.clone();
+    let ds_drop_log = ds_dropped.clone();
     tokio::spawn(async move {
         let mut rx = telemetry_rx;
         while let Some(msg) = rx.recv().await {
-            let _ = db_tx.send(msg.clone()).await;
-            let _ = ds_tx.send(msg).await;
+            if db_tx.try_send(msg.clone()).is_err() {
+                let n = db_dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                if n == 1 || n % 500 == 0 {
+                    eprintln!(
+                        "⚠️ telemetry DB queue full — dropped {} message(s) (SQLite logger stalled?)",
+                        n
+                    );
+                }
+            }
+            if ds_tx.try_send(msg).is_err() {
+                let n = ds_dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                if n == 1 || n % 500 == 0 {
+                    eprintln!(
+                        "⚠️ telemetry DS queue full — dropped {} message(s) (DS exporter stalled?)",
+                        n
+                    );
+                }
+            }
+        }
+        let db = db_drop_log.load(Ordering::Relaxed);
+        let ds = ds_drop_log.load(Ordering::Relaxed);
+        if db > 0 || ds > 0 {
+            eprintln!(
+                "Telemetry fan-out closed: {} DB message(s) and {} DS message(s) dropped this session.",
+                db, ds
+            );
         }
     });
     let logger_handle = tokio::spawn({
@@ -1648,15 +1709,23 @@ async fn async_main() {
                 query_timeout: std::time::Duration::from_secs(clock_cfg.query_timeout_secs),
                 // v11.12.19: samples slower than this are "unreliable", not breaches.
                 max_rtt: std::time::Duration::from_micros(clock_cfg.max_rtt_micros),
+                // v11.12.24: ask several servers and trust the fastest reply.
+                servers_per_poll: clock_cfg.servers_per_poll,
+                breach_consecutive_threshold: clock_cfg.breach_consecutive_threshold,
+                breach_log_interval: std::time::Duration::from_secs(
+                    clock_cfg.breach_log_interval_secs,
+                ),
             };
             let monitor = Arc::new(ClockMonitor::new(monitor_cfg));
             Arc::get_mut(&mut app_state)
                 .expect("AppState not yet shared — clock monitor must be set before build_router")
                 .clock_monitor = Some(monitor.clone());
             println!(
-                "🕒 Clock Monitor: starting NTP polling ({} servers, threshold={}µs)",
+                "🕒 Clock Monitor: starting NTP polling ({} of {} server(s) per poll, lowest-RTT wins, threshold={}µs, drift line after {} consecutive breach(es))",
+                clock_cfg.servers_per_poll.clamp(1, clock_cfg.ntp_servers.len().max(1)),
                 clock_cfg.ntp_servers.len(),
-                clock_cfg.threshold_micros
+                clock_cfg.threshold_micros,
+                clock_cfg.breach_consecutive_threshold.max(1),
             );
         } else {
             println!("🕒 Clock Monitor: disabled by config");
@@ -2260,6 +2329,111 @@ async fn async_main() {
             )
             .await;
         }));
+    }
+
+    // ── Retained-snapshot memory telemetry (v11.12.24) ─────────────
+    //
+    // The daemon was OOM-killed at ~1.8–2.1 GB RSS on a 2.8 GB host with
+    // three instances, and the cause was invisible until the kernel said so.
+    // This task makes the dominant retainer legible: every 60 s it reports
+    // the process RSS against the host's total and the retained-snapshot
+    // budget against its ceiling, so a many-instance workspace degrades
+    // observably (warning) rather than terminally (SIGKILL).
+    {
+        let workspace = workspace_state.clone();
+        let cancel = CancellationToken::new();
+        handles.push(tokio::spawn(async move {
+            let mut last_evict_note = 0usize;
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+                }
+                let instances = workspace.list().await;
+                let mut entries = 0usize;
+                for inst in &instances {
+                    for pipe in inst.active_pair.all() {
+                        entries += pipe.snapshot_history.read().await.len();
+                    }
+                }
+                let rss_kb = read_resident_set_kb();
+                let total_kb = read_total_memory_kb();
+                let budget = market_analyzer::analyzer::history_budget::max_bytes();
+                let used = market_analyzer::analyzer::history_budget::usage_bytes();
+                let pct = if budget == 0 {
+                    0.0
+                } else {
+                    (used as f64 / budget as f64 * 100.0).min(999.0)
+                };
+                let rss_mb = rss_kb / 1024;
+                let total_mb = total_kb / 1024;
+                println!(
+                    "🧠 Memory: RSS {} MiB / {} MiB ({:.0}%) · snapshot history {} MiB / {} MiB ({:.0}%) · {} entries across {} instance(s) × {} duration(s)",
+                    rss_mb,
+                    total_mb,
+                    if total_kb == 0 { 0.0 } else { rss_kb as f64 / total_kb as f64 * 100.0 },
+                    used / (1024 * 1024),
+                    budget / (1024 * 1024),
+                    pct,
+                    entries,
+                    instances.len(),
+                    instances
+                        .iter()
+                        .map(|i| i.active_pair.active_secs.len())
+                        .max()
+                        .unwrap_or(0),
+                );
+                // Rate-limit the budget-pressure note to once per 10 minutes
+                // so a long pressure window stays legible in the log.
+                let streak = market_analyzer::analyzer::history_budget::eviction_streak();
+                if streak > 0 {
+                    let now = std::time::Instant::now().elapsed().as_secs() as usize;
+                    if now.saturating_sub(last_evict_note) >= 600 {
+                        last_evict_note = now;
+                        market_analyzer::analyzer::history_budget::note_quiet_period();
+                    }
+                }
+            }
+        }));
+    }
+
+    /// Resident set size of this process in kibibytes (Linux `/proc/self/statm`
+    /// field 2 × page size). `0` when unavailable — the memory log then degrades
+    /// to the budget-only reading rather than failing.
+    fn read_resident_set_kb() -> usize {
+        read_proc_statm_kb()
+    }
+
+    /// Total physical memory available to the host in kibibytes
+    /// (`/proc/meminfo` `MemTotal`). `0` when unavailable.
+    fn read_total_memory_kb() -> usize {
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            for line in meminfo.lines() {
+                if let Some(rest) = line.strip_prefix("MemTotal:") {
+                    let kb: usize = rest
+                        .trim()
+                        .trim_end_matches("kB")
+                        .trim()
+                        .parse()
+                        .unwrap_or(0);
+                    return kb;
+                }
+            }
+        }
+        0
+    }
+
+    fn read_proc_statm_kb() -> usize {
+        let Ok(statm) = std::fs::read_to_string("/proc/self/statm") else {
+            return 0;
+        };
+        let resident_pages: usize = statm
+            .split_whitespace()
+            .nth(1)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        // `sysconf(_SC_PAGESIZE)` is 4 KiB on every Linux target we ship.
+        resident_pages.saturating_mul(4)
     }
 
     // ── Launch surface: CLI terminal monitor vs web server ──────────

@@ -822,3 +822,126 @@ async fn history_db_fallback_carries_overlay_indicators_for_above_minute() {
     .await
     .expect("DB-fallback overlay indicator test timed out");
 }
+
+// ── v11.12.24: overlay bootstrap source after the projection ─────────
+//
+// The retained-history projection drops `volume_profile` and `liquidity` (the
+// flow's `recent_real_buckets` map alone reaches 2 000 entries at the shipped
+// 24 h retention — it was a headline term in the OOM). `serve_history` used
+// to read both from `snapshot_history.back()`; it now reads
+// `latest_snapshot` FIRST (authoritative and fresher — it is per-candle
+// latest data) and only falls back to the retained window. These tests pin
+// both halves so the Metrics tab's Flow / Volume-Profile sub-views can still
+// bootstrap on first mount, before the next WS frame arrives.
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn volume_profile_and_liquidity_bootstrap_from_latest_snapshot() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        // The NEWEST retained entry is PROJECTED (no volume_profile, no
+        // liquidity) — i.e. what the live pipeline now retains — while
+        // `latest_snapshot` holds the FULL frame, because that is the LIVE
+        // surface and it keeps every field.
+        let mut newest_full = make_snapshot(1, 1_718_000_003, 65002.0);
+        newest_full.volume_profile = Some(core_domain::volume_profile::VolumeProfileSnapshot {
+            symbol: PAIR_KEY.to_string(),
+            timeframe_label: "1s".to_string(),
+            timeframe_secs: 1,
+            bins: vec![],
+            poc_price: 65_000.0,
+            value_area_high: 65_010.0,
+            value_area_low: 64_990.0,
+            total_volume: 10.0,
+            range_low: 64_990.0,
+            range_high: 65_010.0,
+            num_bins: 2,
+            timestamp_ms: 0,
+        });
+        newest_full.liquidity = Some(core_domain::liquidity::LiquidityFlow::default());
+        let seed: Vec<MarketSnapshot> = vec![
+            make_snapshot(1, 1_718_000_001, 65000.0),
+            make_snapshot(1, 1_718_000_002, 65001.0),
+            newest_full.history_projection(),
+        ];
+
+        let (_router, state) = build_router_with_snapshots(1, seed).await;
+        // `latest_snapshot` is the live authoritative holder — populate it with
+        // the full newest frame, exactly as `run_single` does on a close.
+        let inst = state.workspace.get(PAIR_KEY).await.expect("instance");
+        *inst
+            .active_pair
+            .pipeline_for_secs(1)
+            .expect("1s pipeline")
+            .latest_snapshot
+            .write()
+            .await = Some(newest_full);
+        let addr = serve_for(state.clone()).await;
+
+        let body: serde_json::Value = reqwest::Client::new()
+            .get(format!(
+                "http://{addr}/api/history?symbol={PAIR_KEY}&timeframe_secs=1&limit=50"
+            ))
+            .send()
+            .await
+            .expect("history request")
+            .json()
+            .await
+            .expect("json");
+
+        assert!(
+            body.get("volume_profiles").is_some(),
+            "volume_profiles must still be served: {body:?}"
+        );
+        assert!(
+            body.get("liquidity_flows").is_some(),
+            "liquidity_flows must still be served: {body:?}"
+        );
+        let vps = body["volume_profiles"]
+            .as_object()
+            .expect("volume_profiles map");
+        assert!(
+            !vps.is_empty(),
+            "the per-TF volume profile must be populated from latest_snapshot \
+             now that the retained window drops it: {vps:?}"
+        );
+    })
+    .await
+    .expect("overlay bootstrap test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn overlay_bootstrap_falls_back_to_the_retained_window() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        // Unprojected seed + NO `latest_snapshot` (a sub-minute pipeline
+        // before its first completed close) — the retained window must still
+        // answer, so the response shape is unchanged for that window.
+        let mut seed: Vec<MarketSnapshot> = (0..2)
+            .map(|i| make_snapshot(1, 1_718_000_001 + i, 65000.0))
+            .collect();
+        seed[1].liquidity = Some(core_domain::liquidity::LiquidityFlow::default());
+
+        let (_router, state) = build_router_with_snapshots(1, seed).await;
+        let addr = serve_for(state.clone()).await;
+        let body: serde_json::Value = reqwest::Client::new()
+            .get(format!(
+                "http://{addr}/api/history?symbol={PAIR_KEY}&timeframe_secs=1&limit=50"
+            ))
+            .send()
+            .await
+            .expect("history request")
+            .json()
+            .await
+            .expect("json");
+
+        assert!(
+            body.get("liquidity_flows").is_some(),
+            "the fallback to snapshot_history.back() must keep the key present: {body:?}"
+        );
+        let flows = body["liquidity_flows"].as_object().expect("map");
+        assert!(
+            !flows.is_empty(),
+            "with an empty latest_snapshot the retained window supplies the flow"
+        );
+    })
+    .await
+    .expect("overlay fallback test timed out");
+}

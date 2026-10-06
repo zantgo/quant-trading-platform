@@ -7,6 +7,7 @@
 import { tfLabel } from '../../types';
 import type { IndicatorFlatHistory } from '../indicatorHistory';
 import { normalizeHistoryForStore, type RawResponse } from './reconciledView';
+import { HISTORY_LIMIT } from '../indicatorHistory';
 
 const HISTORY_URL = '/api/history';
 
@@ -34,7 +35,7 @@ export function fetchHistorical(
         try {
             const slotParam = slot != null ? `&slot=${encodeURIComponent(typeof slot === 'number' ? tfLabel(slot) : slot)}` : '';
             const res = await fetch(
-                `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000${slotParam}`,
+                `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=${HISTORY_LIMIT}${slotParam}`,
             );
             if (!res.ok) return null;
             const raw = (await res.json()) as RawResponse;

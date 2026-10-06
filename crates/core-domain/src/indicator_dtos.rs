@@ -156,6 +156,58 @@ impl NormalizedIndicatorValue {
     pub fn has_signals(&self) -> bool {
         !self.signals.is_empty()
     }
+
+    /// v11.12.24 (memory): the retained-history projection of this reading.
+    ///
+    /// `TimeframePipeline.snapshot_history` keeps a rolling window of
+    /// completed snapshots per (instance × duration) purely to serve
+    /// `GET /api/history`. That handler reads **only** `raw_value`,
+    /// `normalized`, `state_label` and `values` off each entry
+    /// (`HistoricalIndicatorArrays::push_value`); the discrete `signals`
+    /// and the `confidence` scalar are never read from the retained
+    /// window. Across a full 52-indicator map the per-bar `signals`
+    /// (17 of 43 keys carry them in the AEON corpus) dominate the
+    /// retained bytes, so dropping them is the cheapest large win
+    /// available without touching anything a chart renders.
+    ///
+    /// The **live** frame (`latest_snapshot` + the broadcast payload)
+    /// keeps the full reading — this projection is applied only on the
+    /// way INTO the retained history.
+    pub fn history_projection(&self) -> Self {
+        Self {
+            raw_value: self.raw_value,
+            normalized: self.normalized,
+            state_label: self.state_label.clone(),
+            values: self.values.clone(),
+            signals: Vec::new(),
+            confidence: 0.0,
+        }
+    }
+
+    /// Cheap structural weight estimate (bytes) used by the retained-history
+    /// byte budget. Never serialized — a rough per-allocation approximation
+    /// is enough to keep the global counter in the right order of magnitude.
+    pub fn history_weight_bytes(&self) -> usize {
+        // key String + struct head
+        let mut n = 64 + self.state_label.len();
+        if let Some(values) = self.values.as_ref() {
+            // HashMap head + per-entry (String key + f64)
+            n += 48 + values.len() * 48;
+            for k in values.keys() {
+                n += k.len();
+            }
+        }
+        if !self.signals.is_empty() {
+            n += 24 + self.signals.len() * 128;
+            for s in &self.signals {
+                n += s.label.len() + s.strength_label.len();
+                if let Some(points) = s.points.as_ref() {
+                    n += 32 + points.len() * 48;
+                }
+            }
+        }
+        n
+    }
 }
 
 impl NormalizedIndicatorValue {

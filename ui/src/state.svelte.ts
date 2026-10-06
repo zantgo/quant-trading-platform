@@ -85,9 +85,15 @@ function createInstanceState(symbol: string): InstanceState {
         terms: Object.fromEntries(
             DURATIONS.map((secs) => [secs, createTimeframeTelemetry(symbol, secs)]),
         ) as Record<number, TimeframeTelemetry>,
-        // Default to the full pool until `/api/instances` delivers
-        // `active_secs` (reconcileInstances narrows it to the ACTIVE set).
-        activeDurations: [...DURATIONS],
+        // v11.12.24: EMPTY until `/api/config.timeframes` (or the
+        // per-instance `active_secs` fallback) delivers the ladder —
+        // `reconcileInstances` fills it. The previous `[...DURATIONS]` seed
+        // made the unknown state indistinguishable from "all 14 active", so
+        // `connectWebsocket` opened a socket per pool duration; the 4 outside
+        // the ladder could never resolve and reconnected forever. Rendering
+        // still falls back to the full pool via `activeDurations()` (dim idle
+        // cards), and socket management uses the strict `socketDurations()`.
+        activeDurations: [],
         historyLatestClose: '0',
         currentView: 'terminal',
         activeTf: 1,
@@ -555,10 +561,23 @@ export class AppStore {
             } else {
                 // Config endpoint unavailable — fall back to the live
                 // instance ladder (pre-v11.11 behavior).
+                //
+                // v11.12.24: this path must ALSO report a change. The store
+                // now seeds `activeDurations` empty (so socket management can
+                // distinguish "ladder unknown" from "all 14 active"), which
+                // means a poll that only ever takes this fallback would
+                // populate the ladder without bumping the WS version — the
+                // effect would see zero expected sockets and never attach.
                 for (const inst of instances) {
                     if (!inst?.pair || !Array.isArray(inst.active_secs) || inst.active_secs.length === 0) continue;
                     const entry = this.instancesMap[inst.pair];
-                    if (entry) entry.activeDurations = durationsFromSecs(inst.active_secs);
+                    if (!entry) continue;
+                    const canonical = durationsFromSecs(inst.active_secs);
+                    if (canonical.length === 0) continue;
+                    if (JSON.stringify(entry.activeDurations) !== JSON.stringify(canonical)) {
+                        entry.activeDurations = canonical;
+                        ladderChanged = true;
+                    }
                 }
             }
             // A poll-discovered ladder change (other tab / CLI edit) must

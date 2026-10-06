@@ -594,7 +594,8 @@
             // up to MAX_HISTORY_FILL_BARS per gap, so no second fill is needed
             // for history-sourced data — a second `fillTimeGaps(300)` would
             // double-fill sparse sub-minute ranges and then truncate real
-            // candles when the final `limit=1000` slice is applied. The extra
+            // candles when the final `limit` slice is applied (500 bars as of
+            // v11.12.24 — the backend retention depth). The extra
             // frontend fill is only used for the warm-cache path (above),
             // where gaps come from a sparse local cache that was never
             // backend-filled. For cold history we present the server's

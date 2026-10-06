@@ -90,6 +90,7 @@ fn default_candle_duration() -> u64 {
 /// stale_threshold_secs = 300                # CB-04 / DCP-05 / ILS-07
 /// fetch_timeout_ms = 30000                  # HFP-10
 /// sub_minute_skip_historical = false        # PRI-03 (v6.10.7): sub-minute state-replay warmup
+/// max_snapshot_history_bytes = 536870912    # v11.12.24: process-wide retained-snapshot budget (512 MiB)
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandleBufferConfig {
@@ -129,6 +130,19 @@ pub struct CandleBufferConfig {
     /// the chart stays live-only.
     #[serde(default = "default_sub_minute_skip_historical")]
     pub sub_minute_skip_historical: bool,
+
+    /// v11.12.24 (memory): process-wide ceiling, in bytes, on the retained
+    /// `MarketSnapshot` history across **every** pipeline. The per-duration
+    /// retained window is rolled at `size` (CB-03); this is the second,
+    /// global tier that turns "many instances × many durations" from an
+    /// OOM kill into a chart that quietly keeps fewer bars. When the
+    /// estimated total crosses this value, the oldest entries are evicted
+    /// (floor 50 per duration) and a rate-limited warning is logged.
+    ///
+    /// Default: **512 MiB**. Set to `0` to disable byte-budget eviction and
+    /// rely on the per-duration cap alone.
+    #[serde(default = "default_max_snapshot_history_bytes")]
+    pub max_snapshot_history_bytes: usize,
 }
 
 impl Default for CandleBufferConfig {
@@ -138,12 +152,18 @@ impl Default for CandleBufferConfig {
             stale_threshold_secs: default_stale_threshold_secs(),
             fetch_timeout_ms: default_fetch_timeout_ms(),
             sub_minute_skip_historical: default_sub_minute_skip_historical(),
+            max_snapshot_history_bytes: default_max_snapshot_history_bytes(),
         }
     }
 }
 
 fn default_candle_buffer_size() -> usize {
     500
+}
+
+/// 512 MiB — see [`CandleBufferConfig::max_snapshot_history_bytes`].
+fn default_max_snapshot_history_bytes() -> usize {
+    512 * 1024 * 1024
 }
 
 fn default_stale_threshold_secs() -> u64 {
@@ -1542,6 +1562,17 @@ pub struct ClockMonitorTomlConfig {
     pub breach_action: ClockMonitorBreachAction,
     #[serde(default = "default_clock_monitor_warn_on_breach")]
     pub warn_on_breach: bool,
+    /// v11.12.24: servers queried per poll; the lowest-RTT answer wins.
+    #[serde(default = "default_clock_monitor_servers_per_poll")]
+    pub servers_per_poll: usize,
+    /// v11.12.24: consecutive breaches before the drift line is logged
+    /// (`breach_action = panic` stays immediate).
+    #[serde(default = "default_clock_monitor_breach_consecutive")]
+    pub breach_consecutive_threshold: u32,
+    /// v11.12.24: minimum seconds between drift lines while a breach streak
+    /// persists.
+    #[serde(default = "default_clock_monitor_breach_log_interval")]
+    pub breach_log_interval_secs: u64,
 }
 
 impl Default for ClockMonitorTomlConfig {
@@ -1556,6 +1587,9 @@ impl Default for ClockMonitorTomlConfig {
             max_rtt_micros: default_clock_monitor_max_rtt_micros(),
             breach_action: default_clock_monitor_breach_action(),
             warn_on_breach: default_clock_monitor_warn_on_breach(),
+            servers_per_poll: default_clock_monitor_servers_per_poll(),
+            breach_consecutive_threshold: default_clock_monitor_breach_consecutive(),
+            breach_log_interval_secs: default_clock_monitor_breach_log_interval(),
         }
     }
 }
@@ -1600,6 +1634,15 @@ fn default_clock_monitor_breach_action() -> ClockMonitorBreachAction {
 }
 fn default_clock_monitor_warn_on_breach() -> bool {
     true
+}
+fn default_clock_monitor_servers_per_poll() -> usize {
+    3
+}
+fn default_clock_monitor_breach_consecutive() -> u32 {
+    3
+}
+fn default_clock_monitor_breach_log_interval() -> u64 {
+    600
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

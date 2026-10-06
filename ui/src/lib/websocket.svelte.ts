@@ -2,7 +2,7 @@ import type { AppStore } from '../state.svelte';
 import type { IndicatorDto, IndicatorMap, TimeframeTelemetry } from '../types';
 import { DURATIONS, tfLabel } from '../types';
 import { getDecimalCount } from './telemetry';
-import { activeDurations } from './terms';
+import { activeDurations, socketDurations } from './terms';
 import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
 import { emitCandleDebug } from './candleDebug';
 import { pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY, getBadgeHistory } from './badgeHistory.svelte';
@@ -602,6 +602,21 @@ export function connectWebsocketForTimeframe(
         // again. The pair-removal check below still stops the loop when
         // the user removes the instance.
         state.backoff[wsKey] = nextBackoff(state.backoff[wsKey]);
+        // v11.12.24: only re-open a slot the ladder still wants. The server
+        // closes a socket whose duration is outside the ACTIVE ladder (it has
+        // no pipeline to bind), so an unconditional reconnect loops forever —
+        // four such sockets per instance per tab on a ten-duration ladder,
+        // each holding a server task for 60 s per attempt.
+        //
+        // SAFETY: `socketDurations` returns `[]` for an unknown ladder, which
+        // would suppress EVERY reconnect and silently freeze the charts if
+        // `/api/config` were unreachable. So the ladder must be KNOWN
+        // (non-empty) *and* exclude this slot before we suppress; otherwise
+        // we reconnect exactly as before.
+        const ladder = socketDurations(app.instancesMap[symbol]);
+        if (ladder.length > 0 && !ladder.includes(wsKey)) {
+            return;
+        }
         setTimeout(() => {
             if (app.instancesMap[symbol]) {
                 connectWebsocketForTimeframe(app, state, tf, tfSecs, symbol);
@@ -619,10 +634,15 @@ export function connectWebsocket(app: AppStore, state: WsState, symbol: string):
     if (!pair) return;
 
     // Each `TimeframeTelemetry` carries its own duration identity. v11.9:
-    // only the instance's ACTIVE durations get sockets (`activeDurations`);
-    // the rest are INERT (the backend never serves their `/ws` routes) and
-    // must not even attempt one.
-    for (const secs of activeDurations(pair)) {
+    // only the instance's ACTIVE durations get sockets; the rest are INERT
+    // (the backend never serves their `/ws` routes) and must not even
+    // attempt one.
+    //
+    // v11.12.24: `socketDurations` (strict) rather than `activeDurations`
+    // (full-pool fallback) — an unknown ladder now opens ZERO sockets
+    // instead of 14 doomed ones, and `reconcileInstances` → `bumpWsVersion`
+    // re-runs this effect with the real ladder a moment later.
+    for (const secs of socketDurations(pair)) {
         const tf = pair.terms[secs];
         if (!tf) continue;
         connectWebsocketForTimeframe(app, state, tf, tf.barDurationSec, symbol);
@@ -697,7 +717,9 @@ export function shouldReconnect(app: AppStore, state: WsState, symbol: string): 
 
     // v11.9: the expected socket count is the ACTIVE ladder length, not
     // the full pool — inactive durations have no sockets by design.
-    const active = activeDurations(pair);
+    // v11.12.24: strict set, so an unknown ladder expects zero sockets and
+    // does not report a false deficit on every effect tick.
+    const active = socketDurations(pair);
     const connectionsNeeded = active.length;
     let activeConnections = 0;
     for (const secs of active) {

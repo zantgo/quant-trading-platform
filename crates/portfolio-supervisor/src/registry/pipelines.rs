@@ -92,8 +92,20 @@ pub async fn build_pipelines(
         .collect();
     let n = active_secs.len();
 
+    // v11.12.24 (memory): per-duration WS fan-out ring. The WS handler treats
+    // a `Lagged` notification as "resume at the newest frame" (it never
+    // replays the backlog), so a large ring buys nothing but retention: at
+    // 200 the worst case is 200 × ~120 KB ≈ 24 MB **per subscribed channel**,
+    // and the dashboard subscribes one channel per (instance × duration) —
+    // i.e. ~7 GB of worst-case ring at 30 channels on a 2.8 GB host. 32 still
+    // covers minutes of catch-up (32 × the shadow interval), and a tab that
+    // stalls past it simply loses intermediate frames, which is what the
+    // frontend already handles. `broadcast_lag.rs` pins the lag semantics
+    // against its own capacity-4 channel, so this constant is not load-bearing
+    // for any test.
+    const BROADCAST_SLOT_CAPACITY: usize = 32;
     let broadcast_txs: Vec<tokio::sync::broadcast::Sender<MarketSnapshot>> = (0..n)
-        .map(|_| tokio::sync::broadcast::channel::<MarketSnapshot>(200).0)
+        .map(|_| tokio::sync::broadcast::channel::<MarketSnapshot>(BROADCAST_SLOT_CAPACITY).0)
         .collect();
 
     let histories: Vec<Arc<RwLock<VecDeque<NormalizedCandle>>>> = (0..n)
@@ -108,12 +120,14 @@ pub async fn build_pipelines(
         .map(|_| Arc::new(RwLock::new(None::<MarketSnapshot>)))
         .collect();
 
+    // v11.12.24 (memory): grown on demand. This used to pre-allocate
+    // `with_capacity(ctx.buffer_size)` — 500 slots of `MarketSnapshot`
+    // (~1.5 KB of struct each) per duration per instance, i.e. ~7.5 MB
+    // allocated up front for a pipeline that may only ever hold a handful
+    // of bars on a quiet pair. `VecDeque` grows geometrically anyway and
+    // `history_budget::push_retained` bounds the steady state.
     let snapshot_histories: Vec<Arc<RwLock<VecDeque<MarketSnapshot>>>> = (0..n)
-        .map(|_| {
-            Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-                ctx.buffer_size,
-            )))
-        })
+        .map(|_| Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new())))
         .collect();
 
     // Per-TF cluster-matrix handles (Phase 2). Each TF pipeline gets its

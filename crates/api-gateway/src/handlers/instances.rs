@@ -126,12 +126,33 @@ pub async fn serve_delete_instance(
     // cancel the pipeline, drain the buffers, and remove from the
     // workspace in one shot. The only 4xx we ever emit is 404 if the
     // instance_id is unknown to the workspace.
+    // pair is gone. The handler pins an `Arc<ActivePair>` for the socket's
+    // lifetime and only drops it when a `RechargeNotice` for that pair
+    // arrives (see `ws.rs` — `current_pair = None`). A DELETE emitted no
+    // notice, so every open tab kept a deleted pair's entire pipeline alive
+    // — all durations' retained history, broadcast Senders and indicator
+    // state — for as long as the tab lived. On a delete-heavy session that is
+    // unbounded dead weight on a host with 2.8 GB. Captured BEFORE the
+    // delete because `workspace.get` is keyed by pair, and the delete has
+    // already removed the entry by the time it returns.
+    let deleted_pair_key = state
+        .workspace
+        .list()
+        .await
+        .into_iter()
+        .find(|i| i.id == instance_id)
+        .map(|i| i.pair_key());
     match registry::delete_instance(&state.registry_context(), &instance_id).await {
-        Ok(()) => (
-            axum::http::StatusCode::OK,
-            format!("Instance {} deleted", instance_id),
-        )
-            .into_response(),
+        Ok(()) => {
+            if let Some(pair_key) = deleted_pair_key {
+                let _ = state.recharge_tx.send(crate::RechargeNotice { pair_key });
+            }
+            (
+                axum::http::StatusCode::OK,
+                format!("Instance {} deleted", instance_id),
+            )
+                .into_response()
+        }
         Err(e) => (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": e })),
@@ -148,11 +169,19 @@ pub async fn serve_delete_instance_by_pair(
 
     match instance_id {
         Some(id) => match registry::delete_instance(&state.registry_context(), &id).await {
-            Ok(()) => (
-                axum::http::StatusCode::OK,
-                format!("Instance {} deleted", pair_key),
-            )
-                .into_response(),
+            Ok(()) => {
+                // v11.12.24 (memory): same reason as
+                // `serve_delete_instance` — releases the `Arc<ActivePair>`
+                // pinned by every open WS socket for this pair.
+                let _ = state.recharge_tx.send(crate::RechargeNotice {
+                    pair_key: pair_key.clone(),
+                });
+                (
+                    axum::http::StatusCode::OK,
+                    format!("Instance {} deleted", pair_key),
+                )
+                    .into_response()
+            }
             Err(e) => (
                 axum::http::StatusCode::NOT_FOUND,
                 Json(serde_json::json!({ "error": e })),

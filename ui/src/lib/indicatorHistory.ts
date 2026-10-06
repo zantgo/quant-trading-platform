@@ -44,6 +44,14 @@ export interface IndicatorFlatHistory {
 
 const HISTORY_URL = '/api/history';
 
+// v11.12.24 (memory): bars requested per history fetch. The backend retains
+// `[candle_buffer].size` (500) completed snapshots per (instance × duration)
+// and enforces the process-wide byte budget that keeps that affordable, so
+// 500 is the depth the server can actually serve. Asking for more would just
+// return the same 500 after cloning and discarding the rest. Both history
+// fetchers (this module and `chartData/historicalStore.ts`) share the number.
+export const HISTORY_LIMIT = 500;
+
 const cache = new Map<string, Promise<IndicatorFlatHistory | null>>();
 // Resolved history objects for live mutation (P0 fix: sub-minute live-append).
 // The promise cache above is write-once; this map holds the mutable object
@@ -92,7 +100,7 @@ export function fetchIndicatorHistoryOnce(
             try {
                 const slotParam = slotParam0 ? `&slot=${encodeURIComponent(slotParam0)}` : '';
                 const res = await fetch(
-                    `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000${slotParam}`,
+                    `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=${HISTORY_LIMIT}${slotParam}`,
                 );
                 if (!res.ok) return null;
                 const raw = (await res.json()) as RawResponse;

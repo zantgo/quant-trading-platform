@@ -61,6 +61,22 @@ pub struct ClockMonitorConfig {
     /// `Unreliable` instead of being judged — a slow network path must never
     /// masquerade as clock drift.
     pub max_rtt: Duration,
+    /// v11.12.24: how many configured servers to query per poll, taking the
+    /// **lowest-RTT** answer. NTP offset uncertainty grows with the round trip,
+    /// so the fastest reply is the most trustworthy — and asking several stops
+    /// a single bad pool member (the shipped first entry, `pool.ntp.org`,
+    /// happily answers from a 64 ms stratum-2 host on a congested network)
+    /// from being the only voice. `1` restores legacy first-answer-wins.
+    /// Clamped to the configured server count.
+    pub servers_per_poll: usize,
+    /// v11.12.24: consecutive breaches required before the drift line is
+    /// logged, so one noisy sample cannot masquerade as clock drift. Resets on
+    /// any clean verdict. `breach_count` still increments on EVERY breach and
+    /// `breach_action = panic` stays immediate — only the log is debounced.
+    pub breach_consecutive_threshold: u32,
+    /// v11.12.24: minimum gap between drift lines while a breach streak
+    /// persists, so a genuinely broken clock cannot print every 30 s poll.
+    pub breach_log_interval: Duration,
 }
 
 impl Default for ClockMonitorConfig {
@@ -79,6 +95,9 @@ impl Default for ClockMonitorConfig {
             // 1 s: an NTP sample with a round-trip beyond this cannot resolve
             // a 10 ms budget (offset uncertainty ≈ rtt/2) — reported, not judged.
             max_rtt: Duration::from_secs(1),
+            servers_per_poll: 3,
+            breach_consecutive_threshold: 3,
+            breach_log_interval: Duration::from_secs(600),
         }
     }
 }
@@ -87,6 +106,11 @@ pub struct ClockMonitor {
     config: ClockMonitorConfig,
     samples: Mutex<Vec<ClockSample>>,
     breach_count: AtomicU32,
+    /// v11.12.24: consecutive breach verdicts seen so far (reset by any clean
+    /// verdict). Gates the drift LOG only.
+    consecutive_breaches: AtomicU32,
+    /// v11.12.24: `Instant` of the last drift line, for the interval cap.
+    last_breach_log: Mutex<Option<std::time::Instant>>,
 }
 
 impl ClockMonitor {
@@ -95,6 +119,8 @@ impl ClockMonitor {
             config,
             samples: Mutex::new(Vec::new()),
             breach_count: AtomicU32::new(0),
+            consecutive_breaches: AtomicU32::new(0),
+            last_breach_log: Mutex::new(None),
         }
     }
 
@@ -103,13 +129,23 @@ impl ClockMonitor {
     }
 
     /// Single NTP measurement. Returns a verdict; updates internal sample history on
-    /// any successful query. On network failure for every configured server, returns
+    /// any successful query. On network failure for every queried server, returns
     /// `NetworkError`. Never panics on transport errors.
+    ///
+    /// v11.12.24: queries up to `servers_per_poll` of the configured servers
+    /// and returns the **lowest-RTT** sample. The previous first-answer-wins
+    /// loop returned whatever `pool.ntp.org` happened to route us to — a
+    /// 64 ms round trip carries ≈ ±32 ms of offset uncertainty, which against
+    /// a 10 ms budget produced breaches that a better server disproved. Only
+    /// the winning sample is recorded in the jitter window (recording the
+    /// losers would pollute RMS jitter with the very samples we just rejected).
     pub async fn measure_once(&self) -> DriftVerdict {
         let threshold_us = clamp_threshold_to_i64(self.config.threshold);
         let max_rtt_us = self.config.max_rtt.as_micros().min(u64::MAX as u128) as u64;
+        let budget = self.config.servers_per_poll.max(1);
 
-        for server in &self.config.ntp_servers {
+        let mut best: Option<ClockSample> = None;
+        for server in self.config.ntp_servers.iter().take(budget) {
             let addr = format!("{}:123", server);
             match query_server(&addr, self.config.query_timeout).await {
                 Ok(ntp_result) => {
@@ -119,9 +155,13 @@ impl ClockMonitor {
                         server: server.clone(),
                         measured_at_ms: now_ms(),
                     };
-                    let verdict = verdict_from_sample(&sample, threshold_us, max_rtt_us);
-                    self.record_sample(sample);
-                    return verdict;
+                    let better = match best.as_ref() {
+                        None => true,
+                        Some(cur) => sample.rtt_us < cur.rtt_us,
+                    };
+                    if better {
+                        best = Some(sample);
+                    }
                 }
                 Err(err) => {
                     eprintln!(
@@ -132,9 +172,16 @@ impl ClockMonitor {
             }
         }
 
-        DriftVerdict::NetworkError {
-            message: "all configured NTP servers unreachable".to_string(),
-            retry_after: self.config.poll_interval,
+        match best {
+            Some(sample) => {
+                let verdict = verdict_from_sample(&sample, threshold_us, max_rtt_us);
+                self.record_sample(sample);
+                verdict
+            }
+            None => DriftVerdict::NetworkError {
+                message: "all configured NTP servers unreachable".to_string(),
+                retry_after: self.config.poll_interval,
+            },
         }
     }
 
@@ -163,6 +210,7 @@ impl ClockMonitor {
                 rtt_us,
                 server,
             } => {
+                self.consecutive_breaches.store(0, Ordering::Relaxed);
                 println!(
                     "ClockMonitor: drift within threshold (offset={}µs, rtt={}µs, server={})",
                     offset_us, rtt_us, server
@@ -174,23 +222,18 @@ impl ClockMonitor {
                 server,
                 threshold_us,
             } => {
+                // `breach_count` is the observability counter: EVERY breach
+                // counts, debounced log or not.
                 self.breach_count.fetch_add(1, Ordering::Relaxed);
-                let msg = format!(
-                    "CLOCK DRIFT BREACH: |{}µs| > threshold {}µs (rtt={}µs, server={})",
-                    offset_us, threshold_us, rtt_us, server
-                );
-                if self.config.warn_on_breach {
-                    eprintln!("{}", msg);
-                }
+                let streak = self.consecutive_breaches.fetch_add(1, Ordering::Relaxed) + 1;
+                // v11.12.24: the panic path is deliberately NOT debounced — an
+                // operator who chose `breach_action = panic` wants a hard stop
+                // on the first proof, not on the third.
                 if matches!(self.config.breach_action, BreachAction::Panic) {
-                    // K2 (production audit): `panic!` inside the monitor task was
-                    // discarded by `join_all`, killing only the monitor. The
-                    // operator explicitly chose `breach_action=panic` as a
-                    // hard-stop — terminate the process so trading stops. Flush
-                    // stderr first so the breach message is not lost in the WAL
-                    // tail; the daemon's graceful shutdown path (SIGTERM) already
-                    // drains the telemetry queue, but a hard-stop is by definition
-                    // immediate.
+                    let msg = format!(
+                        "CLOCK DRIFT BREACH: |{}µs| > threshold {}µs (rtt={}µs, server={})",
+                        offset_us, threshold_us, rtt_us, server
+                    );
                     eprintln!("{}", msg);
                     eprintln!("ClockMonitor: breach_action=panic — terminating process");
                     // Best-effort flush before exit (not async, so no drain).
@@ -198,6 +241,27 @@ impl ClockMonitor {
                     let _ = std::io::stderr().flush();
                     let _ = std::io::stdout().flush();
                     std::process::exit(1);
+                }
+                // v11.12.24: streak gate, then an interval cap so a persistent
+                // 1.3 s offset cannot print on every 30 s poll. The streak
+                // message carries the count so a debounced line is still
+                // self-describing.
+                let required = self.config.breach_consecutive_threshold.max(1);
+                if streak < required {
+                    return;
+                }
+                if !self.should_log_breach_now() {
+                    return;
+                }
+                if self.config.warn_on_breach {
+                    eprintln!(
+                        "CLOCK DRIFT BREACH: |{}µs| > threshold {}µs (rtt={}µs, server={}) — {} consecutive sample(s)",
+                        offset_us,
+                        threshold_us,
+                        rtt_us,
+                        server,
+                        streak,
+                    );
                 }
             }
             DriftVerdict::Unreliable {
@@ -208,6 +272,9 @@ impl ClockMonitor {
             } => {
                 // v11.12.19: informational only — never a breach, never a
                 // panic, never a breach_count increment.
+                // v11.12.24: an unusable sample says nothing about drift, so it
+                // breaks the streak rather than extending it.
+                self.consecutive_breaches.store(0, Ordering::Relaxed);
                 if self.config.warn_on_breach {
                     eprintln!(
                         "ClockMonitor: NTP sample UNRELIABLE — rtt={}µs > max {}µs (offset={}µs, server={}); drift not evaluated",
@@ -219,6 +286,7 @@ impl ClockMonitor {
                 message,
                 retry_after,
             } => {
+                self.consecutive_breaches.store(0, Ordering::Relaxed);
                 eprintln!(
                     "ClockMonitor: NTP network error: {} (retry in {}s)",
                     message,
@@ -256,6 +324,32 @@ impl ClockMonitor {
 
     pub fn breach_count(&self) -> u32 {
         self.breach_count.load(Ordering::Relaxed)
+    }
+
+    /// Consecutive breach verdicts since the last clean/unusable sample.
+    pub fn consecutive_breaches(&self) -> u32 {
+        self.consecutive_breaches.load(Ordering::Relaxed)
+    }
+
+    /// v11.12.24: rate limiter for the drift log. The first line always
+    /// prints; subsequent lines need `breach_log_interval` to have elapsed.
+    fn should_log_breach_now(&self) -> bool {
+        let mut guard = self
+            .last_breach_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        match *guard {
+            None => {
+                *guard = Some(now);
+                true
+            }
+            Some(last) if now.duration_since(last) >= self.config.breach_log_interval => {
+                *guard = Some(now);
+                true
+            }
+            Some(_) => false,
+        }
     }
 
     /// Record a sample into the rolling window. Public so tests can inject data

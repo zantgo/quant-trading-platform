@@ -40,6 +40,7 @@ use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
 use core_domain::statistics::{StatisticsConfig, StatisticsEngine};
 use core_domain::volume_profile::{VolumeProfileBin, VolumeProfileSnapshot};
 
+pub mod history_budget;
 pub mod normalize;
 pub mod warm;
 pub use warm::{warm_indicators_for_timeframe, WarmedPipelineState, HIST_BUFFER_MAX};
@@ -257,6 +258,27 @@ impl ActivePair {
         hist.iter().cloned().collect()
     }
 
+    /// v11.12.24 (memory): the newest `limit` retained snapshots for a
+    /// duration.
+    ///
+    /// `snapshot_history_vec` deep-clones the whole window, so
+    /// `GET /api/history?limit=10` used to allocate ~500 retained frames
+    /// (~50 MB of heap) before the handler truncated them. The retained
+    /// window is rolled at `[candle_buffer].size`, so taking the tail
+    /// first is what makes a bounded request bounded.
+    pub async fn snapshot_history_tail_vec(
+        &self,
+        timeframe_secs: u64,
+        limit: usize,
+    ) -> Vec<MarketSnapshot> {
+        let Some(p) = self.pipeline_for_secs(timeframe_secs) else {
+            return Vec::new();
+        };
+        let hist = p.snapshot_history.read().await;
+        let skip = hist.len().saturating_sub(limit);
+        hist.iter().skip(skip).cloned().collect()
+    }
+
     /// AUDIT-AIU-121 successor: label-authoritative history — used by
     /// `/api/history` when the caller passes `?slot=1m`. Resolves the
     /// EXACT pipeline by derived duration label; falls back to the
@@ -266,11 +288,24 @@ impl ActivePair {
         label: Option<&str>,
         timeframe_secs: u64,
     ) -> Vec<MarketSnapshot> {
+        self.snapshot_history_tail_vec_for_label_or_secs(label, timeframe_secs, usize::MAX)
+            .await
+    }
+
+    /// Label-authoritative **tail** read — `limit` newest entries only.
+    /// See [`ActivePair::snapshot_history_tail_vec`].
+    pub async fn snapshot_history_tail_vec_for_label_or_secs(
+        &self,
+        label: Option<&str>,
+        timeframe_secs: u64,
+        limit: usize,
+    ) -> Vec<MarketSnapshot> {
         if let Some(resolved) = label.and_then(|l| self.pipeline_for_label(l)) {
             let hist = resolved.snapshot_history.read().await;
-            return hist.iter().cloned().collect();
+            let skip = hist.len().saturating_sub(limit);
+            return hist.iter().skip(skip).cloned().collect();
         }
-        self.snapshot_history_vec(timeframe_secs).await
+        self.snapshot_history_tail_vec(timeframe_secs, limit).await
     }
 
     /// Latest completed snapshot for each ACTIVE duration (fastest →
@@ -612,6 +647,34 @@ pub fn derive_pipeline_state_with_staleness(
 /// Stable slot identity. Stamped onto every snapshot emitted by this task
 /// so the wire and the frontend always know which slot a snapshot came from,
 /// regardless of the user-chosen `timeframe_secs`.
+/// v11.12.24 (memory): the SINGLE writer for a `snapshot_history` deque.
+///
+/// Every completed-candle path in `run_single` (real close, force-close,
+/// stale-gap Doji fill, idle-bucket heartbeat Doji, reconnect-gap Doji) used
+/// to inline the same `push_back` + `while len > HIST_BUFFER_MAX { pop_front }`
+/// pair, retaining up to **1000 full** snapshots per (instance × duration).
+/// A completed frame is ~120 KB of heap (measured: 54.9 KB JSON), and
+/// `/api/history` reads only `timestamp`, OHLCV, `quality_envelope
+/// .is_gap_filled` and `indicators.{raw,normalized,state_label,values}` — so
+/// the eight matrices, cluster matrix, liquidity bucket map, volume profile,
+/// 52-entry lifecycle map and per-bar indicator signals were pure retained
+/// weight. That is what got the daemon OOM-killed at ~2 GB RSS.
+///
+/// Routing all five sites through this helper means the retained window is
+/// always the `history_projection()` subset, is rolled at
+/// `[candle_buffer].size` (500 — the depth CB-02 already documented), and is
+/// charged against the process-wide byte budget. The **live** surface
+/// (`latest_snapshot`, the broadcast payload) is untouched.
+///
+/// The caller must NOT hold the write lock.
+async fn push_history_snapshot(
+    snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    snapshot: MarketSnapshot,
+) {
+    let mut deque = snapshot_history.write().await;
+    history_budget::push_retained(&mut deque, snapshot);
+}
+
 pub async fn run_single(
     mut rx: Receiver<NormalizedEvent>,
     telemetry_tx: tokio::sync::mpsc::Sender<database_storage::TelemetryMsg>,
@@ -871,14 +934,17 @@ pub async fn run_single(
             // Pre-populate snapshot_history from warmed state (only ≥60s —
             // PRI-08; idempotent empty-guard for the populate_buffers
             // double-seed, AUDIT-AIU-117).
-            {
-                let mut snap_hist = snapshot_history.write().await;
-                if snap_hist.is_empty() {
-                    for snap in &w.snapshot_history {
-                        let mut filtered = snap.clone();
-                        active_set.filter_snapshot_indicators(&mut filtered);
-                        snap_hist.push_back(filtered);
-                    }
+            // v11.12.24 (memory): the warm seed is charged against the same
+            // byte budget as live closes and stored as the retained
+            // projection — a boot-time seed is the single largest allocation
+            // burst in the process (one full snapshot per warmed candle per
+            // ≥60 s duration), and it is exactly what pushed a many-instance
+            // workspace over the OOM line before the first candle closed.
+            if snapshot_history.read().await.is_empty() {
+                for snap in &w.snapshot_history {
+                    let mut filtered = snap.clone();
+                    active_set.filter_snapshot_indicators(&mut filtered);
+                    push_history_snapshot(&snapshot_history, filtered).await;
                 }
             }
         }
@@ -1467,13 +1533,7 @@ pub async fn run_single(
                         // `/api/history` serves the sub-minute chart
                         // continuously (they are real candles, so the
                         // wire carries no `reconstructed` flag).
-                        {
-                            let mut snap_hist = snapshot_history.write().await;
-                            snap_hist.push_back(completed_snapshot);
-                            while snap_hist.len() > HIST_BUFFER_MAX {
-                                snap_hist.pop_front();
-                            }
-                        }
+                        push_history_snapshot(&snapshot_history, completed_snapshot).await;
                         // PRI-06 (v6.10.7): real force-closed candles also
                         // feed the `history` buffer — the input for
                         // fib/pivots/S-R/patterns and the liquidation
@@ -1659,13 +1719,7 @@ pub async fn run_single(
                             // of warm state (AUDIT-AIU-118 — persisted
                             // SYNTHETIC rows never seed `history` /
                             // `real_bar_count` on restart).
-                            {
-                                let mut snap_hist = snapshot_history.write().await;
-                                snap_hist.push_back(doji_snap);
-                                while snap_hist.len() > HIST_BUFFER_MAX {
-                                    snap_hist.pop_front();
-                                }
-                            }
+                            push_history_snapshot(&snapshot_history, doji_snap).await;
                             last_completed_start_ms = Some(fill_cursor);
                             fill_cursor += duration_ms;
                         }
@@ -1818,13 +1872,7 @@ pub async fn run_single(
                                         idle_snap.clone(),
                                     )),
                                 );
-                                {
-                                    let mut snap_hist = snapshot_history.write().await;
-                                    snap_hist.push_back(idle_snap);
-                                    while snap_hist.len() > HIST_BUFFER_MAX {
-                                        snap_hist.pop_front();
-                                    }
-                                }
+                                push_history_snapshot(&snapshot_history, idle_snap).await;
                                 cursor += duration_ms;
                                 // M3: advance the completion cursor ONLY
                                 // per emitted doji — updating it outside
@@ -2187,13 +2235,7 @@ pub async fn run_single(
                                 );
                                 // AUDIT-V8-004: keep the in-memory snapshot
                                 // history continuous across reconnect gaps.
-                                {
-                                    let mut snap_hist = snapshot_history.write().await;
-                                    snap_hist.push_back(gap_snap);
-                                    while snap_hist.len() > HIST_BUFFER_MAX {
-                                        snap_hist.pop_front();
-                                    }
-                                }
+                                push_history_snapshot(&snapshot_history, gap_snap).await;
                             }
                         }
                     }
@@ -2419,12 +2461,8 @@ pub async fn run_single(
                         while hist.len() > HIST_BUFFER_MAX {
                             hist.pop_front();
                         }
-                        let mut snap_hist = snapshot_history.write().await;
-                        snap_hist.push_back(completed_snapshot.clone());
-                        while snap_hist.len() > HIST_BUFFER_MAX {
-                            snap_hist.pop_front();
-                        }
                     }
+                    push_history_snapshot(&snapshot_history, completed_snapshot).await;
                     if let Some(ref tx) = candle_forward {
                         let _ = tx.send(completed.clone()).await;
                     }

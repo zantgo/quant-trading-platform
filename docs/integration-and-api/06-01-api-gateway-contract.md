@@ -115,7 +115,7 @@ Defaults are applied via `#[serde(default)]` in `crates/config-models/src/models
 
 | Method | Path | Params | Response |
 |--------|------|--------|----------|
-| `GET` | `/api/history` | `symbol`, `timeframe_secs`, `limit` (default `100`, max `1000`) | `{ symbol, prices[], candles[], indicator_history, clusters?, volume_profiles?, liquidity_flows? }` — see below for the exact `indicator_history` shape. |
+| `GET` | `/api/history` | `symbol`, `timeframe_secs`, `limit` (default `100`, max `1000`) | `{ symbol, prices[], candles[], indicator_history, clusters?, volume_profiles?, liquidity_flows? }` — see below for the exact `indicator_history` shape. **v11.12.24:** the `limit` ceiling is unchanged at 1000, but the in-memory retained window each pipeline serves from is `[candle_buffer].size` (default **500**, see [08-08 CB-02/CB-12a–c](../operations-and-compliance/08-08-candle-buffer-spec.md)) and is capped process-wide by `max_snapshot_history_bytes` (512 MiB, evicting oldest-first to a 50-entry floor). The handler clones only the newest `limit` entries rather than the whole window. `volume_profiles` / `liquidity_flows` are read from `latest_snapshot` first (authoritative, fresher) with the retained window as fallback — so they are unaffected by the retained-projection. The dashboard requests `limit=500`; asking for more returns at most what is retained (plus the SQLite top-up path for a cold/partially-warmed ≥60 s duration). |
 
 The response shape is:
 
