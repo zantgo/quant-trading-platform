@@ -21,10 +21,17 @@ use crate::AppState;
 /// upgrades whose `Origin`/`Sec-Fetch-Site` prove a foreign site, (b) cap
 /// concurrent sockets (each holds a broadcast receiver and a task), and
 /// (c) never hold a socket open for a pair that does not exist.
-// v11.3: raised 64 → 256 — multi-tab viewers each open their own socket
+// v11.3: raised 64 → 256 (v11.12.24: → 512) — multi-tab viewers each open their own socket
 // set (instances × active slots × tabs); the backend fans out to every
 // subscriber independently via per-slot Tokio broadcast channels.
-const MAX_WS_CONNECTIONS: usize = 256;
+// v11.12.24: 256 → 512. The dashboard opens one socket per (instance × ACTIVE
+// duration), so a 20-instance workspace on a 10-duration ladder needs 200
+// sockets for ONE tab — and a second tab doubled it past the old cap, which
+// answered `429 Too Many Requests` and left that tab's charts silently dead
+// with no error the user could act on. The per-socket cost is a task and its
+// buffers; the frame volume is separately bounded by the per-duration broadcast
+// ring (32), so raising the cap does not reintroduce the retention problem.
+const MAX_WS_CONNECTIONS: usize = 512;
 static ACTIVE_WS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// RAII guard — decrements the connection counter when the socket task
