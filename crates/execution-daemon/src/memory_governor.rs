@@ -29,15 +29,27 @@
 use config_models::MemoryGovernorConfig;
 use market_analyzer::analyzer::history_budget as budget;
 
-/// How much memory the daemon is holding, as a fraction (0–100) of the
-/// ceiling the OOM killer will act against.
+/// The two independent pressure readings the governor acts on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pressure {
-    /// RSS percentage of host memory.
+    /// Host memory **still available**, as a percentage of `MemTotal` — the
+    /// kernel's own headroom signal, and the PRIMARY trigger (v11.12.25).
+    ///
+    /// The original implementation triggered on the daemon's own RSS as a
+    /// percentage of `MemTotal` and failed outright: the kernel OOM-killed
+    /// the daemon at 71 % of `MemTotal` while its 75 % high-water mark had
+    /// never fired. That metric is wrong because the kernel kills on *system*
+    /// exhaustion — under WSL2 the browser and host OS compete for the same
+    /// physical pages, so a daemon at 71 % of the box can still be the victim
+    /// for being the largest process.
+    pub available_pct: u64,
+    /// The daemon's own RSS as a percentage of `MemTotal` — the SECONDARY
+    /// backstop, for a dedicated host where the daemon really is the whole
+    /// problem.
     pub rss_pct: u64,
-    /// True when the RSS reading is trustworthy (a real `/proc` read). When
-    /// it is not, the governor holds its current tier rather than acting on a
-    /// fabricated `0`.
+    /// True when both readings came from a real `/proc` read. When it is
+    /// false the governor holds its tier rather than acting on fabricated
+    /// numbers.
     pub measurable: bool,
 }
 
@@ -93,8 +105,6 @@ pub fn decide(
     below_low_secs: u64,
     tick_secs: u64,
 ) -> Decision {
-    let (low, high, critical) = cfg.watermarks();
-
     if !pressure.measurable {
         // No trustworthy reading (e.g. `/proc` unavailable). Hold the current
         // tier: shedding on a fabricated number would be worse than doing
@@ -106,42 +116,76 @@ pub fn decide(
         };
     }
 
-    let rss = pressure.rss_pct;
+    // Each signal escalates independently; the worse one wins. Shedding when
+    // EITHER says so is deliberate: the kernel's decision does not care which
+    // process is responsible for the pressure, and this daemon is usually the
+    // largest thing in the room, so it is usually the one that gets killed.
+    let (a_low, a_high, a_critical) = cfg.available_watermarks();
+    let (r_low, r_high, r_critical) = cfg.rss_watermarks();
 
-    if rss >= critical {
-        return Decision {
-            tier: Tier::Critical,
-            below_low_secs: 0,
-            changed: current != Tier::Critical,
-        };
-    }
-    if rss >= high {
-        return Decision {
-            tier: Tier::High,
-            below_low_secs: 0,
-            changed: current != Tier::High,
-        };
-    }
-
-    // Under the high mark. Accumulate the low-water dwell time.
-    let below = if rss < low {
-        below_low_secs.saturating_add(tick_secs)
+    let by_available = if pressure.available_pct <= a_critical {
+        Tier::Critical
+    } else if pressure.available_pct <= a_low {
+        Tier::High
+    } else if pressure.available_pct >= a_high {
+        Tier::Normal
     } else {
-        0
+        current // inside the hysteresis band — unchanged
     };
 
-    if current != Tier::Normal && below >= cfg.recovery_hold_secs {
-        Decision {
-            tier: Tier::Normal,
+    let by_rss = if pressure.rss_pct >= r_critical {
+        Tier::Critical
+    } else if pressure.rss_pct >= r_high {
+        Tier::High
+    } else if pressure.rss_pct < r_low {
+        Tier::Normal
+    } else {
+        current // inside the hysteresis band — unchanged
+    };
+
+    let escalated = by_available.max(by_rss);
+    if escalated > current {
+        return Decision {
+            tier: escalated,
             below_low_secs: 0,
             changed: true,
+        };
+    }
+    if escalated < current {
+        // A relaxation still has to clear BOTH signals and hold for the
+        // recovery window, so a single recovering reading cannot undo a shed
+        // while the other signal is still red.
+        if by_available == Tier::Normal
+            && by_rss == Tier::Normal
+            && below_low_secs.saturating_add(tick_secs) >= cfg.recovery_hold_secs
+        {
+            return Decision {
+                tier: Tier::Normal,
+                below_low_secs: 0,
+                changed: true,
+            };
         }
-    } else {
-        Decision {
+        return Decision {
             tier: current,
-            below_low_secs: below,
+            below_low_secs: 0,
             changed: false,
-        }
+        };
+    }
+
+    // Tier unchanged. Dwell accrues ONLY when both signals are clearly clear.
+    // A reading inside either hysteresis band is ambiguous, and letting it
+    // accumulate would let a workload oscillating around a watermark reach the
+    // recovery hold without ever actually recovering — the flapping this
+    // hysteresis exists to prevent.
+    let both_clear = by_available == Tier::Normal && by_rss == Tier::Normal;
+    Decision {
+        tier: current,
+        below_low_secs: if both_clear {
+            below_low_secs.saturating_add(tick_secs)
+        } else {
+            0
+        },
+        changed: false,
     }
 }
 
@@ -206,8 +250,28 @@ mod tests {
         MemoryGovernorConfig::default()
     }
 
-    fn at(pct: u64) -> Pressure {
+    /// A reading that triggers NOTHING: plenty available, tiny RSS.
+    fn idle() -> Pressure {
         Pressure {
+            available_pct: 80,
+            rss_pct: 20,
+            measurable: true,
+        }
+    }
+
+    /// System pressure with a small daemon (the WSL2 browser case).
+    fn avail(pct: u64) -> Pressure {
+        Pressure {
+            available_pct: pct,
+            rss_pct: 20,
+            measurable: true,
+        }
+    }
+
+    /// Daemon pressure on an otherwise-idle host (the dedicated-box case).
+    fn rss(pct: u64) -> Pressure {
+        Pressure {
+            available_pct: 80,
             rss_pct: pct,
             measurable: true,
         }
@@ -218,47 +282,66 @@ mod tests {
         let c = cfg();
         assert!(c.enabled);
         assert_eq!(c.governor_interval_secs, 10);
-        assert_eq!(c.high_water_pct, 75);
-        assert_eq!(c.critical_pct, 88);
-        assert_eq!(c.low_water_pct, 60);
+        assert_eq!(c.available_low_pct, 25);
+        assert_eq!(c.available_critical_pct, 12);
+        assert_eq!(c.available_high_pct, 35);
+        assert_eq!(c.high_water_pct, 85);
+        assert_eq!(c.critical_pct, 93);
+        assert_eq!(c.low_water_pct, 70);
         assert_eq!(c.recovery_hold_secs, 60);
         assert_eq!(c.critical_floor_entries, 25);
-        assert_eq!(c.watermarks(), (60, 75, 88));
+        assert_eq!(c.available_watermarks(), (25, 35, 12));
+        assert_eq!(c.rss_watermarks(), (70, 85, 93));
     }
 
     #[test]
     fn escalates_immediately_at_each_watermark() {
         let c = cfg();
-        assert_eq!(decide(&c, at(40), Tier::Normal, 0, 10).tier, Tier::Normal);
-        assert_eq!(decide(&c, at(75), Tier::Normal, 0, 10).tier, Tier::High);
-        assert_eq!(decide(&c, at(88), Tier::Normal, 0, 10).tier, Tier::Critical);
+        // Idle on both signals.
+        assert_eq!(decide(&c, idle(), Tier::Normal, 0, 10).tier, Tier::Normal);
+        // PRIMARY signal: host headroom exhausted.
+        assert_eq!(decide(&c, avail(25), Tier::Normal, 0, 10).tier, Tier::High);
+        assert_eq!(
+            decide(&c, avail(12), Tier::Normal, 0, 10).tier,
+            Tier::Critical
+        );
+        // SECONDARY signal: this daemon is the whole problem.
+        assert_eq!(decide(&c, rss(85), Tier::Normal, 0, 10).tier, Tier::High);
+        assert_eq!(
+            decide(&c, rss(93), Tier::Normal, 0, 10).tier,
+            Tier::Critical
+        );
         // No hold on the way up — shedding must not wait.
-        assert!(decide(&c, at(95), Tier::Normal, 0, 10).changed);
+        assert!(decide(&c, avail(2), Tier::Normal, 0, 10).changed);
     }
 
     #[test]
     fn escalation_is_monotonic() {
         let c = cfg();
         // Normal → High must not step down to Normal on a still-high reading.
-        let d = decide(&c, at(80), Tier::High, 0, 10);
+        let d = decide(&c, avail(20), Tier::High, 0, 10);
         assert_eq!(d.tier, Tier::High);
         // High → Critical when past the critical mark.
-        let d = decide(&c, at(90), Tier::High, 0, 10);
+        let d = decide(&c, avail(5), Tier::High, 0, 10);
         assert_eq!(d.tier, Tier::Critical);
-        // Critical must NOT drop back to High while still over high-water.
-        let d = decide(&c, at(80), Tier::Critical, 0, 10);
-        assert_eq!(d.tier, Tier::High, "re-evaluated each tick, not sticky");
+        // Critical must NOT relax while the signal is still red, no matter
+        // how long it has been holding.
+        let d = decide(&c, avail(5), Tier::Critical, 9_999, 10);
+        assert_eq!(
+            d.tier,
+            Tier::Critical,
+            "a still-red signal must not be relieved by dwell time"
+        );
     }
 
     #[test]
     fn relaxation_waits_for_the_recovery_hold() {
         let c = cfg();
         // Dipping under low-water does not relax instantly.
-        let d = decide(&c, at(30), Tier::High, 0, 10);
+        let d = decide(&c, idle(), Tier::High, 0, 10);
         assert_eq!(d.tier, Tier::High, "still inside the hold window");
-        assert_eq!(d.below_low_secs, 10);
         // ...until the hold is satisfied, then it relaxes in one step.
-        let d = decide(&c, at(30), Tier::High, 50, 10);
+        let d = decide(&c, idle(), Tier::High, 50, 10);
         assert_eq!(d.tier, Tier::Normal);
         assert!(d.changed);
     }
@@ -266,17 +349,25 @@ mod tests {
     #[test]
     fn mid_band_reading_resets_the_recovery_clock() {
         let c = cfg();
-        // 70 % is under high-water (75) but above low-water (60): no dwell
-        // accrues, so a hovering workload can never accumulate a relaxation.
-        let d = decide(&c, at(70), Tier::High, 40, 10);
-        assert_eq!(d.below_low_secs, 0);
-        assert_eq!(d.tier, Tier::High);
+        // 30 % available sits between the low (25) and high (35) marks: inside
+        // the hysteresis band, so nothing is shed and nothing relaxes.
+        let d = decide(&c, avail(30), Tier::High, 40, 10);
+        assert_eq!(d.below_low_secs, 0, "dwell must reset inside the band");
+        assert_eq!(d.tier, Tier::High, "band means unchanged, not relaxed");
+        // ...and it must not be able to relax out of the band either.
+        let d = decide(&c, avail(30), Tier::High, 10_000, 10);
+        assert_eq!(
+            d.tier,
+            Tier::High,
+            "an ambiguous reading must never satisfy the recovery hold"
+        );
     }
 
     #[test]
     fn unmeasurable_pressure_holds_the_current_tier() {
         let c = cfg();
         let bad = Pressure {
+            available_pct: 0,
             rss_pct: 0,
             measurable: false,
         };
@@ -294,42 +385,48 @@ mod tests {
         // A config with low >= high would deadlock (the governor could never
         // relax), so `watermarks()` must pull low below high.
         let c = MemoryGovernorConfig {
-            low_water_pct: 90,
-            high_water_pct: 80,
-            critical_pct: 70,
+            available_low_pct: 90,
+            available_high_pct: 80,
+            available_critical_pct: 95,
             ..cfg()
         };
-        let (low, high, critical) = c.watermarks();
+        let (low, high, critical) = c.available_watermarks();
         assert!(low < high, "low must be below high: {low} < {high}");
-        assert!(critical >= high, "critical must be at/above high");
+        assert!(
+            critical <= low,
+            "critical must be at/below low: {critical} <= {low}"
+        );
     }
 
     #[test]
     fn out_of_range_watermarks_are_clamped() {
         let c = MemoryGovernorConfig {
-            high_water_pct: 250,
-            critical_pct: 999,
-            low_water_pct: 0,
+            available_low_pct: 500,
+            available_high_pct: 900,
+            available_critical_pct: 900,
             ..cfg()
         };
-        let (_, high, critical) = c.watermarks();
-        assert_eq!(high, 100);
-        assert_eq!(critical, 100);
+        let (_, high, _) = c.available_watermarks();
+        assert_eq!(high, 100, "out-of-range watermarks must clamp");
     }
 
     #[test]
     fn governor_is_disabled_above_100_percent() {
-        // The documented emergency off-switch.
+        // The documented emergency off-switch: available_low_pct = 0.
         let c = MemoryGovernorConfig {
-            high_water_pct: 101,
+            available_low_pct: 0,
+            ..cfg()
+        };
+        assert!(
+            !c.is_active(),
+            "available_low_pct = 0 must disable shedding"
+        );
+        let c = MemoryGovernorConfig {
+            enabled: false,
             ..cfg()
         };
         assert!(!c.is_active());
-        let c = MemoryGovernorConfig {
-            high_water_pct: 100,
-            ..cfg()
-        };
-        assert!(c.is_active());
+        assert!(cfg().is_active());
     }
 
     #[test]

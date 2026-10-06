@@ -1563,16 +1563,40 @@ pub struct MemoryGovernorConfig {
     /// Seconds between governor ticks. Default **10**.
     #[serde(default = "default_governor_interval_secs")]
     pub governor_interval_secs: u64,
-    /// RSS fraction of host memory at which the first shedding tier engages.
-    /// Default **75**. Set to **100** to disable shedding entirely without a
-    /// rebuild (the emergency off-switch).
+    /// **PRIMARY** trigger: shed once the host's AVAILABLE memory falls below
+    /// this percentage of `MemTotal`. Default **25**.
+    ///
+    /// v11.12.25: the original trigger was the daemon's own RSS as a
+    /// percentage of `MemTotal`, and it demonstrably failed — the kernel
+    /// OOM-killed the daemon at **71%** of `MemTotal` while the 75%
+    /// high-water mark had never been reached. That metric is wrong because
+    /// the kernel kills on *system* exhaustion, and under WSL2 the browser and
+    /// the host OS compete for the same physical pages. `MemAvailable` is the
+    /// kernel's own headroom signal, so the governor now reacts to that.
+    /// Set to **0** to disable shedding without a rebuild.
+    #[serde(default = "default_available_low_pct")]
+    pub available_low_pct: u64,
+    /// `MemAvailable` percentage at which the aggressive tier engages.
+    /// Default **12**.
+    #[serde(default = "default_available_critical_pct")]
+    pub available_critical_pct: u64,
+    /// `MemAvailable` percentage above which the configured budget is
+    /// restored. Default **35**. Must be greater than
+    /// `available_low_pct`, or the governor could never relax.
+    #[serde(default = "default_available_high_pct")]
+    pub available_high_pct: u64,
+    /// SECONDARY trigger: the daemon's own RSS as a percentage of
+    /// `MemTotal`. Default **85**. This is the backstop for a dedicated host
+    /// where the daemon really is the whole problem; the `MemAvailable`
+    /// watermark is what normally fires.
     #[serde(default = "default_high_water_pct")]
     pub high_water_pct: u64,
-    /// RSS fraction at which the aggressive tier engages. Default **88**.
+    /// SECONDARY trigger, aggressive tier. Default **93**.
     #[serde(default = "default_critical_pct")]
     pub critical_pct: u64,
-    /// RSS fraction below which the governor relaxes again. Default **60**.
-    /// Must be lower than `high_water_pct` or the governor cannot de-escalate.
+    /// RSS percentage below which the secondary trigger relaxes. Default **70**.
+    /// Must be lower than `high_water_pct` or the secondary trigger cannot
+    /// de-escalate.
     #[serde(default = "default_low_water_pct")]
     pub low_water_pct: u64,
     /// Seconds RSS must stay under the low-water mark before the configured
@@ -1590,6 +1614,9 @@ impl Default for MemoryGovernorConfig {
         Self {
             enabled: default_memory_enabled(),
             governor_interval_secs: default_governor_interval_secs(),
+            available_low_pct: default_available_low_pct(),
+            available_critical_pct: default_available_critical_pct(),
+            available_high_pct: default_available_high_pct(),
             high_water_pct: default_high_water_pct(),
             critical_pct: default_critical_pct(),
             low_water_pct: default_low_water_pct(),
@@ -1605,7 +1632,20 @@ impl MemoryGovernorConfig {
     /// governor could never relax), so `low` is forced below `high`; `high`
     /// is clamped to 100 so a nonsensical value cannot demand shedding at
     /// impossible pressure.
-    pub fn watermarks(&self) -> (u64, u64, u64) {
+    pub fn available_watermarks(&self) -> (u64, u64, u64) {
+        let high = self.available_high_pct.clamp(1, 100);
+        let low = self
+            .available_low_pct
+            .clamp(0, 100)
+            .min(high.saturating_sub(1));
+        let critical = self.available_critical_pct.clamp(0, 100).min(low);
+        (low, high, critical)
+    }
+
+    /// Clamped RSS-percentage watermarks `(low, high, critical)` — the
+    /// secondary backstop for a dedicated host. Same ordering contract as
+    /// [`Self::available_watermarks`].
+    pub fn rss_watermarks(&self) -> (u64, u64, u64) {
         let high = self.high_water_pct.clamp(1, 100);
         let critical = self.critical_pct.clamp(1, 100).max(high);
         let low = self
@@ -1615,9 +1655,11 @@ impl MemoryGovernorConfig {
         (low, high, critical)
     }
 
-    /// True when the governor should act at all.
+    /// True when the governor should act at all. `available_low_pct = 0` is
+    /// the documented off-switch: shedding is disabled whatever the RSS
+    /// backstop says, with no rebuild.
     pub fn is_active(&self) -> bool {
-        self.enabled && self.high_water_pct <= 100
+        self.enabled && self.available_low_pct > 0 && self.available_high_pct <= 100
     }
 }
 
@@ -1627,14 +1669,23 @@ fn default_memory_enabled() -> bool {
 fn default_governor_interval_secs() -> u64 {
     10
 }
+fn default_available_low_pct() -> u64 {
+    25
+}
+fn default_available_critical_pct() -> u64 {
+    12
+}
+fn default_available_high_pct() -> u64 {
+    35
+}
 fn default_high_water_pct() -> u64 {
-    75
+    85
 }
 fn default_critical_pct() -> u64 {
-    88
+    93
 }
 fn default_low_water_pct() -> u64 {
-    60
+    70
 }
 fn default_recovery_hold_secs() -> u64 {
     60
