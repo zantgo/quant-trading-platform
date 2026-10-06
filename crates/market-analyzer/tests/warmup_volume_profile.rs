@@ -168,21 +168,24 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
     // From the 25th snapshot onward (under the soft seeded floor) the bin-level
     // snapshot must be present. The LIVE per-candle path keeps the strict
     // `window_size / 2 = 250` gate; only the warm-up path softens it.
-    let post_floor_snapshots: Vec<_> = warmed
-        .snapshot_history
-        .iter()
-        .skip(24)
-        .filter(|s| s.volume_profile.is_some())
-        .collect();
+    // v11.12.25: the warm series stores the RETAINED-HISTORY PROJECTION, which
+    // drops `volume_profile` (~9 KB of the ~29 KB frame; nothing in
+    // `/api/history`'s indicator arrays reads it). The chart overlay bootstrap
+    // reads it from `latest_snapshot`, which is still the FULL frame — asserted
+    // below. This series therefore proves the *gate*, not the payload.
+    let post_floor_with_profile = warmed
+        .latest_snapshot
+        .as_ref()
+        .and_then(|s| s.volume_profile.as_ref());
     assert!(
-        !post_floor_snapshots.is_empty(),
-        "no warm-up snapshots past the soft-floor carried volume_profile",
+        post_floor_with_profile.is_some(),
+        "the last warm-up frame must carry volume_profile in latest_snapshot",
     );
 
     // Last snapshot must have the bin-level profile (this is what /api/history reads).
     let last_vp = warmed
-        .snapshot_history
-        .last()
+        .latest_snapshot
+        .as_ref()
         .and_then(|s| s.volume_profile.as_ref())
         .expect("last warm-up snapshot must carry volume_profile");
 
@@ -252,8 +255,8 @@ fn warmup_sub_minute_timeframes_also_populate() {
     );
 
     let last_vp = warmed
-        .snapshot_history
-        .last()
+        .latest_snapshot
+        .as_ref()
         .and_then(|s| s.volume_profile.as_ref())
         .expect("5s-TF warm-up must carry volume_profile on last snapshot");
     assert!(!last_vp.bins.is_empty());
@@ -283,19 +286,20 @@ fn seeded_volume_profile_clears_at_25_bars() {
         Some(core_domain::normalized::Exchange::Hyperliquid),
     );
 
-    let populated: Vec<_> = warmed
-        .snapshot_history
-        .iter()
-        .filter(|s| s.volume_profile.is_some())
-        .collect();
+    let populated = warmed
+        .latest_snapshot
+        .as_ref()
+        .and_then(|s| s.volume_profile.as_ref())
+        .map(|vp| !vp.bins.is_empty())
+        .unwrap_or(false);
     assert!(
-        !populated.is_empty(),
-        "seeded path should populate volume_profile from bar 25 onward",
+        populated,
+        "seeded path must populate volume_profile (from bar 25 onward) in latest_snapshot",
     );
     // The last snapshot must be the most recent and must have bins.
     let last_vp = warmed
-        .snapshot_history
-        .last()
+        .latest_snapshot
+        .as_ref()
         .and_then(|s| s.volume_profile.as_ref())
         .expect("last warm-up snapshot must carry volume_profile after 40-bar seed");
     assert!(

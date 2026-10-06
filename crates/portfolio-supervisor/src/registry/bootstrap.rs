@@ -448,7 +448,7 @@ pub async fn fetch_and_warm_bootstrap(
 }
 
 pub(crate) async fn populate_buffers(
-    warmed: &[Option<analyzer::WarmedPipelineState>],
+    warmed: &[Option<&analyzer::WarmedPipelineState>],
     histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>],
     latests: &[Arc<RwLock<Option<MarketSnapshot>>>],
     snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>],
@@ -483,7 +483,7 @@ pub(crate) async fn populate_buffers(
 
     for i in 0..warmed.len() {
         populate_single(
-            &warmed[i],
+            warmed[i],
             &histories[i],
             &latests[i],
             &snapshot_histories[i],
@@ -540,13 +540,13 @@ async fn populate_derivatives(
 }
 
 pub(crate) async fn populate_single(
-    warmed: &Option<analyzer::WarmedPipelineState>,
+    warmed: Option<&analyzer::WarmedPipelineState>,
     history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
     latest: &Arc<RwLock<Option<MarketSnapshot>>>,
     snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
     warm_snapshots: bool,
 ) {
-    if let Some(ref w) = warmed {
+    if let Some(w) = warmed {
         if warm_snapshots {
             // AUDIT-AIU-117: this path is the SINGLE seeder for the warm
             // `history`/`snapshot_history` deques (it runs synchronously
@@ -567,7 +567,9 @@ pub(crate) async fn populate_single(
             }
             {
                 let mut sh = snapshot_history.write().await;
-                sh.clear();
+                // Refund whatever a previous seed was charged, so a repeated
+                // seed (ladder edit / recharge) cannot double-count.
+                market_analyzer::analyzer::history_budget::drain(&mut sh);
                 // v11.12.24 (memory): the warm seed is the single largest
                 // allocation burst in the process — one retained snapshot per
                 // warmed candle per ≥60 s duration, all at once. Store the
@@ -577,11 +579,19 @@ pub(crate) async fn populate_single(
                 // 31.8 KB → 7.3 KB per seeded frame; before the change a
                 // 6-instance workspace allocated well over a gigabyte of
                 // warm seed alone, before the first candle closed.
+                // v11.12.25: go through `push_retained` so the seed is
+                // TRIMMED as well as charged. This path previously pushed
+                // every warmed bar and only updated the counter, so a boot
+                // burst could overshoot the budget with nothing to relieve it
+                // until the first live candle closed — and on a 10-instance
+                // workspace the seed is the largest single allocation there
+                // is. Projecting is now redundant too: the warm path already
+                // stores projections, but re-projecting here keeps the seed
+                // correct even if a caller hands us full frames.
+                use market_analyzer::analyzer::history_budget as hb;
                 for snap in &w.snapshot_history {
-                    sh.push_back(snap.history_projection());
+                    hb::push_retained(&mut sh, snap.clone());
                 }
-                let weight: usize = sh.iter().map(|s| s.history_weight_bytes()).sum();
-                market_analyzer::analyzer::history_budget::charge(weight);
             }
         } else {
             // PRI-08 + AUDIT-AIU-117: sub-minute slots warm STATE only.

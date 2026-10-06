@@ -78,7 +78,7 @@ pub struct PipelineArtifacts {
 pub async fn build_pipelines(
     ctx: &PipelineContext,
     state: &RegistryContext,
-    warmed_states: Option<Vec<analyzer::WarmedPipelineState>>,
+    warmed_states: Option<&[analyzer::WarmedPipelineState]>,
 ) -> PipelineArtifacts {
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(500);
     let cancel = ctx.cancel.clone();
@@ -304,7 +304,7 @@ async fn spawn_tasks(
     snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>],
     active_pair: &Arc<analyzer::ActivePair>,
     state: &RegistryContext,
-    warmed_states: Option<Vec<analyzer::WarmedPipelineState>>,
+    warmed_states: Option<&[analyzer::WarmedPipelineState]>,
     exchange_choice: ExchangeChoice,
     quote: Currency,
     liquidity_config: LiquidityConfig,
@@ -396,7 +396,7 @@ async fn spawn_tasks(
         }
     });
 
-    if let Some(ref ws) = warmed_states {
+    if let Some(ws) = warmed_states {
         if let Some(first) = ws.first() {
             for c in &first.history {
                 let _ = candle_fwd_tx.send(c.clone()).await;
@@ -405,8 +405,14 @@ async fn spawn_tasks(
     }
 
     // Spawn one pipeline task per ACTIVE duration
-    let warmed_opts: Vec<Option<analyzer::WarmedPipelineState>> = match &warmed_states {
-        Some(ws) => (0..n).map(|i| ws.get(i).cloned()).collect(),
+    // v11.12.25: BORROW the warm state. This used to be
+    // `Vec<Option<WarmedPipelineState>>` built by cloning every duration,
+    // which combined with `mod.rs`'s `.ok().cloned()` to hold two extra
+    // full copies of the warm series alive across the whole spawn. The only
+    // clone left is the per-task hand-off below, which `run_single` needs
+    // because it moves fields out of its argument.
+    let warmed_opts: Vec<Option<&analyzer::WarmedPipelineState>> = match warmed_states {
+        Some(ws) => (0..n).map(|i| ws.get(i)).collect(),
         None => (0..n).map(|_| None).collect(),
     };
 
@@ -446,7 +452,7 @@ async fn spawn_tasks(
             } else {
                 None
             },
-            warmed_opts[i].clone(),
+            warmed_opts[i].cloned(),
             pair_pipes[i].active_set.clone(),
         ));
     }
