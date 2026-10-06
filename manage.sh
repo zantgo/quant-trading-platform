@@ -36,6 +36,7 @@ show_help() {
     echo ""
     echo "Commands:"
     echo "  build              Compile frontend assets and verify cargo workspace compiles"
+    echo "  build-release      Build the release daemon binary (what run uses)"
     echo "  run                Run the engine in the foreground with live logs (web mode)"
     echo "  run-silent         Run the engine in the background, redirecting logs to $LOG_FILE"
     echo "  run-cli            Run the terminal monitor (--mode cli, observe-only, no web server)"
@@ -67,13 +68,42 @@ build() {
     echo "✅ Build completed successfully."
 }
 
+# v11.12.25 (memory): run the RELEASE binary, not the debug build.
+#
+# The debug profile is not a small difference: `run_single` compiles to a ~2 MB
+# state machine (see the Box::pin note in registry/pipelines.rs), so a 10-instance
+# / 10-duration workspace carries ~200 MB of pure debug-build penalty across 100
+# pipelines — on a 2.75 GiB host that is the difference between running and being
+# OOM-killed. `manage.sh test*` still uses debug (fast iteration); only the
+# run path changes.
+RELEASE_BIN="target/release/execution-daemon"
+
+# v11.12.25 (memory): glibc reads these before the Rust runtime allocates, so
+# they must be in the environment, not set from inside main(). Without them a
+# boot spike ratchets RSS to its peak and never returns it: glibc keeps up to
+# 8x-ncores per-thread arenas and only trims a whole arena at a time.
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
+export MALLOC_TRIM_THRESHOLD_="${MALLOC_TRIM_THRESHOLD_:-131072}"
+
+build_release() {
+    echo "🦀 Building release daemon (a debug build costs ~200 MB at 10 instances)..."
+    cargo build --release --bin execution-daemon
+}
+
 run_foreground() {
     if [ ! -d "$FRONTEND_DIR/dist" ]; then
         echo "⚠️  Frontend build missing. Triggering compilation first..."
         build
     fi
-    echo "🚀 Starting Trading Platform in the foreground..."
-    cargo run --bin execution-daemon -- --web
+    if [ -x "$RELEASE_BIN" ]; then
+        echo "🚀 Starting Trading Platform in the foreground (release build)..."
+        echo "   tip: rebuild after code changes with  ./manage.sh build-release"
+        exec "$RELEASE_BIN" --web
+    fi
+    echo "⚠️  No release binary found — building it first (a debug build costs"
+    echo "   ~200 MB of heap at 10 instances; see manage.sh build-release)."
+    cargo build --release --bin execution-daemon || exit 1
+    exec "$RELEASE_BIN" --web
 }
 
 rotate_log() {
@@ -95,14 +125,14 @@ rotate_log() {
 start_daemon() {
     local mode_args="$1"
     rotate_log
-    echo "🚀 Building engine..."
-    cargo build 2>&1 | tail -2
-    if [ ! -x target/debug/execution-daemon ]; then
-        echo "❌ Build failed — engine not started."
+    echo "🚀 Building engine (release — a debug build costs ~200 MB at 10 instances)..."
+    cargo build --release --bin execution-daemon 2>&1 | tail -2
+    if [ ! -x "$RELEASE_BIN" ]; then
+        echo "❌ Release build failed — engine not started."
         exit 1
     fi
     echo "📝 Logs will be written to: $LOG_FILE"
-    nohup target/debug/execution-daemon $mode_args > "$LOG_FILE" 2>&1 &
+    nohup "$RELEASE_BIN" $mode_args > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "✅ Engine running under PID: $! (daemon, not cargo)"
 }
@@ -113,6 +143,12 @@ run_silent() {
         build
     fi
 
+    if [ -x "$RELEASE_BIN" ]; then
+        :
+    else
+        echo "🦀 Building release engine (debug costs ~200 MB at 10 instances)..."
+        cargo build --release --bin execution-daemon 2>&1 | tail -2
+    fi
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
         if kill -0 "$PID" 2>/dev/null; then
@@ -399,6 +435,9 @@ case "$1" in
         ;;
     run)
         run_foreground
+        ;;
+    build-release)
+        build_release
         ;;
     run-silent)
         run_silent
