@@ -40,7 +40,8 @@ The platform now has one canonical behavior per tier. Every exchange, every time
 | **CB-12a** | **(v11.12.24 memory) The retained `MarketSnapshot` history stores the `history_projection()` subset, not the full frame.** `snapshot_history` exists for exactly one consumer — `GET /api/history` — which reads `timestamp`, the OHLCV block, `quality_envelope.is_gap_filled`, and `indicators.{raw_value, normalized, state_label, values}`. Everything else on a completed frame (the eight synthesis matrices, the cluster matrix, the `LiquidityFlow` whose `recent_real_buckets` map alone reaches 2 000 entries at the shipped `retention_secs = 86400`, the 100-bin volume profile, the 52-entry lifecycle map, and per-indicator `signals` / `confidence`) is pure retained weight. Measured on the shipped DS-export corpus (176 completed AEON-USDT 5 s frames): a full frame serializes to **54.9 KB**, the projection to **8.4 KB** (6.5×). The **live** surface (`latest_snapshot`, the broadcast payload, the DS export, SQLite) is untouched — it keeps the full snapshot. The two fields the projection drops that `/api/history` also returns for the chart bootstrap (`volume_profile`, `liquidity`) are read from `latest_snapshot` first, falling back to `snapshot_history.back()`. |
 | **CB-12b** | **(v11.12.24 memory) A process-wide byte budget caps the retained history across EVERY pipeline.** `[candle_buffer] max_snapshot_history_bytes` (default **512 MiB**, `0` disables) is charged by `market_analyzer::analyzer::history_budget`. When the global estimate crosses the ceiling the oldest entries are evicted, stopping at a **50-entry floor per duration** so a chart always has something to render. The accounting invariant is *every push charges, every pop refunds*, so the counter cannot drift regardless of which pipeline performs the eviction, and an instance delete / recharge refunds its share. The intent is **degrade, never die**: a many-instance workspace loses chart depth instead of being OOM-killed. A 60 s daemon log line reports process RSS against host memory and retained bytes against the budget, so pressure is visible before it becomes fatal. |
 | **CB-12c** | **(v11.12.24 memory) `GET /api/history` clones only the tail it will return.** The handler resolves the retained window with `snapshot_history_tail_vec_for_label_or_secs(.., limit)`, so `?limit=10` allocates 10 frames instead of the whole window (~50 MB transient per request previously). The `limit` ceiling is unchanged at 1000; the in-memory depth available to serve it is now `size` (500, CB-02/CB-03), which the dashboard requests. |
-| **CB-12d** | **(v11.12.24 memory) An RSS-aware memory governor bounds the PROCESS, not one structure.** `max_snapshot_history_bytes` (CB-12b) bounds the retained snapshot history, but the OOM killer selects the **largest process** — bounding one structure cannot by itself guarantee survival. The governor reads the process RSS against `/proc/meminfo` `MemTotal` every `[memory].governor_interval_secs` and sheds in a fixed, least-user-visible-first order. Two invariants make it safe: **`latest_snapshot` is never shed** (the live surface — WS bootstrap, the CLI monitor, every panel and matrix — keeps full frames) and **eviction never goes below a floor**, so a chart always renders. Tiers: **Normal** (below `high_water_pct`) restores the configured budget; **High** (≥ `high_water_pct`, default 75) halves the byte budget, evicts every retained window oldest-first to the 50-entry floor, and clears the derived `cluster_matrix` cache; **Critical** (≥ `critical_pct`, default 88) tightens further and evicts to `critical_floor_entries` (default 25). **Recovery** requires RSS to stay under `low_water_pct` (default 60) for `recovery_hold_secs` (default 60) — the hysteresis is what stops the tier flapping on a workload hovering at a watermark. Escalation is immediate (shed *now*, never after a hold); only relaxation is delayed. The sweep is *push-independent*: it walks the pipelines itself, because a 1 h duration may not complete a candle for an hour and could not shed otherwise. When every window has reached its floor and the process is still over budget, the governor **reports it** (`STILL OVER BUDGET at the floor`) rather than spinning — that signal tells the operator to shorten `[workspace].timeframes`. Emergency off-switch: `high_water_pct = 100` disables shedding with no rebuild. |
+| **CB-12f** | **(v11.12.25 memory) The memory budget covers only the retained history; three other terms dominated the real OOM and are now addressed separately.** Rounds v11.12.23–24 bounded `snapshot_history` and added the governor, and the daemon was *still* OOM-killed at 10 instances (2.11 GB anon-rss). Three causes, each confirmed against the code rather than estimated: **(a) the warm path held five simultaneous copies of the whole warm state per instance spawn** — `bootstrap::fetch_and_warm_bootstrap` built one, `build_pipelines` cloned it (`.ok().cloned()`), `spawn_tasks` cloned it again per duration, and `populate_buffers` cloned it a fourth time — at ~180 MB each, with no custom allocator to return the pages, so RSS ratcheted to the boot peak and stayed. The warm path now stores the **retained projection** (29 KB → 9 KB per frame) and `build_pipelines` / `populate_buffers` **borrow** the state, leaving exactly one per-task hand-off (which `run_single` needs, because it moves fields out of its argument). **(b) The operator ran a DEBUG build**: `run_single` compiles to a ~2 MB state machine (see the `Box::pin` note in `registry/pipelines.rs`), so 100 pipelines carried ~200 MB of debug-only penalty; `./manage.sh run` now uses the release binary. **(c) The governor's trigger metric was wrong** — see CB-12g. The warm path's derivatives replay is unchanged: `DerivativesSample` captures the five fields the projection drops, and a test pins it equivalent to the snapshot-based replay. |
+| **CB-12d** | **(v11.12.24 memory) An RSS-aware memory governor bounds the PROCESS, not one structure.** `max_snapshot_history_bytes` (CB-12b) bounds the retained snapshot history, but the OOM killer selects the **largest process** — bounding one structure cannot by itself guarantee survival. The governor reads `/proc/meminfo` and sheds in a fixed, least-user-visible-first order. **v11.12.25 corrected the trigger**: it fires primarily on `MemAvailable` (the kernel's own headroom), not on the daemon's RSS percentage — RSS is now only the secondary backstop. The original RSS-only trigger demonstrably failed: the kernel killed the daemon at **71 % of `MemTotal`** while the 75 % RSS high-water mark had never been reached, because the kernel kills on *system* exhaustion and under WSL2 the browser and host OS compete for the same physical pages. Two invariants make it safe: **`latest_snapshot` is never shed** (the live surface — WS bootstrap, the CLI monitor, every panel and matrix — keeps full frames) and **eviction never goes below a floor**, so a chart always renders. Tiers: **Normal** (below `high_water_pct`) restores the configured budget; **High** (≥ `high_water_pct`, default 75) halves the byte budget, evicts every retained window oldest-first to the 50-entry floor, and clears the derived `cluster_matrix` cache; **Critical** (≥ `critical_pct`, default 88) tightens further and evicts to `critical_floor_entries` (default 25). **Recovery** requires RSS to stay under `low_water_pct` (default 60) for `recovery_hold_secs` (default 60) — the hysteresis is what stops the tier flapping on a workload hovering at a watermark. Escalation is immediate (shed *now*, never after a hold); only relaxation is delayed. The sweep is *push-independent*: it walks the pipelines itself, because a 1 h duration may not complete a candle for an hour and could not shed otherwise. When every window has reached its floor and the process is still over budget, the governor **reports it** (`STILL OVER BUDGET at the floor`) rather than spinning — that signal tells the operator to shorten `[workspace].timeframes`. Emergency off-switch: `high_water_pct = 100` disables shedding with no rebuild. |
 | **CB-12e** | **(v11.12.24 scale) Two scale ceilings, both about many instances rather than memory.** (a) `MAX_WS_CONNECTIONS` is **512**: the dashboard opens one socket per (instance × ACTIVE duration), so a 20-instance workspace on a 10-duration ladder needs 200 sockets for ONE tab, and a second tab doubled that past the previous 256 cap, which answered `429` and left that tab's charts silently dead. (b) Concurrent `/api/history` work is bounded by a **4-permit semaphore**: each request materialises up to `limit` retained frames, and a 20-pair dashboard mounting a chart per pair would otherwise run a dozen of those at once. The semaphore is the right medicine for a burst — the governor cannot see transient request memory, and shedding history in response to a chart load would be the wrong trade. |
 | **CB-12** | SQLite retains its existing **7-day** retention policy unchanged. The `market_snapshots` table is the long-term log; the in-memory `candle_buffer.size` rolling window is the only thing bounded by `size`. On eviction the candle leaves memory; the corresponding SQLite row remains queryable until the 7-day cleanup deletes it. |
 
@@ -54,26 +55,54 @@ the latter under pressure and restores it on recovery.
 ```toml
 [memory]
 enabled = true                    # master switch
-governor_interval_secs = 10       # RSS sampling + sweep cadence
-high_water_pct = 75               # >= this RSS% -> shed (set 100 to disable shedding)
-critical_pct = 88                 # >= this RSS% -> aggressive shed
-low_water_pct = 60                # must be < high_water_pct; relaxation watermark
-recovery_hold_secs = 60           # seconds under low_water_pct before relaxing
+governor_interval_secs = 10       # pressure sampling + shed sweep cadence
+
+# PRIMARY trigger — host headroom, from /proc/meminfo MemAvailable.
+# These are the numbers that matter on a shared or WSL2 host.
+available_low_pct = 25            # available <= 25%  -> shed
+available_critical_pct = 12       # available <= 12%  -> aggressive shed
+available_high_pct = 35           # available >= 35%  -> eligible to relax
+
+# SECONDARY trigger — this daemon's own RSS, for a dedicated host.
+high_water_pct = 85
+critical_pct = 93
+low_water_pct = 70
+
+recovery_hold_secs = 60           # seconds clear on BOTH signals before relaxing
 critical_floor_entries = 25       # retained entries per pipeline at critical pressure
 ```
 
-`high_water_pct = 100` is the documented emergency off-switch: shedding is
-disabled, no rebuild required. A contradictory config is normalized rather
-than honoured: `low_water_pct` is clamped below `high_water_pct` (otherwise the
-governor could never relax, since it only relaxes under the low mark) and
-`critical_pct` is clamped at or above `high_water_pct`.
+**Off-switch:** `available_low_pct = 0` disables shedding with no rebuild
+(`is_active()` then returns false whatever the RSS backstop says).
+
+**Either signal can shed; both must clear to relax.** Shedding on the worse of
+the two is deliberate — the kernel's decision does not care which process
+caused the pressure, and this daemon is usually the largest thing in the room.
+Relaxation additionally requires `recovery_hold_secs` of clear readings on
+*both*, and dwell does not accrue inside either hysteresis band, so a workload
+hovering at a watermark can neither flap the tier nor quietly satisfy the
+recovery hold.
+
+A contradictory config is normalized rather than honoured:
+`available_critical_pct <= available_low_pct < available_high_pct`, and
+`low_water_pct < high_water_pct`. An inverted set would leave the governor
+unable to relax, which is worse than ignoring the typo.
 
 Observed every 60 s on the daemon's memory line:
 
 ```
-🧠 Memory: RSS 812 MiB / 2754 MiB (30%) · snapshot history 486 MiB / 512 MiB (95%) ·
-   61200 entries across 20 instance(s) x 10 duration(s) · governor normal
+🧠 Memory: RSS 812 MiB (30% of 2754 MiB) · available 1843 MiB (67%) ·
+   snapshot history 486 MiB / 512 MiB (95%) · 61200 entries across
+   10 instance(s) × 10 duration(s) · unattributed 326 MiB · governor normal
 ```
+
+**`unattributed` is the diagnostic that matters** (CB-12f): it is
+`RSS − accounted snapshot history`. Two earlier rounds optimized the retained
+history term and still hit the OOM wall because the bulk was elsewhere; with
+this column on the same line, the next diagnosis is a measurement rather than
+an estimate. A large `unattributed` that does not shrink with
+`[workspace].timeframes` points at per-pipeline task state rather than
+history retention.
 
 Tier changes are logged separately (`Memory governor: tier normal -> high ...`)
 because they are the only events that indicate shedding is actually happening.
