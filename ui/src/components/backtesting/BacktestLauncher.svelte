@@ -7,6 +7,12 @@
     // launcher is standalone: it works with no running instance (preseeded
     // from a bound instance when one is selected).
     import { DURATIONS } from '../../types';
+    import {
+        INVALID_TICKER_MESSAGE,
+        MAX_SYMBOL_CHARS,
+        isValidBaseSymbol,
+        normalizeBaseSymbol,
+    } from '../../lib/symbol';
     import styles from './BacktestLauncher.module.css';
 
     interface BoundInfo {
@@ -202,9 +208,11 @@
     }
 
     function addInstance() {
-        const base = newBase.trim().toUpperCase();
-        if (!/^[A-Z0-9]{2,10}$/.test(base)) {
-            error = 'Invalid ticker. Must be 2-10 alphanumeric characters.';
+        // v11.12.26: shared Unicode-aware ticker rule (see lib/symbol.ts) —
+        // this carried a fourth divergent copy of the old ASCII-only regex.
+        const base = normalizeBaseSymbol(newBase);
+        if (!isValidBaseSymbol(base)) {
+            error = INVALID_TICKER_MESSAGE;
             return;
         }
         if (instances.some((i) => i.base === base)) {
@@ -577,7 +585,7 @@
                     <input
                         class="{styles.input} {styles.baseInput}"
                         type="text"
-                        maxlength="10"
+                        maxlength={MAX_SYMBOL_CHARS}
                         placeholder="BTC"
                         bind:value={newBase}
                         onkeydown={(e) => e.key === 'Enter' && addInstance()}

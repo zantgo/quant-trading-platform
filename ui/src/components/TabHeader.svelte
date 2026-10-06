@@ -1,6 +1,12 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
+    import {
+        INVALID_TICKER_MESSAGE,
+        MAX_SYMBOL_CHARS,
+        isValidBaseSymbol,
+        normalizeBaseSymbol,
+    } from '../lib/symbol';
     import styles from './TabHeader.module.css';
     const app = useAppStore();
 
@@ -14,9 +20,12 @@
     }
 
     async function confirmAdd() {
-        const symbol = newPairInput.trim().toUpperCase();
-        if (symbol.length < 2 || symbol.length > 10) {
-            addError = 'Enter a symbol between 2 and 10 characters.';
+        // v11.12.26: character count (not UTF-16 units) against the shared
+        // budget, so a non-ASCII ticker is neither wrongly rejected nor
+        // silently truncated.
+        const symbol = normalizeBaseSymbol(newPairInput);
+        if (!isValidBaseSymbol(symbol)) {
+            addError = INVALID_TICKER_MESSAGE;
             return;
         }
 
@@ -102,7 +111,7 @@
                         type="text"
                         class={styles.pairInput}
                         placeholder="SYMBOL"
-                        maxlength="10"
+                        maxlength={MAX_SYMBOL_CHARS}
                         bind:value={newPairInput}
                         oninput={() => { if (addError) addError = null; }}
                         onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') cancelAdd(); }}

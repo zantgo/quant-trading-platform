@@ -201,6 +201,36 @@ describe('Launch Setup — instances step', () => {
         expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
     });
 
+    // v11.12.26 regression: the reported bug was that a non-English ticker
+    // could not even be ENTERED on the welcome screen — the ASCII-only regex
+    // returned before the chip was staged and before the POST was issued.
+    it('accepts a non-English venue ticker on the add-instance step', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container);
+
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: '龙虾' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+
+        // Staged as a chip (the old code showed 'Invalid ticker' and stopped).
+        await waitFor(() => expect(container.textContent).toContain('龙虾'));
+        expect(container.textContent).not.toContain('Invalid ticker');
+
+        // And the instance POST actually carried it, base + quote.
+        const addCalls = (globalThis.fetch as any).mock.calls.filter(
+            ([u]: any[]) => String(u) === '/api/instances',
+        );
+        expect(addCalls.length).toBe(1);
+        expect(JSON.parse(addCalls[0][1].body)).toEqual({ base: '龙虾', quote: 'USDT' });
+
+        // A four-character CJK ticker is 12 UTF-8 bytes — the old 10-BYTE
+        // limit on both the input and the API rejected it.
+        await fireEvent.input(baseInput!, { target: { value: '龙虾合约' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        await waitFor(() => expect(container.textContent).toContain('龙虾合约'));
+        expect(container.textContent).not.toContain('Invalid ticker');
+    });
+
     it('adds and removes staged instances (active ladder shown per instance)', async () => {
         const { container } = await render(LaunchSetup);
         await goToInstances(container);

@@ -5,6 +5,12 @@
     import { connectWsForInstance, disconnectWsForInstance, type WsState } from '../../lib/websocket.svelte';
     import SvgIcon from '../../lib/SvgIcon.svelte';
     import { createInstance } from '../../lib/api.svelte';
+    import {
+        INVALID_TICKER_MESSAGE,
+        MAX_SYMBOL_CHARS,
+        isValidBaseSymbol,
+        normalizeBaseSymbol,
+    } from '../../lib/symbol';
     import { lifecyclePresentation, isActivatable, isActive } from '../../lib/lifecyclePresentation';
     import { buildEngineHash } from '../../lib/router.svelte';
     import styles from '../../styles/brutalist-grid.module.css';
@@ -197,7 +203,7 @@
             <button class={styles.wsPanelClose} onclick={onclose}><SvgIcon name="x" size={16} /></button>
         </div>
         <div class={styles.wsPanelCreateBar}>
-            <input type="text" class={styles.wsPanelInput} placeholder="Symbol (e.g. BTC)" bind:this={createInputEl} bind:value={newBase} maxlength="10" oninput={() => { if (createError) createError = null; }} onkeydown={handleCreateKeydown} />
+            <input type="text" class={styles.wsPanelInput} placeholder="Symbol (e.g. BTC)" bind:this={createInputEl} bind:value={newBase} maxlength={MAX_SYMBOL_CHARS} oninput={() => { if (createError) createError = null; }} onkeydown={handleCreateKeydown} />
             <span class={styles.wsPanelQuoteChip}>{app.quote}</span>
             <button class={styles.wsPanelCreateBtn} onclick={handleCreateWorkspace} disabled={createLoading || !newBase.trim()}>
                 {#if createLoading}

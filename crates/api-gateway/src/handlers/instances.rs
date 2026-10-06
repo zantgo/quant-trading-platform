@@ -40,6 +40,7 @@ async fn log_risk_event(
     }
 }
 
+use core_domain::symbol_rules::{is_valid_symbol, INVALID_SYMBOL_MESSAGE, MAX_SYMBOL_CHARS};
 use portfolio_supervisor::registry;
 use rust_decimal_macros::dec;
 use std::sync::Arc;
@@ -91,10 +92,35 @@ pub async fn serve_add_instance(
         )
             .into_response();
     }
-    if base.len() > 10 || quote.len() > 10 {
+    // v11.12.26: `str::len()` counts BYTES, so a four-character CJK ticker
+    // (`龙虾`, 12 bytes) was rejected as "Symbol too long" while a ten-character
+    // ASCII one passed — the limit never described a real ticker. Venue symbols
+    // are not ASCII-only, so the budget is measured in CHARACTERS.
+    if base.chars().count() > MAX_SYMBOL_CHARS || quote.chars().count() > MAX_SYMBOL_CHARS {
         return (
             axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "Symbol too long" })),
+        )
+            .into_response();
+    }
+    // Reject whitespace and separators: they would corrupt the `-` pair key.
+    if base.chars().any(char::is_whitespace) || quote.chars().any(char::is_whitespace) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Symbol must not contain spaces" })),
+        )
+            .into_response();
+    }
+    // v11.12.26: the whitespace check above is NOT the whole rule. The CLI already
+    // ran the complete `is_valid_symbol` and so rejected `-`, `/`, `:`, `|` and
+    // `.`; the API only rejected whitespace, so `POST {"base":"BTC-USDT"}` was
+    // accepted here and then corrupted the pair key into `BTC-USDT-USDT` —
+    // `split_once('-')` reads that back as base `BTC`, quote `USDT-USDT`. One
+    // shared rule now, so the two entry points cannot disagree (gate G18).
+    if !is_valid_symbol(&base) || !is_valid_symbol(&quote) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": INVALID_SYMBOL_MESSAGE })),
         )
             .into_response();
     }

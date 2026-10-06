@@ -630,8 +630,15 @@ fn cli_launch_plan(
         if cleaned.is_empty() {
             break;
         }
-        if cleaned.len() > 10 || !cleaned.chars().all(|c| c.is_ascii_alphanumeric()) {
-            eprintln!("  ⚠️  Symbol must be 1-10 alphanumeric characters.");
+        // v11.12.26: this was `is_ascii_alphanumeric()` plus a BYTE length, so a
+        // non-English ticker could never be accepted — the prompt looped forever.
+        // The GUI and CLI must agree (parity gate G18), so both use the shared
+        // core-domain rule.
+        if !core_domain::symbol_rules::is_valid_symbol(&cleaned) {
+            eprintln!(
+                "  ⚠️  {}",
+                core_domain::symbol_rules::INVALID_SYMBOL_MESSAGE
+            );
             continue;
         }
         if instances.iter().any(|i| i.base == cleaned) {

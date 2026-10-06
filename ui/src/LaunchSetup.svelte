@@ -3,6 +3,12 @@
     import { createInstance, deleteInstanceById, deleteInstanceByPair } from './lib/api.svelte';
     import { tfLabel } from './types';
     import { activeDurations } from './lib/terms';
+    import {
+        INVALID_TICKER_MESSAGE,
+        MAX_SYMBOL_CHARS,
+        isValidBaseSymbol,
+        normalizeBaseSymbol,
+    } from './lib/symbol';
     import styles from './LaunchSetup.module.css';
 
     const app = useAppStore();
@@ -335,9 +341,14 @@
     }
 
     async function addInstance() {
-        const base = newBase.trim().toUpperCase();
-        if (!/^[A-Z0-9]{2,10}$/.test(base)) {
-            error = 'Invalid ticker. Must be 2-10 alphanumeric characters.';
+        // v11.12.26: venue tickers are not ASCII-only (`龙虾-USDT` is a real
+        // listing), and this ASCII-only class rejected them BEFORE anything was
+        // POSTed — which is why a non-English ticker could not even be entered
+        // on the welcome screen. `isValidBaseSymbol` accepts any Unicode
+        // letter/number up to the shared character budget.
+        const base = normalizeBaseSymbol(newBase);
+        if (!isValidBaseSymbol(base)) {
+            error = INVALID_TICKER_MESSAGE;
             return;
         }
         if (instances.some((i) => i.base === base)) {
@@ -974,7 +985,8 @@
                         <label class={styles.formLabel} for="launch-base">Add instance</label>
                         <p class={styles.formHint}>Every instance runs the {ACTIVE_LADDER_TEXT}</p>
                         <div class={styles.addRow}>
-                            <input id="launch-base" type="text" maxlength="10"
+                            <input id="launch-base" type="text"
+                                maxlength={MAX_SYMBOL_CHARS}
                                 class="{styles.formInput} {styles.baseInput}" bind:value={newBase}
                                 placeholder="BTC" onkeydown={(e) => e.key === 'Enter' && addInstance()} />
                             <button class={styles.addBtn} onclick={addInstance}>+ Add</button>
