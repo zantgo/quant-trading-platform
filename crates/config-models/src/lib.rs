@@ -19,10 +19,18 @@ pub use core_domain::{
     SUPPORTED_DURATIONS,
 };
 
-/// The DEFAULT ACTIVE ladder: the fastest 8 durations of the supported
-/// pool (1s/3s/5s/15s/30s/1m/3m/5m). Operators override via
-/// `[workspace].timeframes` (1..=14 pool members).
-pub const DEFAULT_TIMEFRAMES: [u64; 8] = [1, 3, 5, 15, 30, 60, 180, 300];
+/// The DEFAULT ACTIVE ladder: 12 of the 14 supported pool durations — every
+/// duration from `1s` through `4h` (`1s`/`3s`/`5s`/`15s`/`30s`/`1m`/`3m`/`5m`/
+/// `15m`/`30m`/`1h`/`4h`), excluding only the two slowest (`12h`, `1d`).
+/// Operators override via `[workspace].timeframes` (1..=14 pool members).
+///
+/// v11.12.27: was the fastest EIGHT (`…/1m/3m/5m`). Widened so the default
+/// workspace carries a decision-scale horizon — `15m`/`30m`/`1h` are where
+/// intraday structure actually resolves, and a 5-minute ceiling made every
+/// multi-timeframe read structurally intraday. `12h`/`1d` stay out of the
+/// default: they are the two that dominate boot time (each needs a deep
+/// historical warm) and add the least per-pipeline frame budget.
+pub const DEFAULT_TIMEFRAMES: [u64; 12] = [1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400];
 
 fn default_timeframes() -> Vec<u64> {
     DEFAULT_TIMEFRAMES.to_vec()
@@ -69,7 +77,8 @@ pub enum ConfigError {
         "legacy timeframe key `{key}` in `config.toml` is no longer supported.\n\
          v11.9 replaced named slots with duration-keyed timeframes:\n\
          - replace `active_slots`/`active_timeframes` with\n\
-           `[workspace].timeframes = [1, 3, 5, 15, 30, 60, 180, 300]` (seconds, fastest->slowest)\n\
+           `[workspace].timeframes = [1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400]`
+           (seconds, fastest->slowest)\n\
          - replace per-instance `micro_term`/`fast_term`/`slow_term`/`macro_term`\n\
            with `[workspace.instances.timeframes.<secs>]` blocks\n\
          There is no legacy fallback — migrate the file and restart."
@@ -1583,15 +1592,43 @@ indicators = { rsi_period = 14 }
         let _ = std::fs::remove_file("config.toml.corrupt-0");
     }
 
+    /// v11.12.27: the default ladder is every pool duration from 1s through 4h
+    /// (12 entries), excluding only 12h and 1d. Pinned member-by-member
+    /// because the ladder is the shape of the whole workspace: a drift here
+    /// silently changes what every instance runs.
     #[test]
-    fn active_timeframes_default_is_fastest_eight() {
-        // v11.9: the default active set is the fastest 8 durations of the
-        // supported pool; the accessor heals order/dupes/out-of-pool input.
+    fn default_ladder_is_one_second_through_four_hours() {
+        assert_eq!(
+            DEFAULT_TIMEFRAMES.to_vec(),
+            vec![1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400]
+        );
+        // 12 entries is within the 1..=14 contract, strictly ascending, and a
+        // subset of the pool — the three properties validation enforces.
+        assert!((1..=14).contains(&DEFAULT_TIMEFRAMES.len()));
+        assert!(DEFAULT_TIMEFRAMES.windows(2).all(|w| w[0] < w[1]));
+        for secs in DEFAULT_TIMEFRAMES {
+            assert!(
+                core_domain::SUPPORTED_DURATIONS.contains(&secs),
+                "{secs}s must be a supported pool duration"
+            );
+        }
+        // The two slowest are deliberately EXCLUDED: they dominate boot time.
+        for excluded in [43200u64, 86400] {
+            assert!(
+                !DEFAULT_TIMEFRAMES.contains(&excluded),
+                "{excluded}s must stay out of the default ladder"
+            );
+        }
+    }
+
+    #[test]
+    fn active_timeframes_default_is_one_second_through_four_hours() {
+        // The accessor also heals order/dupes/out-of-pool input.
         let mut ws = WorkspaceConfig::default();
         assert_eq!(ws.timeframes, DEFAULT_TIMEFRAMES.to_vec());
         assert_eq!(
             ws.active_timeframes_for(),
-            vec![1, 3, 5, 15, 30, 60, 180, 300]
+            vec![1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400]
         );
         ws.timeframes = vec![3600];
         assert_eq!(ws.active_timeframes_for(), vec![3600]);

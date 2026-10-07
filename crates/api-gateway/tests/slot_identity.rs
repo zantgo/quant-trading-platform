@@ -74,13 +74,15 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
     let workspace = WorkspaceState::empty();
     // One broadcast channel per active duration — no two pipelines share a
     // channel even where durations are closest.
-    let bcast_txs: Vec<broadcast::Sender<MarketSnapshot>> = (0..10)
+    // v11.12.27: the ACTIVE durations track the real default ladder, so this
+    // fixture can never drift from the workspace shape it is meant to model.
+    // The broadcast channels are sized FROM the ladder: a hardcoded count would
+    // silently truncate the `zip` below (12 durations against 10 channels) and
+    // the missing pipelines would look like inactive durations.
+    let active_secs: Vec<u64> = config_models::DEFAULT_TIMEFRAMES.to_vec();
+    let bcast_txs: Vec<broadcast::Sender<MarketSnapshot>> = (0..active_secs.len())
         .map(|_| broadcast::channel::<MarketSnapshot>(200).0)
         .collect();
-
-    // v11.9: the ACTIVE durations are the canonical pool subset (fastest
-    // 8 by default); the derived label is the identity.
-    let active_secs: Vec<u64> = config_models::SUPPORTED_DURATIONS[..8].to_vec();
     let pipelines: Vec<TimeframePipeline> = active_secs
         .iter()
         .zip(bcast_txs.iter())
@@ -223,11 +225,20 @@ async fn pipeline_for_secs_rejects_inactive_duration() {
         .await
         .expect("pair must be present");
 
-    // The default active ladder is the fastest 8 pool durations; 15m and
-    // 1h are NOT active and must not resolve.
-    assert!(pair.pipeline_for_secs(900).is_none());
-    assert!(pair.pipeline_for_secs(3600).is_none());
-    assert!(pair.subscribe_broadcast_by_secs(900).is_none());
+    // v11.12.27: the default ladder runs 1s through 4h, so 15m and 1h ARE
+    // active now (they used to be the inactive probe). The two slowest pool
+    // durations — 12h and 1d — are what must NOT resolve.
+    for inactive in [43200u64, 86400] {
+        assert!(pair.pipeline_for_secs(inactive).is_none());
+        assert!(pair.subscribe_broadcast_by_secs(inactive).is_none());
+    }
+    // The durations that joined the default ladder in v11.12.27 do resolve.
+    for newly_active in [900u64, 1800, 3600, 14400] {
+        assert!(
+            pair.pipeline_for_secs(newly_active).is_some(),
+            "{newly_active}s joined the default ladder and must resolve"
+        );
+    }
 
     // Every ACTIVE duration resolves.
     for secs in &pair.active_secs {

@@ -10,7 +10,7 @@ export class SettingsStore {
     /// MME Settings timeframes editor; saving POSTs it to `/api/config`, which
     /// live-recharges running instances. Seeded from the GET payload in
     /// `applyConfigToStore`.
-    timeframes = $state<number[]>([1, 3, 5, 15, 30, 60, 180, 300]);
+    timeframes = $state<number[]>([1, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400]);
 
     /// v11.11 — per-duration indicator profiles exactly as the registry
     /// runs them (`duration_profile::overlay(workspace, secs)`), keyed by
