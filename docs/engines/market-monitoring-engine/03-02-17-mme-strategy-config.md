@@ -321,7 +321,7 @@ indexed by the fixed slot names `1s`, `3s`, `5s`, `15s`, `30s`,
 - `l2.tf_weighting.weights` defaults `0.1 / 0.1 / 0.1 / 0.1 / 0.166 / 0.166 / 0.5 / 0.5 / 1.0 / 1.0` (family-split: each legacy family value is split evenly across its pair).
 - `l7.systemic.tf_decay` defaults `0.05 / 0.05 / 0.05 / 0.1 / 0.1 / 0.15 / 0.15 / 0.15 / 0.1 / 0.1` (Σ = 1.0).
 - `l5.volatility.micro_fast_blend` `[0.7, 0.3]` pairs the `1s` / `5s` slots (fastest two sub-minute slots of their families).
-- `ladder_roles` defaults `decision_tf` / `stop_tf` = `1h` (the slowest slot — bias, regime, stance, SL floor) and `entry_tf` / `target_tf` = `1s` (the fastest slot — zones and timing); see [03-03-08-tae-ladder-roles.md](../trade-automation-engine/03-03-08-tae-ladder-roles.md).
+- `ladder_roles` defaults `decision_tf` / `stop_tf` = `1d` (resolved to the slowest ACTIVE duration — `4h` on the default ladder since v11.12.27; the slowest slot — bias, regime, stance, SL floor) and `entry_tf` / `target_tf` = `1s` (the fastest slot — zones and timing); see [03-03-08-tae-ladder-roles.md](../trade-automation-engine/03-03-08-tae-ladder-roles.md).
 
 ## 4. Bug fixes & erasures (implementation order — COMPLETED)
 

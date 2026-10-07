@@ -33,7 +33,7 @@ $$\text{breadth\_pct} = \frac{\text{long\_count} - \text{short\_count}}{\text{to
 
 This drives `global_market_bias` (STRONG_BULLISH … MIXED), `market_breadth` (STRONG_POSITIVE … STRONG_NEGATIVE), and `market_synchronization` (HIGHLY_SYNCHRONIZED … HIGHLY_FRAGMENTED). Bands in [Overview Matrix §3](../../matrices/02-09-overview-matrix.md).
 
-L7 aggregates **all ACTIVE timeframe windows** per instance (`[workspace].timeframes` — any subset 1..=14 of the `1s`…`1d` pool, default the fastest eight; I-2, v6.10.18; v11.9 duration-keyed); the legacy slow-tier-300s-only basis is retired. Per-window advisories feed the breadth / bias / opportunity / regime tallies; per-symbol scalars (confidence, overall risk) are the mean over the windows; categorical per-asset fields are the mode (ties resolve to the fastest window).
+L7 aggregates **all ACTIVE timeframe windows** per instance (`[workspace].timeframes` — any subset 1..=14 of the `1s`…`1d` pool, default 1s→4h (12 of the 14 pool durations, excluding 12h and 1d); I-2, v6.10.18; v11.9 duration-keyed); the legacy slow-tier-300s-only basis is retired. Per-window advisories feed the breadth / bias / opportunity / regime tallies; per-symbol scalars (confidence, overall risk) are the mean over the windows; categorical per-asset fields are the mode (ties resolve to the fastest window).
 
 ---
 

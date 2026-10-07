@@ -47,7 +47,7 @@ Rules:
 - **Bound ladder = the instance's ACTIVE ladder ∩ ≥ 60 s (v11.2).** A bound
   run replays `active_secs` (the fastest `[workspace].timeframes`
   slots, see [01-04 §2](../../conceptual-foundations/01-04-timeframe-model.md))
-  filtered to the 60-second archive floor. With the default ACTIVE set (the fastest eight) the ≥ 60 s intersection is `[60, 180, 300]` — non-empty
+  filtered to the 60-second archive floor. With the default ACTIVE set (default 1s→4h (12 of the 14 pool durations, excluding 12h and 1d)) the ≥ 60 s intersection is `[60, 180, 300, 900, 1800, 3600, 14400]` — non-empty
   `400 no_active_ladder` ("raise `[workspace].timeframes` past the
   60 s slots to backtest"); raising the count past `1m` (N ≥ 6) makes the
   instance backtestable. A `timeframe_secs` outside the resolved set is

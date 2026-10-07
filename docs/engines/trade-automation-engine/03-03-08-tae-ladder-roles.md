@@ -29,10 +29,11 @@ Legacy (`ladder_roles.enabled = false`): all roles = the fastest slot (old behav
 | ACTIVE durations | decision/stop resolve to | entry/target resolve to |
 |---------------------|--------------------------|-------------------------|
 | full pool (14) | `1d` (86400 s — configured extreme present) | `1s` (1 s) |
-| default (fastest 8) | **`5m`** (300 s — slowest ACTIVE; `1d` not running) | `1s` (1 s — fastest ACTIVE) |
+| default (1s→4h, 12) | **`4h`** (14400 s — slowest ACTIVE; `1d` not running) | `1s` (1 s — fastest ACTIVE) |
+| default as of v11.9 (fastest 8) | **`5m`** (300 s — slowest ACTIVE) | `1s` (1 s — fastest ACTIVE) |
 | 1 | **`1s`** (1 s) — degenerate case: decision == stop == entry == target | `1s` (1 s) |
 
-The N=1 case collapses all four roles onto one snapshot — role separation is a no-op and the executor behaves like the legacy single-TF path. The shipped defaults stay the string extremes (`1d` / `1s`); the resolution, not the config, follows the active set.
+The N=1 case collapses all four roles onto one snapshot — role separation is a no-op and the executor behaves like the legacy single-TF path. The shipped defaults stay the string extremes (`1d` / `1s`); the resolution, not the config, follows the active set. v11.12.27 widened the default ladder to 1s→4h, so on a default workspace `decision_tf`/`stop_tf` now resolve to `4h` instead of `5m` — the role separation is *stronger*, not weaker: the stop floor and the decision read a genuine multi-hour horizon rather than an intraday one. This is a real behavioural change to TAE signal geometry and is called out in the CHANGELOG.
 
 ## 3. Config
 

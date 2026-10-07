@@ -39,7 +39,7 @@ ws.onmessage = (event) => {
 };
 ```
 
-Maintain **N parallel WebSocket connections** per instance (one per ACTIVE duration — `[workspace].timeframes`, any subset 1..=14 of the `1s`…`1d` pool, default the fastest eight; v11.9; inactive durations emit no frames). Retry policy is canonical in [08-03 connection-resilience](../operations-and-compliance/08-03-connection-resilience.md): the engine WS adapter retries indefinitely (exponential backoff 1 s → 30 s ± 20 % jitter), REST calls cap at 30 attempts, and the frontend WS client caps at 30 attempts before showing an offline banner.
+Maintain **N parallel WebSocket connections** per instance (one per ACTIVE duration — `[workspace].timeframes`, any subset 1..=14 of the `1s`…`1d` pool, default 1s→4h (12 of the 14 pool durations, excluding 12h and 1d); v11.9; inactive durations emit no frames). Retry policy is canonical in [08-03 connection-resilience](../operations-and-compliance/08-03-connection-resilience.md): the engine WS adapter retries indefinitely (exponential backoff 1 s → 30 s ± 20 % jitter), REST calls cap at 30 attempts, and the frontend WS client caps at 30 attempts before showing an offline banner.
 
 ### 2.3 Pull historical candles
 
