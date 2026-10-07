@@ -198,7 +198,7 @@ describe('Launch Setup — instances step', () => {
 
         // v11.2: the ACTIVE ladder is displayed instead — the fastest N
         // durations of the pool (default fastest 8).
-        expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
+        expect(container.textContent).toContain('Active ladder (12): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m · 15m · 30m · 1h · 4h');
     });
 
     // v11.12.26 regression: the reported bug was that a non-English ticker
@@ -243,7 +243,7 @@ describe('Launch Setup — instances step', () => {
         // ladder label. v11.11: the chip loads at ADD time — the instance
         // POST fires immediately (status pill visible).
         await waitFor(() => expect(container.textContent).toContain('BTC'));
-        expect(container.textContent).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
+        expect(container.textContent).toContain('Active ladder (12): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m · 15m · 30m · 1h · 4h');
         const addCalls = (globalThis.fetch as any).mock.calls.filter(
             ([u]: any[]) => String(u) === '/api/instances',
         );
@@ -395,7 +395,7 @@ describe('Launch Setup — launch orchestration', () => {
         const configCall = calls.find((c) => String(c.url).includes('/config'));
         expect(configCall).toBeUndefined();
 
-        expect(reviewText).toContain('Active ladder (8): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m');
+        expect(reviewText).toContain('Active ladder (12): 1s · 3s · 5s · 15s · 30s · 1m · 3m · 5m · 15m · 30m · 1h · 4h');
 
         // v11.11: the launch screen is now a short readiness confirm —
         // the staged instance was already warmed at ADD time, so its row
@@ -436,7 +436,7 @@ describe('Launch Setup — launch orchestration', () => {
         const { container } = await render(LaunchSetup);
         await goToReview(container);
         expect(container.textContent).toContain('Timeframes');
-        expect(container.textContent).toContain('Active ladder (8)');
+        expect(container.textContent).toContain('Active ladder (12)');
     });
 
     it('surfaces a backend error when initializing the session (ENVIRONMENT step)', async () => {
