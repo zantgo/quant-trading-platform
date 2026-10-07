@@ -95,14 +95,14 @@ run_foreground() {
         echo "⚠️  Frontend build missing. Triggering compilation first..."
         build
     fi
-    if [ -x "$RELEASE_BIN" ]; then
-        echo "🚀 Starting Trading Platform in the foreground (release build)..."
-        echo "   tip: rebuild after code changes with  ./manage.sh build-release"
-        exec "$RELEASE_BIN" --web
-    fi
-    echo "⚠️  No release binary found — building it first (a debug build costs"
-    echo "   ~200 MB of heap at 10 instances; see manage.sh build-release)."
+    # Always ask cargo, never trust the binary on disk. This is incremental and
+    # a fast no-op when nothing changed, whereas `[ -x $RELEASE_BIN ]` silently
+    # ran STALE code after an edit — so a fix could land and the operator would
+    # still see the old bug ("I rebuilt and it is still broken"). `start_daemon`
+    # has always done this.
+    echo "🦀 Building release daemon if stale (a debug build costs ~200 MB at 10 instances)..."
     cargo build --release --bin execution-daemon || exit 1
+    echo "🚀 Starting Trading Platform in the foreground (release build)..."
     exec "$RELEASE_BIN" --web
 }
 
@@ -170,7 +170,11 @@ run_cli() {
     echo "   📡 Instances from the interactive launch prompt (pre-filled from config.toml)"
     echo "   🖥️  No web server — the L7 overview redraws in your terminal"
     echo "   💾 Add --save to the daemon args to enable snapshot-export JSON dumps"
-    cargo run --bin execution-daemon -- --mode cli
+    # Release, like the other two run paths: `cargo run` would hand back a DEBUG
+    # binary, and the debug pipeline carries the same ~200 MB at 10 instances
+    # (see the `Box::pin` note in registry/pipelines.rs).
+    cargo build --release --bin execution-daemon || exit 1
+    exec "$RELEASE_BIN" --mode cli
 }
 
 stop_instance() {
