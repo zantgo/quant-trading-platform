@@ -90,7 +90,7 @@ and by the panels' builder wiring:
 | `meta.prev_day_price` / `price_change` / `price_change_direction` | `pickLatestCompletedSnapshot(terms)` — the newest **completed-candle** snapshot (shadow/live-tick frames drop `prev_day_px`) | Consistent across tabs: one canonical completed snapshot feeds all seven. |
 | `meta.timestamp` | The snapshot's Unix-seconds timestamp (`null` for MTF — no single TF) | Single-TF exports carry their active TF's snapshot ts; the L3–L6 tabs carry the newest snapshot's ts. |
 | `duration_profiles` | v11.11: `GET /api/config` carries the 14 per-duration indicator profiles the registry runs (`{ "<secs>": IndicatorsConfig }`, `duration_profile::overlay(workspace, secs)`) — the settings editors seed each duration's draft from its row. |
-| `meta.timeframe_secs` | `0` for MTF (multi-TF sentinel); the active TF's `barDurationSec` otherwise | MTF also emits `meta.timeframes` — the **ACTIVE** duration display labels in canonical order (v11.9: any subset of the 14-duration pool, `[workspace].timeframes` — default fastest eight → `["1s","3s","5s","15s","30s","1m","3m","5m"]`, derived via `tfLabel`; renamed from the historical `timesframes` typo, 2026-08-17). |
+| `meta.timeframe_secs` | `0` for MTF (multi-TF sentinel); the active TF's `barDurationSec` otherwise | MTF also emits `meta.timeframes` — the **ACTIVE** duration display labels in canonical order (v11.9: any subset of the 14-duration pool, `[workspace].timeframes` — default 1s→4h (12 of the 14 pool durations, excluding 12h and 1d) → `["1s","3s","5s","15s","30s","1m","3m","5m","15m","30m","1h","4h"]`, derived via `tfLabel`; renamed from the historical `timesframes` typo, 2026-08-17). |
 | `meta.datetime_utc` | `now` at click time | Each export is a fresh click-epoch; timestamps legitimately differ across sequential clicks. |
 | `meta.is_completed` | The snapshot's `is_completed` flag | Consistent per snapshot. |
 
@@ -398,7 +398,7 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
 Notes:
 - The `timeframes` array carries exactly **N entries** in ladder order — the
   ACTIVE durations of the 14-duration pool (`[workspace].timeframes`,
-  any subset 1..=14, default the fastest eight; v11.9) — one
+  any subset 1..=14, default 1s→4h (12 of the 14 pool durations, excluding 12h and 1d); v11.9) — one
   per ACTIVE ladder slot. Each
   entry is projected from the store's per-slot `TimeframeTelemetry` record,
   which carries the authoritative `slot` identity the entries derive from:
