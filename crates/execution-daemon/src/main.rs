@@ -793,6 +793,23 @@ fn trim_heap() -> bool {
     false
 }
 
+/// The unaccounted portion of RSS, in MiB: `RSS - accounted snapshot history`.
+///
+/// v11.12.25: the 60 s memory line exists to answer "where is the memory
+/// actually going?" after two rounds of fixes chased the wrong term. The first
+/// version reconciled its two inputs wrongly — `rss_kb` comes from /proc in
+/// KiB, `accounted_bytes` is bytes — so it compared bytes to KiB, and the
+/// column printed the ENTIRE RSS as `unattributed` (415 MiB reported against
+/// 108 MiB of history), hiding exactly the gap it was added to expose.
+///
+/// Saturating on both sides: the budget can legitimately exceed RSS (the
+/// allocator has returned pages the budget still nominally accounts for), and a
+/// diagnostic must never wrap into a nonsense number when it does.
+fn unattributed_mib(rss_kb: u64, accounted_bytes: u64) -> u64 {
+    let accounted_kb = (accounted_bytes / 1024).min(rss_kb);
+    rss_kb.saturating_sub(accounted_kb) / 1024
+}
+
 fn main() {
     // v11.1: the 14-duration pool multiplies the per-pipeline future
     // state (per-slot arrays inside `build_pipelines`/`spawn_tasks`), which
@@ -2557,9 +2574,8 @@ async fn async_main() {
                     // retained-history term and still hit the OOM wall, because
                     // the bulk was elsewhere. Logging the remainder makes the
                     // next diagnosis a measurement instead of an estimate.
-                    let unattributed_mb = (rss_kb.saturating_sub(
-                        used.min(rss_kb) / 1024,
-                    )) / 1024;
+                    //
+                    let unattributed_mb = unattributed_mib(rss_kb as u64, used as u64);
                     let pct = if budget_now == 0 {
                         0.0
                     } else {
@@ -2918,5 +2934,37 @@ mod tests {
     #[test]
     fn no_risk_matrices_yet_falls_back_to_moderate() {
         assert_eq!(canonical_overall_risk(None, 0, 0.0), 50.0);
+    }
+}
+
+#[cfg(test)]
+mod unattributed_tests {
+    use super::unattributed_mib;
+
+    const MIB: u64 = 1024 * 1024;
+
+    #[test]
+    fn subtracts_the_accounted_history_from_rss() {
+        // The observed live case: 415 MiB RSS carrying 108 MiB of history.
+        assert_eq!(unattributed_mib(415 * 1024, 108 * MIB), 307);
+    }
+
+    #[test]
+    fn reconciles_kib_from_proc_with_bytes_from_the_budget() {
+        // The regression: with the inputs expressed in their real units, the
+        // remainder is 307 — NOT the 415 the mixed-unit version reported.
+        assert_ne!(unattributed_mib(415 * 1024, 108 * MIB), 415);
+    }
+
+    #[test]
+    fn saturates_instead_of_wrapping_when_history_exceeds_rss() {
+        // The allocator can return pages the budget still nominally accounts
+        // for. A diagnostic that underflowed would print a ~16 EiB number.
+        assert_eq!(unattributed_mib(100 * 1024, 500 * MIB), 0);
+    }
+
+    #[test]
+    fn is_zero_when_everything_is_accounted_for() {
+        assert_eq!(unattributed_mib(200 * 1024, 200 * MIB), 0);
     }
 }
