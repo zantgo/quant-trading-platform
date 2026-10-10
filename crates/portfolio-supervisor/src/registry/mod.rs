@@ -31,6 +31,127 @@ pub struct InstanceSummary {
     pub lifecycle: String,
     /// v11.2: the ACTIVE ladder durations (fastest N of the fixed pool).
     pub active_secs: Vec<u64>,
+    /// The venue wire name the instance is bound to (`BTC`, `xyz:TLT`). Equals
+    /// the base on the default crypto perp dex.
+    pub venue_coin: String,
+    /// The HIP-3 perp dex that owns the market, or `None` for the default
+    /// crypto dex. Several dexes can list the same base (`GOLD` exists on six),
+    /// so the UI badges this to keep two same-named markets distinguishable.
+    pub venue_dex: Option<String>,
+}
+
+/// Resolve an operator-typed ticker to the concrete venue market, gating on
+/// tradeability. Shared by `add_instance` and `recharge_instance` so both admit
+/// exactly the same symbols.
+pub async fn resolve_venue_market(
+    state: &RegistryContext,
+    exchange_choice: ExchangeChoice,
+    base: &str,
+    raw_symbol: &str,
+    quote: &Currency,
+) -> Result<VenueMarket, String> {
+    let (bitget_ticker_url, hl_info_url) = {
+        let cfg = state.platform.read().await;
+        (cfg.bitget.ticker_url(), cfg.hyperliquid.rest_url())
+    };
+    match exchange_choice {
+        ExchangeChoice::Bitget => {
+            let pt = exchange_choice
+                .bitget_product_type(quote)
+                .unwrap_or("USDT-FUTURES");
+            match network_adapters::adapters::bitget_rest::symbol_exists(
+                raw_symbol,
+                pt,
+                &bitget_ticker_url,
+            )
+            .await
+            {
+                Ok(true) => Ok(VenueMarket {
+                    venue_coin: raw_symbol.to_string(),
+                    dex: None,
+                    isolated_only: false,
+                }),
+                Ok(false) => Err(bitget_unavailable(base, quote)),
+                Err(e) => Err(check_failed(base, exchange_choice, e)),
+            }
+        }
+        ExchangeChoice::Hyperliquid => {
+            match network_adapters::adapters::hyperliquid_rest::resolve_venue_coin(
+                base,
+                &hl_info_url,
+            )
+            .await
+            {
+                Ok(Some(r)) => {
+                    if r.isolated_only {
+                        println!(
+                            "ℹ️  {} resolves to {} — isolated-margin market (no cross). Live cross-margin dispatch does not apply to it.",
+                            base, r.venue_coin
+                        );
+                    }
+                    Ok(VenueMarket {
+                        venue_coin: r.venue_coin,
+                        dex: r.dex,
+                        isolated_only: r.isolated_only,
+                    })
+                }
+                Ok(None) => Err(hyperliquid_unavailable(base, quote)),
+                Err(e) => Err(check_failed(base, exchange_choice, e)),
+            }
+        }
+    }
+}
+
+/// The venue facts every downstream venue call needs.
+#[derive(Debug, Clone)]
+pub struct VenueMarket {
+    /// Wire name sent verbatim to the venue (`BTC`, or `xyz:TLT` on a HIP-3 dex).
+    pub venue_coin: String,
+    /// Owning HIP-3 perp dex, or `None` for the default crypto dex.
+    pub dex: Option<String>,
+    /// `onlyIsolated` / `marginMode: "noCross"` — no cross margin available.
+    pub isolated_only: bool,
+}
+
+fn bitget_unavailable(base: &str, quote: &Currency) -> String {
+    format!(
+        "'{}' isn't available on Bitget ({} perpetual futures). Check the symbol (e.g. BTCUSDT) and try again.",
+        base,
+        quote.as_str()
+    )
+}
+
+fn check_failed(base: &str, exchange: ExchangeChoice, cause: String) -> String {
+    eprintln!(
+        "⚠️  Symbol availability check failed for {} on {}: {}",
+        base,
+        exchange.as_str(),
+        cause
+    );
+    format!(
+        "Couldn't verify '{}' on {} right now (network issue). Please try again.",
+        base,
+        exchange.as_str()
+    )
+}
+
+/// Hyperliquid's unavailable message.
+///
+/// The old copy said "Check the symbol (e.g. BTC, ETH)", which is crypto-only
+/// advice and actively misled the operator: `TLT`, `GOLD` and `SP500` ARE listed,
+/// just on a HIP-3 perp dex. The message now states that equities, indices,
+/// commodities and FX are all listed, and points at the `dex:BASE` override for
+/// the genuine ambiguity case (several dexes can list the same base).
+pub fn hyperliquid_unavailable(base: &str, quote: &Currency) -> String {
+    format!(
+        "'{}' isn't available on Hyperliquid ({} perpetual futures). \
+Hyperliquid lists crypto (BTC, ETH, TAO) alongside equities, indices, commodities and FX \
+(GOLD, SP500, NVDA, TLT, SILVER, CL) — check the ticker spelling (the S&P 500 perp is SP500, \
+not S&P500). If the ticker is listed more than once, name the market explicitly, e.g. xyz:{}.",
+        base,
+        quote.as_str(),
+        base.to_uppercase()
+    )
 }
 
 /// Add a new instance to the state, starting all pipeline tasks.
@@ -66,7 +187,16 @@ pub async fn add_instance(
         ));
     }
 
-    let base = pair.0.clone();
+    // `pair.0` may carry an explicit HIP-3 qualifier (`xyz:TLT`). It selects the
+    // market for the RESOLVER only — the pair key is always the bare base, so
+    // `xyz:TLT` and `TLT` are one instance, config.toml stays `TLT-USDC`, and
+    // every pair-key consumer (`split_once('-')`, deep links, DS exports) is
+    // unaffected. Without this the key would be `xyz:TLT-USDC`.
+    let qualified_base = pair.0.clone();
+    let base = match core_domain::symbol_rules::split_dex_qualifier(&qualified_base) {
+        Some((_, b)) => b.to_string(),
+        None => qualified_base.clone(),
+    };
     let pair_key = exchange_choice.internal_symbol(&base, &quote);
     let normalized = pair_key.clone();
 
@@ -80,54 +210,21 @@ pub async fn add_instance(
     let raw_symbol = exchange_choice.raw_symbol(&base, &quote);
 
     // Verify the symbol is actually tradeable on the selected exchange's
-    // perpetual futures market before spawning any pipelines.
-    {
-        let (bitget_ticker_url, hl_info_url) = {
-            let cfg = state.platform.read().await;
-            (cfg.bitget.ticker_url(), cfg.hyperliquid.rest_url())
-        };
-        let availability = match exchange_choice {
-            ExchangeChoice::Bitget => {
-                let pt = exchange_choice
-                    .bitget_product_type(&quote)
-                    .unwrap_or("USDT-FUTURES");
-                network_adapters::adapters::bitget_rest::symbol_exists(
-                    &raw_symbol,
-                    pt,
-                    &bitget_ticker_url,
-                )
-                .await
-            }
-            ExchangeChoice::Hyperliquid => {
-                network_adapters::adapters::hyperliquid_rest::symbol_exists(&base, &hl_info_url)
-                    .await
-            }
-        };
-        match availability {
-            Ok(true) => {}
-            Ok(false) => {
-                return Err(format!(
-                    "'{}' isn't available on {} ({} perpetual futures). Check the symbol (e.g. BTC, ETH) and try again.",
-                    base,
-                    exchange_choice.as_str(),
-                    quote.as_str()
-                ));
-            }
-            Err(e) => {
-                eprintln!(
-                    "⚠️  Symbol availability check failed for {} on {}: {}",
-                    base,
-                    exchange_choice.as_str(),
-                    e
-                );
-                return Err(format!(
-                    "Couldn't verify '{}' on {} right now (network issue). Please try again.",
-                    base,
-                    exchange_choice.as_str()
-                ));
-            }
-        }
-    }
+    // perpetual futures market before spawning any pipelines, and resolve it to
+    // the exact venue MARKET.
+    //
+    // Hyperliquid resolves to a market, not just a yes/no: since HIP-3 the venue
+    // runs several perp dexes and the bare `meta` query only covers the default
+    // crypto dex, so every equity / index / commodity / FX perp (`xyz:TLT`,
+    // `xyz:GOLD`, `xyz:SP500`) lives on a builder-deployed dex and is invisible
+    // to a default-dex-only check — which is why those tickers were rejected
+    // while BTC and ETH worked. The resolved wire name is what every downstream
+    // venue call must use.
+    // The QUALIFIED base is what the resolver needs: an explicit `xyz:TLT` must pin
+    // that dex, while a bare `TLT` auto-resolves across every dex.
+    let venue_market =
+        resolve_venue_market(state, exchange_choice, &qualified_base, &raw_symbol, &quote).await?;
+    let venue_coin = venue_market.venue_coin.clone();
 
     // Register symbol mapping (native <-> unified)
     let exchange_enum = match exchange_choice {
@@ -136,7 +233,7 @@ pub async fn add_instance(
     };
     state
         .symbol_mapper
-        .register(exchange_enum, &raw_symbol, &normalized)
+        .register(exchange_enum, &venue_coin, &normalized)
         .await;
 
     // Build pipeline configs
@@ -249,6 +346,7 @@ pub async fn add_instance(
     // ── Historical Bootstrap FIRST ──
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
+        venue_coin: venue_coin.clone(),
         internal_symbol: normalized.clone(),
         quote,
         rest_url,
@@ -273,6 +371,7 @@ pub async fn add_instance(
     // ── Build pipelines (creates channels, buffers, ActivePair) ──
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
+        venue_coin: venue_coin.clone(),
         internal_symbol: normalized.clone(),
         quote,
         pair_key: pair_key.clone(),
@@ -668,6 +767,28 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
         _ => state.platform.read().await.hyperliquid.rest_url(),
     };
+
+    // Re-resolve the venue market on every recharge. This is the same call
+    // `add_instance` makes, so a recharged instance keeps its exact HIP-3 dex
+    // market (a `TLT` that auto-resolved to `xyz:TLT` must not silently fall
+    // back to the default crypto dex, where that ticker does not exist).
+    // Best-effort: a recharge must not hard-fail the instance, so a venue
+    // outage degrades to the component-derived raw symbol.
+    let recharge_raw = exchange_choice.raw_symbol(&base, &quote);
+    let recharge_venue_coin =
+        match resolve_venue_market(state, exchange_choice, &base, &recharge_raw, &quote).await {
+            Ok(m) => m.venue_coin,
+            Err(e) => {
+                eprintln!(
+                    "⚠️  Recharge could not re-resolve {} on {}: {e} — using '{}'.",
+                    base,
+                    exchange_choice.as_str(),
+                    recharge_raw
+                );
+                recharge_raw
+            }
+        };
+
     let operational_mode = pair_cfg.operational_mode.clone();
     let weight_overrides = pair_cfg.weight_overrides.clone();
     let liquidity_config_recharge = config_guard.liquidity.clone();
@@ -723,6 +844,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     // Fresh historical bootstrap
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
+        venue_coin: recharge_venue_coin.clone(),
         internal_symbol: pair_key.to_string(),
         quote,
         rest_url,
@@ -749,6 +871,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let cancel = CancellationToken::new();
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
+        venue_coin: recharge_venue_coin.clone(),
         internal_symbol: pair_key.to_string(),
         quote,
         pair_key: pair_key.to_string(),
@@ -845,6 +968,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         buffers: recharged_buffers,
         lifecycle: RwLock::new(LifecycleManager::new_for_mode(None, Some(pair_cfg.mode))),
         execution_mode: tokio::sync::RwLock::new(pair_cfg.mode),
+        // The freshly re-resolved market — NOT the old instance's, so a symbol
+        // whose dex listing changed is rebound rather than kept stale.
+        venue_coin: recharge_venue_coin.clone(),
     });
 
     // Swap in state map
@@ -887,6 +1013,8 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
             mode: inst.execution_mode().await,
             lifecycle: inst.lifecycle.read().await.state.as_str().to_string(),
             active_secs: inst.active_secs.clone(),
+            venue_coin: inst.venue_coin.clone(),
+            venue_dex: inst.venue_dex(),
         });
     }
     summaries
@@ -947,4 +1075,41 @@ pub async fn reload_timeframe(
     // Full implementation deferred: delegate to recharge_instance which
     // rebuilds every ACTIVE duration. This is conservative but observable.
     recharge_instance(state, instance_id).await
+}
+
+#[cfg(test)]
+mod unavailable_message_tests {
+    use super::*;
+
+    /// The reported bug was not only that non-crypto tickers were rejected, but
+    /// that the message told the operator to check "e.g. BTC, ETH" — crypto-only
+    /// advice for a venue that lists equities, indices, commodities and FX. The
+    /// copy must name those classes and the `SP500` spelling, and must not claim
+    /// the venue is crypto-only.
+    #[test]
+    fn names_every_asset_class_the_venue_lists() {
+        let m = hyperliquid_unavailable("TLT", &Currency::USDC);
+        for needle in [
+            "GOLD",
+            "SP500",
+            "NVDA",
+            "TLT",
+            "SILVER",
+            "CL",
+            "equities",
+            "commodities",
+            "FX",
+            "xyz:TLT",
+        ] {
+            assert!(m.contains(needle), "{needle:?} missing from: {m}");
+        }
+        assert!(!m.contains("e.g. BTC, ETH"), "crypto-only advice: {m}");
+    }
+
+    /// `EURUSD` is not a listed ticker — the FX perp is `EUR`. The message has to
+    /// leave the operator with something they can act on.
+    #[test]
+    fn quotes_the_venue_settlement_currency() {
+        assert!(hyperliquid_unavailable("TLT", &Currency::USDC).contains("USDC"));
+    }
 }

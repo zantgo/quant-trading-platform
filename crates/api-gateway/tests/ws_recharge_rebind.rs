@@ -221,6 +221,9 @@ async fn setup_app_with_pair() -> (
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
         ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name — the bare base on the default crypto
+        // perp dex, which is what these fixtures model.
+        "BTC".to_string(),
         pair.clone(),
         pool.clone(),
         workspace.clone(),
@@ -319,6 +322,9 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
         ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name — the bare base on the default crypto
+        // perp dex, which is what these fixtures model.
+        "BTC".to_string(),
         new_pair.clone(),
         state.pool.clone(),
         state.workspace.clone(),
@@ -448,6 +454,9 @@ async fn ws_handler_rebinds_after_recharge_notice() {
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
         ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name — the bare base on the default crypto
+        // perp dex, which is what these fixtures model.
+        "BTC".to_string(),
         new_pair.clone(),
         state.pool.clone(),
         state.workspace.clone(),

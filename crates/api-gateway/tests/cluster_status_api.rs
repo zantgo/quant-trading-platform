@@ -151,6 +151,9 @@ async fn register_btc_usdc(state: &Arc<AppState>) {
         "inst_test".to_string(),
         ("BTC".to_string(), "USDC".to_string()),
         ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name — the bare base on the default
+        // crypto perp dex, which is what these fixtures model.
+        "BTC".to_string(),
         active_pair,
         state.pool.clone(),
         state.workspace.clone(),

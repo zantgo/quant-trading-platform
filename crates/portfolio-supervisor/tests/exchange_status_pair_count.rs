@@ -166,6 +166,9 @@ fn build_stub_instance(
         // ExchangeStatusPanel; defaulting to Hyperliquid for tests that
         // don't care keeps the helper signature stable.
         portfolio_supervisor::session::ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name. On the default crypto perp dex this is
+        // the bare base, which is what these fixtures model.
+        base.to_string(),
         active,
         pool,
         workspace,
@@ -462,6 +465,9 @@ fn build_stub_instance_v2(
         id.to_string(),
         (base.to_string(), quote.to_string()),
         exchange,
+        // The resolved venue wire name — the bare base on the default crypto
+        // perp dex, which is what these fixtures model.
+        base.to_string(),
         active,
         pool,
         workspace,

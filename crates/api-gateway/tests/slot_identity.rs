@@ -118,6 +118,9 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         "inst_slot_identity".into(),
         ("BTC".into(), "USDT".into()),
         ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name — the bare base on the default
+        // crypto perp dex, which is what these fixtures model.
+        "BTC".to_string(),
         active_pair.clone(),
         pool.clone(),
         workspace.clone(),

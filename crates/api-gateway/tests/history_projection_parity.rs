@@ -284,6 +284,9 @@ async fn build_router(seeded: Vec<MarketSnapshot>) -> Arc<AppState> {
         INSTANCE_ID.to_string(),
         ("BTC".into(), "USDT".into()),
         ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name — the bare base on the default
+        // crypto perp dex, which is what these fixtures model.
+        "BTC".to_string(),
         active_pair.clone(),
         pool.clone(),
         workspace.clone(),

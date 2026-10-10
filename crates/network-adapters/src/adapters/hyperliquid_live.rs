@@ -194,11 +194,20 @@ impl HyperliquidLiveClient {
     }
 
     /// Resolve coin → asset index via the `meta` query.
-    pub async fn asset_index(&self, coin: &str) -> Result<i64, String> {
+    ///
+    /// `dex` is the owning HIP-3 perp dex, or `None` for the default crypto
+    /// dex. Asset indices are **per-dex**: a `xyz:` market's index is meaningless
+    /// in the default dex's namespace, so a HIP-3 coin must be resolved against
+    /// its own dex's `meta`.
+    pub async fn asset_index(&self, coin: &str, dex: Option<&str>) -> Result<i64, String> {
+        let body = match dex {
+            Some(d) => serde_json::json!({ "type": "meta", "dex": d }),
+            None => serde_json::json!({ "type": "meta" }),
+        };
         let resp = self
             .http
             .post(&self.info_url)
-            .json(&serde_json::json!({ "type": "meta" }))
+            .json(&body)
             .send()
             .await
             .map_err(|e| format!("HL meta failed: {}", e))?;
@@ -210,15 +219,21 @@ impl HyperliquidLiveClient {
             .get("universe")
             .and_then(|u| u.as_array())
             .ok_or_else(|| "HL meta has no universe".to_string())?;
-        for entry in universe {
+        // The asset index is the coin's POSITION in `universe`, not a field on the
+        // entry — the payload carries only `name`/`szDecimals`/`maxLeverage`/
+        // `marginTableId`. Reading a non-existent `index` field made every live
+        // order fail with "coin 'X' has no index", on every symbol, default dex
+        // included. `BTC` is position 0, which matches its well-known asset id.
+        for (idx, entry) in universe.iter().enumerate() {
             if entry.get("name").and_then(|n| n.as_str()) == Some(coin) {
-                return entry
-                    .get("index")
-                    .and_then(|i| i.as_i64())
-                    .ok_or_else(|| format!("coin '{}' has no index", coin));
+                return Ok(idx as i64);
             }
         }
-        Err(format!("coin '{}' not found in Hyperliquid meta", coin))
+        Err(format!(
+            "coin '{}' not found in Hyperliquid meta{}",
+            coin,
+            dex.map(|d| format!(" (dex '{d}')")).unwrap_or_default()
+        ))
     }
 
     /// Place orders. Returns the exchange order ids (one per order).
@@ -394,8 +409,22 @@ pub fn hl_order_from_packet(packet: &config_models::OrderPacket, asset_index: i6
 }
 
 /// Symbol → coin conversion used by the broker ("BTC-USDC" → "BTC").
+///
+/// The pair key never carries a HIP-3 dex qualifier — the operator types
+/// `xyz:TLT` but the workspace key is `TLT-USDC` — so this returns the bare
+/// base. The dex is a separate argument to the broker, not part of the key.
 pub fn coin_from_symbol(symbol: &str) -> String {
     symbol.split('-').next().unwrap_or(symbol).to_string()
+}
+
+/// The HIP-3 perp dex a bare coin belongs to, as derived from a *venue* name.
+///
+/// The venue wire name is authoritative — it is what the resolver returned —
+/// so `"xyz:TLT"` yields `Some("xyz")` and a default-dex `"BTC"` yields `None`.
+/// Deriving it here (rather than parsing a user string) keeps the broker from
+/// ever guessing a dex the resolver did not actually pick.
+pub fn dex_from_venue_coin(venue_coin: &str) -> Option<String> {
+    core_domain::symbol_rules::split_dex_qualifier(venue_coin).map(|(dex, _)| dex.to_string())
 }
 
 #[cfg(test)]
@@ -443,5 +472,57 @@ mod tests {
     fn coin_from_symbol_splits_base() {
         assert_eq!(coin_from_symbol("BTC-USDC"), "BTC");
         assert_eq!(coin_from_symbol("ETH-USDT"), "ETH");
+        // A HIP-3 instance's pair key stays bare — the dex is NOT in the key,
+        // so this must not leak a qualifier into the order's coin field.
+        assert_eq!(coin_from_symbol("TLT-USDC"), "TLT");
+    }
+
+    #[test]
+    fn dex_is_derived_from_the_venue_coin_not_the_pair_key() {
+        assert_eq!(dex_from_venue_coin("xyz:TLT"), Some("xyz".to_string()));
+        assert_eq!(dex_from_venue_coin("mkts:USBOND"), Some("mkts".to_string()));
+        // Default crypto dex → no qualifier.
+        assert_eq!(dex_from_venue_coin("BTC"), None);
+        assert_eq!(dex_from_venue_coin("TAO"), None);
+    }
+}
+
+#[cfg(test)]
+mod asset_index_tests {
+    use super::*;
+
+    /// The asset id a Hyperliquid order carries is the coin's position in that
+    /// dex's `meta.universe`. The payload has no `index` field — reading one
+    /// meant every live order failed with "coin 'X' has no index", on the default
+    /// crypto dex as well as on HIP-3 dexes.
+    #[test]
+    fn the_asset_index_is_the_universe_position() {
+        // Recorded default-dex universe: BTC is the first entry.
+        let universe: serde_json::Value =
+            serde_json::from_str(r#"{"universe":[{"name":"BTC"},{"name":"ETH"},{"name":"TAO"}]}"#)
+                .unwrap();
+        let arr = universe["universe"].as_array().unwrap();
+        for (idx, coin) in ["BTC", "ETH", "TAO"].iter().enumerate() {
+            let found = arr
+                .iter()
+                .position(|e| e["name"] == *coin)
+                .expect("coin present") as i64;
+            assert_eq!(found, idx as i64, "{coin}");
+        }
+        // No entry carries an `index` field at all.
+        assert!(arr[0].get("index").is_none());
+    }
+
+    /// HIP-3: indices are namespaced per dex, so a `xyz:` market's id is only
+    /// meaningful within the `xyz` universe.
+    #[test]
+    fn a_hip3_asset_index_is_its_position_on_its_own_dex() {
+        let xyz: serde_json::Value = serde_json::from_str(
+            r#"{"universe":[{"name":"xyz:XYZ100"},{"name":"xyz:TSLA"},{"name":"xyz:TLT"}]}"#,
+        )
+        .unwrap();
+        let arr = xyz["universe"].as_array().unwrap();
+        let tlt = arr.iter().position(|e| e["name"] == "xyz:TLT").unwrap() as i64;
+        assert_eq!(tlt, 2);
     }
 }

@@ -194,3 +194,76 @@ async fn accepts_the_boundary_length_before_consulting_the_venue() {
         "20 characters must be within budget, got {status} {body}"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIP-3 perp-dex qualifiers (`xyz:TLT`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// An explicit HIP-3 qualifier must pass the LOCAL gate. It splits BEFORE
+/// validation so the base half is checked by the same rule as a bare ticker and
+/// `:` never reaches the pair key.
+#[tokio::test]
+async fn accepts_a_hip3_dex_qualifier_through_the_local_gate() {
+    for qualified in ["xyz:TLT", "XYZ:TLT", "mkts:USBOND", "km:US500"] {
+        let (status, body) = post_add(qualified, "USDC").await;
+        assert_passed_local_validation(status, &body);
+    }
+}
+
+/// The qualifier is stripped from the pair key. `xyz:TLT` and `TLT` are ONE
+/// instance — otherwise the key would be `xyz:TLT-USDC` and `:` would leak into
+/// config.toml, deep links and every DS export.
+#[test]
+fn a_qualifier_never_reaches_the_pair_key() {
+    for (typed, expected) in [
+        ("xyz:TLT", "TLT"),
+        ("XYZ:TLT", "TLT"),
+        ("mkts:USBOND", "USBOND"),
+        ("BTC", "BTC"),
+        ("龙虾", "龙虾"),
+    ] {
+        let base = match core_domain::symbol_rules::split_dex_qualifier(typed) {
+            Some((_, b)) => b.to_string(),
+            None => typed.to_string(),
+        };
+        let pair_key = format!("{}-USDC", base);
+        assert_eq!(pair_key, format!("{}-USDC", expected), "{typed}");
+        assert!(!pair_key.contains(':'), "{typed}");
+    }
+}
+
+/// `S&P500` is the reported case: `&` is not alphanumeric so the rule refuses it,
+/// and the generic message gave the operator no way forward. The response must
+/// name the venue's real ticker.
+#[tokio::test]
+async fn the_sp500_rejection_names_the_real_ticker() {
+    let (status, body) = post_add("S&P500", "USDC").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body.contains("SP500"),
+        "the rejection must name the venue ticker (got {body})"
+    );
+}
+
+/// A well-formed but unlisted base passes the LOCAL gate, so the refusal can only
+/// come from the venue probe — never from the character rule.
+#[tokio::test]
+async fn a_well_formed_unlisted_base_is_not_rejected_by_the_character_rule() {
+    for symbol in ["NOTAREALTICKER", "EURUSD", "ZZZZZZ"] {
+        let (_, body) = post_add(symbol, "USDC").await;
+        assert_passed_local_validation(StatusCode::BAD_REQUEST, &body);
+    }
+}
+
+/// A malformed qualifier is NOT treated as one — it degrades to a plain base so
+/// the venue probe (not the local gate) decides.
+#[tokio::test]
+async fn a_malformed_qualifier_is_rejected_as_a_bad_symbol_not_silently_accepted() {
+    for bad in ["xyz:", ":TLT", "xy-z:TLT"] {
+        let (_, body) = post_add(bad, "USDC").await;
+        assert!(
+            !body.contains("CREATED") && !body.contains("created"),
+            "{bad} must not create an instance (got {body})"
+        );
+    }
+}

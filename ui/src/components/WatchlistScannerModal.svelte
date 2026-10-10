@@ -2,7 +2,7 @@
     import { useAppStore } from '../state.svelte';
     import { createInstance, deleteInstanceById, waitForAdvisory } from '../lib/api.svelte';
     import { connectWsForInstance, type WsState } from '../lib/websocket.svelte';
-    import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from '../lib/watchlistScanner';
+    import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbolsWithReasons, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from '../lib/watchlistScanner';
     import styles from './WatchlistScannerModal.module.css';
     import brutalistStyles from '../styles/brutalist-grid.module.css';
 
@@ -19,7 +19,12 @@
     type Phase = 'input' | 'running' | 'done';
     let phase = $state<Phase>('input');
     let inputText = $state('');
-    let parsed = $derived(parseSymbols(inputText));
+    // Parse once and keep the REJECTED tokens with their reason — silently
+    // dropping a malformed ticker (e.g. `S&P500`) left the operator with a
+    // smaller queue and no explanation of which entry was refused.
+    let parseResult = $derived(parseSymbolsWithReasons(inputText));
+    let parsed = $derived(parseResult.symbols);
+    let rejected = $derived(parseResult.rejected);
     let cancelRun = $state(false);
     /// Recommendation grace window (minutes). A pair is kept when a
     /// recommendation to any side appears within the window; deleted
@@ -256,6 +261,13 @@
                             {parsed.length} symbol{parsed.length === 1 ? '' : 's'}
                         </span>
                     </div>
+                    {#if rejected.length > 0}
+                        <div class={styles.guardBanner}>
+                            {#each rejected as r (r.token)}
+                                <div>{r.token} — {r.reason}</div>
+                            {/each}
+                        </div>
+                    {/if}
                 </div>
 
                 {#if !sessionReady}

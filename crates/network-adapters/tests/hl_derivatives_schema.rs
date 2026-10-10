@@ -83,7 +83,7 @@ const REAL_RESPONSE: &str = r#"[
 async fn fetch_meta_and_asset_ctxs_recover_coins_from_meta_universe() {
     let addr = spawn_mock_server(REAL_RESPONSE).await;
     let url = format!("http://{}/info", addr);
-    let map = fetch_meta_and_asset_ctxs(&url)
+    let map = fetch_meta_and_asset_ctxs(&url, None)
         .await
         .expect("the picker must succeed against the real response shape");
 
@@ -144,7 +144,7 @@ async fn fetch_meta_and_asset_ctxs_handles_malformed_meta_legacy_path() {
         }
     });
     let url = format!("http://{captured_addr}/info");
-    let err = fetch_meta_and_asset_ctxs(&url)
+    let err = fetch_meta_and_asset_ctxs(&url, None)
         .await
         .expect_err("malformed meta must surface as Err, not panic");
     assert!(
@@ -181,7 +181,7 @@ async fn fetch_meta_and_asset_ctxs_returns_unknown_index_when_universe_missing()
         }
     });
     let url = format!("http://{captured_addr}/info");
-    let map: HashMap<String, _> = fetch_meta_and_asset_ctxs(&url)
+    let map: HashMap<String, _> = fetch_meta_and_asset_ctxs(&url, None)
         .await
         .expect("response must parse even with empty universe");
     assert!(

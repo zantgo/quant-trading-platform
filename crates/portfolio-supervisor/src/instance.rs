@@ -119,6 +119,15 @@ pub struct Instance {
     /// evaluates or dispatches orders for them. Mirrors the persisted
     /// `InstanceEntry.mode` so the runtime gate needs no config round-trip.
     pub execution_mode: RwLock<config_models::ExecutionMode>,
+
+    /// The venue's WIRE name for this market — `BTC` on the default crypto perp
+    /// dex, `xyz:TLT` on a HIP-3 builder-deployed one.
+    ///
+    /// The pair key deliberately does NOT carry the dex qualifier (the operator
+    /// types `xyz:TLT` but the workspace key is `TLT-USDC`), so this is the
+    /// only place the resolved market is recorded. `/api/instances` surfaces it
+    /// so the UI can badge which venue market an instance is actually bound to.
+    pub venue_coin: String,
 }
 
 impl Instance {
@@ -126,6 +135,7 @@ impl Instance {
         id: String,
         pair: (String, String),
         exchange: crate::session::ExchangeChoice,
+        venue_coin: String,
         active_pair: Arc<analyzer::ActivePair>,
         pool: SqlitePool,
         workspace: WorkspaceState,
@@ -169,6 +179,7 @@ impl Instance {
             // Transient init — `set_execution_mode` overrides right after
             // construction in add/recharge. Workspace default is observe.
             execution_mode: RwLock::new(config_models::ExecutionMode::Observe),
+            venue_coin,
         }
     }
 
@@ -195,6 +206,14 @@ impl Instance {
 
     pub fn pair_key(&self) -> String {
         format!("{}-{}", self.pair.0, self.pair.1)
+    }
+
+    /// The HIP-3 perp dex this instance's market lives on, or `None` for the
+    /// default crypto dex. Derived from the venue wire name so it can never
+    /// disagree with what the venue actually resolved.
+    pub fn venue_dex(&self) -> Option<String> {
+        core_domain::symbol_rules::split_dex_qualifier(&self.venue_coin)
+            .map(|(dex, _)| dex.to_string())
     }
 
     pub fn pair_display(&self) -> String {
@@ -338,6 +357,7 @@ impl Instance {
             latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         });
 
+        let venue_coin_for_test = pair.0.clone();
         Self {
             id,
             pair,
@@ -364,6 +384,9 @@ impl Instance {
                 Some(config_models::ExecutionMode::Paper),
             )),
             execution_mode: RwLock::new(config_models::ExecutionMode::Paper),
+            // No venue resolution happens in the test constructor; on the
+            // default crypto perp dex the wire name IS the base.
+            venue_coin: venue_coin_for_test.clone(),
         }
     }
 }

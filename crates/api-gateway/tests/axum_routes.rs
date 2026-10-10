@@ -255,6 +255,9 @@ async fn test_websocket_stream_with_active_pair() {
         "inst_test".to_string(),
         ("BTC".to_string(), "USDT".to_string()),
         portfolio_supervisor::session::ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name — the bare base on the default crypto
+        // perp dex, which is what these fixtures model.
+        "BTC".to_string(),
         pair.clone(),
         pool.clone(),
         workspace.clone(),
