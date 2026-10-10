@@ -147,6 +147,19 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
    `creating → waiting → ready ✓ / failed`; CONTINUE stays locked until every chip is ready;
    ✕-removing a chip cancels the creation (an in-flight creation is deleted when the POST
    lands). You may also skip instances and add them later from the workspace panel.
+
+   **Which tickers are valid.** A ticker is 1–20 characters of letters or numbers in any
+   language (plus `_`), with no spaces or separators — so `龙虾` is fine and `S&P500` is not.
+   Hyperliquid lists far more than crypto: alongside `BTC`/`ETH`/`TAO` it carries equities
+   (`NVDA`, `TSLA`, `AAPL`, `GOOGL`, `SPCX`), indices (`SP500`), commodities (`GOLD`, `SILVER`,
+   `COPPER`, `CL`, `BRENTOIL`), FX (`EUR`) and rate perps (`TLT`). The S&P 500 perpetual is
+   `SP500`; the FX perp is `EUR`. Delisted markets are refused.
+
+   Several Hyperliquid markets share one ticker across venues (there are multiple perp dexes).
+   Typing the bare ticker resolves to the live market with the deepest leverage; to force one,
+   qualify it with its dex — `xyz:TLT` — and the instance is labelled `TLT-USDC` either way.
+   `xyz:TLT` and `xyz:EUR` are isolated-margin markets (no cross), which matters only for
+   live execution. See [03-01-01 §5.2](../engines/data-infrastructure-engine/03-01-01-die-overview-spec.md).
 4. **Review** — a summary table (mode, exchange, currency, instance list) → **Launch**.
    Launching shows a short readiness confirm and lands on the Market Monitor **Overview**,
    already populated (instances were created at ADD time).

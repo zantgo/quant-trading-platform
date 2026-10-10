@@ -160,8 +160,8 @@ The response shape is:
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/instances?pair_key=` | List running instance summaries. Each summary (InstanceSummary) carries `active_secs: number[]` (v11.9) — the instance's ACTIVE durations in seconds, fastest → slowest (mirrors `[workspace].timeframes`). |
-| `POST` | `/api/instances` | Create instance — request body `{ base: string, quote: string, ... }` (exchange + base/quote symbol parts; the UI sends `{ base, quote }`; a bare `{ symbol }` body is rejected `400/422`). |
+| `GET` | `/api/instances?pair_key=` | List running instance summaries. Each summary (InstanceSummary) carries `active_secs: number[]` (v11.9) — the instance's ACTIVE durations in seconds, fastest → slowest (mirrors `[workspace].timeframes`) — plus `venue_coin: string` and `venue_dex: string \| null` (**HIP-3**): the resolved venue market (`BTC`, or `xyz:TLT` on a builder-deployed Hyperliquid perp dex) and the dex that owns it. The pair key stays the bare `TLT-USDC`; the qualifier is stripped before the key is built. See [03-01-01 §5.2](../engines/data-infrastructure-engine/03-01-01-die-overview-spec.md). |
+| `POST` | `/api/instances` | Create instance — request body `{ base: string, quote: string, ... }` (exchange + base/quote symbol parts; the UI sends `{ base, quote }`; a bare `{ symbol }` body is rejected `400/422`). **`base` may carry a Hyperliquid HIP-3 dex qualifier** (`xyz:TLT`) to pin one market when a base is listed on several perp dexes; the qualifier is split off before validation and stripped from the pair key, so the created instance's key is `TLT-USDC` while the venue calls use `xyz:TLT`. An unqualified base auto-resolves across every perp dex. Delisted markets are refused. A `base` that fails the shared ticker rule (`core_domain::symbol_rules`, 1–20 chars, no separators) is `400` — punctuated index names get a message naming the venue ticker (`S&P500` → `SP500`). |
 | `GET` | `/api/instances/:instance_id` | Instance detail (equity, caution). |
 | `DELETE` | `/api/instances/:instance_id` | Delete instance. |
 | `DELETE` | `/api/instances/by-pair/:pair_key` | Delete by pair key. |

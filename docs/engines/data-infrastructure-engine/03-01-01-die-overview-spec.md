@@ -200,6 +200,24 @@ Connecting ──► Connected ◄────────► Disconnected
 
 The `SymbolMapper` (`crates/core-domain/src/normalized/symbol_mapper.rs`) maps exchange-native symbols (e.g. Hyperliquid `BTC`, Bitget `BTCUSDT`) to unified internal symbols (e.g. `BTC-USDT`). The configured `symbols` list uses `Exchange:Symbol` syntax (e.g. `Hyperliquid:BTC`) to bind each internal symbol to exactly one preferred venue. **Aggregation of parallel streams from multiple venues for the same symbol is not supported; cross-venue failover is not implemented.**
 
+### 5.1 Ticker admission (`core_domain::symbol_rules`)
+
+`crates/core-domain/src/symbol_rules.rs` is the single definition of what a ticker is, shared by the API, the CLI and — mirrored in `ui/src/lib/symbol.ts` — the wizard, the tab header, the BTE launcher, the workspace panel and the watchlist scanner (parity gate G18). A base ticker is 1–20 **characters** (never bytes) of Unicode letters/numbers plus `_`; anything that would corrupt a `-` pair key, a URL path or the TOML round-trip (whitespace, `-`, `/`, `:`, `|`, `.`) is refused.
+
+### 5.2 Hyperliquid HIP-3 perp dexes — the resolved venue market
+
+Since HIP-3, Hyperliquid runs **several perp dexes**: an unnamed default *crypto* dex plus builder-deployed named dexes (`xyz`, `mkts`, `km`, `flx`, `hyna`, `cash`, `para`, `vntl`, `io`). Only the default dex is returned by the bare `POST /info {"type":"meta"}` query, so every equity / index / commodity / FX perp — `xyz:TLT`, `xyz:GOLD`, `xyz:SP500`, `xyz:EUR`, `xyz:CL`, `xyz:BRENTOIL`, `xyz:SILVER`, `xyz:COPPER`, `xyz:SPCX`, `xyz:NVDA` — lives on a named dex and is **invisible to a default-dex-only query**.
+
+Three consequences, each of which was a real defect before this model existed:
+
+1. **Admission.** `symbol_exists` queried only the default universe, so every HIP-3 ticker was reported as "isn't available on Hyperliquid" while BTC and ETH worked. `resolve_venue_coin` now walks `perpDexs`, consults each dex's `meta`, and returns the concrete market. `isDelisted: true` markets are never candidates (which also fixes `MATIC`/`RNDR`/`FTM`/`MKR`, delisted on the default dex, being accepted).
+2. **The wire name is not derivable from the base.** `xyz:TLT` cannot be computed from `TLT` — only the venue knows which dex owns it. The resolved name is therefore carried explicitly as `Instance::venue_coin` (surfaced by `GET /api/instances` as `venue_coin` + `venue_dex`) and threaded into **every** venue call: the WS `trades`/`l2Book`/`activeAssetCtx` subscriptions, the `candleSnapshot` historical warm, the `metaAndAssetCtxs` derivatives poller, the gap-refetch spec, the backfill fetcher and the live asset index. Sending the bare base makes the venue close the socket with zero frames, which reads as a dead connection rather than a wrong ticker.
+3. **Ambiguity.** Several dexes can list the same base (`GOLD` on six, `NVDA` on five). An unqualified base auto-resolves to the live market with the deepest `maxLeverage`; an explicit `dex:BASE` qualifier pins one market and a miss there is a miss, never a silent fallback to another dex. The qualifier is stripped before the pair key is built — the operator types `xyz:TLT`, the workspace key is `TLT-USDC` — so `:` never reaches config.toml, a URL path or a DS export. `split_dex_qualifier` also refuses to read the venue's own `Exchange:Symbol` wire form (`BTC:USDT`) as a qualifier.
+
+**Asset indices are per-dex** and equal the coin's **position** in that dex's `meta.universe` (the payload carries no `index` field), so `asset_index` resolves against the owning dex.
+
+**Isolated margin.** `xyz:TLT` and `xyz:EUR` publish `onlyIsolated: true` / `marginMode: "noCross"`. Observe and paper are unaffected; live cross-margin dispatch does not apply to them, and the venue's per-dex `deployerFeeScale` differs from the default dex's fee schedule.
+
 ---
 
 ## 6. Configuration Surface
