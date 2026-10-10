@@ -234,7 +234,32 @@ pub async fn serve_backfill_start(
     } else {
         portfolio_supervisor::session::ExchangeChoice::Hyperliquid
     };
-    let raw_symbol = exchange_native.raw_symbol(&base, &quote);
+    // HIP-3: on Hyperliquid the venue wire name is NOT derivable from the base —
+    // markets on a builder-deployed perp dex are `<dex>:<coin>` and
+    // `candleSnapshot` returns `null` for the bare base. Re-resolve here so a
+    // backfill of `TLT-USDC` fetches `xyz:TLT`. Bitget keeps the derived form.
+    let raw_symbol = if exchange_native == portfolio_supervisor::session::ExchangeChoice::Bitget {
+        exchange_native.raw_symbol(&base, &quote)
+    } else {
+        match portfolio_supervisor::registry::resolve_venue_market(
+            &state.registry_context(),
+            exchange_native,
+            &base,
+            &base,
+            &quote,
+        )
+        .await
+        {
+            Ok(m) => m.venue_coin,
+            Err(e) => {
+                eprintln!(
+                    "⚠️  Backfill could not resolve {} on Hyperliquid: {e} — trying the bare coin.",
+                    base
+                );
+                base.clone()
+            }
+        }
+    };
 
     // Production page fetcher wired to the exchange.
     let fetcher: PageFetcher = match exchange.as_str() {

@@ -5,7 +5,7 @@
 // that drives the modal's done-phase cards.
 
 import { describe, it, expect } from 'vitest';
-import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from './watchlistScanner';
+import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, parseSymbolsWithReasons, reasonFor, reasonLabel, summarize, watchlistIsClean, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from './watchlistScanner';
 import { MAX_SYMBOL_CHARS as MAX_SYMBOL_LEN } from './symbol';
 import type { AdvisoryMatrix, DecisionContext } from '../types';
 
@@ -46,10 +46,14 @@ describe('parseSymbols', () => {
     });
 
     it('v11.8: no longer accepts commas or # prefixes (spaces only)', () => {
-        // 'BTC,ETH' is one literal token (invalid downstream, > 10 chars
-        // after upper-casing is not the reason — it is kept as-is).
-        expect(parseSymbols('BTC,ETH')).toEqual(['BTC,ETH']);
-        expect(parseSymbols('#BTC')).toEqual(['#BTC']);
+        // Spaces are the only separator, so these are single literal tokens —
+        // and they now fail the shared ticker rule instead of being POSTed to
+        // the backend verbatim and coming back as a generic error.
+        expect(parseSymbols('BTC,ETH')).toEqual([]);
+        expect(parseSymbols('#BTC')).toEqual([]);
+        const { rejected } = parseSymbolsWithReasons('BTC,ETH #BTC');
+        expect(rejected.map((r) => r.token)).toEqual(['BTC,ETH', '#BTC']);
+        expect(rejected[0].reason).toMatch(/letters or numbers/);
     });
 
     it('uppercases tokens', () => {
@@ -81,6 +85,43 @@ describe('parseSymbols', () => {
     it('returns empty for empty input', () => {
         expect(parseSymbols('')).toEqual([]);
         expect(parseSymbols('   ')).toEqual([]);
+    });
+
+    it('accepts an explicit HIP-3 dex:BASE qualifier', () => {
+        expect(parseSymbols('xyz:TLT')).toEqual(['xyz:TLT']);
+        expect(parseSymbols('XYZ:TLT mkts:USBOND')).toEqual([
+            'xyz:TLT',
+            'mkts:USBOND',
+        ]);
+        // The dex half is normalized to the venue's lowercase.
+        expect(parseSymbols('XYZ:TLT')).toEqual(['xyz:TLT']);
+    });
+
+    it('rejects a malformed qualifier with a reason, and never forwards it', () => {
+        // `xyz:` has no base; `bad-dex:TLT` has a `-` in the dex half.
+        const { symbols, rejected } = parseSymbolsWithReasons('xyz: bad-dex:TLT BTC');
+        expect(symbols).toEqual(['BTC']);
+        expect(rejected.map((r) => r.token).sort()).toEqual(['BAD-DEX:TLT', 'XYZ:']);
+    });
+
+    it('an unknown dex name is well-formed here and refused by the venue', () => {
+        // Syntax is valid locally, so the local gate lets it through and the
+        // backend's resolver decides — it must not be dropped client-side.
+        expect(parseSymbols('NOTADEX:TLT')).toEqual(['notadex:TLT']);
+    });
+
+    it('names the real ticker for the reported S&P500 case', () => {
+        const { symbols, rejected } = parseSymbolsWithReasons('BTC S&P500');
+        expect(symbols).toEqual(['BTC']);
+        expect(rejected).toHaveLength(1);
+        expect(rejected[0].token).toBe('S&P500');
+        expect(rejected[0].reason).toContain('SP500');
+    });
+
+    it('reports every HIP-3 tickers as clean', () => {
+        expect(watchlistIsClean('GOLD SP500 EUR CL BRENTOIL SILVER COPPER')).toBe(true);
+        expect(watchlistIsClean('SPCX NVDA TSLA AAPL GOOGL')).toBe(true);
+        expect(watchlistIsClean('PUMP HYPE ZEC LIT DOGE TAO TLT')).toBe(true);
     });
 });
 

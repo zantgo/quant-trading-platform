@@ -216,6 +216,9 @@ fn build_stub_instance(
         id.to_string(),
         (base.to_string(), quote.to_string()),
         ExchangeChoice::Hyperliquid,
+        // The resolved venue wire name — the bare base on the default
+        // crypto perp dex, which is what these fixtures model.
+        base.to_string(),
         active,
         pool,
         workspace,

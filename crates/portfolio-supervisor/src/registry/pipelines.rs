@@ -23,6 +23,17 @@ use tokio_util::sync::CancellationToken;
 
 pub struct PipelineContext {
     pub base: String,
+    /// The venue's WIRE name for this market — `BTC` on the default crypto perp
+    /// dex, `xyz:TLT` on a HIP-3 builder-deployed one.
+    ///
+    /// This is NOT derivable from `base`: since HIP-3 Hyperliquid runs several
+    /// perp dexes and the equity / index / commodity / FX markets are named
+    /// `<dex>:<coin>` on a dex the bare `meta` query never returns. The WS
+    /// subscribe, the historical warm, the gap-refetch spec and the derivatives
+    /// poller all send this verbatim — sending the bare base makes the venue
+    /// drop the socket (verified: a bare `TLT` subscribe closes the connection
+    /// with zero frames, while `xyz:TLT` streams normally).
+    pub venue_coin: String,
     /// Unified internal symbol (e.g. "BTC-USDT") used across the state.
     pub internal_symbol: String,
     /// Settlement/quote currency for this session.
@@ -229,7 +240,7 @@ pub async fn build_pipelines(
 
     spawn_tasks(
         snapshot_rx,
-        &ctx.base,
+        &ctx.venue_coin,
         &ctx.internal_symbol,
         &ctx.pair_key,
         &ctx.ladder_cfgs,
@@ -275,6 +286,7 @@ pub async fn build_pipelines(
         format!("inst_{}", uuid_v4_simple()),
         (ctx.base.clone(), ctx.quote.as_str().to_string()),
         ctx.exchange_choice,
+        ctx.venue_coin.clone(),
         active_pair.clone(),
         state.pool.clone(),
         state.workspace.clone(),
@@ -291,7 +303,10 @@ pub async fn build_pipelines(
 #[allow(clippy::too_many_arguments)]
 async fn spawn_tasks(
     snapshot_rx: mpsc::Receiver<NormalizedEvent>,
-    base: &str,
+    // The venue's WIRE name (`BTC`, or `xyz:TLT` on a HIP-3 perp dex). Every
+    // venue call below — WS subscribe, gap refetch, derivatives poller —
+    // sends this verbatim; the bare base makes the venue drop the socket.
+    venue_coin: &str,
     internal_symbol: &str,
     pair_key: &str,
     ladder_cfgs: &[TimeframeConfig],
@@ -467,7 +482,7 @@ async fn spawn_tasks(
         };
         analyzer::RestRefetchSpec {
             is_bitget: exchange_choice == ExchangeChoice::Bitget,
-            exchange_raw: exchange_choice.raw_symbol(base, &quote),
+            exchange_raw: venue_coin.to_string(),
             product_type: exchange_choice
                 .bitget_product_type(&quote)
                 .unwrap_or("")
@@ -619,7 +634,7 @@ async fn spawn_tasks(
     }
 
     // WebSocket adapter (perpetual futures on all exchanges)
-    let ws_symbol = exchange_choice.raw_symbol(base, &quote);
+    let ws_symbol = venue_coin.to_string();
     let ws_product_type = exchange_choice
         .bitget_product_type(&quote)
         .unwrap_or("")
@@ -936,11 +951,15 @@ async fn spawn_tasks(
             .replace("wss://", "https://")
             .replace("ws://", "http://")
             .replace("/ws", "/info");
-        let poller_raw = exchange_choice.raw_symbol(base, &quote);
+        let poller_raw = venue_coin.to_string();
         let poller_internal = internal_symbol.to_string();
         let poller_tx = std::sync::Arc::new(active_pair.snapshot_tx.clone());
         let poller_cancel = cancel.clone();
         let poll_ms = liquidity_config.mark_price_poll_ms;
+        // HIP-3: `metaAndAssetCtxs` is per-dex, so a market on a
+        // builder-deployed dex must be polled on its own dex or the lookup
+        // silently finds nothing.
+        let poller_dex = exchange_choice.hyperliquid_dex(&poller_raw);
         network_adapters::adapters::hl_derivatives_poller::spawn_hl_derivatives_poller(
             poller_raw,
             poller_internal,
@@ -949,6 +968,7 @@ async fn spawn_tasks(
             poller_cancel,
             poll_ms,
             api_failover.max_consecutive_failures,
+            poller_dex,
         );
     }
 

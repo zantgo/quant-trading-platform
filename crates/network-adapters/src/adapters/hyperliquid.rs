@@ -80,6 +80,33 @@ struct AssetCtxInner {
     prev_day_px: Option<String>,
 }
 
+/// Build the subscription frames for one market.
+///
+/// `symbol` is the venue's WIRE name and must be sent verbatim: on a HIP-3 perp
+/// dex it is `<dex>:<coin>` (`xyz:TLT`), and the bare `TLT` is not a valid
+/// subscription — the venue closes the socket with no error frame and no data,
+/// which reads as a dead connection rather than a wrong ticker.
+///
+/// The response `coin` field echoes the same qualified name, so it is matched
+/// case-insensitively against this exact string.
+pub fn subscription_frames(symbol: &str) -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"type": "trades", "coin": symbol}),
+        serde_json::json!({"type": "l2Book", "coin": symbol}),
+        serde_json::json!({"type": "activeAssetCtx", "coin": symbol}),
+        // Note: liquidation events come from the public `trades` channel
+        // (every liquidation fill carries a non-empty `liquidation`
+        // field). No per-account subscription is needed. This matches
+        // Bitget's public `liquidation` channel behavior.
+    ]
+}
+
+/// True when an inbound frame belongs to `symbol`. The venue echoes the coin we
+/// subscribed with, so this filters out any other stream that shares the socket.
+fn frame_matches(frame_coin: &str, symbol: &str) -> bool {
+    frame_coin.eq_ignore_ascii_case(symbol)
+}
+
 pub async fn run_for_symbol(
     symbol: String,
     internal_symbol: String,
@@ -113,15 +140,7 @@ pub async fn run_for_symbol(
         })
         .await;
 
-    let subscriptions = vec![
-        serde_json::json!({"type": "trades", "coin": &symbol}),
-        serde_json::json!({"type": "l2Book", "coin": &symbol}),
-        serde_json::json!({"type": "activeAssetCtx", "coin": &symbol}),
-        // Note: liquidation events come from the public `trades` channel
-        // (every liquidation fill carries a non-empty `liquidation`
-        // field). No per-account subscription is needed. This matches
-        // Bitget's public `liquidation` channel behavior.
-    ];
+    let subscriptions = subscription_frames(&symbol);
     for sub in &subscriptions {
         let sub_request = serde_json::json!({
             "method": "subscribe",
@@ -204,7 +223,12 @@ pub async fn run_for_symbol(
                 }
                 if raw_text.contains("\"channel\":\"l2Book\"") {
                     if let Ok(envelope) = serde_json::from_str::<L2BookEnvelope>(&raw_text) {
-                        if let Some(payload) = envelope.data {
+                        // The venue echoes the subscribed coin. On a HIP-3 dex
+                        // that is `<dex>:<coin>`, so a strict `==` against the
+                        // bare base would drop every frame for a HIP-3 market.
+                        if let Some(payload) =
+                            envelope.data.filter(|p| frame_matches(&p.coin, &symbol))
+                        {
                             if payload.levels.len() >= 2
                                 && !payload.levels[0].is_empty()
                                 && !payload.levels[1].is_empty()
@@ -240,7 +264,10 @@ pub async fn run_for_symbol(
                 } else if raw_text.contains("\"channel\":\"trades\"") {
                     if let Ok(envelope) = serde_json::from_str::<TradesEnvelope>(&raw_text) {
                         if let Some(trades) = envelope.data {
-                            for t in trades {
+                            for t in trades
+                                .into_iter()
+                                .filter(|t| frame_matches(&t.coin, &symbol))
+                            {
                                 let price = Decimal::from_str(&t.px).unwrap_or(Decimal::ZERO);
                                 let size = Decimal::from_str(&t.sz).unwrap_or(Decimal::ZERO);
                                 let side = if t.side == "A" {
@@ -313,7 +340,9 @@ pub async fn run_for_symbol(
                 } else if raw_text.contains("\"channel\":\"activeAssetCtx\"") {
                     if let Ok(envelope) = serde_json::from_str::<ActiveAssetCtxEnvelope>(&raw_text)
                     {
-                        if let Some(data) = envelope.data {
+                        if let Some(data) =
+                            envelope.data.filter(|d| frame_matches(&d.coin, &symbol))
+                        {
                             if let Some(ctx) = data.ctx {
                                 if let Some(px) = ctx
                                     .prev_day_px
@@ -354,4 +383,43 @@ pub async fn run_for_symbol(
             message: format!("Dedicated WS disconnected for {}", symbol),
         })
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subscriptions_carry_the_venue_wire_name() {
+        let frames = subscription_frames("xyz:TLT");
+        let coins: Vec<&str> = frames
+            .iter()
+            .map(|f| f["coin"].as_str().expect("coin"))
+            .collect();
+        assert_eq!(coins, vec!["xyz:TLT"; 3]);
+        let types: Vec<&str> = frames
+            .iter()
+            .map(|f| f["type"].as_str().expect("type"))
+            .collect();
+        assert_eq!(types, vec!["trades", "l2Book", "activeAssetCtx"]);
+    }
+
+    #[test]
+    fn a_default_dex_market_subscribes_unprefixed() {
+        let frames = subscription_frames("BTC");
+        assert!(frames.iter().all(|f| f["coin"] == "BTC"));
+    }
+
+    /// The bug this guards: a bare `TLT` is not a valid subscription on the
+    /// venue — the socket closes with zero frames. Only `xyz:TLT` streams.
+    #[test]
+    fn frame_matching_accepts_the_namespaced_coin_and_rejects_the_bare_base() {
+        assert!(frame_matches("xyz:TLT", "xyz:TLT"));
+        assert!(frame_matches("XYZ:TLT", "xyz:TLT"), "venue casing varies");
+        assert!(frame_matches("BTC", "BTC"));
+        // The bare base must NOT satisfy a namespaced subscription…
+        assert!(!frame_matches("TLT", "xyz:TLT"));
+        // …and vice versa.
+        assert!(!frame_matches("xyz:TLT", "TLT"));
+    }
 }

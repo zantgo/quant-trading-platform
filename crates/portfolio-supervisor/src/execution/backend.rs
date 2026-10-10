@@ -160,7 +160,12 @@ impl LiveBroker {
             }
         }
         let coin = network_adapters::adapters::hyperliquid_live::coin_from_symbol(symbol);
-        let idx = self.client.asset_index(&coin).await?;
+        // HIP-3: asset indices are per-dex, so a market on a builder-deployed
+        // perp dex must be resolved against that dex's own `meta`. The venue
+        // wire name is the authority for which dex that is — a pair key never
+        // carries the qualifier, so it cannot be recovered from `symbol`.
+        let dex = network_adapters::adapters::hyperliquid_live::dex_from_venue_coin(&coin);
+        let idx = self.client.asset_index(&coin, dex.as_deref()).await?;
         self.indices.write().await.insert(symbol.to_string(), idx);
         Ok(idx)
     }

@@ -8,10 +8,11 @@
     // from a bound instance when one is selected).
     import { DURATIONS } from '../../types';
     import {
-        INVALID_TICKER_MESSAGE,
-        MAX_SYMBOL_CHARS,
+        MAX_QUALIFIED_SYMBOL_CHARS,
+        invalidTickerMessage,
         isValidBaseSymbol,
         normalizeBaseSymbol,
+        splitDexQualifier,
     } from '../../lib/symbol';
     import styles from './BacktestLauncher.module.css';
 
@@ -210,9 +211,12 @@
     function addInstance() {
         // v11.12.26: shared Unicode-aware ticker rule (see lib/symbol.ts) —
         // this carried a fourth divergent copy of the old ASCII-only regex.
-        const base = normalizeBaseSymbol(newBase);
+        // An explicit HIP-3 qualifier (`xyz:TLT`) pins one venue market; the
+        // base half is what the run is labelled and stored under.
+        const qualifier = splitDexQualifier(newBase);
+        const base = normalizeBaseSymbol(qualifier ? qualifier.base : newBase);
         if (!isValidBaseSymbol(base)) {
-            error = INVALID_TICKER_MESSAGE;
+            error = invalidTickerMessage(newBase);
             return;
         }
         if (instances.some((i) => i.base === base)) {
@@ -585,7 +589,7 @@
                     <input
                         class="{styles.input} {styles.baseInput}"
                         type="text"
-                        maxlength={MAX_SYMBOL_CHARS}
+                        maxlength={MAX_QUALIFIED_SYMBOL_CHARS}
                         placeholder="BTC"
                         bind:value={newBase}
                         onkeydown={(e) => e.key === 'Enter' && addInstance()}

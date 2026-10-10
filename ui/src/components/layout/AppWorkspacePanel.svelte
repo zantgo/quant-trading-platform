@@ -6,10 +6,11 @@
     import SvgIcon from '../../lib/SvgIcon.svelte';
     import { createInstance } from '../../lib/api.svelte';
     import {
-        INVALID_TICKER_MESSAGE,
-        MAX_SYMBOL_CHARS,
+        MAX_QUALIFIED_SYMBOL_CHARS,
+        invalidTickerMessage,
         isValidBaseSymbol,
         normalizeBaseSymbol,
+        splitDexQualifier,
     } from '../../lib/symbol';
     import { lifecyclePresentation, isActivatable, isActive } from '../../lib/lifecyclePresentation';
     import { buildEngineHash } from '../../lib/router.svelte';
@@ -112,11 +113,24 @@
     }
 
     async function handleCreateWorkspace() {
-        const base = newBase.trim().toUpperCase();
+        // The shared ticker rule was IMPORTED here but never called, so this
+        // surface bypassed validation entirely and posted whatever the operator
+        // typed straight to the API. Validate locally first (so the operator sees
+        // the reason without a round trip) and honour an explicit HIP-3
+        // `dex:BASE` qualifier the same way the wizard does.
+        const qualifier = splitDexQualifier(newBase);
+        const base = normalizeBaseSymbol(qualifier ? qualifier.base : newBase);
+        if (!isValidBaseSymbol(base)) {
+            createError = invalidTickerMessage(newBase);
+            return;
+        }
         if (!base) return;
         createLoading = true; createError = null;
         try {
-            const result = await createInstance(base, app.quote);
+            const result = await createInstance(
+                qualifier ? `${qualifier.dex.toLowerCase()}:${base}` : base,
+                app.quote,
+            );
             if (result.ok) {
                 const pairKey = app.pairKeyFor(base);
                 app.initInstance(base, undefined, result.instanceId);
@@ -203,7 +217,7 @@
             <button class={styles.wsPanelClose} onclick={onclose}><SvgIcon name="x" size={16} /></button>
         </div>
         <div class={styles.wsPanelCreateBar}>
-            <input type="text" class={styles.wsPanelInput} placeholder="Symbol (e.g. BTC)" bind:this={createInputEl} bind:value={newBase} maxlength={MAX_SYMBOL_CHARS} oninput={() => { if (createError) createError = null; }} onkeydown={handleCreateKeydown} />
+            <input type="text" class={styles.wsPanelInput} placeholder="Symbol (e.g. BTC)" bind:this={createInputEl} bind:value={newBase} maxlength={MAX_QUALIFIED_SYMBOL_CHARS} oninput={() => { if (createError) createError = null; }} onkeydown={handleCreateKeydown} />
             <span class={styles.wsPanelQuoteChip}>{app.quote}</span>
             <button class={styles.wsPanelCreateBtn} onclick={handleCreateWorkspace} disabled={createLoading || !newBase.trim()}>
                 {#if createLoading}

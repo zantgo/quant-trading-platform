@@ -24,7 +24,13 @@ import type { AdvisoryMatrix, DecisionContext, DirectionalGuidance } from '../ty
 // v11.12.26: the scanner used to drop any token over 10 CHARACTERS silently
 // (no error at all), which was the worst failure mode for a non-ASCII ticker —
 // it vanished with no feedback. The budget is now shared with the wizard.
-import { MAX_SYMBOL_CHARS } from './symbol';
+import {
+    MAX_QUALIFIED_SYMBOL_CHARS,
+    MAX_SYMBOL_CHARS,
+    invalidTickerMessage,
+    isValidBaseSymbol,
+    splitDexQualifier,
+} from './symbol';
 export { MAX_SYMBOL_CHARS as MAX_SYMBOL_LEN };
 
 /// Wait-window bounds for the scanner's recommendation grace period — a
@@ -75,26 +81,65 @@ export function clampWaitMinutes(value: number | null | undefined): number {
     return Math.min(WAIT_WINDOW_MAX, Math.max(WAIT_WINDOW_MIN, v));
 }
 
-/** Parse a free-text watchlist string into a deduped, ordered, validated
- *  list of base symbols. Accepts comma-, whitespace-, and `#`-tag-separated
- *  tokens (e.g. "BTC ETH, #SOL, AVAX"). Empty tokens and tokens longer than
- *  `MAX_SYMBOL_LEN` are dropped silently. */
-export function parseSymbols(text: string): string[] {
-    // v11.8: spaces are the ONLY separator — commas and '#' prefixes are
-    // no longer accepted (they now produce literal characters that fail
-    // symbol validation downstream).
-    if (!text) return [];
+/** Why a token in a watchlist paste was rejected. */
+export interface SymbolRejection {
+    token: string;
+    reason: string;
+}
+
+/** Parse a free-text watchlist string into a deduped, ordered list of base
+ *  symbols, plus the tokens that were rejected and why.
+ *
+ *  The character budget alone was the whole rule here, so every malformed token
+ *  (`S&P500`, `BTC-USDC`, `#SOL`) was POSTed to the backend verbatim and came
+ *  back as a generic failure. Validation now runs the SHARED ticker rule, and
+ *  the reason is surfaced instead of vanishing — the same failure mode the
+ *  v11.12.26 fix addressed in the wizard.
+ *
+ *  An explicit HIP-3 `dex:BASE` qualifier is accepted and kept on the token;
+ *  the base half is what the pair key uses. */
+export function parseSymbolsWithReasons(text: string): {
+    symbols: string[];
+    rejected: SymbolRejection[];
+} {
+    if (!text) return { symbols: [], rejected: [] };
     const seen = new Set<string>();
-    const out: string[] = [];
+    const symbols: string[] = [];
+    const rejected: SymbolRejection[] = [];
     for (const raw of text.split(/\s+/g)) {
         const tok = raw.trim().toUpperCase();
         if (!tok) continue;
-        if ([...tok].length > MAX_SYMBOL_CHARS) continue;
+        const qualifier = splitDexQualifier(tok);
+        if (qualifier && isValidBaseSymbol(qualifier.base)) {
+            const qualified = `${qualifier.dex.toLowerCase()}:${qualifier.base}`;
+            if (seen.has(qualified)) continue;
+            seen.add(qualified);
+            symbols.push(qualified);
+            continue;
+        }
+        if (!isValidBaseSymbol(tok)) {
+            rejected.push({ token: tok, reason: invalidTickerMessage(tok) });
+            continue;
+        }
         if (seen.has(tok)) continue;
         seen.add(tok);
-        out.push(tok);
+        symbols.push(tok);
     }
-    return out;
+    return { symbols, rejected };
+}
+
+/** Parse a free-text watchlist string into a deduped, ordered, validated
+ *  list of base symbols. Spaces are the only separator; commas and `#` prefixes
+ *  are no longer accepted (they produce literal characters that fail symbol
+ *  validation). Invalid tokens are dropped — use
+ *  {@link parseSymbolsWithReasons} to surface why. */
+export function parseSymbols(text: string): string[] {
+    return parseSymbolsWithReasons(text).symbols;
+}
+
+/** True when every token in a watchlist paste is usable. */
+export function watchlistIsClean(text: string): boolean {
+    return parseSymbolsWithReasons(text).rejected.length === 0;
 }
 
 /** Apply the strict "clear decision" rule: keep only when the platform

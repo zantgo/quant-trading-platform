@@ -30,6 +30,16 @@ impl ExchangeChoice {
         }
     }
 
+    /// The venue-native symbol derived purely from the pair components.
+    ///
+    /// For Hyperliquid this is only correct on the DEFAULT crypto perp dex.
+    /// Since HIP-3 the venue also runs builder-deployed dexes whose markets are
+    /// named `<dex>:<coin>` (`xyz:TLT`, `mkts:USBOND`), and those names cannot
+    /// be derived from the base — only the venue's `resolve_venue_coin` knows
+    /// which dex owns a given base. Callers that talk to Hyperliquid must pass
+    /// the resolved `venue_coin` through explicitly instead of calling this;
+    /// it is retained for the pair-key-side derivations that genuinely only
+    /// need the components.
     pub fn raw_symbol(&self, base: &str, quote: &Currency) -> String {
         match self {
             ExchangeChoice::Hyperliquid => base.to_string(),
@@ -37,6 +47,18 @@ impl ExchangeChoice {
                 Currency::USDT => format!("{}USDT", base),
                 Currency::USDC => format!("{}USD", base),
             },
+        }
+    }
+
+    /// The HIP-3 perp dex a Hyperliquid market lives on, derived from a
+    /// *venue* wire name. `None` means the default crypto dex.
+    pub fn hyperliquid_dex(&self, venue_coin: &str) -> Option<String> {
+        match self {
+            ExchangeChoice::Hyperliquid => {
+                core_domain::symbol_rules::split_dex_qualifier(venue_coin)
+                    .map(|(dex, _)| dex.to_string())
+            }
+            ExchangeChoice::Bitget => None,
         }
     }
 

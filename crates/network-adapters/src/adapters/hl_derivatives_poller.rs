@@ -53,6 +53,7 @@ fn compute_backoff(attempt: u32) -> u64 {
     base.min(MAX_BACKOFF_SECS)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_hl_derivatives_poller(
     raw_symbol: String,
     internal_symbol: String,
@@ -61,6 +62,7 @@ pub async fn run_hl_derivatives_poller(
     cancel: CancellationToken,
     poll_ms: u64,
     max_consecutive_failures: u32,
+    dex: Option<String>,
 ) {
     println!(
         "💹 HL Derivatives Poller: Started for {} ({}ms cadence)",
@@ -88,7 +90,7 @@ pub async fn run_hl_derivatives_poller(
             _ = tokio::time::sleep(poll_duration) => {}
         }
 
-        match fetch_meta_and_asset_ctxs(&info_url).await {
+        match fetch_meta_and_asset_ctxs(&info_url, dex.as_deref()).await {
             Ok(map) => {
                 if consecutive_failures > 5 {
                     println!(
@@ -168,6 +170,7 @@ pub fn lookup_ctx<'a>(
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_hl_derivatives_poller(
     raw_symbol: String,
     internal_symbol: String,
@@ -176,6 +179,7 @@ pub fn spawn_hl_derivatives_poller(
     cancel: CancellationToken,
     poll_ms: u64,
     max_consecutive_failures: u32,
+    dex: Option<String>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if raw_symbol.is_empty() || info_url.is_empty() {
         return None;
@@ -189,6 +193,7 @@ pub fn spawn_hl_derivatives_poller(
             cancel,
             poll_ms,
             max_consecutive_failures,
+            dex,
         )
         .await;
     }))

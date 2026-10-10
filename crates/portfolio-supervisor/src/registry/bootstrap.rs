@@ -11,7 +11,15 @@ use database_storage;
 use market_analyzer::analyzer;
 
 pub struct BootstrapInput {
+    /// The operator-facing base (`TLT`) — used for log lines and the
+    /// DB-warm lookup key. The venue call uses [`Self::venue_coin`].
+    #[allow(dead_code)]
     pub base: String,
+    /// The venue's WIRE name for this market — `BTC` on the default crypto perp
+    /// dex, `xyz:TLT` on a HIP-3 builder-deployed one. `candleSnapshot` keys on
+    /// exactly this string, so the bare base returns `null` for a HIP-3 market
+    /// and the warm would silently be empty.
+    pub venue_coin: String,
     /// Unified internal symbol (e.g. "BTC-USDT") assigned to all candles.
     pub internal_symbol: String,
     /// Settlement/quote currency for this session (drives raw symbol + product type).
@@ -275,7 +283,10 @@ pub async fn fetch_and_warm_bootstrap(
         .as_millis() as u64;
 
     let is_bitget = input.exchange_choice == ExchangeChoice::Bitget;
-    let exchange_raw = input.exchange_choice.raw_symbol(&input.base, &input.quote);
+    // The caller already resolved the exact venue market (HIP-3: possibly
+    // `<dex>:<coin>`), so this is used verbatim rather than re-derived from the
+    // pair components.
+    let exchange_raw = input.venue_coin.clone();
     let product_type = input
         .exchange_choice
         .bitget_product_type(&input.quote)
@@ -827,6 +838,7 @@ mod cold_start_sub_minute_tests {
     async fn fetch_and_warm_bootstrap_returns_empty_snapshot_history_for_sub_minute() {
         let pool = empty_pool().await;
         let input = BootstrapInput {
+            venue_coin: "BTC".to_string(),
             base: "BTC".to_string(),
             internal_symbol: "BTC-USDC".to_string(),
             quote: Currency::USDC,
@@ -979,6 +991,7 @@ mod tolerance_tests {
             .expect("migrations");
 
         let input = BootstrapInput {
+            venue_coin: "BTC".to_string(),
             base: "BTC".into(),
             internal_symbol: "BTC-USDT".into(),
             quote: Currency::USDT,

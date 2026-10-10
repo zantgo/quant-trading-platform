@@ -2,10 +2,11 @@
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
     import {
-        INVALID_TICKER_MESSAGE,
-        MAX_SYMBOL_CHARS,
+        MAX_QUALIFIED_SYMBOL_CHARS,
+        invalidTickerMessage,
         isValidBaseSymbol,
         normalizeBaseSymbol,
+        splitDexQualifier,
     } from '../lib/symbol';
     import styles from './TabHeader.module.css';
     const app = useAppStore();
@@ -23,15 +24,21 @@
         // v11.12.26: character count (not UTF-16 units) against the shared
         // budget, so a non-ASCII ticker is neither wrongly rejected nor
         // silently truncated.
-        const symbol = normalizeBaseSymbol(newPairInput);
+        // An explicit HIP-3 qualifier (`xyz:TLT`) pins one venue market; the
+        // bare base remains what the tab / pair key is called.
+        const qualifier = splitDexQualifier(newPairInput);
+        const symbol = normalizeBaseSymbol(qualifier ? qualifier.base : newPairInput);
         if (!isValidBaseSymbol(symbol)) {
-            addError = INVALID_TICKER_MESSAGE;
+            addError = invalidTickerMessage(newPairInput);
             return;
         }
 
         addLoading = true;
         addError = null;
-        const result = await createInstance(symbol, app.quote);
+        const result = await createInstance(
+            qualifier ? `${qualifier.dex.toLowerCase()}:${symbol}` : symbol,
+            app.quote,
+        );
         addLoading = false;
 
         if (!result.ok) {
@@ -111,7 +118,7 @@
                         type="text"
                         class={styles.pairInput}
                         placeholder="SYMBOL"
-                        maxlength={MAX_SYMBOL_CHARS}
+                        maxlength={MAX_QUALIFIED_SYMBOL_CHARS}
                         bind:value={newPairInput}
                         oninput={() => { if (addError) addError = null; }}
                         onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') cancelAdd(); }}

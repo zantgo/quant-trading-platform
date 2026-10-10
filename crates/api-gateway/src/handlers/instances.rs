@@ -40,7 +40,38 @@ async fn log_risk_event(
     }
 }
 
-use core_domain::symbol_rules::{is_valid_symbol, INVALID_SYMBOL_MESSAGE, MAX_SYMBOL_CHARS};
+use core_domain::symbol_rules::{
+    dex_qualified_name, is_valid_symbol, split_dex_qualifier, INVALID_SYMBOL_MESSAGE,
+    MAX_SYMBOL_CHARS,
+};
+
+/// Rejection message for a symbol that failed the shared rule.
+///
+/// The generic text ("no spaces or separators") did not explain WHY a plausible
+/// ticker was refused. `S&P500` is the reported case: `&` is not alphanumeric,
+/// so the rule rejects it — but the venue's real ticker is `SP500`, and telling
+/// the operator that is the difference between a one-character fix and a dead
+/// end. Names that merely look like a punctuated index name get the concrete
+/// correction; everything else gets the generic message unchanged.
+fn invalid_symbol_message(raw: &str) -> String {
+    let stripped: String = raw
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    let looks_like_index = raw.contains('&')
+        || raw.contains('.')
+        || raw.contains('/')
+        || (stripped.len() >= 3
+            && stripped
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
+    if looks_like_index && !stripped.is_empty() && stripped != raw {
+        return format!(
+            "{INVALID_SYMBOL_MESSAGE}. The venue ticker has no punctuation — the S&P 500 perpetual is `SP500`, not `S&P500`."
+        );
+    }
+    INVALID_SYMBOL_MESSAGE.to_string()
+}
 use portfolio_supervisor::registry;
 use rust_decimal_macros::dec;
 use std::sync::Arc;
@@ -82,7 +113,12 @@ pub async fn serve_add_instance(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AddInstanceRequest>,
 ) -> impl IntoResponse {
-    let base = payload.base.trim().to_uppercase();
+    // A HIP-3 qualifier (`xyz:TLT`) is split OFF before any validation, so the
+    // base half is validated by exactly the same rule as a bare ticker and `:` is
+    // never allowed to leak into the pair key / URL path / TOML round-trip.
+    let raw_base = payload.base.trim().to_uppercase();
+    let qualifier = split_dex_qualifier(&raw_base);
+    let base = qualifier.map_or_else(|| raw_base.clone(), |(_, b)| b.to_string());
     let quote = payload.quote.trim().to_uppercase();
 
     if base.is_empty() || quote.is_empty() {
@@ -120,12 +156,16 @@ pub async fn serve_add_instance(
     if !is_valid_symbol(&base) || !is_valid_symbol(&quote) {
         return (
             axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": INVALID_SYMBOL_MESSAGE })),
+            Json(serde_json::json!({ "error": invalid_symbol_message(&raw_base) })),
         )
             .into_response();
     }
 
-    match registry::add_instance(&state.registry_context(), (base, quote)).await {
+    // The registry sees the qualified form so the resolver can pin the dex.
+    let lookup_base =
+        qualifier.map_or_else(|| base.clone(), |(d, _)| dex_qualified_name(Some(d), &base));
+
+    match registry::add_instance(&state.registry_context(), (lookup_base, quote)).await {
         Ok(instance) => (
             axum::http::StatusCode::CREATED,
             Json(serde_json::json!({
@@ -649,8 +689,15 @@ pub async fn serve_get_portfolio(
                     vec![]
                 };
 
-            let exposure =
-                portfolio_supervisor::exposure_layer::compute_exposure_matrix(&positions, equity);
+            // The resolved venue market lets the sector breakdown tell a HIP-3
+            // market from a same-named default-dex crypto market.
+            let venue_coins =
+                std::collections::HashMap::from([(inst.pair_key(), inst.venue_coin.clone())]);
+            let exposure = portfolio_supervisor::exposure_layer::compute_exposure_matrix(
+                &positions,
+                equity,
+                Some(&venue_coins),
+            );
             // v7.3: the enforced concentration limits come from
             // `[workspace.risk_limits]` — rendered by the PME Exposure tab.
             let risk_limits = {
@@ -808,8 +855,12 @@ pub async fn serve_get_exposure(
         vec![]
     };
 
-    let exposure =
-        portfolio_supervisor::exposure_layer::compute_exposure_matrix(&positions, equity);
+    let venue_coins = std::collections::HashMap::from([(inst.pair_key(), inst.venue_coin.clone())]);
+    let exposure = portfolio_supervisor::exposure_layer::compute_exposure_matrix(
+        &positions,
+        equity,
+        Some(&venue_coins),
+    );
     // v7.3: the enforced concentration limits from `[workspace.risk_limits]`.
     let risk_limits = {
         let ws = state.workspace.config().await;

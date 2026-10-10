@@ -11,6 +11,7 @@ import { durationsFromSecs } from './lib/terms';
 import { pushBadge, notifyBadgeChanged, L7_KEY } from './lib/badgeHistory.svelte';
 import { buildL7OverviewHeader } from './lib/layerHeader';
 import { applyChartOverlays } from './lib/chartOverlays';
+import { baseOf } from './lib/symbol';
 import type { NavOrigin } from './lib/router.svelte';
 
 // ─── Phase 4: polling jitter ──────────────────────────────────────────
@@ -841,13 +842,28 @@ export class AppStore {
 
     // ─── Quote-asset abstraction ─────────────────────────────────────
     get quote(): string { return this.sessionCurrency || 'USDT'; }
-    pairKeyFor(symbol: string): string { return symbol.includes('-') ? symbol : `${symbol}-${this.quote}`; }
+    /**
+     * The workspace key for a ticker.
+     *
+     * A HIP-3 qualifier (`xyz:TLT`) is stripped first: the operator may name a
+     * venue market explicitly, but the workspace key, config.toml, deep links
+     * and DS exports all use the bare `TLT-USDC`. Letting the qualifier through
+     * would put a `:` inside a pair key.
+     */
+    pairKeyFor(symbol: string): string {
+        const base = baseOf(symbol).toUpperCase();
+        return base.includes('-') ? base : `${base}-${this.quote}`;
+    }
     pairDisplayFor(symbol: string): string { return this.pairKeyFor(symbol); }
 
+    /** The base half of a possibly-qualified ticker — what a tab is labelled. */
+    baseSymbolFor(symbol: string): string { return baseOf(symbol).toUpperCase(); }
+
     initInstance(symbol: string, _exchange?: string, instanceId?: string) {
-        const key = this.pairKeyFor(symbol);
+        const base = this.baseSymbolFor(symbol);
+        const key = this.pairKeyFor(base);
         if (!this.instancesMap[key]) {
-            const created = createInstanceState(symbol);
+            const created = createInstanceState(base);
             if (instanceId) created.instanceId = instanceId;
             // Phase 3: restore the operator's saved chart overlay pills
             // (EMA stack, VWAP, SMC, …) for this pair before it renders.

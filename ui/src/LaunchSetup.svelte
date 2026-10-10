@@ -4,10 +4,11 @@
     import { tfLabel } from './types';
     import { activeDurations } from './lib/terms';
     import {
-        INVALID_TICKER_MESSAGE,
-        MAX_SYMBOL_CHARS,
+        MAX_QUALIFIED_SYMBOL_CHARS,
+        invalidTickerMessage,
         isValidBaseSymbol,
         normalizeBaseSymbol,
+        splitDexQualifier,
     } from './lib/symbol';
     import styles from './LaunchSetup.module.css';
 
@@ -346,9 +347,13 @@
         // POSTed — which is why a non-English ticker could not even be entered
         // on the welcome screen. `isValidBaseSymbol` accepts any Unicode
         // letter/number up to the shared character budget.
-        const base = normalizeBaseSymbol(newBase);
+        // A HIP-3 qualifier (`xyz:TLT`) names one venue market exactly. The
+        // base half is what the pair key and every display use, so the chip
+        // reads `TLT` while the POST carries the qualifier for the resolver.
+        const qualifier = splitDexQualifier(newBase);
+        const base = normalizeBaseSymbol(qualifier ? qualifier.base : newBase);
         if (!isValidBaseSymbol(base)) {
-            error = INVALID_TICKER_MESSAGE;
+            error = invalidTickerMessage(newBase);
             return;
         }
         if (instances.some((i) => i.base === base)) {
@@ -362,7 +367,10 @@
         // Created — and symbol-validated — IMMEDIATELY. The backend rejects
         // symbols that don't exist on the venue and spawns the full
         // pipeline set inside this call.
-        const created = await createInstance(base, app.quote);
+        const created = await createInstance(
+            qualifier ? `${qualifier.dex.toLowerCase()}:${base}` : base,
+            app.quote,
+        );
         // v11.12 CANCEL GUARD: the operator may have ✕-removed the chip
         // while the creation POST was in flight. The backend cannot cancel
         // an in-flight POST, so chip membership IS the cancel signal: delete
@@ -986,7 +994,7 @@
                         <p class={styles.formHint}>Every instance runs the {ACTIVE_LADDER_TEXT}</p>
                         <div class={styles.addRow}>
                             <input id="launch-base" type="text"
-                                maxlength={MAX_SYMBOL_CHARS}
+                                maxlength={MAX_QUALIFIED_SYMBOL_CHARS}
                                 class="{styles.formInput} {styles.baseInput}" bind:value={newBase}
                                 placeholder="BTC" onkeydown={(e) => e.key === 'Enter' && addInstance()} />
                             <button class={styles.addBtn} onclick={addInstance}>+ Add</button>
