@@ -117,12 +117,12 @@ pub async fn add_key(
             .into_response();
     }
 
-    let valid_exchanges = ["Hyperliquid", "Bitget"];
+    let valid_exchanges = ["Hyperliquid", "Bitget", "Bybit"];
     if !valid_exchanges.contains(&req.exchange.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
-                "error": "Invalid exchange. Must be Hyperliquid or Bitget"
+                "error": "Invalid exchange. Must be Hyperliquid, Bitget or Bybit"
             })),
         )
             .into_response();

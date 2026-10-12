@@ -368,16 +368,30 @@ pub async fn run_event_router(
 // (the DIE crate). See `crates/network-adapters/src/median_filter.rs`.
 use network_adapters::median_filter::{FilterVerdict, MedianPriceFilter};
 
+/// Which venue's REST API a gap-fill / quarantine-refetch must call.
+///
+/// This replaces the previous `is_bitget: bool` discriminator, which could
+/// only express two venues and forced every new one into an `is_bitget ||
+/// is_new` chain. `Bitget` carries its product type because its mix API is
+/// partitioned by `USDT-FUTURES` / `USDC-FUTURES`; Hyperliquid has no
+/// product type and Bybit serves every instrument — USDT perps, USDC perps
+/// and the whole TradFi line — from the single `category=linear` product.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RestVenue {
+    Hyperliquid,
+    Bitget { product_type: String },
+    Bybit,
+}
+
 /// Venue REST coordinates for DIE L3 quarantine-refetch and runtime
 /// gap-filling (03-01-04 §2.1.2 / §4.2). Built once per pipeline by the
 /// registry from the active exchange choice.
 #[derive(Clone)]
 pub struct RestRefetchSpec {
-    pub is_bitget: bool,
-    /// Exchange-native symbol (e.g. Hyperliquid "BTC", Bitget "BTCUSDT").
+    pub venue: RestVenue,
+    /// Exchange-native symbol (e.g. Hyperliquid "BTC", Bitget "BTCUSDT",
+    /// Bybit "BTCUSDT").
     pub exchange_raw: String,
-    /// Bitget product type ("" on other venues).
-    pub product_type: String,
     pub rest_url: String,
 }
 
@@ -396,32 +410,51 @@ async fn fetch_interval_candles(
     duration_secs: u64,
 ) -> Vec<NormalizedCandle> {
     let fut = async {
-        if spec.is_bitget {
-            let interval =
-                network_adapters::adapters::bitget_rest::timeframe_secs_to_interval(duration_secs);
-            network_adapters::adapters::bitget_rest::fetch_historical_candles(
-                &spec.exchange_raw,
-                internal_symbol,
-                &spec.product_type,
-                interval,
-                start_ms,
-                end_ms,
-                &spec.rest_url,
-            )
-            .await
-        } else {
-            let interval = network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(
-                duration_secs,
-            );
-            network_adapters::adapters::hyperliquid_rest::fetch_historical_candles(
-                &spec.exchange_raw,
-                internal_symbol,
-                interval,
-                start_ms,
-                end_ms,
-                &spec.rest_url,
-            )
-            .await
+        match &spec.venue {
+            RestVenue::Bitget { product_type } => {
+                let interval = network_adapters::adapters::bitget_rest::timeframe_secs_to_interval(
+                    duration_secs,
+                );
+                network_adapters::adapters::bitget_rest::fetch_historical_candles(
+                    &spec.exchange_raw,
+                    internal_symbol,
+                    product_type,
+                    interval,
+                    start_ms,
+                    end_ms,
+                    &spec.rest_url,
+                )
+                .await
+            }
+            RestVenue::Bybit => {
+                let interval = network_adapters::adapters::bybit_rest::timeframe_secs_to_interval(
+                    duration_secs,
+                );
+                network_adapters::adapters::bybit_rest::fetch_historical_candles(
+                    &spec.exchange_raw,
+                    internal_symbol,
+                    interval,
+                    start_ms,
+                    end_ms,
+                    &spec.rest_url,
+                )
+                .await
+            }
+            RestVenue::Hyperliquid => {
+                let interval =
+                    network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(
+                        duration_secs,
+                    );
+                network_adapters::adapters::hyperliquid_rest::fetch_historical_candles(
+                    &spec.exchange_raw,
+                    internal_symbol,
+                    interval,
+                    start_ms,
+                    end_ms,
+                    &spec.rest_url,
+                )
+                .await
+            }
         }
     };
     match tokio::time::timeout(std::time::Duration::from_secs(REFETCH_TIMEOUT_SECS), fut).await {

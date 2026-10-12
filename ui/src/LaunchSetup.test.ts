@@ -183,6 +183,27 @@ describe('Launch Setup — currency contract', () => {
         expect(isCurrencyEnabled(container, 'USDC')).toBe(true);
         expect(isCurrencyEnabled(container, 'USDT')).toBe(false);
     });
+
+    it('Bybit offers USDT only', async () => {
+        // Bybit's USDC perps live in the same `category=linear` product but
+        // carry a `PERP` suffix (BTCPERP), so the pair-key derivation differs
+        // and USDC is deliberately not offered — the same contract Bitget
+        // shows in the wizard's default state.
+        const { container } = await render(LaunchSetup);
+        await goToEnvironment(container);
+        const exchange = container.querySelector<HTMLSelectElement>('#launch-exchange');
+        await fireEvent.change(exchange!, { target: { value: 'Bybit' } });
+        expect(isCurrencyEnabled(container, 'USDT')).toBe(true);
+        expect(isCurrencyEnabled(container, 'USDC')).toBe(false);
+    });
+
+    it('offers all three venues on the Environment step', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToEnvironment(container);
+        const exchange = container.querySelector<HTMLSelectElement>('#launch-exchange')!;
+        const options = [...exchange.querySelectorAll('option')].map((o) => o.value);
+        expect(options).toEqual(['Hyperliquid', 'Bitget', 'Bybit']);
+    });
 });
 
 describe('Launch Setup — instances step', () => {

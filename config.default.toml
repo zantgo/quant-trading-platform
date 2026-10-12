@@ -35,6 +35,16 @@ ws_url = "wss://api.hyperliquid.xyz/ws"
 [bitget]
 ws_url = "wss://ws.bitget.com/v2/ws/public"
 
+# Bybit V5. The WS endpoint is the `linear` product, which serves the entire
+# tradeable universe — USDT perps (BTCUSDT), USDC perps (BTCPERP) and the
+# whole TradFi line (AAPLUSDT, XAUUSDT, EURUSDUSDT) alike. REST is configured
+# explicitly rather than derived from the WS URL by string surgery (which is
+# how Hyperliquid's `rest_url` works), because Bybit's WS and REST live on
+# different hosts with different paths.
+[bybit]
+ws_url = "wss://stream.bybit.com/v5/public/linear"
+rest_base_url = "https://api.bybit.com"
+
 # Clock-drift monitor: enforces the platform's <=10000µs UTC drift budget via
 # continuous NTP polling. Set `enabled = false` to disable drift enforcement.
 [clock_monitor]

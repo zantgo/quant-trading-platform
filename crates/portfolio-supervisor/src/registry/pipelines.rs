@@ -475,18 +475,27 @@ async fn spawn_tasks(
     // DIE L3 quarantine-refetch + runtime gap-fill coordinates (03-01-04 §2.1.2/§4.2).
     let refetch_spec = {
         let platform = state.platform.read().await;
-        let rest_url = if exchange_choice == ExchangeChoice::Bitget {
-            platform.bitget.rest_url()
-        } else {
-            platform.hyperliquid.rest_url()
+        // Each venue carries its own REST base AND its own product-type
+        // discriminator (Bitget partitions its mix API; the other two don't).
+        let (rest_url, venue) = match exchange_choice {
+            ExchangeChoice::Bitget => (
+                platform.bitget.rest_url(),
+                analyzer::RestVenue::Bitget {
+                    product_type: exchange_choice
+                        .product_type(&quote)
+                        .unwrap_or("USDT-FUTURES")
+                        .to_string(),
+                },
+            ),
+            ExchangeChoice::Bybit => (platform.bybit.kline_url(), analyzer::RestVenue::Bybit),
+            ExchangeChoice::Hyperliquid => (
+                platform.hyperliquid.rest_url(),
+                analyzer::RestVenue::Hyperliquid,
+            ),
         };
         analyzer::RestRefetchSpec {
-            is_bitget: exchange_choice == ExchangeChoice::Bitget,
+            venue,
             exchange_raw: venue_coin.to_string(),
-            product_type: exchange_choice
-                .bitget_product_type(&quote)
-                .unwrap_or("")
-                .to_string(),
             rest_url,
         }
     };
@@ -633,19 +642,21 @@ async fn spawn_tasks(
         });
     }
 
-    // WebSocket adapter (perpetual futures on all exchanges)
+    // WebSocket adapter (perpetual futures on all exchanges). Every venue uses a
+    // dedicated socket per pair; `ws_product_type` is Bitget-only (its mix
+    // topics are partitioned by product type) and empty elsewhere.
     let ws_symbol = venue_coin.to_string();
     let ws_product_type = exchange_choice
-        .bitget_product_type(&quote)
+        .product_type(&quote)
         .unwrap_or("")
         .to_string();
     let ws_internal = internal_symbol.to_string();
     let ws_tx = active_pair.snapshot_tx.clone();
     let ws_cancel = cancel.clone();
-    let ws_url = if exchange_choice == ExchangeChoice::Bitget {
-        state.bitget_ws_url.clone()
-    } else {
-        state.ws_url.clone()
+    let ws_url = match exchange_choice {
+        ExchangeChoice::Bitget => state.bitget_ws_url.clone(),
+        ExchangeChoice::Bybit => state.bybit_ws_url.clone(),
+        ExchangeChoice::Hyperliquid => state.ws_url.clone(),
     };
     let exchange_for_spawn = exchange_choice;
     let exchange_label = exchange_for_spawn.as_str().to_string();
@@ -810,25 +821,38 @@ async fn spawn_tasks(
                 }
             });
 
-            if exchange_for_spawn == ExchangeChoice::Bitget {
-                network_adapters::adapters::bitget::run_for_symbol(
-                    ws_symbol.clone(),
-                    ws_internal.clone(),
-                    ws_product_type.clone(),
-                    ws_tx.clone(),
-                    ws_cancel.clone(),
-                    &ws_url,
-                )
-                .await;
-            } else {
-                network_adapters::adapters::hyperliquid::run_for_symbol(
-                    ws_symbol.clone(),
-                    ws_internal.clone(),
-                    ws_tx.clone(),
-                    ws_cancel.clone(),
-                    &ws_url,
-                )
-                .await;
+            match exchange_for_spawn {
+                ExchangeChoice::Bitget => {
+                    network_adapters::adapters::bitget::run_for_symbol(
+                        ws_symbol.clone(),
+                        ws_internal.clone(),
+                        ws_product_type.clone(),
+                        ws_tx.clone(),
+                        ws_cancel.clone(),
+                        &ws_url,
+                    )
+                    .await
+                }
+                ExchangeChoice::Bybit => {
+                    network_adapters::adapters::bybit::run_for_symbol(
+                        ws_symbol.clone(),
+                        ws_internal.clone(),
+                        ws_tx.clone(),
+                        ws_cancel.clone(),
+                        &ws_url,
+                    )
+                    .await
+                }
+                ExchangeChoice::Hyperliquid => {
+                    network_adapters::adapters::hyperliquid::run_for_symbol(
+                        ws_symbol.clone(),
+                        ws_internal.clone(),
+                        ws_tx.clone(),
+                        ws_cancel.clone(),
+                        &ws_url,
+                    )
+                    .await
+                }
             }
 
             // AUDIT-V9 B5: measure actual handshake duration. This is the
@@ -944,8 +968,15 @@ async fn spawn_tasks(
     });
 
     // Phase 0: HL derivatives poller (mark price + OI + funding).
-    // Bitget already pushes these natively on the WS adapter above.
-    if liquidity_config.enabled && exchange_choice != ExchangeChoice::Bitget {
+    // ONLY Hyperliquid needs this: it has no public open-interest/funding
+    // stream, so mark/OI/funding must be polled from `metaAndAssetCtxs`.
+    // Bitget AND Bybit both push mark price, open interest and funding rate
+    // natively on their WS ticker channels (Bitget `ticker`, Bybit `tickers`),
+    // so spawning the HL poller for either would poll a Hyperliquid REST URL
+    // for a market that isn't there — at best 404-ing every cycle, at worst
+    // silently feeding the wrong venue's numbers. This gate is therefore an
+    // exact `== Hyperliquid`, not an inequality.
+    if liquidity_config.enabled && exchange_choice == ExchangeChoice::Hyperliquid {
         let hl_info_url = state
             .ws_url
             .replace("wss://", "https://")
@@ -1266,6 +1297,10 @@ impl std::fmt::Display for ClusterRefreshError {
                 ExchangeChoice::Bitget => write!(
                     f,
                     "no open_interest yet (Bitget ticker channel hasn't delivered holdingAmount)"
+                ),
+                ExchangeChoice::Bybit => write!(
+                    f,
+                    "no open_interest yet (Bybit tickers topic hasn't delivered openInterestValue)"
                 ),
             },
             ClusterRefreshError::InsufficientHistory(n) => write!(

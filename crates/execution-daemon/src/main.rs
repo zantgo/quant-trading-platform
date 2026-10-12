@@ -407,6 +407,7 @@ impl CliArgs {
         let raw = self.exchange.as_deref().unwrap_or(default_exchange);
         match raw.to_lowercase().as_str() {
             "bitget" => ExchangeChoice::Bitget,
+            "bybit" => ExchangeChoice::Bybit,
             _ => ExchangeChoice::Hyperliquid,
         }
     }
@@ -571,18 +572,21 @@ fn cli_launch_plan(
         .unwrap_or_else(|| workspace.default_exchange.clone());
     let exchange = {
         loop {
-            let raw = prompt("Exchange (hyperliquid / bitget)", &default_exchange);
+            let raw = prompt("Exchange (hyperliquid / bitget / bybit)", &default_exchange);
             match raw.to_lowercase().as_str() {
                 "hyperliquid" | "hl" => break "hyperliquid".to_string(),
                 "bitget" | "bg" => break "bitget".to_string(),
-                _ => eprintln!("  ⚠️  Expected 'hyperliquid' or 'bitget'."),
+                "bybit" | "by" => break "bybit".to_string(),
+                _ => eprintln!("  ⚠️  Expected 'hyperliquid', 'bitget' or 'bybit'."),
             }
         }
     };
-    let currency = if exchange.eq_ignore_ascii_case("bitget") {
-        "USDT".to_string()
-    } else {
+    // Settlement currency is forced per venue: Hyperliquid settles in USDC
+    // only, while Bitget and Bybit settle in USDT.
+    let currency = if exchange.eq_ignore_ascii_case("hyperliquid") {
         "USDC".to_string()
+    } else {
+        "USDT".to_string()
     };
     println!("  → Settlement currency forced to {}", currency);
 
@@ -1365,18 +1369,24 @@ async fn async_main() {
 
     let hl_ws_url = platform_arc.read().await.hyperliquid.ws_url.clone();
     let bg_ws_url = platform_arc.read().await.bitget.ws_url.clone();
+    let by_ws_url = platform_arc.read().await.bybit.ws_url.clone();
     let use_hl = workspace
         .default_exchange
         .eq_ignore_ascii_case("hyperliquid");
     let use_bg = workspace.default_exchange.eq_ignore_ascii_case("bitget");
+    let use_by = workspace.default_exchange.eq_ignore_ascii_case("bybit");
     if use_hl {
         exchange_status.seed_single("Hyperliquid", &hl_ws_url).await;
     }
     if use_bg {
         exchange_status.seed_single("Bitget", &bg_ws_url).await;
     }
+    if use_by {
+        exchange_status.seed_single("Bybit", &by_ws_url).await;
+    }
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
     println!("📡 Bitget WS endpoint: {}", bg_ws_url);
+    println!("📡 Bybit WS endpoint: {}", by_ws_url);
 
     // ── Snapshot Export runtime (hydrated from `[snapshot_export]`) ─
     let snapshot_export_cfg = platform_arc.read().await.snapshot_export.clone();
@@ -1399,6 +1409,7 @@ async fn async_main() {
         latency_tracker: latency_tracker.clone(),
         ws_url: hl_ws_url.clone(),
         bitget_ws_url: bg_ws_url.clone(),
+        bybit_ws_url: by_ws_url.clone(),
         allowed_origins: allowed_origins.clone(),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: execution_engine.clone(),
@@ -1455,6 +1466,8 @@ async fn async_main() {
             Some(plan) => {
                 let ex = if plan.exchange.eq_ignore_ascii_case("bitget") {
                     ExchangeChoice::Bitget
+                } else if plan.exchange.eq_ignore_ascii_case("bybit") {
+                    ExchangeChoice::Bybit
                 } else {
                     ExchangeChoice::Hyperliquid
                 };
@@ -1703,9 +1716,36 @@ async fn async_main() {
                         }
                     }
                 }
+                "Bybit" => {
+                    // Bybit V5 needs API key + secret only — NO passphrase
+                    // (contrast Bitget, which requires one).
+                    let key_row = match sqlx::query_as::<_, (String, String, String)>(
+                        "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
+                         WHERE exchange = 'Bybit' AND is_active = 1 ORDER BY id DESC LIMIT 1",
+                    )
+                    .fetch_optional(&db_pool)
+                    .await
+                    {
+                        Ok(row) => row,
+                        Err(e) => {
+                            eprintln!("❌ Live-mode key query failed: {e}");
+                            break 'live_boot;
+                        }
+                    };
+                    match key_row {
+                        Some((key, secret, _pass)) => (key, secret, None),
+                        None => {
+                            eprintln!(
+                                "❌ mode = \"live\" requires an active Bybit API key \
+                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
+                            );
+                            break 'live_boot;
+                        }
+                    }
+                }
                 other => {
                     eprintln!(
-                    "❌ mode = \"live\" is not supported for exchange '{}' (Hyperliquid and Bitget only)",
+                    "❌ mode = \"live\" is not supported for exchange '{}' (Hyperliquid, Bitget and Bybit only)",
                     other
                 );
                     break 'live_boot;
@@ -1730,6 +1770,13 @@ async fn async_main() {
                     true,
                     None,
                 ))
+            } else if workspace.default_exchange.eq_ignore_ascii_case("Bybit") {
+                Box::new(
+                    portfolio_supervisor::execution::backend::BybitLiveBroker::new(
+                        address_or_key,
+                        secret,
+                    ),
+                )
             } else {
                 let product_type =
                     network_adapters::adapters::bitget_live::product_type_from_quote(&live_quote)

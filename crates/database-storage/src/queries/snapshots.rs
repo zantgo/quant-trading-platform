@@ -341,6 +341,7 @@ pub async fn query_recent_candles(
             |(exchange_str, ts, open, high, low, close, volume, reconstructed): CandleRow| {
                 let exchange = match exchange_str.as_str() {
                     "Bitget" => Exchange::Bitget,
+                    "Bybit" => Exchange::Bybit,
                     _ => Exchange::Hyperliquid,
                 };
                 let close_dec = parse(close);

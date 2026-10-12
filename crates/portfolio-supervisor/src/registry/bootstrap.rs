@@ -9,6 +9,7 @@ use core_domain::models::MarketSnapshot;
 use core_domain::normalized::NormalizedCandle;
 use database_storage;
 use market_analyzer::analyzer;
+use market_analyzer::analyzer::RestVenue;
 
 pub struct BootstrapInput {
     /// The operator-facing base (`TLT`) — used for log lines and the
@@ -56,10 +57,9 @@ pub struct BootstrapInput {
 /// counts `(candles, db_warm, rest_gap)` for the source-mix metric
 /// (03-01-04 §5).
 async fn collect_candles(
-    is_bitget: bool,
+    venue: RestVenue,
     exchange_raw: String,
     internal_symbol: String,
-    product_type: String,
     rest_url: String,
     pool: SqlitePool,
     secs: u64,
@@ -69,6 +69,7 @@ async fn collect_candles(
     sub_minute_skip_historical: bool,
 ) -> Result<(Vec<NormalizedCandle>, u64, u64), String> {
     use network_adapters::adapters::bitget_historical_fetch::BitgetHistoricalFetch;
+    use network_adapters::adapters::bybit_historical_fetch::BybitHistoricalFetch;
     use network_adapters::adapters::historical_fetch::{
         HistoricalFetchPolicy, HistoricalFetchRequest,
     };
@@ -101,21 +102,22 @@ async fn collect_candles(
         timeframe_secs: secs,
         target_count: limit as usize,
         end_ts: now_ms,
-        product_type: if is_bitget {
-            Some(product_type.clone())
-        } else {
-            None
+        // Only Bitget partitions its mix API by product type; the other two
+        // venues take no such parameter.
+        product_type: match &venue {
+            RestVenue::Bitget { product_type } => Some(product_type.clone()),
+            RestVenue::Hyperliquid | RestVenue::Bybit => None,
         },
         fetch_timeout_ms,
     };
 
-    let policy: Box<dyn HistoricalFetchPolicy> = if is_bitget {
-        Box::new(BitgetHistoricalFetch::new(
+    let policy: Box<dyn HistoricalFetchPolicy> = match &venue {
+        RestVenue::Bitget { product_type } => Box::new(BitgetHistoricalFetch::new(
             rest_url.clone(),
             product_type.clone(),
-        ))
-    } else {
-        Box::new(HyperliquidHistoricalFetch::new(rest_url.clone()))
+        )),
+        RestVenue::Bybit => Box::new(BybitHistoricalFetch::new(rest_url.clone())),
+        RestVenue::Hyperliquid => Box::new(HyperliquidHistoricalFetch::new(rest_url.clone())),
     };
 
     // 3. Compute the historical-fetch range. The policy paginates from
@@ -247,10 +249,9 @@ pub const MIN_WARMUP_BARS: usize = 200;
 #[allow(clippy::too_many_arguments)]
 async fn collect_slot_candles(
     secs: u64,
-    is_bitget: bool,
+    venue: RestVenue,
     exchange_raw: String,
     internal_symbol: String,
-    product_type: String,
     rest_url: String,
     pool: SqlitePool,
     limit: u64,
@@ -259,10 +260,9 @@ async fn collect_slot_candles(
     sub_minute_skip_historical: bool,
 ) -> Result<(Vec<NormalizedCandle>, u64, u64), String> {
     collect_candles(
-        is_bitget,
+        venue,
         exchange_raw,
         internal_symbol,
-        product_type,
         rest_url,
         pool,
         secs,
@@ -282,16 +282,23 @@ pub async fn fetch_and_warm_bootstrap(
         .unwrap_or_default()
         .as_millis() as u64;
 
-    let is_bitget = input.exchange_choice == ExchangeChoice::Bitget;
+    // The venue + its product type (Bitget only) is resolved once and cloned
+    // into every per-duration fetch task.
+    let venue = match input.exchange_choice {
+        ExchangeChoice::Hyperliquid => RestVenue::Hyperliquid,
+        ExchangeChoice::Bybit => RestVenue::Bybit,
+        ExchangeChoice::Bitget => RestVenue::Bitget {
+            product_type: input
+                .exchange_choice
+                .product_type(&input.quote)
+                .unwrap_or("USDT-FUTURES")
+                .to_string(),
+        },
+    };
     // The caller already resolved the exact venue market (HIP-3: possibly
     // `<dex>:<coin>`), so this is used verbatim rather than re-derived from the
     // pair components.
     let exchange_raw = input.venue_coin.clone();
-    let product_type = input
-        .exchange_choice
-        .bitget_product_type(&input.quote)
-        .unwrap_or("")
-        .to_string();
 
     let ladder_secs: Vec<u64> = input
         .ladder_cfgs
@@ -311,10 +318,9 @@ pub async fn fetch_and_warm_bootstrap(
     for &secs in &ladder_secs {
         handles.push(tokio::spawn(collect_slot_candles(
             secs,
-            is_bitget,
+            venue.clone(),
             exchange_raw.clone(),
             input.internal_symbol.clone(),
-            product_type.clone(),
             input.rest_url.clone(),
             input.pool.clone(),
             input.buffer_size as u64,
@@ -433,6 +439,7 @@ pub async fn fetch_and_warm_bootstrap(
     let warm_exchange = match input.exchange_choice {
         ExchangeChoice::Hyperliquid => core_domain::normalized::Exchange::Hyperliquid,
         ExchangeChoice::Bitget => core_domain::normalized::Exchange::Bitget,
+        ExchangeChoice::Bybit => core_domain::normalized::Exchange::Bybit,
     };
 
     // Warm each ACTIVE duration with its own candles, config, and derived
@@ -659,10 +666,9 @@ mod cold_start_sub_minute_tests {
     async fn collect_candles_sub_minute_returns_empty_on_empty_db() {
         let pool = empty_pool().await;
         let (candles, db_count, rest_count) = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             pool,
             3, // 3s TF — sub-minute
@@ -709,10 +715,9 @@ mod cold_start_sub_minute_tests {
         .expect("insert 60s seed row");
 
         let (candles, db_count, rest_count) = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             pool,
             5, // 5s TF — sub-minute
@@ -764,10 +769,9 @@ mod cold_start_sub_minute_tests {
         .expect("insert 5s rows");
 
         let (candles, _db_count, _rest_count) = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             pool,
             5,
@@ -803,10 +807,9 @@ mod cold_start_sub_minute_tests {
         // returning empty. This is the historical behaviour we must
         // preserve for ≥60s.
         let result = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             pool,
             60, // 60s TF — at the boundary, NOT sub-minute
@@ -867,10 +870,9 @@ mod cold_start_sub_minute_tests {
         // follows from that.
 
         let (candles_1s, _, _) = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
             1,
@@ -882,10 +884,9 @@ mod cold_start_sub_minute_tests {
         .await
         .expect("1s must return empty");
         let (candles_3s, _, _) = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
             3,
@@ -897,10 +898,9 @@ mod cold_start_sub_minute_tests {
         .await
         .expect("3s must return empty");
         let (candles_5s, _, _) = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
             5,
@@ -912,10 +912,9 @@ mod cold_start_sub_minute_tests {
         .await
         .expect("5s must return empty");
         let (candles_15s, _, _) = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             input.pool.clone(),
             15,
@@ -948,10 +947,9 @@ mod cold_start_sub_minute_tests {
     async fn collect_candles_sub_minute_replay_fetch_is_best_effort_when_rest_down() {
         let pool = empty_pool().await;
         let (candles, db_count, rest_count) = collect_candles(
-            false,
+            RestVenue::Hyperliquid,
             "BTC".to_string(),
             "BTC-USDC".to_string(),
-            String::new(),
             "ws://unreachable.invalid".to_string(),
             pool,
             1, // 1s TF — sub-minute

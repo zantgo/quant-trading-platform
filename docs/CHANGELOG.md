@@ -4,6 +4,29 @@
 
 ------
 
+## v11.13 (2026-09-20) — Bybit V5 as the Third Venue
+
+**Bybit joins Hyperliquid and Bitget as a fully-supported exchange. Observe mode is complete and live-verified against the venue; the USDT perpetual line — crypto *and* the whole TradFi catalogue — is available from the launch wizard.**
+
+A third exchange exposed a structural defect that two venues had hidden: the venue discriminator throughout the codebase was a bare `is_bitget: bool`. That could only ever express two venues, so every new one would have been bolted on as another boolean. The `RestVenue` enum replaces it in the gap-refetch spec and the bootstrap candle fetcher, so a fourth venue is now a one-line match arm.
+
+**Venue facts, measured 2026-10 against the live API (not documentation).**
+
+- **One product**: all 898 `category=linear` instruments — 830 USDT perps, 68 USDC perps, and the whole TradFi line (206 equity, 56 ETF, 4 commodity, 3 FX perps) — are served by the single `wss://stream.bybit.com/v5/public/linear` endpoint. TradFi needs **no** separate wiring; it arrives free with linear support.
+- **Timeframes**: all 14 pool durations verified. The nine ≥60s durations map **exactly** onto Bybit intervals (`1,3,5,15,30,60,240,720,D`) and each returns ≥500 live candles — the full bootstrap target. The five sub-minute durations are bypassed by HFP-03 and fill from live trades (measured 7.15 trades/s on `BTCUSDT`, 100% unique trade ids), exactly as on the other two venues.
+- **Fourth interval convention**: Hyperliquid writes `4h`, Bitget writes `4H`, Bybit writes `240` (bare minutes).
+- **Retention ~2,425 days** on every interval (hard empty-page wall), versus Bitget's 30–365-day per-granularity table — far beyond the 365-day archive ceiling, so Bybit is depth-uncapped and, unlike Bitget, needs **no window clamp**.
+
+**Three traps that would have shipped silently.**
+
+- **`tickers` is snapshot+delta, not a full push.** Measured: 132 frames = 1 snapshot + 131 deltas, each delta carrying only changed fields. A direct port of the Bitget ticker handler would have emitted a stream of events with missing mark-price / OI / funding values — corrupting the series the indicators, the L2.5 cluster estimator and the L5 cascade risk all read, with no error anywhere. `TickerState` folds frames into a retained snapshot and emits only what moved.
+- **The funding interval is per-symbol.** 419 of 904 instruments fund every **4 h**, not 8. Every consumer assumes per-8h (the ×1095 annualizer, the `FUNDING_EXTREME` 0.0005 threshold), so a raw read would have doubled the rate on half the universe and false-fired the reversal signal. Rates are rescaled by `8 / fundingIntervalHour`, the same adaptation Hyperliquid needs in the other direction.
+- **`allLiquidation` side semantics invert.** `S: "Buy"` means a **long** was liquidated — opposite to Bitget's `fill` channel. Getting it backwards renders the heatmap's real layer inverted while still looking plausible.
+
+**Bybit is also the first venue with a complete public forced-close stream** (`allLiquidation`, every liquidation at 500 ms — Bitget aggregates to top-1 per side per second). The UI's "model only" caveat stays correctly Hyperliquid-only.
+
+- **Live dispatch is implemented but NOT integration-tested against a funded account.** Bybit's signature preimage is `timestamp + apiKey + recvWindow + payload` (no method, no path) with `X-BAPI-*` headers — structurally different from Bitget's, and a wrong preimage fails at runtime, not compile time. TP/SL is a position attribute (`/v5/position/trading-stop`), not a trigger order. Treat the observe path as the verified surface.
+
 ## v11.12 (2026-09-19) — Observe-Default Truth, Observability Hardening, Unified Settings
 
 **Every posture defaults to Observe; the Welcome gate is operator-intent; the MME Settings tab is one unified surface; the duration ladder, MTF tables and layer headers are hardened. Paper/live remain backend/CLI/API capabilities — not exposed in this UI build.**

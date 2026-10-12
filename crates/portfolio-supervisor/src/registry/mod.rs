@@ -50,14 +50,18 @@ pub async fn resolve_venue_market(
     raw_symbol: &str,
     quote: &Currency,
 ) -> Result<VenueMarket, String> {
-    let (bitget_ticker_url, hl_info_url) = {
+    let (bitget_ticker_url, hl_info_url, bybit_instruments_url) = {
         let cfg = state.platform.read().await;
-        (cfg.bitget.ticker_url(), cfg.hyperliquid.rest_url())
+        (
+            cfg.bitget.ticker_url(),
+            cfg.hyperliquid.rest_url(),
+            cfg.bybit.instruments_url(),
+        )
     };
     match exchange_choice {
         ExchangeChoice::Bitget => {
             let pt = exchange_choice
-                .bitget_product_type(quote)
+                .product_type(quote)
                 .unwrap_or("USDT-FUTURES");
             match network_adapters::adapters::bitget_rest::symbol_exists(
                 raw_symbol,
@@ -99,6 +103,27 @@ pub async fn resolve_venue_market(
                 Err(e) => Err(check_failed(base, exchange_choice, e)),
             }
         }
+        ExchangeChoice::Bybit => {
+            // `symbol_exists` gates on status == Trading AND contractType ==
+            // LinearPerpetual, so dated futures (BTCUSDT-16OCT26) and
+            // pre-launch / settling markets are refused. The wire name on
+            // Bybit is simply `{BASE}USDT`, derivable from the base, so the
+            // resolved market equals the derived raw symbol.
+            match network_adapters::adapters::bybit_rest::symbol_exists(
+                raw_symbol,
+                &bybit_instruments_url,
+            )
+            .await
+            {
+                Ok(true) => Ok(VenueMarket {
+                    venue_coin: raw_symbol.to_string(),
+                    dex: None,
+                    isolated_only: false,
+                }),
+                Ok(false) => Err(bybit_unavailable(base, quote)),
+                Err(e) => Err(check_failed(base, exchange_choice, e)),
+            }
+        }
     }
 }
 
@@ -118,6 +143,26 @@ fn bitget_unavailable(base: &str, quote: &Currency) -> String {
         "'{}' isn't available on Bitget ({} perpetual futures). Check the symbol (e.g. BTCUSDT) and try again.",
         base,
         quote.as_str()
+    )
+}
+
+/// Bybit's unavailable message.
+///
+/// Mirrors the reasoning behind [`hyperliquid_unavailable`]: a generic
+/// "invalid ticker" leaves the operator with no way forward, so the copy
+/// names what Bybit actually lists. Bybit's `category=linear` carries crypto
+/// **and** the whole TradFi line, and its symbols are conventionally
+/// `{BASE}USDT` — so a misspelled TradFi ticker (which is the most common
+/// failure here) gets a concrete next step rather than a dead end.
+fn bybit_unavailable(base: &str, quote: &Currency) -> String {
+    format!(
+        "'{}' isn't available on Bybit ({} perpetual futures). \
+Bybit lists crypto (BTC, ETH, SOL) alongside equity perps (AAPL, TSLA, SPY), \
+commodities (XAU, XAG, CL) and FX (EURUSD) — check the ticker spelling. \
+Bybit symbols are usually the ticker plus USDT, e.g. {}USDT.",
+        base,
+        quote.as_str(),
+        base.to_uppercase()
     )
 }
 
@@ -230,6 +275,7 @@ pub async fn add_instance(
     let exchange_enum = match exchange_choice {
         ExchangeChoice::Bitget => Exchange::Bitget,
         ExchangeChoice::Hyperliquid => Exchange::Hyperliquid,
+        ExchangeChoice::Bybit => Exchange::Bybit,
     };
     state
         .symbol_mapper
@@ -272,7 +318,8 @@ pub async fn add_instance(
         .collect();
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
-        _ => state.platform.read().await.hyperliquid.rest_url(),
+        ExchangeChoice::Bybit => state.platform.read().await.bybit.kline_url(),
+        ExchangeChoice::Hyperliquid => state.platform.read().await.hyperliquid.rest_url(),
     };
     let drop_fib = fib_config.clone();
     let operational_mode = pair_cfg
@@ -617,6 +664,7 @@ pub async fn sync_exchange_status_active_pairs(state: &RegistryContext) {
         let label: &'static str = match inst.exchange {
             crate::session::ExchangeChoice::Hyperliquid => "Hyperliquid",
             crate::session::ExchangeChoice::Bitget => "Bitget",
+            crate::session::ExchangeChoice::Bybit => "Bybit",
         };
         *by_exchange.entry(label).or_insert(0u32) += 1;
     }
@@ -624,7 +672,7 @@ pub async fn sync_exchange_status_active_pairs(state: &RegistryContext) {
     // doesn't carry a stale "0" from a previous bucket. The tracker is a
     // pure upsert (it doesn't reject zero counts), so this is safe.
     let mut labels: std::collections::HashSet<&'static str> =
-        ["Hyperliquid", "Bitget"].into_iter().collect();
+        ["Hyperliquid", "Bitget", "Bybit"].into_iter().collect();
     for k in by_exchange.keys() {
         labels.insert(*k);
     }
@@ -765,7 +813,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let quote = (*state.session.base_currency.read().await).unwrap_or(Currency::USDC);
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
-        _ => state.platform.read().await.hyperliquid.rest_url(),
+        ExchangeChoice::Bybit => state.platform.read().await.bybit.kline_url(),
+        ExchangeChoice::Hyperliquid => state.platform.read().await.hyperliquid.rest_url(),
     };
 
     // Re-resolve the venue market on every recharge. This is the same call

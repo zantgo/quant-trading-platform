@@ -55,6 +55,11 @@
     }
     function exchangeMaxDays(exchange: string, tf: number): number {
         if (exchange === 'Hyperliquid') return Math.floor((5000 * tf) / 86400);
+        // Bybit retains ~2,425 days on EVERY interval (measured 2026-10 by
+        // walking pages backward until the hard empty-page wall), far past the
+        // platform's 365-day archive_depth_days ceiling — so the effective
+        // limit is the archive cap itself, not a per-granularity table.
+        if (exchange === 'Bybit') return 365;
         return bitgetRetentionDays(tf);
     }
 
@@ -519,6 +524,7 @@
                 <select id="bl-exchange" class={styles.input} bind:value={exchange}>
                     <option value="Hyperliquid">Hyperliquid</option>
                     <option value="Bitget">Bitget</option>
+                    <option value="Bybit">Bybit</option>
                 </select>
             </div>
             <div class={styles.field}>

@@ -235,6 +235,7 @@ async fn build_context() -> (Arc<RegistryContext>, PathBuf, Arc<ExchangeStatusTr
         latency_tracker: Arc::new(Default::default()),
         ws_url: String::new(),
         bitget_ws_url: String::new(),
+        bybit_ws_url: String::new(),
         exchange_status: exchange_status.clone(),
         reliability: Arc::new(ReliabilityTracker::new()),
         connection_quality: Arc::new(ConnectionQualityRegistry::new()),

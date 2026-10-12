@@ -348,3 +348,127 @@ impl ExecutionBackend for BitgetLiveBroker {
         self.client.fetch_equity().await
     }
 }
+
+// =============================================================================
+// Bybit live backend — V5 `category=linear`
+// =============================================================================
+
+/// Live Bybit backend. Implements the trait against the signed V5 linear
+/// endpoints; fills are REST-polled (same pattern as Bitget).
+///
+/// TP/SL differs structurally from both existing brokers: Bybit models the
+/// bracket as **position attributes** (`/v5/position/trading-stop`) rather
+/// than as standalone trigger orders, so a `Stop` packet sets the bracket on
+/// the position rather than submitting a conditional order.
+pub struct BybitLiveBroker {
+    pub client: network_adapters::adapters::bybit_live::BybitLiveClient,
+}
+
+impl BybitLiveBroker {
+    pub fn new(api_key: String, api_secret: String) -> Self {
+        Self {
+            client: network_adapters::adapters::bybit_live::BybitLiveClient::new(
+                api_key, api_secret,
+            ),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ExecutionBackend for BybitLiveBroker {
+    fn mode(&self) -> ExecutionMode {
+        ExecutionMode::Live
+    }
+
+    fn evaluate_fill(&self, _order: &OrderLifecycle, _mid: Decimal) -> Option<Decimal> {
+        None
+    }
+
+    async fn submit_order(&self, packet: &OrderPacket) -> Result<String, String> {
+        let symbol =
+            network_adapters::adapters::bybit_live::bybit_symbol_from_internal(&packet.symbol);
+        let side = packet.side == OrderSide::Buy;
+        let size = packet.size.to_string();
+        let link_id = format!("{}", packet.client_order_id);
+        match packet.order_type {
+            OrderType::Limit => {
+                let price = packet
+                    .price
+                    .ok_or_else(|| "limit order without price".to_string())?
+                    .to_string();
+                self.client
+                    .place_order(
+                        &symbol,
+                        side,
+                        "Limit",
+                        &price,
+                        &size,
+                        packet.reduce_only,
+                        &link_id,
+                    )
+                    .await
+            }
+            OrderType::Market => {
+                self.client
+                    .place_order(
+                        &symbol,
+                        side,
+                        "Market",
+                        "",
+                        &size,
+                        packet.reduce_only,
+                        &link_id,
+                    )
+                    .await
+            }
+            OrderType::Stop => {
+                // SL bracket: Bybit attaches TP/SL to the position.
+                let trigger = packet
+                    .price
+                    .ok_or_else(|| "stop order without trigger price".to_string())?
+                    .to_string();
+                // A stop closes the position, so for a Long the stop is a Sell.
+                let is_long = packet.side == OrderSide::Buy;
+                if is_long {
+                    self.client
+                        .set_trading_stop(&symbol, None, Some(&trigger), None, Some(&size))
+                        .await?;
+                } else {
+                    self.client
+                        .set_trading_stop(&symbol, Some(&trigger), None, Some(&size), None)
+                        .await?;
+                }
+                Ok(format!("bybit-tpsl-{}", link_id))
+            }
+        }
+    }
+
+    async fn cancel_order(&self, order_id: &str, symbol: &str) -> Result<(), String> {
+        let symbol = network_adapters::adapters::bybit_live::bybit_symbol_from_internal(symbol);
+        self.client.cancel_order(&symbol, order_id).await
+    }
+
+    async fn poll_fills(&self) -> Result<Vec<Fill>, String> {
+        self.client
+            .fetch_fills()
+            .await
+            .map(|fills| {
+                fills
+                    .into_iter()
+                    .map(|(oid, px, sz)| Fill {
+                        order_id: oid,
+                        price: Decimal::from_f64_retain(px).unwrap_or_default(),
+                        size: Decimal::from_f64_retain(sz).unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .map_err(|e| {
+                eprintln!("LIVE: Bybit poll_fills failed: {}", e);
+                e
+            })
+    }
+
+    async fn fetch_equity(&self) -> Result<f64, String> {
+        self.client.fetch_equity().await
+    }
+}

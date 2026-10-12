@@ -1,6 +1,6 @@
 # BTE Layer 3 — Study Persistence (data-science schema)
 
-**Version:** 11.12 (2026-09-19)
+**Version:** 11.13 (2026-09-20)
 **Engine:** Backtesting Engine
 **Code:** `crates/database-storage/src/queries/backtest_ds.rs`
 **Migration:** `20260820000001_backtest_ds.sql`

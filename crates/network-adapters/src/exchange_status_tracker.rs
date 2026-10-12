@@ -55,9 +55,10 @@ impl ExchangeStatusTracker {
     /// Pre-seed the tracker with both supported exchanges in Disconnected
     /// state so the frontend always shows the full list even before any
     /// adapter connects.
-    pub async fn seed_defaults(&self, hl_ws_url: &str, bg_ws_url: &str) {
+    pub async fn seed_defaults(&self, hl_ws_url: &str, bg_ws_url: &str, by_ws_url: &str) {
         self.seed_single("Hyperliquid", hl_ws_url).await;
         self.seed_single("Bitget", bg_ws_url).await;
+        self.seed_single("Bybit", by_ws_url).await;
     }
 
     /// Seed a single exchange into the tracker.

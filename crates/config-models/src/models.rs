@@ -62,6 +62,55 @@ fn default_bitget_ws_url() -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BybitConfig {
+    #[serde(default = "default_bybit_ws_url")]
+    pub ws_url: String,
+    #[serde(default = "default_bybit_rest_base")]
+    pub rest_base_url: String,
+}
+
+impl Default for BybitConfig {
+    fn default() -> Self {
+        Self {
+            ws_url: default_bybit_ws_url(),
+            rest_base_url: default_bybit_rest_base(),
+        }
+    }
+}
+
+impl BybitConfig {
+    /// Historical kline endpoint. Bybit's kline response is a positional
+    /// array sorted newest-first, and every instrument — USDT perps, USDC
+    /// perps, and the TradFi line — is served by the SAME `linear` category,
+    /// so there is no product-type parameter to thread.
+    pub fn kline_url(&self) -> String {
+        format!("{}/v5/market/kline", self.rest_base_url)
+    }
+
+    /// Instrument-metadata endpoint used to verify a contract is tradeable
+    /// (status == Trading) and is a perpetual (not a dated future).
+    pub fn instruments_url(&self) -> String {
+        format!("{}/v5/market/instruments-info", self.rest_base_url)
+    }
+
+    /// The WebSocket REST counterpart (the HL poller polls `metaAndAssetCtxs`;
+    /// Bybit pushes mark/OI/funding on `tickers`, so this is unused today but
+    /// kept so the endpoint is discoverable rather than string-derived at a
+    /// call site).
+    pub fn rest_url(&self) -> String {
+        format!("{}/v5/market/tickers", self.rest_base_url)
+    }
+}
+
+fn default_bybit_ws_url() -> String {
+    "wss://stream.bybit.com/v5/public/linear".to_string()
+}
+
+fn default_bybit_rest_base() -> String {
+    "https://api.bybit.com".to_string()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandlesConfig {
     #[serde(default = "default_candle_duration")]
     pub duration_seconds: u64,
@@ -2240,6 +2289,8 @@ pub struct BacktestConfig {
     pub hyperliquid: ExchangeBacktestLimits,
     #[serde(default)]
     pub bitget: ExchangeBacktestLimits,
+    #[serde(default)]
+    pub bybit: ExchangeBacktestLimits,
 }
 
 /// Per-exchange paging limits for the BTE archive backfill.
@@ -2306,6 +2357,17 @@ impl Default for BacktestConfig {
             },
             bitget: ExchangeBacktestLimits {
                 page_cap: 200,
+                rate_limit_delay_ms: 100,
+                max_pages_per_run: 6000,
+                max_candles_per_tf: 0,
+            },
+            // Bybit hard-caps a kline page at 1000 rows regardless of the
+            // `limit` parameter (measured: limit=1000/2000/5000 all return
+            // 1000). Retention is ~2,425 days on every interval — far beyond
+            // `archive_depth_days`'s 365 ceiling — so `max_candles_per_tf = 0`
+            // (no per-TF cap; the archive depth governs) exactly as Bitget.
+            bybit: ExchangeBacktestLimits {
+                page_cap: 1000,
                 rate_limit_delay_ms: 100,
                 max_pages_per_run: 6000,
                 max_candles_per_tf: 0,

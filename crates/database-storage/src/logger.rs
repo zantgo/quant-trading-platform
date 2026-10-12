@@ -203,6 +203,7 @@ pub async fn run_telemetry_logger(
                 let exchange_str = match exchange {
                     Exchange::Hyperliquid => "Hyperliquid",
                     Exchange::Bitget => "Bitget",
+                    Exchange::Bybit => "Bybit",
                 };
                 if let Err(e) = sqlx::query(
                     "INSERT INTO liquidation_events

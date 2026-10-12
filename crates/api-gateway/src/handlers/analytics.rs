@@ -432,13 +432,15 @@ pub async fn serve_backtest_run(
             let name = payload.exchange.as_deref().unwrap_or("Hyperliquid");
             exchange = if name.eq_ignore_ascii_case("Bitget") {
                 core_domain::normalized::Exchange::Bitget
+            } else if name.eq_ignore_ascii_case("Bybit") {
+                core_domain::normalized::Exchange::Bybit
             } else if name.eq_ignore_ascii_case("Hyperliquid") {
                 core_domain::normalized::Exchange::Hyperliquid
             } else {
                 return (
                     axum::http::StatusCode::BAD_REQUEST,
                     Json(serde_json::json!({
-                        "error": "exchange must be 'Hyperliquid' or 'Bitget'",
+                        "error": "exchange must be 'Hyperliquid', 'Bitget' or 'Bybit'",
                         "code": "invalid_exchange",
                     })),
                 )
@@ -531,6 +533,7 @@ pub async fn serve_backtest_run(
             let symbol = inst.symbol();
             exchange = match inst.exchange.as_str() {
                 "Bitget" => core_domain::normalized::Exchange::Bitget,
+                "Bybit" => core_domain::normalized::Exchange::Bybit,
                 _ => core_domain::normalized::Exchange::Hyperliquid,
             };
             let entry = workspace.instances.iter().find(|e| e.symbol == symbol);
@@ -587,10 +590,10 @@ pub async fn serve_backtest_run(
                 .copied()
                 .max()
                 .unwrap_or(3600) as i64;
-        let exchange_name = if exchange == core_domain::normalized::Exchange::Bitget {
-            "Bitget"
-        } else {
-            "Hyperliquid"
+        let exchange_name = match exchange {
+            core_domain::normalized::Exchange::Bitget => "Bitget",
+            core_domain::normalized::Exchange::Bybit => "Bybit",
+            core_domain::normalized::Exchange::Hyperliquid => "Hyperliquid",
         };
         for spec in &specs {
             let load_from = from_secs - burn_in_secs;
@@ -612,17 +615,20 @@ pub async fn serve_backtest_run(
                 if max_depth_secs > 0 {
                     let required = (to_secs - from_secs) + burn_in_secs;
                     if required > max_depth_secs {
-                        let limit_desc = if exchange == core_domain::normalized::Exchange::Bitget {
-                            format!(
+                        let limit_desc = match exchange {
+                            core_domain::normalized::Exchange::Bitget => format!(
                                 "Bitget's {tf}s history (retention ≈ {} days)",
                                 max_depth_secs / 86400
-                            )
-                        } else {
-                            format!(
+                            ),
+                            core_domain::normalized::Exchange::Bybit => format!(
+                                "Bybit's {tf}s history (retention ≈ {} days)",
+                                max_depth_secs / 86400
+                            ),
+                            core_domain::normalized::Exchange::Hyperliquid => format!(
                                 "Hyperliquid's {}-candle ceiling (max ≈ {} days incl. burn-in)",
                                 workspace.backtest.hyperliquid.max_candles_per_tf,
                                 max_depth_secs / 86400
-                            )
+                            ),
                         };
                         return (
                             axum::http::StatusCode::BAD_REQUEST,

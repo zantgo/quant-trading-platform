@@ -266,6 +266,7 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         ws_url: String::new(),
         bitget_ws_url: String::new(),
+        bybit_ws_url: String::new(),
         overview: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(

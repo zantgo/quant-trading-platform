@@ -87,6 +87,7 @@ pub struct AppState {
     pub latency_tracker: core_domain::SharedLatencyTracker,
     pub ws_url: String,
     pub bitget_ws_url: String,
+    pub bybit_ws_url: String,
     /// v10.1: browser-origin allowlist for the served HTTP/WS surface —
     /// built from the resolved bind/port (per-folder sessions) plus the
     /// Vite dev origins. K1 boundary: any other origin is refused.
@@ -151,6 +152,7 @@ impl AppState {
             latency_tracker: self.latency_tracker.clone(),
             ws_url: self.ws_url.clone(),
             bitget_ws_url: self.bitget_ws_url.clone(),
+            bybit_ws_url: self.bybit_ws_url.clone(),
             exchange_status: self.exchange_status.clone(),
             reliability: self.reliability.clone(),
             connection_quality: self.connection_quality.clone(),
@@ -189,7 +191,10 @@ impl AppState {
         currency: Currency,
         exchange: ExchangeChoice,
     ) -> Result<(), String> {
-        if exchange != ExchangeChoice::Hyperliquid && exchange != ExchangeChoice::Bitget {
+        if !matches!(
+            exchange,
+            ExchangeChoice::Hyperliquid | ExchangeChoice::Bitget | ExchangeChoice::Bybit
+        ) {
             return Err("Unsupported exchange selected.".to_string());
         }
         if !exchange.supports_currency(&currency) {
@@ -200,6 +205,7 @@ impl AppState {
                 match exchange {
                     ExchangeChoice::Hyperliquid => "Hyperliquid perpetuals settle in USDC only.",
                     ExchangeChoice::Bitget => "Select USDT or USDC.",
+                    ExchangeChoice::Bybit => "Bybit USDT perps are selected here; select USDT.",
                 }
             ));
         }
@@ -320,6 +326,8 @@ impl AppState {
             .map(|e| {
                 if e.eq_ignore_ascii_case("bitget") {
                     portfolio_supervisor::session::ExchangeChoice::Bitget
+                } else if e.eq_ignore_ascii_case("bybit") {
+                    portfolio_supervisor::session::ExchangeChoice::Bybit
                 } else {
                     portfolio_supervisor::session::ExchangeChoice::Hyperliquid
                 }

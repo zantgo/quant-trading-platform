@@ -149,6 +149,7 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         ),
         ws_url: "ws://127.0.0.1:1".into(),
         bitget_ws_url: String::new(),
+        bybit_ws_url: String::new(),
         clock_monitor: None,
         reliability: Arc::new(ReliabilityTracker::new()),
         exchange_status: Arc::new(ExchangeStatusTracker::new()),

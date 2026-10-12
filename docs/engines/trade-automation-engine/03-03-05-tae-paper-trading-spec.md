@@ -1,6 +1,6 @@
 # TAE — Simulation Backend & Persistence (v7)
 
-**Version:** 11.12 (2026-09-19) — v7 redesign: the paper trading engine becomes the `PaperSimulation` backend of the unified ExecutionEngine, and the persistence contract now includes restart recovery.
+**Version:** 11.13 (2026-09-20) — v7 redesign: the paper trading engine becomes the `PaperSimulation` backend of the unified ExecutionEngine, and the persistence contract now includes restart recovery.
 
 > **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
 **Status:** Implemented — the `PaperSimulation` backend of the unified execution engine.

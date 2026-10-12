@@ -119,11 +119,12 @@ pub async fn serve_backfill_start(
         }
         if !exchange_name.eq_ignore_ascii_case("Hyperliquid")
             && !exchange_name.eq_ignore_ascii_case("Bitget")
+            && !exchange_name.eq_ignore_ascii_case("Bybit")
         {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
-                    "error": "exchange must be 'Hyperliquid' or 'Bitget'",
+                    "error": "exchange must be 'Hyperliquid', 'Bitget' or 'Bybit'",
                     "code": "invalid_exchange",
                 })),
             )
@@ -187,6 +188,11 @@ pub async fn serve_backfill_start(
                     "Bitget's {tf}s history (retention ≈ {} days)",
                     max_depth_secs / 86400
                 )
+            } else if exchange.eq_ignore_ascii_case("Bybit") {
+                format!(
+                    "Bybit's {tf}s history (retention ≈ {} days)",
+                    max_depth_secs / 86400
+                )
             } else {
                 format!(
                     "Hyperliquid's {}-candle ceiling (max ≈ {} days)",
@@ -231,6 +237,8 @@ pub async fn serve_backfill_start(
         .unwrap_or_else(|| symbol.clone());
     let exchange_native = if exchange.eq_ignore_ascii_case("Bitget") {
         portfolio_supervisor::session::ExchangeChoice::Bitget
+    } else if exchange.eq_ignore_ascii_case("Bybit") {
+        portfolio_supervisor::session::ExchangeChoice::Bybit
     } else {
         portfolio_supervisor::session::ExchangeChoice::Hyperliquid
     };
@@ -238,7 +246,13 @@ pub async fn serve_backfill_start(
     // markets on a builder-deployed perp dex are `<dex>:<coin>` and
     // `candleSnapshot` returns `null` for the bare base. Re-resolve here so a
     // backfill of `TLT-USDC` fetches `xyz:TLT`. Bitget keeps the derived form.
-    let raw_symbol = if exchange_native == portfolio_supervisor::session::ExchangeChoice::Bitget {
+    let raw_symbol = if matches!(
+        exchange_native,
+        portfolio_supervisor::session::ExchangeChoice::Bitget
+            | portfolio_supervisor::session::ExchangeChoice::Bybit
+    ) {
+        // Both venues derive their wire symbol directly from the base
+        // (`BTCUSDT`); only Hyperliquid needs the HIP-3 dex resolution below.
         exchange_native.raw_symbol(&base, &quote)
     } else {
         match portfolio_supervisor::registry::resolve_venue_market(
@@ -292,6 +306,30 @@ pub async fn serve_backfill_start(
                         start_ms,
                         end_ms,
                         200,
+                        &rest_url,
+                    )
+                    .await
+                })
+            })
+        }
+        "Bybit" => {
+            let raw = raw_symbol;
+            let internal = symbol.clone();
+            let rest_url = state.platform.read().await.bybit.kline_url();
+            Arc::new(move |tf_secs, start_ms, end_ms| {
+                let raw = raw.clone();
+                let internal = internal.clone();
+                let rest_url = rest_url.clone();
+                Box::pin(async move {
+                    let interval =
+                        network_adapters::adapters::bybit_rest::timeframe_secs_to_interval(tf_secs);
+                    network_adapters::adapters::bybit_rest::fetch_historical_candles_page(
+                        &raw,
+                        &internal,
+                        interval,
+                        start_ms,
+                        end_ms,
+                        network_adapters::adapters::bybit_rest::BYBIT_PAGE_LIMIT,
                         &rest_url,
                     )
                     .await

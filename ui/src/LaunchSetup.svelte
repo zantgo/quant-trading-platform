@@ -874,6 +874,7 @@
                     <select id="launch-exchange" class={styles.formSelect} bind:value={exchange} disabled={recoveryMode}>
                         <option value="Hyperliquid">Hyperliquid</option>
                         <option value="Bitget">Bitget</option>
+                        <option value="Bybit">Bybit</option>
                     </select>
                 </div>
 

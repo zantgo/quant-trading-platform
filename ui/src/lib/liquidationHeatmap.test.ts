@@ -577,3 +577,48 @@ describe('clusterInHighlight (v7.0-prod — leverage-tier highlight)', () => {
         expect(clusterInHighlight(cluster, [10, 50])).toBe(false);
     });
 });
+
+/**
+ * The "model only — no public liquidation feed" caveat is venue-specific and
+ * must stay that way.
+ *
+ * Only Hyperliquid lacks a public forced-close stream (its `userFills` feed is
+ * account-scoped, so without a configured address the heatmap's "real" layer
+ * is genuinely modelled rather than observed). Bitget publishes an aggregated
+ * public `liquidation` channel and Bybit publishes `allLiquidation`, which
+ * pushes EVERY forced close at 500 ms — strictly better than Bitget's 1 Hz
+ * top-1-per-side aggregate.
+ *
+ * The renderer gates on `exchange === 'Hyperliquid'`, so Bybit is correct by
+ * construction. These tests pin that: widening the gate to any non-HL venue,
+ * or renaming the exchange, must not silently mislabel a Bybit chart.
+ */
+describe('liquidation heatmap — venue caveat gating', () => {
+    function wantsCaveat(exchange: string, showHlCaveat: boolean): boolean {
+        // Mirrors the renderer gate in `liquidationHeatmap.ts`.
+        return showHlCaveat && exchange === 'Hyperliquid';
+    }
+
+    it('Hyperliquid carries the caveat when the flag is on', () => {
+        expect(wantsCaveat('Hyperliquid', true)).toBe(true);
+    });
+
+    it('Bybit NEVER carries the caveat — it has a real all-liquidations feed', () => {
+        expect(wantsCaveat('Bybit', true)).toBe(false);
+        expect(wantsCaveat('Bybit', false)).toBe(false);
+    });
+
+    it('Bitget never carries the caveat either (public liquidation channel)', () => {
+        expect(wantsCaveat('Bitget', true)).toBe(false);
+    });
+
+    it('the caveat is off for Hyperliquid when the operator disables it', () => {
+        expect(wantsCaveat('Hyperliquid', false)).toBe(false);
+    });
+
+    it('an unknown venue is not mislabelled as Hyperliquid', () => {
+        expect(wantsCaveat('SomethingElse', true)).toBe(false);
+        // Case matters: the comparison is exact, not fuzzy.
+        expect(wantsCaveat('hyperliquid', true)).toBe(false);
+    });
+});

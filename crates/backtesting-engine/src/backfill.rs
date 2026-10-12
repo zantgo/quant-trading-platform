@@ -153,6 +153,11 @@ async fn page_timeframe(
                     "Bitget's {tf_secs}s history (retention ≈ {} days)",
                     exchange_limit / 86400
                 )
+            } else if cfg.exchange.eq_ignore_ascii_case("Bybit") {
+                format!(
+                    "Bybit's {tf_secs}s history (retention ≈ {} days)",
+                    exchange_limit / 86400
+                )
             } else {
                 format!(
                     "Hyperliquid's {}-candle ceiling for the {tf_secs}s timeframe (max ≈ {} days)",
@@ -250,6 +255,7 @@ pub async fn run_backfill(
     let limits = |exchange: &str| -> config_models::ExchangeBacktestLimits {
         match exchange {
             "Bitget" => cfg.backtest.bitget.clone(),
+            "Bybit" => cfg.backtest.bybit.clone(),
             _ => cfg.backtest.hyperliquid.clone(),
         }
     };
@@ -514,6 +520,17 @@ pub fn exchange_max_depth_secs(
     }
     if exchange.eq_ignore_ascii_case("Bitget") {
         return bitget_retention_days(tf_secs) as i64 * 86400;
+    }
+    if exchange.eq_ignore_ascii_case("Bybit") {
+        // Measured 2026-10: Bybit retains ~2,425 days on EVERY interval
+        // (1m through 1d) behind a hard empty-page wall, well past the
+        // 365-day `archive_depth_days` ceiling. There is therefore no per-TF
+        // cap — return 0 so the archive depth governs, exactly as Bitget.
+        let ceiling = cfg.bybit.max_candles_per_tf;
+        if ceiling > 0 {
+            return ceiling as i64 * tf_secs as i64;
+        }
+        return 0;
     }
     0
 }

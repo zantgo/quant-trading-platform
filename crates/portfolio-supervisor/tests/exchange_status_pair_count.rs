@@ -44,6 +44,9 @@ async fn build_context() -> (Arc<RegistryContext>, Arc<ExchangeStatusTracker>) {
     exchange_status
         .seed_single("Bitget", "wss://ws.bitget.com/v2/ws/public")
         .await;
+    exchange_status
+        .seed_single("Bybit", "wss://stream.bybit.com/v5/public/linear")
+        .await;
 
     let workspace = WorkspaceState::empty();
     let ctx = RegistryContext {
@@ -56,6 +59,7 @@ async fn build_context() -> (Arc<RegistryContext>, Arc<ExchangeStatusTracker>) {
         latency_tracker: Arc::new(Default::default()),
         ws_url: String::new(),
         bitget_ws_url: String::new(),
+        bybit_ws_url: String::new(),
         exchange_status: exchange_status.clone(),
         reliability: Arc::new(ReliabilityTracker::new()),
         connection_quality: Arc::new(Default::default()),
@@ -365,6 +369,21 @@ async fn sync_buckets_per_exchange() {
             .await;
     }
 
+    // Bybit: 1 instance (USDT settlement, e.g. BTC-USDT).
+    ctx.workspace
+        .insert(
+            "XAU-USDT".to_string(),
+            build_stub_instance_v2(
+                ctx.pool.clone(),
+                ctx.workspace.clone(),
+                "inst_xau",
+                "XAU",
+                "USDT",
+                ExchangeChoice::Bybit,
+            ),
+        )
+        .await;
+
     sync_exchange_status_active_pairs(&ctx).await;
     let after = active_pairs_by_name(&exchange_status.report().await);
     assert_eq!(
@@ -377,6 +396,42 @@ async fn sync_buckets_per_exchange() {
         Some(&2),
         "Bitget bucket must carry exactly 2 instances (was hardcoded 0 before parity sweep)"
     );
+    assert_eq!(
+        after.get("Bybit"),
+        Some(&1),
+        "Bybit bucket must carry exactly 1 instance — the third venue must get \
+         its own bucket, not be folded into Bitget or Hyperliquid"
+    );
+}
+
+/// A workspace holding ONLY Bybit instances must still report a zero for
+/// Hyperliquid and Bitget rather than dropping those cards: the sync helper
+/// touches every known label so no card ever shows a stale count from a
+/// previous session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bybit_only_workspace_still_reports_zero_for_the_other_venues() {
+    use portfolio_supervisor::session::ExchangeChoice;
+    let (ctx, exchange_status) = build_context().await;
+
+    ctx.workspace
+        .insert(
+            "BTC-USDT".to_string(),
+            build_stub_instance_v2(
+                ctx.pool.clone(),
+                ctx.workspace.clone(),
+                "inst_by",
+                "BTC",
+                "USDT",
+                ExchangeChoice::Bybit,
+            ),
+        )
+        .await;
+
+    sync_exchange_status_active_pairs(&ctx).await;
+    let after = active_pairs_by_name(&exchange_status.report().await);
+    assert_eq!(after.get("Bybit"), Some(&1));
+    assert_eq!(after.get("Hyperliquid"), Some(&0));
+    assert_eq!(after.get("Bitget"), Some(&0));
 }
 
 /// Variant of `build_stub_instance` that lets the caller pick the

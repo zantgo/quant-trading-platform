@@ -20,6 +20,12 @@ impl Currency {
 pub enum ExchangeChoice {
     Hyperliquid,
     Bitget,
+    /// Bybit V5 `category=linear`. Both settlement families are served by the
+    /// one product (USDT perps `BTCUSDT`, USDC perps `BTCPERP`); the wizard
+    /// and `supports_currency` gate to USDT because the USDC family uses a
+    /// `PERP` suffix rather than a quote-currency suffix, so the pair-key
+    /// derivation differs and is out of scope for this port.
+    Bybit,
 }
 
 impl ExchangeChoice {
@@ -27,6 +33,7 @@ impl ExchangeChoice {
         match self {
             ExchangeChoice::Hyperliquid => "Hyperliquid",
             ExchangeChoice::Bitget => "Bitget",
+            ExchangeChoice::Bybit => "Bybit",
         }
     }
 
@@ -47,6 +54,11 @@ impl ExchangeChoice {
                 Currency::USDT => format!("{}USDT", base),
                 Currency::USDC => format!("{}USD", base),
             },
+            // USDT linear perps are `{BASE}USDT`, byte-identical to Bitget's
+            // USDT-FUTURES convention (`AAPLUSDT`, `XAUUSDT`, `EURUSDUSDT`).
+            // USDC perps use a `{BASE}PERP` suffix but USDC is unsupported
+            // here, so that arm is unreachable.
+            ExchangeChoice::Bybit => format!("{}USDT", base),
         }
     }
 
@@ -58,7 +70,7 @@ impl ExchangeChoice {
                 core_domain::symbol_rules::split_dex_qualifier(venue_coin)
                     .map(|(dex, _)| dex.to_string())
             }
-            ExchangeChoice::Bitget => None,
+            ExchangeChoice::Bitget | ExchangeChoice::Bybit => None,
         }
     }
 
@@ -66,13 +78,16 @@ impl ExchangeChoice {
         format!("{}-{}", base, quote.as_str())
     }
 
-    pub fn bitget_product_type(&self, quote: &Currency) -> Option<&'static str> {
+    /// The venue's product-type parameter, when the venue has one. Bitget
+    /// partitions its mix API by `USDT-FUTURES` / `USDC-FUTURES`; Hyperliquid
+    /// and Bybit have no equivalent (Bybit uses one `category=linear`).
+    pub fn product_type(&self, quote: &Currency) -> Option<&'static str> {
         match self {
             ExchangeChoice::Bitget => Some(match quote {
                 Currency::USDT => "USDT-FUTURES",
                 Currency::USDC => "USDC-FUTURES",
             }),
-            ExchangeChoice::Hyperliquid => None,
+            ExchangeChoice::Hyperliquid | ExchangeChoice::Bybit => None,
         }
     }
 
@@ -80,6 +95,7 @@ impl ExchangeChoice {
         match self {
             ExchangeChoice::Hyperliquid => *quote == Currency::USDC,
             ExchangeChoice::Bitget => matches!(quote, Currency::USDT | Currency::USDC),
+            ExchangeChoice::Bybit => *quote == Currency::USDT,
         }
     }
 }

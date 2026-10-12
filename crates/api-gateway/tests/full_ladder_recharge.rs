@@ -217,6 +217,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         ),
         ws_url: "ws://127.0.0.1:1".to_string(),
         bitget_ws_url: String::new(),
+        bybit_ws_url: String::new(),
         clock_monitor: None,
         reliability: Arc::new(ReliabilityTracker::new()),
         exchange_status: Arc::new(ExchangeStatusTracker::new()),

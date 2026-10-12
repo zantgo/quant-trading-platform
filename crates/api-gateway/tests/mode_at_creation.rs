@@ -43,6 +43,7 @@ async fn build_state() -> (Arc<AppState>, Arc<Instance>) {
         ),
         ws_url: "ws://127.0.0.1:1".to_string(),
         bitget_ws_url: "".to_string(),
+        bybit_ws_url: "".to_string(),
         clock_monitor: None,
         reliability: Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
         exchange_status: Arc::new(

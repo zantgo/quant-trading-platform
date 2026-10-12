@@ -122,12 +122,13 @@ pub async fn serve_session_init(
     let exchange = match payload.exchange.to_lowercase().as_str() {
         "hyperliquid" => portfolio_supervisor::session::ExchangeChoice::Hyperliquid,
         "bitget" => portfolio_supervisor::session::ExchangeChoice::Bitget,
+        "bybit" => portfolio_supervisor::session::ExchangeChoice::Bybit,
         _ => {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
                     "success": false,
-                    "error": "Invalid exchange. Use 'Hyperliquid' or 'Bitget'.",
+                    "error": "Invalid exchange. Use 'Hyperliquid', 'Bitget' or 'Bybit'.",
                 })),
             )
                 .into_response()

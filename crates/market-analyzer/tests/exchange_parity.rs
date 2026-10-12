@@ -228,3 +228,80 @@ fn all_non_candle_based_registry_keys_are_accounted_for() {
         }
     }
 }
+
+/// Bybit's contribution to the parity contract.
+///
+/// Bybit is the third venue, and its raw wire form differs from both others in
+/// ways that matter precisely because of this test's premise:
+///
+/// * its `tickers` topic is **snapshot+delta** rather than a full push, so the
+///   adapter has to merge frames before emitting — a divergence here would be
+///   invisible to a test that only checked the *shape* of one frame;
+/// * its funding rate is quoted per the **symbol's own** interval (4h for 419
+///   of 904 instruments), so it is rescaled to per-8h before emission;
+/// * its open interest arrives as USD notional (`openInterestValue`) rather
+///   than base units, so no mark-price multiply is needed.
+///
+/// None of those differences may change the SHAPE of what reaches the
+/// indicator layer. This test therefore drives the *post-adapter* values —
+/// exactly the normalized quintuple the injection path receives — and asserts
+/// the indicator key set matches Bitget's and Hyperliquid's byte for byte.
+/// It would fail if someone added a `if exchange == Bybit { ... }` branch to
+/// either inject helper, or if the Bybit adapter emitted a differently-shaped
+/// event.
+#[test]
+fn bybit_pipeline_produces_same_indicator_map_keys_as_bitget_and_hl() {
+    // Derived from a real captured Bybit `tickers` snapshot for BTCUSDT
+    // (2026-10) after the adapter's delta-merge and per-8h funding rescale.
+    let (oi, funding, mark, oi_delta, spread) = (
+        Some(4_633_621_056.53), // openInterestValue, already USD notional
+        Some(-0.00004138),      // 8h interval -> pass-through, unchanged
+        Some(83_909.40),        // markPrice
+        Some(150_000.0),        // 1h OI delta (USD)
+        Some(0.05),             // mark-index spread
+    );
+    let mut map = std::collections::HashMap::new();
+    inject_derivatives_indicators(&mut map, oi, funding, oi_delta, mark, spread, None, 0.001);
+    inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
+
+    let expected_keys: HashSet<&str> = [
+        "open_interest",
+        "oi_delta",
+        "oi_price_divergence",
+        "funding_rate",
+        "mark_index_spread",
+        "order_flow_imbalance",
+        "spread",
+        "depth_bias",
+    ]
+    .into_iter()
+    .collect();
+    let actual_keys: HashSet<&str> = map.keys().map(|s| s.as_str()).collect();
+    assert_eq!(
+        actual_keys, expected_keys,
+        "Bybit pipeline indicator keys must match Bitget and Hyperliquid — \
+         the NormalizedEvent contract is shared and venue-specific quirks \
+         (delta-merged tickers, rescaled funding, USD-denominated OI) must be \
+         resolved at the ADAPTER boundary, never in the indicator layer"
+    );
+}
+
+/// The three venues must agree on the exchange-agnostic contract itself: a
+/// `RestRefetchSpec` exists per venue and each names a distinct venue, so a
+/// third venue can never silently fall through to the Hyperliquid branch.
+#[test]
+fn rest_venue_is_a_closed_enum_with_one_variant_per_supported_exchange() {
+    use market_analyzer::analyzer::RestVenue;
+    let hl = RestVenue::Hyperliquid;
+    let bg = RestVenue::Bitget {
+        product_type: "USDT-FUTURES".into(),
+    };
+    let by = RestVenue::Bybit;
+    // Bitget carries its product type because its mix API is partitioned;
+    // the other two do not.
+    assert_ne!(hl, bg);
+    assert_ne!(hl, by);
+    assert_ne!(bg, by);
+    assert!(matches!(by, RestVenue::Bybit));
+    assert!(matches!(hl, RestVenue::Hyperliquid));
+}

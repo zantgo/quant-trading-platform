@@ -36,6 +36,7 @@ impl ArchivedCandle {
         };
         let exchange = match self.exchange.as_str() {
             "Bitget" => core_domain::normalized::Exchange::Bitget,
+            "Bybit" => core_domain::normalized::Exchange::Bybit,
             _ => core_domain::normalized::Exchange::Hyperliquid,
         };
         NormalizedCandle {

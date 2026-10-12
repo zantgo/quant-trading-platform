@@ -9,6 +9,14 @@ use serde::{Deserialize, Serialize};
 pub enum Exchange {
     Hyperliquid,
     Bitget,
+    /// Bybit V5. Both the USDT and USDC settlement families live in the
+    /// single `category=linear` product; the USDC perps carry a `PERP`
+    /// suffix (`BTCPERP`) rather than `USDC` (`BTCUSDT`).
+    ///
+    /// The variant name is the wire form (no serde rename), so it serializes
+    /// as `"Bybit"` through `NormalizedTrade`, `NormalizedOrderBook`,
+    /// `LiquidationEvent` and `NormalizedCandle` without further work.
+    Bybit,
 }
 
 impl std::fmt::Display for Exchange {

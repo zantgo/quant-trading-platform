@@ -210,7 +210,11 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
         if bt.max_equity_points < 10 || bt.max_equity_points > 100_000 {
             return Some("backtest.max_equity_points must be 10–100,000".into());
         }
-        for (exchange, limits) in [("hyperliquid", &bt.hyperliquid), ("bitget", &bt.bitget)] {
+        for (exchange, limits) in [
+            ("hyperliquid", &bt.hyperliquid),
+            ("bitget", &bt.bitget),
+            ("bybit", &bt.bybit),
+        ] {
             if limits.page_cap == 0 || limits.page_cap > 10_000 {
                 return Some(format!("backtest.{exchange}.page_cap must be 1–10,000"));
             }

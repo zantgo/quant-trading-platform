@@ -33,6 +33,7 @@ pub struct RegistryContext {
     pub latency_tracker: SharedLatencyTracker,
     pub ws_url: String,
     pub bitget_ws_url: String,
+    pub bybit_ws_url: String,
     pub exchange_status: Arc<ExchangeStatusTracker>,
     pub reliability: Arc<ReliabilityTracker>,
     /// Per-(pair_key, timeframe_secs) connection-quality scopes (08-05).

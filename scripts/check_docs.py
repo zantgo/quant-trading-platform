@@ -489,7 +489,7 @@ def check_g6_enum_casing():
     #    set — TradeViability IS SCREAMING).
     # PascalCase JSON string values are therefore only tolerated for the
     # documented PascalCase family (plus the Exchange whitelist below).
-    WHITELIST = {"Hyperliquid", "Bitget"}
+    WHITELIST = {"Hyperliquid", "Bitget", "Bybit"}
     PASCAL_WIRE = {
         # L2 alignment
         "StrongBullish", "Bullish", "Bearish", "StrongBearish", "Neutral",

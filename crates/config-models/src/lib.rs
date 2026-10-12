@@ -104,6 +104,8 @@ struct OnDiskConfig {
     #[serde(default)]
     bitget: BitgetConfig,
     #[serde(default)]
+    bybit: BybitConfig,
+    #[serde(default)]
     clock_monitor: Option<ClockMonitorTomlConfig>,
     #[serde(default)]
     quality: Option<QualityConfig>,
@@ -134,6 +136,7 @@ impl OnDiskConfig {
             PlatformConfig {
                 hyperliquid: self.hyperliquid,
                 bitget: self.bitget,
+                bybit: self.bybit,
                 clock_monitor: self.clock_monitor,
                 quality: self.quality,
                 reconnect: self.reconnect,
@@ -186,6 +189,8 @@ pub struct PlatformConfig {
     pub hyperliquid: HyperliquidConfig,
     #[serde(default)]
     pub bitget: BitgetConfig,
+    #[serde(default)]
+    pub bybit: BybitConfig,
     /// Optional clock-drift monitor. When `Some` and `is_active()`, main.rs
     /// spawns the NTP-based monitor alongside the other background tasks.
     #[serde(default)]
@@ -1036,6 +1041,7 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
     for (exchange, limits) in [
         ("hyperliquid", &ws.backtest.hyperliquid),
         ("bitget", &ws.backtest.bitget),
+        ("bybit", &ws.backtest.bybit),
     ] {
         if limits.page_cap == 0 {
             return Err(ConfigError::InvalidNumeric {
@@ -1377,6 +1383,7 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
     let new_raw = OnDiskConfig {
         hyperliquid: on_disk.hyperliquid,
         bitget: on_disk.bitget,
+        bybit: on_disk.bybit,
         clock_monitor: on_disk.clock_monitor,
         quality: on_disk.quality,
         reconnect: on_disk.reconnect,
