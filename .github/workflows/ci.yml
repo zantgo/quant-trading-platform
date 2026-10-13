@@ -26,14 +26,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p core-domain -p market-analyzer -p config-models
+      - run: cargo test --no-fail-fast -p core-domain -p market-analyzer -p config-models
 
+  # Hermetic engine tests only — no live exchange APIs, so the result depends on
+  # the code rather than on a third party's latency. `--no-fail-fast` ensures a
+  # failure in one package cannot hide the results of another (cargo otherwise
+  # aborts the entire run at the first failing binary).
   test-engine:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p database-storage -p api-gateway -p portfolio-supervisor -p performance-analytics -p network-adapters -p execution-daemon
+      - run: cargo test --no-fail-fast -p database-storage -p portfolio-supervisor -p performance-analytics -p network-adapters -p execution-daemon
+
+  # The tests that DO reach live exchange APIs, run as their own gate so a venue
+  # outage cannot masquerade as a code regression (and vice versa).
+  test-engine-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --no-fail-fast -p api-gateway -p network-adapters
 
   test-ui:
     runs-on: ubuntu-latest

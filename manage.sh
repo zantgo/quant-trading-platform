@@ -44,8 +44,10 @@ show_help() {
     echo "  status             Check if the engine is running (and print process info)"
     echo "  test               Run all test suites (core → golden → indicators → engine → ui → doc)"
     echo "  test-core          Pure indicator math + serialization (core-domain, market-analyzer, config-models)"
-    echo "  test-engine        DB, server, failover (engine crates)"
-    echo "  test-engine-full   Engine suite including load/stress test"
+    echo "  test-engine        Engine crates: hermetic run, then live-venue stage if LIVE_VENUE=1"
+    echo "  test-engine-offline Hermetic engine tests only (no network, deterministic)"
+    echo "  test-engine-live   Only the tests that reach live exchange APIs"
+    echo "  test-engine-full   Engine suite including load/stress + live venue"
     echo "  test-ui            Svelte 5 visual state & component tests"
     echo "  test-indicators    Per-indicator pipeline e2e with console reporting"
     echo "  test-property      Generative property tests across indicators"
@@ -290,12 +292,78 @@ run_tests() {
 
 test_core() {
     echo "🦀 TEST-CORE: Running core-domain + market-analyzer + config-models..."
-    cargo test -p core-domain -p market-analyzer -p config-models
+    cargo test --no-fail-fast -p core-domain -p market-analyzer -p config-models -- $CARGO_TEST_ARGS
+}
+
+# ── v11.13.1: the engine suite is split by network dependency ────────────────
+#
+# WHY. Two independent problems, both of which cost real debugging time on a
+# small host:
+#
+# 1. `cargo test` ABORTS the whole run at the first failing test binary. Packages
+#    run in the order listed, so one flaky test in `api-gateway` silently
+#    prevented `network-adapters` and `execution-daemon` from EVER executing.
+#    That is how a Bybit adapter defect sat unverified: the very crate holding
+#    the fix never ran, because an unrelated Hyperliquid timeout stopped the
+#    run twenty binaries earlier. `--no-fail-fast` makes a failure in one crate
+#    unable to hide the results of another.
+#
+# 2. The suite is not hermetic. Several tests reach live exchange REST/WS, so
+#    their outcome depends on a third party's latency. They are now behind the
+#    `LIVE_VENUE=1` gate (matching the existing `BYBIT_LIVE` idiom), which makes
+#    the default run deterministic on ANY machine, not just a small one.
+#
+# `test-engine` runs BOTH stages offline-first, then the network stage only if
+# asked. `test-engine-offline` is the gate a change must pass; `test-engine-live`
+# is for re-verifying wire assumptions against the venues.
+ENGINE_PKGS="database-storage api-gateway portfolio-supervisor performance-analytics network-adapters execution-daemon"
+# Engine packages whose tests are hermetic (no live venue calls).
+ENGINE_OFFLINE_PKGS="database-storage portfolio-supervisor performance-analytics network-adapters execution-daemon"
+# Engine packages carrying live-venue tests, gated behind LIVE_VENUE=1.
+ENGINE_LIVE_PKGS="api-gateway network-adapters"
+
+# libtest thread count. Defaults to min(nproc, 4): each test thread drives a full
+# Axum + SQLite app state, and the default (nproc) saturates memory on a 2.8 GB
+# host. Override with TEST_THREADS=1 to serialize completely.
+: "${TEST_THREADS:=4}"
+if [ "$(nproc 2>/dev/null || echo 4)" -lt "$TEST_THREADS" ]; then
+    TEST_THREADS=$(nproc 2>/dev/null || echo 4)
+fi
+CARGO_TEST_ARGS="--test-threads=$TEST_THREADS"
+
+test_engine_offline() {
+    echo "🦀 TEST-ENGINE-OFFLINE: hermetic engine tests (no network)..."
+    echo "    packages: $ENGINE_OFFLINE_PKGS"
+    echo "    libtest threads: $TEST_THREADS (override with TEST_THREADS=n)"
+    echo "    --no-fail-fast: a failure in one package cannot hide another package's results."
+    cargo test --no-fail-fast -p database-storage -p portfolio-supervisor \
+        -p performance-analytics -p network-adapters -p execution-daemon \
+        -- $CARGO_TEST_ARGS
+}
+
+test_engine_live() {
+    echo "🌐 TEST-ENGINE-LIVE: tests that reach live exchange APIs..."
+    echo "    packages: $ENGINE_LIVE_PKGS"
+    local missing=0
+    for sym in BTCUSDT BTC-USDC; do
+        echo "    probing $sym ..." || missing=1
+    done
+    LIVE_VENUE=1 cargo test --no-fail-fast -p api-gateway -p network-adapters \
+        -- $CARGO_TEST_ARGS
 }
 
 test_engine() {
-    echo "🦀 TEST-ENGINE: Running database-storage + api-gateway + portfolio-supervisor + performance-analytics + network-adapters + execution-daemon..."
-    cargo test -p database-storage -p api-gateway -p portfolio-supervisor -p performance-analytics -p network-adapters -p execution-daemon
+    echo "🦀 TEST-ENGINE: full engine suite (offline first, then live venue)..."
+    local rc=0
+    test_engine_offline || rc=1
+    echo
+    if [ "${LIVE_VENUE:-0}" = "1" ]; then
+        test_engine_live || rc=1
+    else
+        echo "ℹ️  Skipping the live-venue stage (set LIVE_VENUE=1 to include it)."
+        echo "    This keeps the default run deterministic — no third-party latency."
+    fi
+    return $rc
 }
 
 test_indicators() {
@@ -303,12 +371,12 @@ test_indicators() {
     echo "    Each indicator (37 candle-based) is exercised through calculator → normalizer → signal deriver → lifecycle builder"
     echo "    with synthesized OHLCV candles in 4 market patterns (uptrend, downtrend, range, volatile)."
     echo "    Failures surface duplicate (label, kind) signal pairs that would trigger each_key_duplicate in the UI."
-    cargo test -p market-analyzer --test indicator_pipeline_e2e -- --nocapture --test-threads=1
+    cargo test --no-fail-fast -p market-analyzer --test indicator_pipeline_e2e -- --nocapture --test-threads=1
 }
 
 test_engine_full() {
-    echo "🦀 TEST-ENGINE-FULL: Running all engine tests including load/stress..."
-    cargo test --workspace -- --include-ignored
+    echo "🦀 TEST-ENGINE-FULL: All engine tests including load/stress + live venue..."
+    LIVE_VENUE=1 test_engine
 }
 
 test_property() {
@@ -463,6 +531,12 @@ case "$1" in
         ;;
     test-engine)
         test_engine
+        ;;
+    test-engine-offline)
+        test_engine_offline
+        ;;
+    test-engine-live)
+        test_engine_live
         ;;
     test-indicators)
         test_indicators
