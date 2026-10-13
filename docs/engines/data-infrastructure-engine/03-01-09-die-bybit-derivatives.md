@@ -1,6 +1,6 @@
 # 03-01-09: Bybit V5 Derivatives Telemetry Wire Format
 
-**Version:** 11.13 (2026-09-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE) → MME L1.5 Derivatives Telemetry
 **Scope:** Bybit V5 (`category=linear`) WebSocket push payloads + REST endpoints
@@ -284,10 +284,40 @@ days) whole.
 Bybit publishes **no** sub-minute interval — the finest is `1` (1 minute). The
 five sub-minute durations in the 14-duration pool (`1s, 3s, 5s, 15s, 30s`) are
 therefore bypassed by **HFP-03** and fill from live trades, identically on all
-three venues. Measured trade density on `BTCUSDT`: **7.15 trades/s** with 100 %
-unique per-trade ids, and ~85 % of 1-second buckets non-empty — comfortably
+three venues. Measured **through the adapter** on `BTCUSDT`: **17.1 trades/s**
+(769 trades in a 45 s window) with 100 % unique per-trade ids — comfortably
 enough to sustain a 1 s candle. The remaining idle buckets are already handled
 by the analyzer's heartbeat-doji path (`ReconstructionMethod::Synthetic`).
+
+> **Correction (v11.13.1).** This section originally claimed 7.15 trades/s. That
+> figure was taken from a REST probe of the venue, **not** from the adapter —
+> which at the time was decoding **zero** trades. `bybit.rs` typed the frame
+> timestamps as `Option<String>` while Bybit sends `T` as a JSON **integer**, so
+> `serde_json` rejected and discarded every `publicTrade` frame, and the
+> `Err(_) => continue` arm swallowed it. Sub-minute durations have no REST
+> fallback, so all five were dead while the `≥60s` half kept rendering stale
+> REST-warmed candles. See `bybit::de_ts_ms` and
+> `tests/bybit_ws_frame_contract.rs`, which pins verbatim captured frames.
+
+### Timestamps are integers; prices are strings
+
+Bybit's WebSocket frames are **not internally consistent** about JSON encoding.
+In a single `publicTrade` object:
+
+```text
+"T" => 1791857245203          // integer  (the trade timestamp)
+"p" => "82429.10"             // string   (price)
+"v" => "0.184"                // string   (size)
+"S" => "Sell"                 // string   (side)
+```
+
+`allLiquidation` behaves the same way. Because `serde_json::from_value` is
+**all-or-nothing per frame**, declaring `T` as `Option<String>` does not degrade
+that one field — it discards the *entire* payload. `bybit::de_ts_ms` accepts an
+integer, float, numeric string, `null`, empty or absent value, in both
+directions, so a future venue re-encoding cannot reintroduce a silent total loss
+of the trade or liquidation stream. Decode failures are reported per topic
+(rate-limited) instead of being swallowed.
 
 ## 7. Pagination
 

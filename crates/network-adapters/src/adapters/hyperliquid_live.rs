@@ -489,7 +489,9 @@ mod tests {
 
 #[cfg(test)]
 mod asset_index_tests {
-    use super::*;
+    // These assertions decode `serde_json::Value` payloads directly rather
+    // than calling into the adapter, so this module needs nothing from the
+    // parent — `use super::*` was dead and warned.
 
     /// The asset id a Hyperliquid order carries is the coin's position in that
     /// dex's `meta.universe`. The payload has no `index` field — reading one

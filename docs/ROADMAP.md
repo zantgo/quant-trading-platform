@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-**Version:** 11.13 (2026-09-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Six engines implemented and production-ready (v11.12 — observe-default truth, observability hardening, unified Settings). The UI build is observe-only; paper/live execution remains a backend/CLI/API capability.
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 

@@ -22,8 +22,11 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 
 fn row(side: &str) -> BybitLiquidationData {
+    // `T` is typed `u64` — Bybit sends it as a bare JSON integer on
+    // `allLiquidation` (docs type it `number`), so the fixture must mirror the
+    // real encoding rather than the string form the adapter used to declare.
     BybitLiquidationData {
-        updated_time_ms: Some("1739502302929".into()),
+        updated_time_ms: Some(1_739_502_302_929),
         symbol: Some("BTCUSDT".into()),
         side: Some(side.into()),
         size: Some("20000".into()),

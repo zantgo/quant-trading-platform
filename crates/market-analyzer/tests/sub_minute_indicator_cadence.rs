@@ -231,9 +231,15 @@ fn order_book_mid_110(exchange: Exchange) -> NormalizedEvent {
 /// book is fresh (≤ grace period), so the test re-sends the 110 mid every
 /// round instead of seeding it once — a single stale mid must NOT anchor
 /// the close (that distortion is pinned by the stale-mid guard test below).
+///
+/// Bybit joined this loop with the v11.13 sub-minute repair. Sub-minute
+/// durations are fed EXCLUSIVELY from live trades (HFP-03 bypasses REST), so
+/// a venue whose trades never decode produces no bars at all on 1s/3s/5s/
+/// 15s/30s while its REST-warmed ≥60s rows keep rendering — exactly the
+/// failure Bybit shipped with. Running this per venue is the parity guard.
 #[tokio::test]
 async fn ema_state_advances_every_second_on_sub_minute_tf() {
-    for exchange in [Exchange::Hyperliquid, Exchange::Bitget] {
+    for exchange in [Exchange::Hyperliquid, Exchange::Bitget, Exchange::Bybit] {
         let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
         let (broadcast_tx, mut broadcast_rx) =
             tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
@@ -505,15 +511,19 @@ fn indicator_values_are_per_tf_not_shared_across_tfs() {
 }
 
 /// BUG-FIX-05: the 1-second TF candle-bucket alignment must be deterministic
-/// for both Hyperliquid and Bitget trade timestamps (both wrap the
-/// exchange's millisecond timestamp). One trade at `ts=1_234_567_890_123`
-/// must land in the `[1_234_567_890_000, 1_234_567_891_000)` bucket and
-/// never a 60-second or 5-second bucket.
+/// for every venue's trade timestamps (all wrap the exchange's millisecond
+/// timestamp). One trade at `ts=1_234_567_890_123` must land in the
+/// `[1_234_567_890_000, 1_234_567_891_000)` bucket and never a 60-second or
+/// 5-second bucket.
+///
+/// Bybit was added here with v11.13's sub-minute repair: the venue was never
+/// in this list, which is part of why a total loss of its trade stream went
+/// unnoticed — the sub-minute ladder had no venue coverage to break.
 #[test]
 fn sub_minute_bucket_alignment_is_correct_for_ms_timestamps() {
     use market_analyzer::candle_generator::CandleGenerator;
 
-    for exchange in [Exchange::Hyperliquid, Exchange::Bitget] {
+    for exchange in [Exchange::Hyperliquid, Exchange::Bitget, Exchange::Bybit] {
         for tf_secs in [1u64, 3, 5, 15] {
             let mut gen = CandleGenerator::new("BTC-USDT", tf_secs, exchange);
             let ts_ms: u64 = 1_234_567_890_123;

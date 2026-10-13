@@ -19,13 +19,19 @@
 //! | `tickers.{sym}` | 100 ms | `AssetContext` / `MarkPrice` / `OpenInterest` / `FundingRate` |
 //! | `allLiquidation.{sym}` | 500 ms | `Liquidation` (every forced close) |
 //!
-//! ## Two venue-specific traps handled here
+//! ## Three venue-specific traps handled here
 //!
 //! 1. **`tickers` is snapshot+delta.** Every frame carries only the changed
 //!    fields, so the adapter keeps a merged [`TickerState`] and emits only
 //!    what moved. See [`bybit_derivatives`] for the measurement.
 //! 2. **The funding interval is per-symbol** (419 of 904 instruments fund
 //!    every 4h). Rates are rescaled to per-8h before emission.
+//! 3. **Timestamps are integers, prices are strings.** Bybit mixes both JSON
+//!    encodings inside the SAME object — `p`/`v`/`S`/`i` are quoted strings,
+//!    but the `T` timestamp on `publicTrade` and `allLiquidation` is a bare
+//!    integer. Typing `T` as a string makes serde reject the **whole** frame,
+//!    which silently zeroed the entire trade + liquidation stream in v11.13.
+//!    See [`de_ts_ms`].
 //!
 //! ## Keep-alive
 //!
@@ -73,30 +79,123 @@ struct BybitMessage {
     data: Option<serde_json::Value>,
 }
 
+/// Accept a millisecond timestamp as a JSON **integer** or a numeric string.
+///
+/// ## Why this exists (the trap that shipped v11.13 with zero live trades)
+///
+/// Bybit's WebSocket frames are not internally consistent about numeric
+/// encoding. `p` / `v` / `S` / `i` are JSON **strings**, but the timestamp
+/// `T` is a JSON **integer** on `publicTrade` and `allLiquidation` — Bybit's
+/// own docs type it as `number`, and a live capture confirms it:
+///
+/// ```text
+/// {"topic":"publicTrade.BTCUSDT","data":[{"T":1791857245203,"s":"BTCUSDT",
+///  "S":"Sell","v":"0.184","p":"82429.10","i":"829d0cef-…","seq":824664710425}]}
+/// ```
+///
+/// Declaring `T` as `Option<String>` therefore made `serde_json::from_value`
+/// fail with `invalid type: integer, expected a string` — and because serde
+/// is all-or-nothing per frame, that discarded the **entire** trade (and
+/// liquidation) payload, not just the bad field. Every sub-minute pipeline
+/// then received zero events: HFP-03 gives sub-minute durations no REST
+/// fallback, so 1s/3s/5s/15s/30s produced no candles at all while the ≥60s
+/// half of the ladder kept rendering stale REST-warmed data. The
+/// `Err(_) => continue` arms hid it completely.
+///
+/// Being tolerant in BOTH directions costs nothing and means a future venue
+/// re-encoding to a string (or the REST endpoints, which do quote numbers)
+/// can never reintroduce a silent total data loss.
+pub fn de_ts_ms<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct MsTimestamp;
+
+    impl<'de> Visitor<'de> for MsTimestamp {
+        type Value = Option<u64>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "a millisecond timestamp as an integer or numeric string")
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+            Ok(Some(v))
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+            Ok(Some(v.max(0) as u64))
+        }
+
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<Self::Value, E> {
+            Ok(Some(v.max(0.0) as u64))
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            let trimmed = v.trim();
+            if trimmed.is_empty() {
+                // Blank means "not applicable" (dated futures / settlements),
+                // not zero — treat it as absent rather than the epoch.
+                return Ok(None);
+            }
+            trimmed.parse::<u64>().map(Some).map_err(de::Error::custom)
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserializer.deserialize_any(self)
+        }
+    }
+
+    deserializer.deserialize_option(MsTimestamp)
+}
+
+/// A decoded `publicTrade.{symbol}` payload element.
+///
+/// Public so `tests/bybit_ws_frame_contract.rs` can decode verbatim frames
+/// captured from the live venue — the test whose absence let the v11.13
+/// integer-timestamp bug ship green.
 #[derive(Debug, Deserialize)]
-struct BybitTrade {
-    #[serde(rename = "T", default)]
-    ts_ms: Option<String>,
+pub struct BybitTrade {
+    #[serde(rename = "T", default, deserialize_with = "de_ts_ms")]
+    pub ts_ms: Option<u64>,
     #[serde(rename = "p", default)]
-    price: Option<String>,
+    pub price: Option<String>,
     #[serde(rename = "v", default)]
-    size: Option<String>,
+    pub size: Option<String>,
     #[serde(rename = "S", default)]
-    side: Option<String>,
+    pub side: Option<String>,
     /// Bybit's genuine per-trade id (Bitget's V2 `trade` channel has none and
     /// we synthesize `ts:side:price:size` there).
     #[serde(rename = "i", default)]
-    trade_id: Option<String>,
+    pub trade_id: Option<String>,
 }
 
+/// A decoded `orderbook.50.{symbol}` payload. Public for the live-frame
+/// contract test (see [`BybitTrade`]).
 #[derive(Debug, Deserialize)]
-struct BybitBook {
+pub struct BybitBook {
     #[serde(rename = "b", default)]
-    bids: Vec<[String; 2]>,
+    pub bids: Vec<[String; 2]>,
     #[serde(rename = "a", default)]
-    asks: Vec<[String; 2]>,
-    #[serde(rename = "ts", default)]
-    ts_ms: Option<String>,
+    pub asks: Vec<[String; 2]>,
+    /// Measured live: `orderbook.50` carries NO timestamp inside `data` (the
+    /// keys are `s`, `b`, `a`, `u`, `seq`) — the stamp lives on the envelope.
+    /// This stays optional and the caller falls back to local arrival time.
+    #[serde(rename = "ts", default, deserialize_with = "de_ts_ms")]
+    pub ts_ms: Option<u64>,
 }
 
 fn parse_decimal(s: &Option<String>) -> Option<Decimal> {
@@ -112,6 +211,40 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// How long to stay quiet after reporting a frame-decode failure.
+const PARSE_WARN_REPEAT_SECS: u64 = 300;
+
+/// Report a frame-decode failure once per topic per [`PARSE_WARN_REPEAT_SECS`].
+///
+/// serde discards a whole frame when any single field's type does not match,
+/// so one bad assumption costs an entire payload. v11.13 shipped with
+/// `Err(_) => continue`, which turned a mistyped integer timestamp into a
+/// silent, total loss of the trade + liquidation streams while every test
+/// stayed green. A decode failure is therefore an operator-visible event, but
+/// it is not rate-limited to silence either: a permanently mismatched schema
+/// would otherwise print on every 20 ms order-book frame.
+fn warn_once(
+    slot: &mut Option<(std::time::Instant, String)>,
+    topic: &str,
+    symbol: &str,
+    err: &serde_json::Error,
+) {
+    let now = std::time::Instant::now();
+    if let Some((last, last_topic)) = slot {
+        if last_topic == topic
+            && now.duration_since(*last) < std::time::Duration::from_secs(PARSE_WARN_REPEAT_SECS)
+        {
+            return;
+        }
+    }
+    *slot = Some((now, topic.to_string()));
+    eprintln!(
+        "❌ Bybit [{}]::{}: frame decode failed ({}). EVERY event in this frame is discarded — \
+         check the adapter against the venue schema.",
+        symbol, topic, err
+    );
 }
 
 /// Connect, subscribe to every public topic for one symbol, and stream
@@ -188,6 +321,12 @@ pub async fn run_for_symbol(
     let books_last = Arc::new(AtomicI64::new(0));
     let ticker_last = Arc::new(AtomicI64::new(0));
     let liq_last = Arc::new(AtomicI64::new(0));
+
+    // Rate-limited decode-failure reporter (see `warn_once`). A single slot is
+    // enough: the loop handles one frame at a time and every call site passes
+    // its own topic name, so a different topic is never suppressed by a
+    // previous one's silence window.
+    let mut parse_warned: Option<(std::time::Instant, String)> = None;
 
     let mut ping_interval = tokio::time::interval_at(
         tokio::time::Instant::now() + HEARTBEAT_INTERVAL,
@@ -311,7 +450,16 @@ pub async fn run_for_symbol(
                     trade_last.store(stamp, Ordering::Relaxed);
                     let trades: Vec<BybitTrade> = match serde_json::from_value(data) {
                         Ok(t) => t,
-                        Err(_) => continue,
+                        // A decode failure here means the venue changed the
+                        // frame schema — and since serde is all-or-nothing per
+                        // frame, EVERY trade in it is lost. That exact
+                        // failure mode shipped v11.13 with a silent `continue`,
+                        // so it is reported loudly (once per topic, then
+                        // rate-limited) instead of vanishing.
+                        Err(e) => {
+                            warn_once(&mut parse_warned, "publicTrade", &symbol, &e);
+                            continue;
+                        }
                     };
                     for t in trades {
                         let price = match parse_decimal(&t.price) {
@@ -333,11 +481,9 @@ pub async fn run_for_symbol(
                                 price,
                                 size,
                                 side,
-                                timestamp_ms: t
-                                    .ts_ms
-                                    .as_deref()
-                                    .and_then(|s| s.parse::<u64>().ok())
-                                    .unwrap_or_else(now_ms),
+                                // The venue stamp is authoritative when present;
+                                // local arrival time is the only fallback.
+                                timestamp_ms: t.ts_ms.filter(|ms| *ms > 0).unwrap_or_else(now_ms),
                                 // Bybit publishes a real unique trade id, so no
                                 // synthesized key is needed (contrast Bitget).
                                 trade_id: t.trade_id.clone().unwrap_or_default(),
@@ -350,7 +496,10 @@ pub async fn run_for_symbol(
                     // the local book is simply replaced each frame.
                     let book: BybitBook = match serde_json::from_value(data) {
                         Ok(b) => b,
-                        Err(_) => continue,
+                        Err(e) => {
+                            warn_once(&mut parse_warned, "orderbook.50", &symbol, &e);
+                            continue;
+                        }
                     };
                     let bids: Vec<(Decimal, Decimal)> = book
                         .bids
@@ -381,18 +530,20 @@ pub async fn run_for_symbol(
                             symbol: internal_symbol.clone(),
                             bids,
                             asks,
-                            timestamp_ms: book
-                                .ts_ms
-                                .as_deref()
-                                .and_then(|s| s.parse::<u64>().ok())
-                                .unwrap_or_else(now_ms),
+                            // `orderbook.50` carries no `ts` inside `data`
+                            // (measured: keys are `s`,`b`,`a`,`u`,`seq`), so
+                            // local arrival time is the normal path here.
+                            timestamp_ms: book.ts_ms.filter(|ms| *ms > 0).unwrap_or_else(now_ms),
                         }))
                         .await;
                 } else if topic == format!("tickers.{}", symbol) {
                     ticker_last.store(stamp, Ordering::Relaxed);
                     let frame: BybitTickerFrame = match serde_json::from_value(data) {
                         Ok(f) => f,
-                        Err(_) => continue,
+                        Err(e) => {
+                            warn_once(&mut parse_warned, "tickers", &symbol, &e);
+                            continue;
+                        }
                     };
                     // Fold the (possibly partial) frame into the merged state
                     // and emit only the quantities that genuinely moved.
@@ -410,7 +561,10 @@ pub async fn run_for_symbol(
                     liq_last.store(stamp, Ordering::Relaxed);
                     let rows: Vec<BybitLiquidationData> = match serde_json::from_value(data) {
                         Ok(r) => r,
-                        Err(_) => continue,
+                        Err(e) => {
+                            warn_once(&mut parse_warned, "allLiquidation", &symbol, &e);
+                            continue;
+                        }
                     };
                     for row in rows {
                         if let Some(ev) = pub_liquidation_to_event(&internal_symbol, &row) {

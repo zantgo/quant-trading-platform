@@ -4,26 +4,63 @@
 
 ------
 
+## v11.13.1 (2026-10-13) — Bybit Sub-Minute Repair: Zero Trades Were Decoding
+
+**Bybit delivered zero trades and zero liquidations since v11.13. Every sub-minute duration (1s/3s/5s/15s/30s) produced no candles; the ≥60s half kept rendering stale REST-warmed data, which is what made the failure look venue-specific rather than total.**
+
+**Root cause.** `adapters/bybit.rs` declared the WebSocket frame timestamps as `Option<String>`:
+
+```rust
+#[serde(rename = "T", default)]
+ts_ms: Option<String>,
+```
+
+Bybit sends `T` as a JSON **integer** — its own docs type it `number`, and a live capture confirms `"T": 1791857245203`. `serde_json::from_value` is **all-or-nothing per frame**, so that one field mismatch discarded the *entire* payload rather than degrading that field. The arm was `Err(_) => continue`, which swallowed it with no log line. Every `publicTrade` and `allLiquidation` frame was therefore dropped before reaching the event router.
+
+Sub-minute durations are fed **exclusively** from live trades (HFP-03 bypasses REST by design), so the fast half of the ladder received no events at all, while `≥60s` pipelines — warmed from `/v5/market/kline` — kept emitting, frozen. Order books, OI, funding and mark price all decoded correctly throughout (`tickers` fields are genuine strings), which is precisely why the symptom presented as "sub-minute charts are broken" rather than "the socket is dead".
+
+**Why the suite was green.** No Bybit test ever deserialised a captured frame. `bybit_liquidation_schema` built `BybitLiquidationData` structs **by hand** with a string timestamp, and `bybit_pagination_test` / `bybit_live_contract` exercise REST only. `sub_minute_indicator_cadence` looped `[Hyperliquid, Bitget]` — Bybit was never in the parity list. The bug was invisible to the entire suite by construction.
+
+**The fix.**
+
+- `bybit::de_ts_ms` — a tolerant deserializer accepting integer, float, numeric string, `null`, empty and absent. `BybitTrade.ts_ms`, `BybitBook.ts_ms` and `BybitLiquidationData.updated_time_ms` now decode to `Option<u64>`. Tolerant in *both* directions, so a future re-encoding to a string cannot reintroduce a silent total loss.
+- Decode failures are no longer swallowed: each topic reports through `warn_once`, rate-limited to one line per five minutes, naming the topic and the serde error.
+- `bybit_ws_frame_contract` — a new regression suite over **verbatim frames captured from the live venue**, asserting trades, liquidations and the book each emit events, plus the tolerance matrix and batch integrity (Bybit batches up to 1024 trades per message; one bad element must not drop the batch).
+- `Exchange::Bybit` added to both venue-parity loops in `sub_minute_indicator_cadence`.
+- `bybit_liquidation_schema` fixtures updated to the real integer encoding.
+
+**Measured before/after** on the same harness, same live socket, 30–45 s windows:
+
+| | trades | order books | OI / funding / mark |
+|---|---|---|---|
+| v11.13 (broken) | **0** | 1162 | 31 / 1 / 28 |
+| v11.13.1 (fixed) | **769** (100% unique ids) | 1718 | 38 / 1 / 34 |
+
+**Also cleared:** the pre-existing `unused import` warning in `hyperliquid_live.rs`'s test module. Clippy was already clean under the project's own `[workspace.lints]` policy.
+
 ## v11.13 (2026-09-20) — Bybit V5 as the Third Venue
 
-**Bybit joins Hyperliquid and Bitget as a fully-supported exchange. Observe mode is complete and live-verified against the venue; the USDT perpetual line — crypto *and* the whole TradFi catalogue — is available from the launch wizard.**
+**Bybit joins Hyperliquid and Bitget as a fully-supported exchange. The USDT perpetual line — crypto *and* the whole TradFi catalogue — is available from the launch wizard.**
+
+> **Correction (v11.13.1).** The original v11.13 entry claimed the trade path was "live-verified" and measured "7.15 trades/s on `BTCUSDT`, 100% unique trade ids". **That was false.** The adapter typed the WebSocket timestamps as `Option<String>` while Bybit sends them as JSON **integers**, so `serde_json` rejected and discarded **every** `publicTrade` and `allLiquidation` frame, and the `Err(_) => continue` arm swallowed it without a log line. Sub-minute durations have no REST fallback (HFP-03), so `1s/3s/5s/15s/30s` produced no candles at all while the `≥60s` half kept rendering stale REST-warmed data. The trade density figure was taken from a REST probe of the venue, not from the adapter. v11.13.1 fixes the decoding and adds a regression test built from verbatim captured frames; the corrected live measurement is **17.1 trades/s on `BTCUSDT`, 100% unique ids** (769 trades / 45 s).
 
 A third exchange exposed a structural defect that two venues had hidden: the venue discriminator throughout the codebase was a bare `is_bitget: bool`. That could only ever express two venues, so every new one would have been bolted on as another boolean. The `RestVenue` enum replaces it in the gap-refetch spec and the bootstrap candle fetcher, so a fourth venue is now a one-line match arm.
 
 **Venue facts, measured 2026-10 against the live API (not documentation).**
 
 - **One product**: all 898 `category=linear` instruments — 830 USDT perps, 68 USDC perps, and the whole TradFi line (206 equity, 56 ETF, 4 commodity, 3 FX perps) — are served by the single `wss://stream.bybit.com/v5/public/linear` endpoint. TradFi needs **no** separate wiring; it arrives free with linear support.
-- **Timeframes**: all 14 pool durations verified. The nine ≥60s durations map **exactly** onto Bybit intervals (`1,3,5,15,30,60,240,720,D`) and each returns ≥500 live candles — the full bootstrap target. The five sub-minute durations are bypassed by HFP-03 and fill from live trades (measured 7.15 trades/s on `BTCUSDT`, 100% unique trade ids), exactly as on the other two venues.
+- **Timeframes**: all 14 pool durations verified. The nine ≥60s durations map **exactly** onto Bybit intervals (`1,3,5,15,30,60,240,720,D`) and each returns ≥500 live candles — the full bootstrap target. The five sub-minute durations are bypassed by HFP-03 and fill from live trades. *(The original entry's per-venue trade-density figure was measured against REST, not the adapter — see the correction above.)*
 - **Fourth interval convention**: Hyperliquid writes `4h`, Bitget writes `4H`, Bybit writes `240` (bare minutes).
 - **Retention ~2,425 days** on every interval (hard empty-page wall), versus Bitget's 30–365-day per-granularity table — far beyond the 365-day archive ceiling, so Bybit is depth-uncapped and, unlike Bitget, needs **no window clamp**.
 
-**Three traps that would have shipped silently.**
+**Four traps that would have shipped silently.**
 
 - **`tickers` is snapshot+delta, not a full push.** Measured: 132 frames = 1 snapshot + 131 deltas, each delta carrying only changed fields. A direct port of the Bitget ticker handler would have emitted a stream of events with missing mark-price / OI / funding values — corrupting the series the indicators, the L2.5 cluster estimator and the L5 cascade risk all read, with no error anywhere. `TickerState` folds frames into a retained snapshot and emits only what moved.
 - **The funding interval is per-symbol.** 419 of 904 instruments fund every **4 h**, not 8. Every consumer assumes per-8h (the ×1095 annualizer, the `FUNDING_EXTREME` 0.0005 threshold), so a raw read would have doubled the rate on half the universe and false-fired the reversal signal. Rates are rescaled by `8 / fundingIntervalHour`, the same adaptation Hyperliquid needs in the other direction.
 - **`allLiquidation` side semantics invert.** `S: "Buy"` means a **long** was liquidated — opposite to Bitget's `fill` channel. Getting it backwards renders the heatmap's real layer inverted while still looking plausible.
+- **Timestamps are integers; prices are strings — in the same object.** Bybit's WebSocket is not internally consistent about JSON encoding: `p` / `v` / `S` / `i` are quoted strings, but the `T` timestamp on both `publicTrade` and `allLiquidation` is a bare integer (their docs type it `number`). Because `serde_json::from_value` is **all-or-nothing per frame**, a single mistyped field discards the *entire* payload — silently, and only on the two topics the platform cannot warm from REST. `de_ts_ms` now accepts either encoding in both directions, and a decode failure is reported instead of swallowed.
 
-**Bybit is also the first venue with a complete public forced-close stream** (`allLiquidation`, every liquidation at 500 ms — Bitget aggregates to top-1 per side per second). The UI's "model only" caveat stays correctly Hyperliquid-only.
+**Bybit is also the first venue with a complete public forced-close stream** (`allLiquidation`, every liquidation at 500 ms — Bitget aggregates to top-1 per side per second). The UI's "model only" caveat stays correctly Hyperliquid-only. *(This advantage was inert until v11.13.1 — the integer-timestamp defect dropped 100% of liquidation frames too.)*
 
 - **Live dispatch is implemented but NOT integration-tested against a funded account.** Bybit's signature preimage is `timestamp + apiKey + recvWindow + payload` (no method, no path) with `X-BAPI-*` headers — structurally different from Bitget's, and a wrong preimage fails at runtime, not compile time. TP/SL is a position attribute (`/v5/position/trading-stop`), not a trigger order. Treat the observe path as the verified surface.
 

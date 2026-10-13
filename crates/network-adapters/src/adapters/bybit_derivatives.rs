@@ -296,8 +296,14 @@ impl TickerState {
 #[derive(Debug, serde::Deserialize)]
 pub struct BybitLiquidationData {
     /// Event timestamp (ms).
-    #[serde(rename = "T", default)]
-    pub updated_time_ms: Option<String>,
+    ///
+    /// Bybit sends this as a JSON **integer** on `allLiquidation` (their docs
+    /// type it `number`), not a quoted string. It is declared `Option<u64>`
+    /// and parsed by [`super::bybit::de_ts_ms`], which tolerates both
+    /// encodings — a string declaration would make serde reject the whole
+    /// frame and silently drop every forced close.
+    #[serde(rename = "T", default, deserialize_with = "super::bybit::de_ts_ms")]
+    pub updated_time_ms: Option<u64>,
     #[serde(rename = "s", default)]
     pub symbol: Option<String>,
     /// `Buy` ⇒ a LONG was liquidated; `Sell` ⇒ a SHORT was liquidated.
@@ -327,11 +333,7 @@ pub fn pub_liquidation_to_event(
         Some(s) if s.eq_ignore_ascii_case("sell") => LiquidationSide::Short,
         _ => return None,
     };
-    let timestamp_ms = row
-        .updated_time_ms
-        .as_deref()
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .unwrap_or(0);
+    let timestamp_ms = row.updated_time_ms.filter(|ms| *ms > 0).unwrap_or(0);
     Some(NormalizedEvent::Liquidation(LiquidationEvent {
         exchange: Exchange::Bybit,
         symbol: internal_symbol.to_string(),
@@ -461,8 +463,10 @@ mod tests {
 
     #[test]
     fn liquidation_side_follows_the_venue_documentation() {
+        // `T` is typed `u64` because Bybit sends it as a bare JSON integer on
+        // the wire — the fixture mirrors the real encoding, not a string.
         let mk = |side: &str| BybitLiquidationData {
-            updated_time_ms: Some("1739502302929".into()),
+            updated_time_ms: Some(1_739_502_302_929),
             symbol: Some("BTCUSDT".into()),
             side: Some(side.into()),
             size: Some("0.5".into()),

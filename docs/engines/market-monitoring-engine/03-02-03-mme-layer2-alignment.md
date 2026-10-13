@@ -1,6 +1,6 @@
 # MME Layer 2 — Alignment Layer
 
-**Version:** 11.13 (2026-09-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 2 of 7

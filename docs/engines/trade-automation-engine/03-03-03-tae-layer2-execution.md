@@ -1,6 +1,6 @@
 # TAE Layer ④ — Unified ExecutionEngine
 
-**Version:** 11.13 (2026-09-20) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
+**Version:** 11.13 (2026-10-13) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
 
 > **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
 **Status:** Implemented (v11) — Hyperliquid + Bitget live backends, quantity-first execution model.
