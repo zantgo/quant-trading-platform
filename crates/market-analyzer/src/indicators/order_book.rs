@@ -99,9 +99,15 @@ impl OrderBookAnalysis {
             self.dwm = Some((bid_val_sum + ask_val_sum) / total_vol);
         }
 
+        // AUDIT-M20: the adapters now reject crossed books in
+        // `NormalizedOrderBook::validated`, so `ask >= bid` is already
+        // guaranteed upstream. Clamp anyway: `update()` is also called from
+        // warm/replay paths and from tests, and a negative `spread_pct` in the
+        // wire payload is silently wrong rather than loud. A degenerate
+        // (locked) book reports a 0 spread instead of a negative one.
         let mid = (bid_slice[0].0 + ask_slice[0].0) / 2.0;
         if mid > 0.0 {
-            self.spread_pct = Some((ask_slice[0].0 - bid_slice[0].0) / mid * 100.0);
+            self.spread_pct = Some(((ask_slice[0].0 - bid_slice[0].0) / mid * 100.0).max(0.0));
         }
 
         self.wall = detect_wall(

@@ -521,21 +521,26 @@ pub async fn run_for_symbol(
                             ))
                         })
                         .collect();
-                    if bids.is_empty() && asks.is_empty() {
+                    // AUDIT-M20: Bybit previously only skipped when BOTH sides
+                    // were empty, so a one-sided book was forwarded, and neither
+                    // side was sorted or checked for a cross. Levels decode via
+                    // `filter_map`, so one unparseable level silently promotes a
+                    // worse level to `bids[0]` -- which
+                    // `OrderBookAnalysis::update` treats as top of book,
+                    // producing a negative `spread_pct` and an inverted mid.
+                    // Route through the shared choke point.
+                    let book_ts_ms = book.ts_ms.filter(|ms| *ms > 0).unwrap_or_else(now_ms);
+                    let Some(event) = NormalizedOrderBook::validated(
+                        Exchange::Bybit,
+                        internal_symbol.clone(),
+                        bids,
+                        asks,
+                        book_ts_ms,
+                    )
+                    .map(NormalizedEvent::OrderBook) else {
                         continue;
-                    }
-                    let _ = event_tx
-                        .send(NormalizedEvent::OrderBook(NormalizedOrderBook {
-                            exchange: Exchange::Bybit,
-                            symbol: internal_symbol.clone(),
-                            bids,
-                            asks,
-                            // `orderbook.50` carries no `ts` inside `data`
-                            // (measured: keys are `s`,`b`,`a`,`u`,`seq`), so
-                            // local arrival time is the normal path here.
-                            timestamp_ms: book.ts_ms.filter(|ms| *ms > 0).unwrap_or_else(now_ms),
-                        }))
-                        .await;
+                    };
+                    let _ = event_tx.send(event).await;
                 } else if topic == format!("tickers.{}", symbol) {
                     ticker_last.store(stamp, Ordering::Relaxed);
                     let frame: BybitTickerFrame = match serde_json::from_value(data) {

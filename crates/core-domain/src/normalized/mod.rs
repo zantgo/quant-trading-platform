@@ -63,6 +63,82 @@ pub struct NormalizedOrderBook {
     pub timestamp_ms: u64,
 }
 
+/// Why a decoded order-book snapshot was rejected. AUDIT-M20.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderBookReject {
+    /// Neither side carried a parseable, positive-size level.
+    Empty,
+    /// `best_bid >= best_ask` — a crossed (or locked) book. Accepting it
+    /// yields a NEGATIVE `spread_pct` and an inverted mid price.
+    Crossed,
+}
+
+impl NormalizedOrderBook {
+    /// AUDIT-M20: the single validation choke point for every venue's
+    /// order-book snapshot.
+    ///
+    /// Before this, Hyperliquid validated (both sides non-empty) while Bitget
+    /// validated nothing and Bybit only rejected when *both* sides were empty.
+    /// Worse, every adapter decoded levels with `filter_map`, so a single
+    /// unparseable level was silently dropped and the next surviving level was
+    /// promoted — and nothing sorted the result. `OrderBookAnalysis::update`
+    /// then trusts array order (`bids[0]` assumed best bid), so a crossed or
+    /// mis-ordered book produced:
+    ///
+    ///   * a NEGATIVE `spread_pct` in the spread indicator and the L2.5 layer,
+    ///   * an inverted mid price feeding the shadow candle,
+    ///   * wrong OFI / depth-weighted-mid from mis-attributed level sizes.
+    ///
+    /// Callers pass the decoded sides by value so the sorted result can be
+    /// returned. Returns `None` when the snapshot is unusable.
+    pub fn validated(
+        exchange: Exchange,
+        symbol: String,
+        mut bids: Vec<(Decimal, Decimal)>,
+        mut asks: Vec<(Decimal, Decimal)>,
+        timestamp_ms: u64,
+    ) -> Option<Self> {
+        // Drop non-positive sizes: a zero-size level carries no liquidity and
+        // would otherwise be counted as depth.
+        bids.retain(|(_, sz)| *sz > Decimal::ZERO);
+        asks.retain(|(_, sz)| *sz > Decimal::ZERO);
+
+        if bids.is_empty() || asks.is_empty() {
+            return None;
+        }
+
+        // `OrderBookAnalysis::update` reads `bids[0]`/`asks[0]` as top of book
+        // with no re-sort, so ordering is a correctness contract, not a
+        // presentation detail.
+        bids.sort_by(|a, b| b.0.cmp(&a.0)); // descending: best (highest) bid first
+        asks.sort_by(|a, b| a.0.cmp(&b.0)); // ascending:  best (lowest) ask first
+
+        if bids[0].0 >= asks[0].0 {
+            return None;
+        }
+
+        Some(Self {
+            exchange,
+            symbol,
+            bids,
+            asks,
+            timestamp_ms,
+        })
+    }
+
+    /// Classify a rejection, for rate-limited operator diagnostics.
+    pub fn reject_reason(
+        bids: &[(Decimal, Decimal)],
+        asks: &[(Decimal, Decimal)],
+    ) -> OrderBookReject {
+        match bids.first().zip(asks.first()) {
+            None => OrderBookReject::Empty,
+            Some((b, a)) if b.0 >= a.0 => OrderBookReject::Crossed,
+            Some(_) => OrderBookReject::Empty,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionStatus {
     /// Adapter is establishing the WS handshake.
@@ -210,6 +286,19 @@ impl NormalizedCandle {
     pub fn assert_validity(&self) -> Result<(), String> {
         if self.high < self.low {
             return Err("High price cannot be less than low price".into());
+        }
+        // AUDIT-C4: an all-zero OHLCV candle passes every geometric check
+        // above (`0 < 0` is false, `0 ∈ [0,0]` is true, `0 >= 0` is true).
+        // It reached the wire because two adapters coerced an unparseable
+        // trade price to `Decimal::ZERO` rather than dropping the trade, so a
+        // single malformed tick opened a bucket at zero and poisoned a real
+        // candle. Sub-minute durations have no REST refetch fallback, so the
+        // damage could not self-repair.
+        if self.high.is_zero() && self.low.is_zero() {
+            return Err("Degenerate candle: high and low are both zero".into());
+        }
+        if self.low < Decimal::ZERO {
+            return Err("Low price cannot be negative".into());
         }
         if self.open < self.low || self.open > self.high {
             return Err(format!(

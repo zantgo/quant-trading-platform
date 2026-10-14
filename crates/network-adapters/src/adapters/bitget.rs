@@ -326,8 +326,24 @@ pub async fn run_for_symbol(
                             Err(_) => continue,
                         };
                         for t in trades {
-                            let price = Decimal::from_str(&t.price).unwrap_or(Decimal::ZERO);
-                            let size = Decimal::from_str(&t.size).unwrap_or(Decimal::ZERO);
+                            // AUDIT-C4: never coerce an unparseable trade into
+                            // `Decimal::ZERO` and emit it as a REAL trade. A
+                            // zero-price tick opens a candle bucket at 0 (or
+                            // drags `low` to 0), and `assert_validity` accepts
+                            // an all-zero OHLCV candle -- so the poisoned bar
+                            // was persisted and broadcast as genuine, then fed
+                            // to every downstream indicator. Sub-minute
+                            // durations have no REST refetch fallback, so the
+                            // slot could not self-repair. Drop the trade
+                            // instead; this mirrors Bybit's guard.
+                            let price = match Decimal::from_str(&t.price) {
+                                Ok(p) if p > Decimal::ZERO => p,
+                                _ => continue,
+                            };
+                            let size = match Decimal::from_str(&t.size) {
+                                Ok(s) if s > Decimal::ZERO => s,
+                                _ => continue,
+                            };
                             let side = match t.side.as_str() {
                                 "buy" => TradeSide::Buy,
                                 _ => TradeSide::Sell,
@@ -390,13 +406,25 @@ pub async fn run_for_symbol(
                                     .as_millis() as u64,
                             );
 
-                            let event = NormalizedEvent::OrderBook(NormalizedOrderBook {
-                                exchange: Exchange::Bitget,
-                                symbol: internal_symbol.clone(),
+                            // AUDIT-M20: Bitget previously emitted the book
+                            // unvalidated -- no emptiness guard, no crossed-book
+                            // check, and no sort. Because levels are decoded with
+                            // `filter_map`, one unparseable level was silently
+                            // dropped and the next surviving level promoted to
+                            // `bids[0]`, which `OrderBookAnalysis::update` treats
+                            // as top of book. Result: a negative `spread_pct`, an
+                            // inverted mid feeding the shadow candle, and wrong
+                            // OFI/DWM. Route through the shared choke point.
+                            let Some(event) = NormalizedOrderBook::validated(
+                                Exchange::Bitget,
+                                internal_symbol.clone(),
                                 bids,
                                 asks,
-                                timestamp_ms: ts_ms,
-                            });
+                                ts_ms,
+                            )
+                            .map(NormalizedEvent::OrderBook) else {
+                                continue;
+                            };
                             let _ = event_tx.send(event).await;
                         }
                     }

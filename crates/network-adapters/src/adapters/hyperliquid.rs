@@ -250,13 +250,23 @@ pub async fn run_for_symbol(
                                     })
                                     .collect();
 
-                                let event = NormalizedEvent::OrderBook(NormalizedOrderBook {
-                                    exchange: Exchange::Hyperliquid,
-                                    symbol: internal_symbol.clone(),
+                                // AUDIT-M20: Hyperliquid was the only venue with
+                                // a real emptiness guard, but it still never
+                                // sorted the sides nor checked for a cross, and
+                                // `filter_map` can promote a worse surviving
+                                // level to `bids[0]`. Route through the shared
+                                // choke point so all three venues share one
+                                // contract.
+                                let Some(event) = NormalizedOrderBook::validated(
+                                    Exchange::Hyperliquid,
+                                    internal_symbol.clone(),
                                     bids,
                                     asks,
-                                    timestamp_ms: payload.time,
-                                });
+                                    payload.time,
+                                )
+                                .map(NormalizedEvent::OrderBook) else {
+                                    continue;
+                                };
                                 let _ = event_tx.send(event).await;
                             }
                         }
@@ -268,8 +278,26 @@ pub async fn run_for_symbol(
                                 .into_iter()
                                 .filter(|t| frame_matches(&t.coin, &symbol))
                             {
-                                let price = Decimal::from_str(&t.px).unwrap_or(Decimal::ZERO);
-                                let size = Decimal::from_str(&t.sz).unwrap_or(Decimal::ZERO);
+                                // AUDIT-C4: never coerce an unparseable trade into
+                                // `Decimal::ZERO` and emit it as a REAL trade. A
+                                // zero-price tick opens a candle bucket at 0 (or
+                                // drags `low` to 0), and `assert_validity` accepts
+                                // an all-zero OHLCV candle -- so the poisoned bar
+                                // was persisted and broadcast as genuine, then fed
+                                // to every downstream indicator. Sub-minute
+                                // durations have no REST refetch fallback.
+                                //
+                                // Placed BEFORE the liquidation branch below: a
+                                // zero-price forced-close is equally junk and
+                                // must not reach the L2.5 accumulator either.
+                                let price = match Decimal::from_str(&t.px) {
+                                    Ok(p) if p > Decimal::ZERO => p,
+                                    _ => continue,
+                                };
+                                let size = match Decimal::from_str(&t.sz) {
+                                    Ok(s) if s > Decimal::ZERO => s,
+                                    _ => continue,
+                                };
                                 let side = if t.side == "A" {
                                     TradeSide::Sell
                                 } else {

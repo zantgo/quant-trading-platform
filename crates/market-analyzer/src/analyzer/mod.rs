@@ -1971,6 +1971,19 @@ pub async fn run_single(
                     FilterVerdict::Accepted => {}
                 }
 
+                // AUDIT-C4: a non-positive price or size is not a market
+                // observation. Counting it as an outlier keeps it visible on
+                // the connection-quality surface instead of silently dropping
+                // it, and guarantees it can never open or roll a candle bucket.
+                if !candle_gen.trade_is_admissible(trade) {
+                    reliability.increment_outliers(1).await;
+                    eprintln!(
+                        "🚫 [{} {}]: rejected inadmissible trade (price={}, size={})",
+                        symbol, slot_label, trade.price, trade.size
+                    );
+                    continue;
+                }
+
                 let (completed_opt, live_candle) =
                     candle_gen.process_trade_at(trade, core_domain::LatencyTracker::now_ms());
                 let mut completed_opt = completed_opt.filter(|c| c.start_time_ms > t_last_hist);

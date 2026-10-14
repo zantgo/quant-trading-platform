@@ -90,6 +90,28 @@ impl CandleGenerator {
         Some(completed)
     }
 
+    /// AUDIT-C4: the single admissibility contract for a trade, applied at the
+    /// one choke point every venue funnels through.
+    ///
+    /// A trade with a non-positive price or size is not a market observation.
+    /// Admitting one opens a candle bucket at 0 (or drags `low` to 0), and
+    /// `assert_validity` used to accept an all-zero OHLCV candle -- so the
+    /// poisoned bar was persisted, broadcast, and fed to every downstream
+    /// indicator. Sub-minute durations have no REST refetch fallback, so the
+    /// slot could not self-repair.
+    ///
+    /// No finiteness check is needed: `Decimal` is a fixed-point 96-bit type
+    /// and cannot represent NaN or Infinity at all -- `from_str` rejects both,
+    /// and overflow is an `Err`. The only reachable bad values are a parse
+    /// failure (coerced to zero upstream) and a genuinely negative level.
+    ///
+    /// The per-venue adapters now reject these at the edge (mirroring Bybit's
+    /// original guard), but this predicate is the defence that also covers a
+    /// future adapter and any event injected outside the adapters.
+    pub fn trade_is_admissible(&self, trade: &NormalizedTrade) -> bool {
+        trade.price > Decimal::ZERO && trade.size > Decimal::ZERO
+    }
+
     pub fn process_trade(
         &mut self,
         trade: &NormalizedTrade,
@@ -102,6 +124,18 @@ impl CandleGenerator {
         trade: &NormalizedTrade,
         now_ms: u64,
     ) -> (Option<NormalizedCandle>, NormalizedCandle) {
+        // AUDIT-C4: reject BEFORE mutating any state. The production caller
+        // checks `trade_is_admissible` first and skips the event; this guard
+        // makes the invariant hold even if a future caller forgets, so an
+        // inadmissible trade can never open or roll a bucket.
+        if !self.trade_is_admissible(trade) {
+            let unchanged = self
+                .current_candle
+                .clone()
+                .unwrap_or_else(|| self.make_live());
+            return (None, unchanged);
+        }
+
         self.last_trade_ts_ms = trade.timestamp_ms;
         if now_ms > 0 {
             self.last_received_ms = now_ms;
