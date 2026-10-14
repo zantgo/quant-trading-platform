@@ -450,14 +450,42 @@ impl MarketSnapshot {
 
     /// Cheap structural weight estimate (bytes) for the retained-history
     /// byte budget. Deliberately an approximation — serializing to measure
-    /// would cost more than the accounting saves. Calibrated against the
-    /// measured 8.4 KB projected / 54.9 KB full JSON frames.
+    /// would cost more than the accounting saves.
+    ///
+    /// AUDIT-M4: this over-charged by ~2.4x, which is not a harmless rounding
+    /// error. At the shipped default (10 instances x 12 durations = 120
+    /// pipelines x 500 entries) the over-charge accounted 1323 MiB against the
+    /// 512 MiB budget, so the push-triggered trim evicted every window to the
+    /// 50-entry floor in steady state and logged the breach on every candle
+    /// close of every fast duration. AGENTS.md documents "chart depth is now 500
+    /// bars"; the operator actually got 50.
+    ///
+    /// Two specific over-charges, both removed:
+    ///
+    ///   * `indicators.len() * 96` charged a String key AND a value head for
+    ///     every entry, but the value head is counted again by the loop
+    ///     immediately below. Only the key's own overhead belongs here.
+    ///   * `n += 512` was documented as "slot head-room for the eight synthesis
+    ///     matrices". Retained frames are `history_projection()`s, where
+    ///     context / alignment / analysis / risk / advisory / cluster /
+    ///     liquidity / volume_profile are all `None`. Charging for matrices
+    ///     that are not there is pure over-count.
+    ///
+    /// The function is still called on FULL frames (the refund paths), which is
+    /// why the matrix-shaped terms it DOES count (volume profile bins, liquidity
+    /// buckets, cluster clusters) are kept below — those are the terms that
+    /// actually put the daemon over the OOM line at 2000 buckets.
+    ///
+    /// `snapshot_history_retention.rs` pins the estimate/measured ratio against
+    /// a real serialized projected frame so this cannot drift again.
     pub fn history_weight_bytes(&self) -> usize {
         let mut n = 256 + self.symbol.len();
-        // HashMap head + per-entry (String key + projected value)
-        n += 48 + self.indicators.len() * 96;
-        for v in self.indicators.values() {
-            n += v.history_weight_bytes();
+        // HashMap head + per-entry String key overhead. The value's own head is
+        // counted by `v.history_weight_bytes()` below, so charging for it here
+        // would double-count.
+        n += 48 + self.indicators.len() * 32;
+        for (k, v) in self.indicators.iter() {
+            n += k.len() + v.history_weight_bytes();
         }
         if !self.indicator_lifecycle.is_empty() {
             n += 48 + self.indicator_lifecycle.len() * 80;
@@ -471,9 +499,6 @@ impl MarketSnapshot {
         if let Some(cl) = self.cluster.as_ref() {
             n += 128 + cl.short_clusters.len() * 96 + cl.long_clusters.len() * 96;
         }
-        // Slot head-room for the eight synthesis matrices — present on a
-        // live frame, `None` after projection.
-        n += 512;
         n += self.liquidity_signals.len() * 128;
         n
     }

@@ -6,6 +6,7 @@ use axum::{
 };
 use core_domain::jsonrpc::JsonRpcNotification;
 use core_domain::models::MarketSnapshot;
+use futures_util::{SinkExt, StreamExt};
 use market_analyzer::analyzer::ActivePair;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -45,6 +46,15 @@ impl Drop for WsConnectionGuard {
         ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::Relaxed);
     }
 }
+
+/// AUDIT-M11: how often the server pings an idle dashboard socket so a
+/// departed peer is detected promptly.
+///
+/// This MUST be independent of the shadow-frame cadence: shadow frames are
+/// throttled to `tf_secs * 1000 / 4`, which is an HOUR for a 4h slot, so
+/// without a server-driven timer a dead slow-duration socket pins its
+/// `Arc<ActivePair>` and its `MAX_WS_CONNECTIONS` slot for up to that long.
+const WS_KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Live count of accepted WebSocket clients (DIE L4 Distribution tab).
 pub fn connected_client_count() -> usize {
@@ -144,11 +154,14 @@ fn parse_duration_label(label: &str) -> Option<u64> {
 /// Serialize and send a `broadcast.market_snapshot` notification for the
 /// supplied snapshot over the WebSocket. Returns `false` on send failure
 /// so the caller can `break` out of the per-frame loop.
-async fn send_snapshot_to_socket(
-    socket: &mut WebSocket,
+async fn send_snapshot_to_socket<S>(
+    socket: &mut S,
     snapshot: &MarketSnapshot,
     requested_secs: u64,
-) -> bool {
+) -> bool
+where
+    S: futures_util::Sink<AxumMessage> + Unpin,
+{
     let symbol = snapshot.symbol.clone();
     let tf = snapshot.timeframe_secs;
     let slot_str = snapshot
@@ -181,7 +194,7 @@ async fn send_snapshot_to_socket(
 }
 
 async fn handle_ws_socket(
-    mut socket: WebSocket,
+    socket: WebSocket,
     state: Arc<AppState>,
     pair_key: String,
     tf_secs: u64,
@@ -277,6 +290,21 @@ async fn handle_ws_socket(
         }
     };
 
+    // AUDIT-M11: split the socket so the handler can READ from it.
+    //
+    // Keeping the socket whole forced liveness detection onto the write path,
+    // which is unusable for this workload: outgoing frames are throttled to
+    // `tf_secs * 1000 / 4` (an HOUR for a 4h slot) and only fire on market
+    // events, so a dead socket stayed alive — holding an `Arc<ActivePair>` and
+    // a `MAX_WS_CONNECTIONS` slot — for up to that long.
+    //
+    // With a read half in the `select!`, a close frame or a client-side
+    // disconnect is observed IMMEDIATELY (no regression against the old
+    // fast-duration behaviour), and the keepalive ping below is the backstop
+    // for a peer that vanishes without a close frame (a suspended tab, a dead
+    // NAT entry) and therefore has nothing to read.
+    let (mut ws_sink, mut ws_stream) = socket.split();
+
     // Immediately send the most recent completed snapshot for this slot so
     // the frontend's Metrics Indicators table is populated with real
     // values before the next live tick lands. Without this, the WS
@@ -289,18 +317,66 @@ async fn handle_ws_socket(
     // shape to a normal live frame.
     if let Some(pair) = current_pair.as_ref() {
         if let Some(cached) = pair.latest_snapshot_for_secs(requested_secs).await {
-            if !send_snapshot_to_socket(&mut socket, &cached, requested_secs).await {
+            if !send_snapshot_to_socket(&mut ws_sink, &cached, requested_secs).await {
                 return;
             }
         }
     }
 
+    // AUDIT-M11: server-side liveness detection.
+    //
+    // This loop only ever WROTE. There was no `socket.recv()`, so a close
+    // frame was never observed, and no ping, so the only thing that ever
+    // noticed a departed peer was the NEXT outgoing frame failing.
+    //
+    // Outgoing frames are NOT a reliable liveness signal here: shadow frames
+    // are throttled to `tf_secs * 1000 / 4` (see
+    // `market_analyzer::analyzer`), which is 3,600,000 ms -- ONE HOUR -- for a
+    // 4h slot, and they only fire on market events at all. A dead 1h/4h socket
+    // therefore lived on for up to an hour per tab-close, holding the
+    // `Arc<ActivePair>` (and all of its durations' retained history) via
+    // `current_pair`, and counting against `MAX_WS_CONNECTIONS`. Roughly 40
+    // live sockets were pinned per tab-close; after ~13 tab closes inside one
+    // hour new upgrades were refused with a bare 429, which the client cannot
+    // distinguish from a server fault. That is exactly the memory-exhaustion
+    // shape the retained-history budget work was meant to close, reintroduced
+    // through the socket layer.
+    //
+    // This ping runs on its OWN interval, independent of shadow frames, so the
+    // detection bound is `WS_KEEPALIVE_INTERVAL` for every duration.
+    let mut keepalive = tokio::time::interval(WS_KEEPALIVE_INTERVAL);
+    keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    keepalive.tick().await; // the immediate first tick is not a real interval
+
     loop {
         tokio::select! {
+            // A close frame, a transport error, or the client hanging up is
+            // observed IMMEDIATELY here — not at the next outgoing frame.
+            inbound = ws_stream.next() => {
+                match inbound {
+                    // Normal: the browser never sends application messages on
+                    // this stream, so anything arriving is lifecycle traffic.
+                    None | Some(Err(_)) | Some(Ok(AxumMessage::Close(_))) => return,
+                    Some(Ok(AxumMessage::Ping(_))) => {
+                        // tungstenite answers pings automatically on the sink
+                        // half; nothing to do.
+                    }
+                    Some(Ok(_)) => {}
+                }
+            }
+            _ = keepalive.tick() => {
+                // Backstop for a peer that vanishes WITHOUT a close frame (a
+                // suspended tab, a dead NAT entry): there is nothing to read,
+                // so a failed write is the only signal available. This runs on
+                // its own interval, independent of the shadow-frame cadence.
+                if ws_sink.send(AxumMessage::Ping(Vec::new())).await.is_err() {
+                    return;
+                }
+            }
             result = rx_stream.recv() => {
                 match result {
                     Ok(snapshot) => {
-                        if !send_snapshot_to_socket(&mut socket, &snapshot, requested_secs).await {
+                        if !send_snapshot_to_socket(&mut ws_sink, &snapshot, requested_secs).await {
                             break;
                         }
                     }
@@ -347,7 +423,7 @@ async fn handle_ws_socket(
                                     .await
                                 {
                                     if !send_snapshot_to_socket(
-                                        &mut socket,
+                                        &mut ws_sink,
                                         &cached,
                                         requested_secs,
                                     )

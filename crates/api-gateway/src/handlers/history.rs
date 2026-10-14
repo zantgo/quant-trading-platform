@@ -351,24 +351,54 @@ pub async fn serve_history(
             }
 
             // ── Gap-fill: insert flat Doji candles for any missing
-            // intervals between consecutive snapshots so the chart
-            // renders a continuous time axis. K3 (production audit): the
-            // cap was 60 bars — a >1 h outage at 1 m TF left a permanent
-            // hole in the response even though the analyzer now recovers
-            // up to 500 bars. 1000 = the API's own `limit` ceiling PER
-            // GAP; the final arrays are re-capped to `limit` total bars
-            // after the fill (AUDIT-H4) so a sparse cold history cannot
-            // balloon the response. The cold sub-minute epoch-0→now flood
-            // guard remains (times are anchored, so `missing` is bounded
-            // by the requested window).
+            // intervals between consecutive snapshots so the chart renders a
+            // continuous time axis.
+            //
+            // AUDIT-M13: this loop was a transient-allocation bomb. The fill cap
+            // was applied PER GAP and the response was trimmed only AFTER the
+            // fill, so `limit=1000` snapshots each separated by a large gap
+            // built up to ~1,000,000 `HistoryCandle`s (six `String`s each) in
+            // `filled_candles` before a single element was dropped. That is
+            // roughly 150-200 MB of transient heap per request, and the
+            // 4-permit semaphore at the top of this handler means four of them
+            // at once -- on the documented 2.8 GB host, that is an OOM path.
+            //
+            // The AUDIT-H4 comment claimed the fix capped "the FINAL arrays",
+            // which it does, but the transient vectors were untouched.
+            //
+            // Two changes:
+            //   1. The budget is CUMULATIVE across all gaps, not per gap.
+            //   2. Only the newest `limit` snapshots are ever fed to the fill,
+            //      so the loop runs over at most `limit` inputs.
             const MAX_HISTORY_FILL_BARS: u64 = 1000;
             if times.len() >= 2 {
+                // Trim BEFORE filling: anything older than the newest `limit`
+                // snapshots cannot appear in the response anyway.
+                if times.len() > limit {
+                    let drop_n = times.len() - limit;
+                    times.drain(..drop_n);
+                    candle_list.drain(..drop_n);
+                    price_list.drain(..drop_n);
+                }
+
                 let mut filled_times: Vec<u64> = Vec::with_capacity(times.len() + 60);
                 let mut filled_candles: Vec<HistoryCandle> =
                     Vec::with_capacity(candle_list.len() + 60);
                 let mut filled_prices: Vec<String> = Vec::with_capacity(price_list.len() + 60);
+                let mut fill_budget = MAX_HISTORY_FILL_BARS;
 
                 for i in 0..times.len() {
+                    // Once the cumulative budget is spent, stop synthesising but
+                    // keep copying the real candles — the response is still
+                    // correct, just without the interior Dojis for the deeper
+                    // gaps, which is strictly better than exhausting memory.
+                    if fill_budget == 0 {
+                        filled_times.push(times[i]);
+                        filled_candles.push(candle_list[i].clone());
+                        filled_prices.push(price_list[i].clone());
+                        continue;
+                    }
+
                     filled_times.push(times[i]);
                     filled_candles.push(candle_list[i].clone());
                     filled_prices.push(price_list[i].clone());
@@ -379,7 +409,8 @@ pub async fn serve_history(
                         let step = tf_secs.max(1);
                         let gap = next.saturating_sub(curr);
                         let missing = (gap.saturating_sub(step)) / step;
-                        let fill_n = missing.min(MAX_HISTORY_FILL_BARS);
+                        let fill_n = missing.min(fill_budget);
+                        fill_budget -= fill_n;
                         let last_close = price_list[i].clone();
                         for j in 1..=fill_n {
                             let t = curr + j * step;

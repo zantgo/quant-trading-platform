@@ -191,6 +191,21 @@ pub fn decide(
 
 /// The retained-entry count each pipeline is cut to at `tier`.
 ///
+/// `Tier::Normal` is the RESTORE target, not an action: the daemon sweep calls
+/// [`crate::memory_governor::restore`] with this value once memory has been
+/// clear for `recovery_hold_secs`, which re-grows every window that the
+/// High/Critical sweeps shortened.
+///
+/// AUDIT-M12: until that restore path existed, `evict_to_global_budget` was
+/// only ever called to SHRINK. `byte_budget_for(Tier::Normal)` cleared the byte
+/// override — and the sweep's `else` branch only counted entries — so one
+/// Critical episode left every window at the floor permanently. That directly
+/// contradicted this function's own doc comment on the config field
+/// ("`MemAvailable` percentage above which the configured budget is restored")
+/// and left 12h/1d charts pinned at 25 bars for up to a day, since those
+/// pipelines close a candle once every 12/24 hours and would take just as long
+/// to refill.
+///
 /// Never below 1, and never above the configured retention — the governor
 /// shortens history, it never grows it.
 pub fn floor_for(tier: Tier, cfg: &MemoryGovernorConfig) -> usize {

@@ -279,3 +279,53 @@ render_hl_caveat = true
 # [workspace.instances.timeframes.60]
 # candles = { duration_seconds = 60 }
 # indicators = { rsi_period = 21 }
+# ──────────────────────────────────────────────────────────────────────────────
+# [memory] — retained-history governor (Batch B / AUDIT-M12)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# The governor sheds chart history when host memory runs short, so the daemon
+# degrades depth instead of being OOM-killed. It has been OOM-killed twice on
+# this class of host (~2.1 GB anon-RSS).
+#
+# PRIMARY trigger is `MemAvailable` (the kernel's own headroom signal), NOT the
+# daemon's RSS: triggering on RSS alone demonstrably failed — the kernel killed
+# the daemon at 71% of MemTotal while the old 75% RSS watermark had never fired.
+# Under WSL2 the browser and the host OS compete for the same physical pages, so
+# "how much is left for everyone" is the question that matters.
+#
+# These watermarks are tuned for a ~2.8 GB WSL2 host with a browser open. The
+# shipped defaults (low=25 / high=35) are tight enough that ordinary browser
+# pressure pins the governor at `high`, which halves the byte budget and evicts
+# every window to the floor for as long as the browser stays heavy.
+#
+# Recovery is deliberately ASYMMETRIC: shedding is immediate, restoring waits
+# `recovery_hold_secs`. Re-growing a window raises the byte budget, so eager
+# restore would oscillate against the very pressure that caused the shed.
+#
+# Also note that a shed is NOT symmetric to recover from: a 1s pipeline refills
+# 50 bars in under a minute, but a 12h pipeline pushes one bar every 12 hours and
+# would take months. The governor reports which durations are running short.
+#
+# Set `enabled = false` to measure the real baseline first, then re-enable.
+[memory]
+enabled = true
+governor_interval_secs = 10
+
+# Primary: MemAvailable watermarks, as a percentage of MemTotal.
+available_low_pct = 30
+available_critical_pct = 18
+available_high_pct = 45
+
+# Secondary backstop: this daemon's own RSS, for a dedicated host where the
+# daemon really is the whole problem.
+high_water_pct = 75
+critical_pct = 88
+low_water_pct = 60
+
+# How long BOTH signals must stay clear before the configured budget is restored.
+recovery_hold_secs = 120
+
+# Retained entries each window is cut to at `critical`. Fast durations recover
+# from this in seconds; slow ones effectively do not, which is why the governor
+# reports rather than silently leaving charts short.
+critical_floor_entries = 25

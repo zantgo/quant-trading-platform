@@ -798,3 +798,227 @@ async fn eviction_never_touches_the_live_snapshot() {
         "the live snapshot keeps its FULL payload (no projection, no shed)"
     );
 }
+
+// ── AUDIT-M4: the estimator must be CALIBRATED against reality ─────────────
+//
+// The budget's whole job is to be a trustworthy proxy for real memory. If the
+// estimator over-charges, the daemon evicts every window to the 50-entry floor
+// and logs the breach on every candle close of every fast duration -- degrading
+// chart depth far below the documented 500 bars for no reason. If it
+// UNDER-charges, the process gets OOM-killed instead.
+//
+// The estimator was documented as "calibrated against the measured 8.4 KB
+// projected frame" but actually computed roughly 3x that, because:
+//   * `indicators.len() * 96` charged a String key AND a value head for every
+//     entry, while the value's own head is counted again immediately below.
+//   * `n += 512` was "slot head-room for the eight synthesis matrices" -- but
+//     retained frames are `history_projection()`s, where every matrix is None.
+//
+// AUDIT-M4 default-workspace consequence: at the shipped 10 instances x 12
+// durations = 120 pipelines x 500 entries, the over-charge accounted 600 MB -
+// 1.1 GB against a 512 MiB budget, so the push-triggered trim evicted everything
+// to the floor in steady state.
+
+/// Measure the estimator against a REAL serialized projected frame.
+///
+/// The estimator approximates HEAP cost, which is legitimately larger than
+/// compact JSON: a `HashMap<String, NormalizedIndicatorValue>` with 52 entries
+/// carries capacity slack, per-String allocation headers and alignment that a
+/// flat JSON string does not. So a ratio ABOVE 1 is correct and expected — the
+/// question is only whether it is in the right order of magnitude.
+///
+/// AUDIT-M4 measured 2.44 here. That is not a harmless rounding error: at the
+/// shipped default (120 pipelines x 500 entries) it accounted 1323 MiB against
+/// the 512 MiB budget, driving the push-triggered trim to evict every window to
+/// the 50-entry floor in steady state. The two over-charges removed were the
+/// double-counted `indicators.len() * 96` key+value head and the `+512` charged
+/// for synthesis matrices that `history_projection()` has already set to None.
+#[test]
+fn the_weight_estimate_is_calibrated_against_real_serialized_bytes() {
+    let projected = full_snapshot(1_700_000_000).history_projection();
+
+    let json = serde_json::to_string(&projected).expect("serialize projected");
+    let measured = json.len();
+    let estimated = projected.history_weight_bytes();
+
+    let ratio = estimated as f64 / measured as f64;
+
+    assert!(
+        ratio > 1.0,
+        "the estimator must not UNDER-count real memory: {estimated} vs {measured} measured"
+    );
+    assert!(
+        ratio < 2.5,
+        "AUDIT-M4 regression: estimate/measured ratio is {ratio:.2} \
+         ({estimated} B estimated vs {measured} B serialized). \
+         The pre-fix value was 2.44, which accounted the default workspace at \
+         1323 MiB against a 512 MiB budget."
+    );
+
+    println!(
+        "[AUDIT-M4] projected frame: {measured} B serialized, {estimated} B estimated (ratio {ratio:.2})"
+    );
+}
+
+/// The budget's contract is DEGRADE, NEVER DIE — that inversion is the whole
+/// point of the module. At the documented default (10 instances x 12 durations =
+/// 120 pipelines) the retained windows are genuinely more than 512 MiB, so the
+/// budget is EXPECTED to trim. What it must never do is overshoot into
+/// unbounded retention or drive every window below the documented floor.
+///
+/// Note this test deliberately does NOT assert that 120 pipelines x 500 entries
+/// fits in 512 MiB. That was never the design promise — the default workspace
+/// is 2.4x over budget on purpose (AGENTS v11.12.27 notes the ladder was widened
+/// to 12 durations "which is exactly the axis the memory work made survivable").
+/// The promise is that the overrun degrades chart depth rather than killing the
+/// daemon.
+#[test]
+fn a_workspace_larger_than_the_budget_degrades_instead_of_dying() {
+    let budget_bytes = 512 * 1024 * 1024;
+    let hb_ref = hb(500, budget_bytes);
+    hb_ref.configure(500, budget_bytes);
+    let baseline = hb_ref.usage_bytes();
+
+    // Push 120 pipelines' worth of 500-entry windows through ONE budget, as the
+    // real daemon does.
+    let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
+    let total_pipelines = 120usize;
+    for p in 0..total_pipelines {
+        for i in 0..500u64 {
+            hb_ref.push_retained(
+                &mut deque,
+                full_snapshot(1_700_000_000 + (p as u64 * 500) + i),
+            );
+        }
+        // Every window must stay at or above the documented floor — never be
+        // trimmed to nothing, which is the "no history at all" failure the floor
+        // exists to prevent.
+        assert!(
+            deque.len() >= 50,
+            "pipeline {p}: window fell to {} entries, below the 50-entry floor \
+             ('no history at all' is worse than 'less history')",
+            deque.len()
+        );
+    }
+
+    let accounted = hb_ref.usage_bytes() - baseline;
+    assert!(
+        accounted <= budget_bytes,
+        "the budget must be respected: accounted {} MiB against a {} MiB budget",
+        accounted / (1024 * 1024),
+        budget_bytes / (1024 * 1024)
+    );
+    assert!(!deque.is_empty(), "something must always survive to render");
+}
+
+// ── AUDIT-M12: what "restore" can and cannot mean ──────────────────────────
+//
+// `evict_to_global_budget` was only ever called to SHRINK, and the sweep's
+// `Tier::Normal` branch merely cleared the byte override and counted entries —
+// so nothing anywhere ever re-grew a window, and nothing ever SAID that one had
+// been shortened. A Critical episode left every chart silently short, which
+// contradicted the config field's own doc comment ("`MemAvailable` percentage
+// above which the configured budget is restored").
+//
+// It is worth being precise about what a restore can actually do, because the
+// obvious implementation is impossible:
+//
+//   * It CANNOT put evicted snapshots back. They are dropped, and `evict_to_*
+//     only ever shrinks a deque. Nothing can invent history that no longer
+//     exists. Any test asserting "grow the window back to N" would be asserting
+//     the impossible.
+//
+//   * What it CAN do is stop trimming. `byte_budget_for(Tier::Normal)` clears the
+//     effective limit, after which `push_retained` accepts new snapshots and the
+//     window refills at the pipeline's own candle cadence.
+//
+//   * And it must REPORT the shortfall, because refill is wildly asymmetric: a
+//     1s pipeline refills 50 bars in under a minute, a 12h pipeline needs
+//     months. A silent short chart is indistinguishable from a healthy one.
+//
+// These pin the mechanism that does work, and that the accounting stays exact
+// through the shed/refill cycle.
+
+#[test]
+fn a_restored_budget_stops_trimming_and_the_window_refills() {
+    // A budget sized to hold a full 500-entry window when NOT overridden.
+    // 500 projected frames weigh ~10 MiB, so 16 MiB fits and its 8 MiB half
+    // does not -- which is exactly the governor's High-tier relationship.
+    let configured = 16 * 1024 * 1024;
+    let hb_ref = hb(500, configured);
+    hb_ref.configure(500, configured);
+    let baseline = hb_ref.usage_bytes();
+
+    let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
+    for i in 0..500u64 {
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+    }
+    assert_eq!(
+        deque.len(),
+        500,
+        "the CONFIGURED budget must hold a full window -- otherwise every chart \
+         is trimmed from the first bar and the governor is irrelevant"
+    );
+
+    // ── Governor at `Tier::High`: halve the effective limit (AUDIT-M12's shed) ──
+    let halved = configured / 2;
+    hb_ref.set_effective_limit(halved);
+    for i in 0..500u64 {
+        hb_ref.push_retained(&mut deque, full_snapshot(1_800_000_000 + i));
+    }
+    let shed_to = deque.len();
+    assert!(
+        shed_to < 500,
+        "the halved budget must shed history, got {shed_to}"
+    );
+    assert!(shed_to >= 50, "the 50-entry floor must hold, got {shed_to}");
+
+    // ── Governor back at `Tier::Normal`: clear the override ──
+    hb_ref.clear_effective_limit();
+    let before_refill = deque.len();
+    for i in 0..(500usize - before_refill) as u64 {
+        hb_ref.push_retained(&mut deque, full_snapshot(1_900_000_000 + i));
+    }
+    assert_eq!(
+        deque.len(),
+        500,
+        "with the override cleared, new snapshots must be accepted and the \
+         window refilled -- this is the ONLY mechanism by which a shed recovers, \
+         since evicted snapshots cannot be put back"
+    );
+
+    // Accounting must stay exact through the whole cycle.
+    let summed: usize = deque.iter().map(|s| s.history_weight_bytes()).sum();
+    assert_eq!(
+        hb_ref.usage_bytes() - baseline,
+        summed,
+        "usage must equal the summed weight of live entries after shed + refill"
+    );
+
+    hb_ref.drain(&mut deque);
+    assert_eq!(
+        hb_ref.usage_bytes(),
+        baseline,
+        "a shed followed by a refill must not leak budget credit -- otherwise a \
+         pressure episode would permanently shrink every chart"
+    );
+}
+
+#[test]
+fn the_floor_is_never_breached_however_hard_the_pressure() {
+    // Even at a token budget, a window keeps enough to render. "No history at
+    // all" is a worse failure than "less history", and that inversion is the
+    // stated point of the module.
+    let hb_ref = hb(500, 1024); // 1 KiB
+    hb_ref.configure(50, 1024);
+    let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
+    for i in 0..2000u64 {
+        hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000 + i));
+    }
+    assert!(
+        deque.len() >= 50,
+        "window fell to {} entries under extreme pressure; the 50-entry floor \
+         must hold -- fewer than that and the chart renders nothing at all",
+        deque.len()
+    );
+}

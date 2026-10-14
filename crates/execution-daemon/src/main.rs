@@ -2688,6 +2688,76 @@ async fn async_main() {
                             entries += pipe.snapshot_history.read().await.len();
                         }
                     }
+                    // AUDIT-M12: report the DEGRADED state, and be honest about
+                    // what recovery actually means.
+                    //
+                    // The byte budget does restore automatically --
+                    // `byte_budget_for(Tier::Normal)` above clears the effective
+                    // override, so `push_retained` stops trimming and windows
+                    // grow back toward `retention()` as new candles complete.
+                    // That part already worked.
+                    //
+                    // What did not exist was any VISIBILITY, and that is the
+                    // real defect: the sweep reported tier transitions and an
+                    // entry count, but never said "your 4h charts are running at
+                    // 50 bars because memory pressure evicted them", so a
+                    // shortened chart looked exactly like a healthy one.
+                    //
+                    // Recovery is also NOT symmetric, and pretending otherwise
+                    // would be worse than saying nothing. A 1s pipeline refills
+                    // 50 entries in under a minute. A 12h pipeline pushes ONE
+                    // entry every 12 hours, so a Critical episode that cut it to
+                    // the floor needs months to recover. No amount of governor
+                    // code changes that -- the data does not exist yet. The
+                    // asymmetry (shed immediately, restore delayed by
+                    // `recovery_hold_secs`) is deliberate: re-growing raises the
+                    // byte budget, so eager restore would oscillate against the
+                    // very pressure that caused the shed.
+                    let target = gov::floor_for(Tier::Normal, &governor_cfg);
+                    let mut short_windows: Vec<(u64, usize)> = Vec::new();
+                    let mut total_entries = 0usize;
+                    for inst in &instances {
+                        for pipe in inst.active_pair.all() {
+                            let n = pipe.snapshot_history.read().await.len();
+                            total_entries += n;
+                            if n < target {
+                                short_windows.push((pipe.timeframe_secs, n));
+                            }
+                        }
+                    }
+                    if !short_windows.is_empty() && (decision.changed || tick % 30 == 0) {
+                        // Aggregate by duration: with 120 pipelines a per-window
+                        // line would be unusable, and durations are what the
+                        // operator thinks in.
+                        let mut by_secs: std::collections::BTreeMap<u64, (usize, usize)> =
+                            std::collections::BTreeMap::new();
+                        for &(secs, n) in &short_windows {
+                            let e = by_secs.entry(secs).or_insert((0, 0));
+                            e.0 += 1;
+                            e.1 += n;
+                        }
+                        let summary: Vec<String> = by_secs
+                            .iter()
+                            .map(|(secs, (wins, total))| {
+                                format!(
+                                    "{}: {} bar(s) avg over {} window(s)",
+                                    core_domain::duration_label(*secs),
+                                    total / (*wins).max(1),
+                                    wins
+                                )
+                            })
+                            .collect();
+                        println!(
+                            "📉 Memory governor: {} of {} retained window(s) are below the \
+                             {} -bar target ({total_entries} entries retained). Recovering as bars \
+                             close — a 1s window refills in seconds, a 12h window takes months. \
+                             [{}]",
+                            short_windows.len(),
+                            instances.len() * config_models::DEFAULT_TIMEFRAMES.len(),
+                            target,
+                            summary.join(", ")
+                        );
+                    }
                 }
 
                 // ── report ──────────────────────────────────────────────

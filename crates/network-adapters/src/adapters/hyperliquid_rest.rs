@@ -348,7 +348,7 @@ pub async fn resolve_venue_coin(
     // never start a call we cannot afford. A partial sweep is still useful:
     // whatever resolved best so far is returned.
     let sweep_deadline = std::time::Instant::now() + DEX_SWEEP_BUDGET;
-    let mut swept = 0usize;
+    let mut swept: usize = 0;
     for d in dexes {
         let Some(remaining) = sweep_deadline.checked_duration_since(std::time::Instant::now())
         else {
