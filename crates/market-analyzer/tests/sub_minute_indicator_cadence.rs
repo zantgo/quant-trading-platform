@@ -155,13 +155,31 @@ fn trade(ts_ms: u64, price: rust_decimal::Decimal, exchange: Exchange) -> Normal
     }
 }
 
+/// Collect completed snapshots until `target` are seen, or until `max_wait_ms`
+/// of wall clock elapses without reaching it.
+///
+/// The sub-minute tests drive a REAL-TIME 1-second-cadence pipeline and assert
+/// against a warm-up gate (the EMA stack needs 200 completed bars). A fixed
+/// drain window made the assertion a throughput benchmark: on a loaded or
+/// memory-constrained host the analysis task cannot emit one snapshot per wall
+/// second, the window expires early, and the test fails with a plausible-looking
+/// "expected >=200, got 127" that is really just scheduling lag.
+///
+/// Draining to the target keeps the assertion about what it means (does the
+/// pipeline produce 200 completed candles?) instead of about how fast the
+/// machine can run it. `max_wait_ms` is a genuine-stall backstop: a pipeline
+/// that truly stops still fails.
 async fn drain_completed(
     broadcast_rx: &mut tokio::sync::broadcast::Receiver<MarketSnapshot>,
-    drain_ms: u64,
+    target: usize,
+    max_wait_ms: u64,
 ) -> Vec<MarketSnapshot> {
     let mut snapshots = Vec::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(drain_ms);
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(max_wait_ms);
     loop {
+        if snapshots.len() >= target {
+            break;
+        }
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
             break;
@@ -282,7 +300,7 @@ async fn ema_state_advances_every_second_on_sub_minute_tf() {
         tokio::time::sleep(Duration::from_millis(1200)).await;
         ob_pump.abort();
 
-        let snaps = drain_completed(&mut broadcast_rx, 500).await;
+        let snaps = drain_completed(&mut broadcast_rx, 200, 20_000).await;
         cancel.cancel();
 
         assert!(
@@ -350,7 +368,7 @@ async fn one_second_tf_emits_one_completed_per_wall_second_with_zero_trades() {
     // force-close + doji-fill depending on when the seed landed).
     tokio::time::sleep(Duration::from_millis(6500)).await;
 
-    let snaps = drain_completed(&mut broadcast_rx, 500).await;
+    let snaps = drain_completed(&mut broadcast_rx, 200, 20_000).await;
     cancel.cancel();
 
     assert!(
@@ -409,7 +427,7 @@ async fn all_indicator_families_advance_on_sub_minute_doji_fills() {
     // Wait for the analyzer to drain its channels + emit completed snapshots.
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
-    let snaps = drain_completed(&mut broadcast_rx, 3000).await;
+    let snaps = drain_completed(&mut broadcast_rx, 300, 15_000).await;
     cancel.cancel();
 
     let last = snaps.last().expect("at least one snapshot");
@@ -594,7 +612,7 @@ async fn sixty_second_tf_indicator_state_advances_per_real_close() {
 
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
-    let snaps = drain_completed(&mut broadcast_rx, 3000).await;
+    let snaps = drain_completed(&mut broadcast_rx, 300, 15_000).await;
     cancel.cancel();
 
     // With `n` trades spread across `n` minute-buckets, exactly `n-1`
@@ -679,7 +697,7 @@ async fn ema_lines_appear_at_their_own_periods_on_sub_minute_tf() {
         // The completed-candle path is heavy (synthesis + decision
         // context); drain from the moment the pump ends so we capture the
         // tail of the trade-triggered closes.
-        let snaps = drain_completed(&mut broadcast_rx, 3000).await;
+        let snaps = drain_completed(&mut broadcast_rx, 300, 15_000).await;
         cancel.cancel();
 
         assert!(
@@ -769,7 +787,7 @@ async fn idle_bucket_heartbeat_fills_quiet_seconds_on_sub_minute_tf() {
     // ~5.5 s of silence: expect the seed bucket close + one heartbeat
     // doji per elapsed second (4-5 empty buckets).
     tokio::time::sleep(Duration::from_millis(5500)).await;
-    let snaps = drain_completed(&mut broadcast_rx, 700).await;
+    let snaps = drain_completed(&mut broadcast_rx, 70, 15_000).await;
     cancel.cancel();
 
     let mut done: Vec<u64> = snaps.iter().map(|s| s.timestamp).collect();
@@ -846,7 +864,7 @@ async fn stale_mid_guard_falls_back_to_last_trade_close() {
 
     // Wait past the grace period (1s) so the mid is stale at force-close.
     tokio::time::sleep(Duration::from_millis(2500)).await;
-    let snaps = drain_completed(&mut broadcast_rx, 500).await;
+    let snaps = drain_completed(&mut broadcast_rx, 200, 20_000).await;
     cancel.cancel();
 
     assert!(
@@ -945,7 +963,7 @@ async fn force_closed_sub_minute_frames_carry_matrix_payload() {
     tokio::time::sleep(Duration::from_millis(1200)).await;
     ob_pump.abort();
 
-    let snaps = drain_completed(&mut broadcast_rx, 500).await;
+    let snaps = drain_completed(&mut broadcast_rx, 200, 20_000).await;
     cancel.cancel();
 
     // Sanity: the doji-fill (60 bars per tick) pushed bar_count far past the
@@ -1065,7 +1083,7 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(2200)).await;
-    let snaps = drain_completed(&mut broadcast_rx, 500).await;
+    let snaps = drain_completed(&mut broadcast_rx, 200, 20_000).await;
     cancel.cancel();
 
     // The drain window may end on a doji-fill frame (gap-filled,
@@ -1169,7 +1187,7 @@ async fn force_closed_real_candles_feed_history_but_dojis_do_not() {
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
     tokio::time::sleep(Duration::from_millis(1200)).await;
-    let snaps = drain_completed(&mut broadcast_rx, 500).await;
+    let snaps = drain_completed(&mut broadcast_rx, 200, 20_000).await;
     cancel.cancel();
 
     assert!(

@@ -20,6 +20,14 @@ export default defineConfig(({ mode }) => {
       include: ['src/**/*.test.ts'],
       environment: 'jsdom',
       globals: true,
+      // The component tests mount the full Svelte dashboard surface and
+      // synchronously walk the export payload of every tab. On a
+      // memory-constrained host vitest's 5s default expires while the worker
+      // is still transforming modules, producing a wall-clock timeout rather
+      // than a real assertion failure — and the same tests pass when the file
+      // is run alone. 30s keeps the suite deterministic without masking a
+      // genuine hang, which would still fail on this ceiling.
+      testTimeout: 30_000,
     },
     server: {
       proxy: {
