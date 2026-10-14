@@ -1700,6 +1700,13 @@ pub async fn compute_cluster_for_tf(
         symbol: &symbol,
         mid_price: mid,
         price_history: &price_history,
+        // AUDIT-F: the long-OI price bias looks back a wall-clock-consistent
+        // span on every duration. `oi_delta_window_secs` is already resolved
+        // per-duration and is the same horizon the derivatives layer uses for
+        // this pipeline, so the two agree by construction.
+        price_horizon_bars: (config_models::liquidity_profile::oi_delta_window_secs(tf_secs)
+            / tf_secs.max(1))
+        .max(1) as usize,
         total_oi_usd: oi,
         funding_rate: funding,
         long_oi_pct: None,

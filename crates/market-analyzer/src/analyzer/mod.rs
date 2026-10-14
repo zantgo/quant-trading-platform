@@ -1305,6 +1305,11 @@ pub async fn run_single(
     //  re-introduce a `pipeline_is_live: bool` here and gate the
     //  per-tick vs per-candle broadcast on it.)
 
+    // AUDIT-M1: cadence state for the decoupled OI sampler.
+    let oi_delta_window_secs =
+        config_models::liquidity_profile::oi_delta_window_secs(timeframe_secs);
+    let mut last_oi_sample_secs: Option<u64> = None;
+
     // AUDIT-M3: wait for the registry to finish seeding the SHARED buffers.
     //
     // This task seeds its own indicator state from the warmed snapshot above,
@@ -1365,6 +1370,38 @@ pub async fn run_single(
             LoopAction::Shutdown => break,
             LoopAction::StaleCheck => {
                 let now_ms = core_domain::LatencyTracker::now_ms();
+
+                // AUDIT-M1: sample open interest on a TIME cadence, decoupled
+                // from the candle cadence.
+                //
+                // OI history used to be appended only when a candle CLOSED. On a
+                // 4h/12h/1d pipeline the previous sample was therefore 4-24 hours
+                // old, while `oi_delta_window_secs` resolved to 3600 for every
+                // duration >= 60 s — so the prior sample was pruned by the cutoff,
+                // `n` collapsed to 1, and the delta returned `(None, None)`
+                // FOREVER. The `oi_delta` and `oi_price_divergence` rows never
+                // appeared, `MarketSnapshot.oi_delta_pct` was permanently `None`,
+                // and the `OI_FUNDING_DIVERGENCE` / `OI_PRICE_DIVERGENCE` L2.5
+                // signals could never fire — with no error, no log and no
+                // `Failed` state. That includes the 4h column of the DEFAULT
+                // 12-duration ladder.
+                //
+                // Sampling on a timer makes the window mean what it says at every
+                // cadence. The rate is bounded so a 1s pipeline does not append
+                // 3600 samples an hour.
+                {
+                    let oi_sample_every_secs = (oi_delta_window_secs / 8).clamp(1, 60);
+                    let now_secs = now_ms / 1000;
+                    if last_oi_sample_secs
+                        .map(|t| now_secs.saturating_sub(t) >= oi_sample_every_secs)
+                        .unwrap_or(true)
+                    {
+                        last_oi_sample_secs = Some(now_secs);
+                        sample_oi_window(&oi_history, &latest_oi, oi_delta_window_secs, now_secs)
+                            .await;
+                    }
+                }
+
                 // Close the current candle if:
                 //   a) No trade arrived within the grace-period window (existing
                 //      behavior — catches genuine feed stalls), OR
@@ -3063,13 +3100,17 @@ async fn synthesize_completed_candle(
         database_storage::TelemetryMsg::ConsoleLog(log_line),
     );
 
-    volume_history.push_back(completed.volume);
-    // AUDIT-AIU-070: configured `volume_average_period` window.
+    // AUDIT-F: compute the RVOL baseline from the PRIOR window, BEFORE this
+    // bar is appended.
+    //
+    // The mean used to include the bar being measured, which biases RVOL low by
+    // a factor of N/(N+1) -- 5% at the default `volume_average_period = 20`.
+    // The documented 1.5 ("institutional") and 3.0 ("climax") bands are
+    // calibrated on the UNBIASED form (current volume vs the mean of what came
+    // before), so every reading was systematically under the band it should have
+    // crossed.
     let vol_window = active_indicators.volume_average_period.max(1);
-    while volume_history.len() > vol_window {
-        volume_history.pop_front();
-    }
-    let avg_vol = if !volume_history.is_empty() {
+    let avg_vol: Option<Decimal> = if !volume_history.is_empty() {
         let sum: Decimal = volume_history.iter().sum();
         Some(sum / Decimal::from(volume_history.len()))
     } else {
@@ -3080,6 +3121,12 @@ async fn synthesize_completed_candle(
         (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
         _ => None,
     };
+
+    // Only now fold this bar into the window used by the NEXT bar's baseline.
+    volume_history.push_back(completed.volume);
+    while volume_history.len() > vol_window {
+        volume_history.pop_front();
+    }
 
     // Fibonacci retracement/extension computation
     let fib = {
@@ -3456,6 +3503,7 @@ async fn synthesize_completed_candle(
         spread_pct,
         oi_delta: oi_delta_f,
         prev_oi_delta: prev_oi_delta_f,
+        oi_anchor_span_secs,
     } = deriv;
     // AUDIT-AIU-074: unify the funding "extreme" definition
     // between the indicator and liquidity layers.
@@ -3471,6 +3519,7 @@ async fn synthesize_completed_candle(
         mark_f,
         spread_pct,
         prev_oi_delta_f,
+        oi_anchor_span_secs,
         funding_extreme_pct,
     );
 
@@ -3550,7 +3599,7 @@ async fn synthesize_completed_candle(
         funding_rate: fund_f.and_then(Decimal::from_f64_retain),
         open_interest: oi_f.and_then(Decimal::from_f64_retain),
         oi_delta_pct: oi_delta_f.and_then(Decimal::from_f64_retain),
-        oi_delta_window_secs: Some(oi_delta_window_secs),
+        oi_delta_window_secs: Some(oi_anchor_span_secs.unwrap_or(oi_delta_window_secs)),
         mark_price: *latest_mark_px.read().await,
         index_price: *latest_index_px.read().await,
         mark_index_spread_pct: spread_pct,
@@ -3916,7 +3965,7 @@ async fn synthesize_completed_candle(
         funding_rate: fund_f.and_then(Decimal::from_f64_retain),
         open_interest: oi_f.and_then(Decimal::from_f64_retain),
         oi_delta_pct: oi_delta_f.and_then(Decimal::from_f64_retain),
-        oi_delta_window_secs: Some(oi_delta_window_secs),
+        oi_delta_window_secs: Some(oi_anchor_span_secs.unwrap_or(oi_delta_window_secs)),
         mark_price: *latest_mark_px.read().await,
         index_price: *latest_index_px.read().await,
         mark_index_spread_pct: spread_pct,
@@ -4049,11 +4098,50 @@ struct DerivativeSnapshot {
     /// Previous bar's OI delta — for the ZeroLineCross transition detector
     /// (AUDIT-AIU-039).
     prev_oi_delta: Option<f64>,
+    /// AUDIT-M1: the ACTUAL span the delta was measured over (`now - oldest
+    /// surviving sample`), which is what the wire field must publish rather
+    /// than the configured upper bound.
+    oi_anchor_span_secs: Option<u64>,
 }
 
 /// True 1-hour window in seconds for the OI delta (AUDIT-AIU-051). The
 /// previous implementation capped the deque at 60 *samples*, so at a 15 s TF
 /// the "1h" delta was really 15 minutes, and at a 5 m TF it was 5 hours.
+/// AUDIT-M1: append the current OI to the per-duration history and prune to the
+/// duration's window.
+///
+/// Called on a timer rather than at candle close, so the window is populated at
+/// every cadence. Idempotent within the rate limit: an unchanged OI at a later
+/// timestamp is still a legitimate sample (the delta is what matters, and a flat
+/// OI should read as a zero delta, not as "no data").
+async fn sample_oi_window(
+    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
+    latest_oi: &Arc<RwLock<Option<Decimal>>>,
+    window_secs: u64,
+    now_secs: u64,
+) {
+    let Some(oi) = latest_oi.read().await.and_then(|o| o.to_f64()) else {
+        return;
+    };
+    let mut hist = oi_history.write().await;
+    // Skip an exact duplicate of the newest sample rather than growing the deque
+    // with repeated identical readings.
+    if let Some((t, v)) = hist.back() {
+        if *v == oi && now_secs.saturating_sub(*t) < window_secs.max(1) / 2 {
+            return;
+        }
+    }
+    hist.push_back((now_secs, oi));
+    let cutoff = now_secs.saturating_sub(window_secs);
+    while hist.front().map(|(t, _)| *t < cutoff).unwrap_or(false) {
+        hist.pop_front();
+    }
+    // Drop out-of-order entries at the tail (WS push after a clock-sync edge).
+    while hist.back().map(|(t, _)| *t > now_secs).unwrap_or(false) {
+        hist.pop_back();
+    }
+}
+
 async fn read_derivative_snapshot_state(
     latest_oi: &Arc<RwLock<Option<Decimal>>>,
     latest_funding: &Arc<RwLock<Option<Decimal>>>,
@@ -4076,10 +4164,26 @@ async fn read_derivative_snapshot_state(
     // window is a TRUE time window — v11.10 resolves it per duration
     // (`liquidity_profile::oi_delta_window_secs`); each TF owns a deque
     // clone pruned and anchored at its own window.
+    // AUDIT-M1: this function READS the window; it no longer appends.
+    //
+    // Appending here is what made the delta unreachable at slow cadences: the
+    // only sample was written at candle close, so on a 4h pipeline the prior
+    // sample was 4 h old and the 1 h cutoff pruned it, leaving `n == 1` and
+    // `(None, None)` forever. `sample_oi_window` now owns the append on a
+    // timer, so this is a pure read of an already-populated, already-pruned
+    // window.
+    // AUDIT-M1: the ACTUAL span the delta is measured over, which is
+    // `now - oldest surviving sample`. The configured window is an upper bound;
+    // publishing it made the wire field a fiction whenever the window was not
+    // yet full (e.g. a 5m TF with a 3600 s window, a fresh process, or any
+    // period with a feed gap). Every consumer -- the UI chip and the decision
+    // layer -- read that fiction.
+    let mut actual_anchor_span_secs: Option<u64> = None;
     let (oi_delta_f, prev_oi_delta_f) = match oi_f {
         Some(cur) => {
             let mut hist = oi_history.write().await;
-            hist.push_back((now_secs, cur));
+            // Re-prune defensively: the sampler may not have run since the last
+            // window was widened by a config change.
             let cutoff = now_secs.saturating_sub(oi_delta_window_secs);
             while hist.front().map(|(t, _)| *t < cutoff).unwrap_or(false) {
                 hist.pop_front();
@@ -4091,8 +4195,9 @@ async fn read_derivative_snapshot_state(
             }
             let n = hist.len();
             if n >= 2 {
+                actual_anchor_span_secs = hist.front().map(|(t, _)| now_secs.saturating_sub(*t));
                 // delta = current value minus the oldest value inside the
-                // 3600 s window.
+                // window.
                 let delta = cur - hist.front().copied().unwrap_or((now_secs, cur)).1;
                 // Previous bar's delta = second-newest sample vs the same
                 // anchor (for the zero-line transition detector).
@@ -4130,6 +4235,7 @@ async fn read_derivative_snapshot_state(
         spread_pct,
         oi_delta: oi_delta_f,
         prev_oi_delta: prev_oi_delta_f,
+        oi_anchor_span_secs: actual_anchor_span_secs,
     }
 }
 
@@ -4147,6 +4253,9 @@ pub fn inject_derivatives_indicators(
     mark_px: Option<f64>,
     spread_pct: Option<f64>,
     prev_oi_delta: Option<f64>,
+    // AUDIT-M1: the ACTUAL span the delta was measured over, so the OI
+    // thresholds can be expressed as a per-hour RATE.
+    oi_delta_window_secs: Option<u64>,
     // AUDIT-AIU-074: unified funding "extreme" threshold from config.
     funding_extreme_pct: f64,
 ) {
@@ -4160,11 +4269,15 @@ pub fn inject_derivatives_indicators(
         );
     }
 
-    // OI Delta (1h change)
+    // OI Delta, normalised to a per-hour RATE over the ACTUAL measured span.
     if let Some(delta) = oi_delta {
         indicators.insert(
             "oi_delta".into(),
-            derivatives::normalize_oi_delta(delta, prev_oi_delta),
+            derivatives::normalize_oi_delta(
+                delta,
+                prev_oi_delta,
+                oi_delta_window_secs.unwrap_or(3600),
+            ),
         );
     }
 

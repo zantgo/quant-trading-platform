@@ -995,6 +995,11 @@ pub struct ClusterEstimateInput<'a> {
     /// v9 (L2.5 `funding_modulation.shift`): mass tilt fraction at full
     /// funding-extreme tilt.
     pub funding_mod_shift: f64,
+    /// AUDIT-F: how many BARS back the long-OI price bias looks. The caller
+    /// resolves this from the duration so the comparison spans the same wall
+    /// time on every pipeline (previously hardcoded to 3 bars, which meant 3 s
+    /// at 1s and 12 h at 4h).
+    pub price_horizon_bars: usize,
 }
 
 /// v9 (strategy `l2_5.estimation`): the cluster-estimator geometry knobs.
@@ -1075,6 +1080,9 @@ impl<'a> Default for ClusterEstimateInput<'a> {
             symbol: "",
             mid_price: 0.0,
             price_history: &[],
+            // AUDIT-F: 3 bars, preserving the legacy behaviour for any caller
+            // that does not set an explicit duration-derived horizon.
+            price_horizon_bars: 3,
             total_oi_usd: 0.0,
             funding_rate: 0.0,
             long_oi_pct: None,
@@ -1160,12 +1168,22 @@ fn apply_funding_modulation(
 /// rather than a hardcoded 0.0005, so a tuned extreme threshold tunes the
 /// OI-split sensitivity consistently. A non-positive anchor (misconfig)
 /// falls back to the shipped 0.0005 default.
+/// `price_horizon_bars` is how many BARS back the price bias looks.
+///
+/// AUDIT-F: this was hardcoded to 3 bars regardless of duration, so the same
+/// comparison meant 3 seconds at the 1s TF and 12 HOURS at the 4h TF — while
+/// being normalised against a duration-scaled `price_anchor_pct` (0.5% at 1s,
+/// 3% at 1d). A 0.5% three-second BTC move therefore saturated the bias at
+/// +/-0.2 constantly, while the 4h column's 12-hour move rarely moved at all.
+/// The long/short OI split — and therefore BOTH sides of every liquidation
+/// cluster — was biased differently on every column of the heatmap.
 fn estimate_long_oi_pct(
     funding_rate: f64,
     price_history: &[f64],
     override_pct: Option<f64>,
     funding_extreme_pct: f64,
     oi_split: &ClusterOiSplitParams,
+    price_horizon_bars: usize,
 ) -> f64 {
     if let Some(p) = override_pct {
         return p.clamp(0.05, 0.95);
@@ -1186,10 +1204,11 @@ fn estimate_long_oi_pct(
     } else {
         0.01
     };
-    let price_bias = if price_history.len() >= 4 {
+    let horizon = price_horizon_bars.max(1);
+    let price_bias = if price_history.len() > horizon {
         let n = price_history.len();
         let recent = price_history[n - 1];
-        let prior = price_history[n - 4];
+        let prior = price_history[n - 1 - horizon];
         let change = (recent - prior) / prior.max(1e-9);
         // Map price change to bias: +anchor → +price_bias_scale long bias.
         (change / price_anchor).clamp(-1.0, 1.0) * oi_split.price_bias_scale
@@ -1277,6 +1296,7 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         input.long_oi_pct,
         input.funding_extreme_pct,
         &input.oi_split,
+        input.price_horizon_bars,
     );
     let long_oi_usd = input.total_oi_usd * long_oi_pct;
     let short_oi_usd = input.total_oi_usd * (1.0 - long_oi_pct);
@@ -1578,6 +1598,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
             price_history: &history,
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 50_000_000.0, // $50M
             funding_rate: 0.0001,
             long_oi_pct: None,
@@ -1650,6 +1672,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: mid,
             price_history: &history,
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 50_000_000.0,
             funding_rate: 0.0001,
             long_oi_pct: None,
@@ -1700,6 +1724,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
             price_history: &history,
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 1_000_000.0,
             funding_rate: 0.0,
             long_oi_pct: Some(0.8), // 80% long
@@ -1733,6 +1759,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
             price_history: &history,
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 1_000_000.0,
             funding_rate: 0.001, // 0.1% — extreme
             long_oi_pct: None,
@@ -1763,6 +1791,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
             price_history: &history,
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 1_000_000.0,
             funding_rate: 0.0,
             long_oi_pct: Some(0.1),
@@ -1798,6 +1828,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
             price_history: &history,
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 1_000_000.0,
             funding_rate: 0.0,
             long_oi_pct: Some(0.5),
@@ -1847,6 +1879,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
             price_history: &history,
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 50_000_000.0,
             funding_rate: 0.0,
             long_oi_pct: Some(0.5),
@@ -1880,6 +1914,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
             price_history: &[],
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 1_000_000.0,
             funding_rate: 0.0,
             long_oi_pct: None,
@@ -1910,6 +1946,8 @@ mod cluster_tests {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
             price_history: &history,
+            // AUDIT-F: legacy 3-bar horizon for in-crate fixtures.
+            price_horizon_bars: 3,
             total_oi_usd: 10_000_000.0,
             funding_rate: 0.0001,
             long_oi_pct: None,

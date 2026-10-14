@@ -81,6 +81,8 @@ fn positive_oi_produces_clusters() {
         symbol: "BTC-USDT",
         mid_price: 50_000.0,
         price_history: &history,
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 100_000_000.0,
         funding_rate: 0.0,
         long_oi_pct: None,
@@ -116,6 +118,8 @@ fn clusters_have_reasonable_distance_from_mid() {
         symbol: "BTC-USDT",
         mid_price: 50_000.0,
         price_history: &history,
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 50_000_000.0,
         funding_rate: 0.0,
         long_oi_pct: None,
@@ -157,6 +161,8 @@ fn confidence_increases_with_oi() {
         symbol: "BTC-USDT",
         mid_price: 50_000.0,
         price_history: &history,
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 1_000_000.0,
         funding_rate: 0.0,
         long_oi_pct: None,
@@ -194,6 +200,8 @@ fn confidence_decays_with_extreme_funding() {
         symbol: "BTC-USDT",
         mid_price: 50_000.0,
         price_history: &history,
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 5_000_000.0,
         funding_rate: funding,
         long_oi_pct: None,
@@ -240,6 +248,8 @@ fn estimate_deterministic_for_same_input() {
         symbol: "BTC-USDT",
         mid_price: 50_000.0,
         price_history: &history,
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 10_000_000.0,
         funding_rate: 0.0001,
         long_oi_pct: None,
@@ -272,6 +282,8 @@ fn short_clusters_above_mid_long_clusters_below_mid() {
         symbol: "BTC-USDT",
         mid_price: 50_000.0,
         price_history: &history,
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 50_000_000.0,
         funding_rate: 0.0,
         long_oi_pct: None,
@@ -313,6 +325,8 @@ fn long_oi_override_dominates_funding_signal() {
         symbol: "BTC-USDT",
         mid_price: 50_000.0,
         price_history: &history,
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 10_000_000.0,
         funding_rate: -0.001,   // strongly short-biased funding
         long_oi_pct: Some(0.3), // override: 30% long, 70% short
@@ -345,6 +359,8 @@ fn empty_price_history_does_not_panic() {
         symbol: "BTC-USDT",
         mid_price: 50_000.0,
         price_history: &[],
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 1_000_000.0,
         funding_rate: 0.0,
         long_oi_pct: None,

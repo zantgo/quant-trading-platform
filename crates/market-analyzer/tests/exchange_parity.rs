@@ -84,7 +84,17 @@ fn bitget_pipeline_produces_indicator_map_with_derivatives_ob_smc_keys() {
     // is wired correctly end-to-end.
     let (oi, funding, mark, oi_delta, spread) = synthetic_derivative_snapshot();
     let mut map = std::collections::HashMap::new();
-    inject_derivatives_indicators(&mut map, oi, funding, oi_delta, mark, spread, None, 0.001);
+    inject_derivatives_indicators(
+        &mut map,
+        oi,
+        funding,
+        oi_delta,
+        mark,
+        spread,
+        None,
+        Some(3600),
+        0.001,
+    );
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
     // The 4 derivatives + 1 mark-index-spread entries produced by
@@ -133,7 +143,17 @@ fn hl_pipeline_produces_same_indicator_map_keys_as_bitget() {
     // parity: any divergence would surface as a key set mismatch.
     let (oi, funding, mark, oi_delta, spread) = synthetic_derivative_snapshot();
     let mut map = std::collections::HashMap::new();
-    inject_derivatives_indicators(&mut map, oi, funding, oi_delta, mark, spread, None, 0.001);
+    inject_derivatives_indicators(
+        &mut map,
+        oi,
+        funding,
+        oi_delta,
+        mark,
+        spread,
+        None,
+        Some(3600),
+        0.001,
+    );
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
     // The key set the Bitget test produced must match exactly.
@@ -167,7 +187,17 @@ fn smc_event_driven_keys_remain_absent_until_first_event() {
     // (`--/--/Warming`) handle the "no event yet" case correctly.
     let (oi, funding, mark, oi_delta, spread) = synthetic_derivative_snapshot();
     let mut map = std::collections::HashMap::new();
-    inject_derivatives_indicators(&mut map, oi, funding, oi_delta, mark, spread, None, 0.001);
+    inject_derivatives_indicators(
+        &mut map,
+        oi,
+        funding,
+        oi_delta,
+        mark,
+        spread,
+        None,
+        Some(3600),
+        0.001,
+    );
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
     for key in [
@@ -261,7 +291,17 @@ fn bybit_pipeline_produces_same_indicator_map_keys_as_bitget_and_hl() {
         Some(0.05),             // mark-index spread
     );
     let mut map = std::collections::HashMap::new();
-    inject_derivatives_indicators(&mut map, oi, funding, oi_delta, mark, spread, None, 0.001);
+    inject_derivatives_indicators(
+        &mut map,
+        oi,
+        funding,
+        oi_delta,
+        mark,
+        spread,
+        None,
+        Some(3600),
+        0.001,
+    );
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
     let expected_keys: HashSet<&str> = [

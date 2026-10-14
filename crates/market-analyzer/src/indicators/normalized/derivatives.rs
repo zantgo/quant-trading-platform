@@ -34,8 +34,26 @@ pub fn normalize_open_interest(oi: f64) -> NormalizedIndicatorValue {
     }
 }
 
-pub fn normalize_oi_delta(delta: f64, prev_delta: Option<f64>) -> NormalizedIndicatorValue {
-    let normalized = (delta / 1000.0).clamp(-1.0, 1.0);
+/// `window_secs` is the ACTUAL span the delta was measured over (see
+/// `DerivativeSnapshot::oi_anchor_span_secs`).
+///
+/// AUDIT-M1/M2: the thresholds used to be raw contract counts over an
+/// ASSUMED window. `delta.abs() > 500` therefore meant a 60-second OI surge at
+/// the 1s duration and an HOUR-long surge at 1h — so `OI_SURGE` / `OI_DRAIN`
+/// fired orders of magnitude more often on sub-minute durations, comparing
+/// incomparable quantities side by side in one Metrics table.
+///
+/// Normalising to a RATE (contracts per hour) makes the threshold mean the same
+/// thing at every cadence and every duration.
+pub fn normalize_oi_delta(
+    delta: f64,
+    prev_delta: Option<f64>,
+    window_secs: u64,
+) -> NormalizedIndicatorValue {
+    // Guard against a zero/absent window (a cold pipeline reports None span).
+    let window_hours = (window_secs.max(1) as f64 / 3600.0).max(1.0 / 3600.0);
+    let rate_per_hour = delta / window_hours;
+    let normalized = (rate_per_hour / 1000.0).clamp(-1.0, 1.0);
     let dir = if normalized > 0.1 {
         SignalDirection::Bullish
     } else if normalized < -0.1 {
@@ -43,7 +61,9 @@ pub fn normalize_oi_delta(delta: f64, prev_delta: Option<f64>) -> NormalizedIndi
     } else {
         SignalDirection::Neutral
     };
-    let has_signal = delta.abs() > 500.0;
+    // 500 contracts over a 1 h window = 500/h; keep that as the trigger bar and
+    // apply it to the RATE, not the raw count.
+    let has_signal = rate_per_hour.abs() > 500.0;
     // AUDIT-AIU-039: the ZeroLineCross was previously emitted on EVERY
     // snapshot with 0 < |delta| < 100 — a band, not a cross — so it fired
     // persistently in quiet markets. It now fires only on a genuine sign

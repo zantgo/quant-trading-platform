@@ -37,6 +37,8 @@ fn arb_input(prices: Vec<f64>) -> ClusterEstimateInput<'static> {
         symbol: "TEST",
         mid_price: prices.last().copied().unwrap_or(100.0),
         price_history: Box::leak(Box::new(prices)),
+        // AUDIT-F: legacy 3-bar horizon (no duration in this fixture).
+        price_horizon_bars: 3,
         total_oi_usd: 1_000_000.0,
         funding_rate: 0.0,
         long_oi_pct: None,

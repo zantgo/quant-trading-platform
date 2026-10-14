@@ -153,7 +153,22 @@ pub fn synthesize_market_context(
     let w_sum = (w_bbwp + w_hv + w_atr).max(1e-9);
     let bbwp = finite(map.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0), 50.0);
     let src_bbwp = ((bbwp - 50.0) / 50.0).clamp(-1.0, 1.0);
-    let src_hv = finite(map.get("hv").map(|v| v.normalized).unwrap_or(0.0), 0.0).abs();
+    // AUDIT-F: use HV's RAW annualized percentage, not its `normalized` field.
+    //
+    // `normalize_hv` is a declared `ContextOnly` non-directional gate and
+    // therefore ALWAYS sets `normalized: 0.0` — so this read was
+    // unconditionally 0.0 and the configured `volatility_sources.hv` weight
+    // could never contribute, no matter what an operator set it to. The unit
+    // test passed only because it injected `normalized: 0.9` by hand, which
+    // the real normalizer never produces.
+    //
+    // Reading `raw_value` gives a real signal: HV is an annualized percentage
+    // where ~50% is a typical crypto market, so a 50-point deviation maps to
+    // the -1..1 range the blend expects.
+    let src_hv = {
+        let raw = finite(map.get("hv").map(|v| v.raw_value).unwrap_or(50.0), 50.0);
+        ((raw - 50.0) / 50.0).clamp(-1.0, 1.0)
+    };
     let src_atr = finite(map.get("atr").map(|v| v.normalized).unwrap_or(0.0), 0.0).abs();
     let vol_score =
         ((src_bbwp * w_bbwp + src_hv * w_hv + src_atr * w_atr) / w_sum).clamp(-1.0, 1.0);
@@ -469,21 +484,56 @@ mod tests {
         l1.context.volatility_sources.hv = 1.0;
         l1.context.volatility_sources.atr_pct = 1.0;
         let mut map = scalar("bbwp", 50.0, 0.0);
+        // AUDIT-F: this test injected `normalized: 0.9` BY HAND, which the real
+        // `normalize_hv` never produces (it is a non-directional ContextOnly
+        // gate and always sets 0.0). That is why the dead weight passed. Feed
+        // the shape the production normalizer actually emits: a raw annualized
+        // percentage with `normalized: 0.0`.
         map.insert(
             "hv".into(),
-            NormalizedIndicatorValue::scalar(0.04, 0.9, "HIGH_VOLATILITY"),
+            NormalizedIndicatorValue::scalar(95.0, 0.0, "HIGH_VOLATILITY"),
         );
         map.insert(
             "atr".into(),
             NormalizedIndicatorValue::scalar(120.0, 0.7, "ELEVATED_RANGE"),
         );
         let ctx = synthesize_market_context(&map, Some(&l1));
+        // hv: (95 - 50) / 50 = 0.9 ; atr: 0.7
         let expected = (0.9 * 1.0 + 0.7 * 1.0) / 2.0;
         assert!(
             (ctx.volatility.score - expected).abs() < 1e-9,
             "volatility.score {} != {}",
             ctx.volatility.score,
             expected
+        );
+    }
+
+    /// AUDIT-F regression: a volatility feed in which HV's `normalized` is
+    /// always 0.0 (which is what production emits) must still move the score
+    /// when the `hv` weight is non-zero.
+    #[test]
+    fn a_configured_hv_weight_actually_contributes() {
+        let mut l1 = L1Params::default();
+        l1.context.volatility_sources.bbwp = 0.0;
+        l1.context.volatility_sources.atr_pct = 0.0;
+        l1.context.volatility_sources.hv = 1.0;
+
+        let mut calm = scalar("bbwp", 50.0, 0.0);
+        calm.insert(
+            "hv".into(),
+            NormalizedIndicatorValue::scalar(10.0, 0.0, "LOW_VOLATILITY"),
+        );
+        let mut wild = scalar("bbwp", 50.0, 0.0);
+        wild.insert(
+            "hv".into(),
+            NormalizedIndicatorValue::scalar(95.0, 0.0, "EXTREME_VOLATILITY"),
+        );
+
+        let calm_score = synthesize_market_context(&calm, Some(&l1)).volatility.score;
+        let wild_score = synthesize_market_context(&wild, Some(&l1)).volatility.score;
+        assert!(
+            (wild_score - calm_score).abs() > 0.5,
+            "the configured hv weight had no effect: calm={calm_score} wild={wild_score}"
         );
     }
 }

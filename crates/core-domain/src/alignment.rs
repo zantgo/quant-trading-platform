@@ -419,8 +419,9 @@ pub fn compute_alignment(
     let mut volume_sum = 0.0;
     let mut volatility_sum = 0.0;
     let mut total_weight = 0.0;
-    let mut positive_tf_count = 0u32;
-    let mut negative_tf_count = 0u32;
+    // AUDIT-M16: fractional accumulation (see the note at the use site).
+    let mut positive_tf_count = 0.0f64;
+    let mut negative_tf_count = 0.0f64;
     let mut regimes: Vec<String> = Vec::new();
     let mut confidences: Vec<f64> = Vec::new();
     let mut ctxs: Vec<MarketContext> = Vec::new();
@@ -453,17 +454,31 @@ pub fn compute_alignment(
         volume_sum += ctx.volume.score * weight;
         volatility_sum += ctx.volatility.score * weight;
 
+        // AUDIT-M16: accumulate the weight as a FRACTION.
+        //
+        // `weight as u32` truncated every fractional weight to zero. With the
+        // default ladder the divisor is the SLOWEST active duration (14400), so
+        // `(secs / 14400).clamp(0.2, 1.0)` gives 0.2 for every duration below
+        // 4 h -- and `0.2 as u32 == 0`. With `trend_agreement_weighted` enabled,
+        // 11 of 12 durations contributed NO vote and `trend_agreement_pct`
+        // pinned to 1/12 ≈ 8%, regardless of the market. That figure feeds
+        // `compute_candidate_score`'s `a_mtf` term, so every opportunity was
+        // scored on a near-constant, meaningless alignment.
+        //
+        // Float accumulation with a single rounding at the end preserves the
+        // intended weighting exactly. (Opt-in today -- the flag defaults to
+        // false -- but a silent 100% error the moment an operator enabled it.)
         if ctx.overall_score > 0 {
             positive_tf_count += if params.trend_agreement_weighted {
-                weight as u32
+                weight
             } else {
-                1
+                1.0
             };
         } else if ctx.overall_score < 0 {
             negative_tf_count += if params.trend_agreement_weighted {
-                weight as u32
+                weight
             } else {
-                1
+                1.0
             };
         }
 
@@ -572,7 +587,17 @@ pub fn compute_alignment(
 
     let total_tf = tf_data.len() as f64;
     let agreement = if total_tf > 0.0 {
-        (positive_tf_count.max(negative_tf_count) as f64 / total_tf * 100.0).clamp(0.0, 100.0)
+        // AUDIT-M16: normalise by the TOTAL VOTE WEIGHT, not the time-frame
+        // count. Previously the numerator was `max(pos, neg) as f64` (an integer
+        // count of time frames) over `total_tf`, which only ever agreed with the
+        // weight when every time frame voted the same way.
+        let total_votes = positive_tf_count + negative_tf_count;
+        let dominant = positive_tf_count.max(negative_tf_count);
+        if total_votes > 0.0 {
+            ((dominant / total_votes) * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        }
     } else {
         0.0
     };
