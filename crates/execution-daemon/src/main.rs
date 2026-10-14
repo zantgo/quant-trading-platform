@@ -1478,11 +1478,62 @@ async fn async_main() {
                 };
                 (ex, cur, plan.trading.clone())
             }
-            None => (
-                cli.resolve_exchange(&workspace.default_exchange),
-                cli.resolve_currency(&workspace.default_currency),
-                cli.trading.clone().unwrap_or_else(|| "observe".to_string()),
-            ),
+            None => {
+                // AUDIT-C1: web mode must NOT assume the workspace template
+                // defaults. `POST /api/session/init` (the wizard) persists the
+                // operator's REAL exchange/currency to the `sessions` row only,
+                // never to `config.toml`. So after a restart the daemon used to
+                // re-initialise the session as Hyperliquid/USDC regardless of
+                // what actually ran, and `add_instance` FORCED that quote onto
+                // every persisted instance -- turning `BTC-USDT` into
+                // `BTC-USDC` on Hyperliquid and APPENDING it to config.toml as
+                // a duplicate.
+                //
+                // Resolve from the interrupted session's row (what ran), then
+                // the first Running instance's own quote suffix, then the
+                // workspace defaults. CLI flags still win when supplied.
+                let interrupted =
+                    interrupted_session_info
+                        .read()
+                        .await
+                        .as_ref()
+                        .and_then(|i| match (i.exchange.as_deref(), i.currency.as_deref()) {
+                            (Some(e), Some(c)) => Some((e.to_string(), c.to_string())),
+                            _ => None,
+                        });
+                let boot = portfolio_supervisor::session::resolve_boot_environment(
+                    &workspace.default_exchange,
+                    &workspace.default_currency,
+                    &workspace.instances,
+                    interrupted.as_ref().map(|(e, c)| (e.as_str(), c.as_str())),
+                );
+
+                // A CLI flag, when present, is an explicit operator choice and
+                // overrides the recovered environment.
+                let (exchange, currency) = (
+                    cli.resolve_exchange(boot.exchange.as_str()),
+                    cli.resolve_currency(boot.currency.as_str()),
+                );
+                if boot.source != portfolio_supervisor::session::BootEnvSource::WorkspaceDefaults {
+                    println!(
+                        "♻️  Recovered session environment from {:?}: {} on {}",
+                        boot.source,
+                        boot.currency.as_str(),
+                        boot.exchange.as_str()
+                    );
+                }
+                for m in &boot.mismatches {
+                    eprintln!(
+                        "🚫 Boot spawn: config declares {} but the recovered environment derives {} — skipping (spawning it would append a duplicate entry to config.toml).",
+                        m.declared, m.derived
+                    );
+                }
+                (
+                    exchange,
+                    currency,
+                    cli.trading.clone().unwrap_or_else(|| "observe".to_string()),
+                )
+            }
         };
         // v7.2 parity: CLI mode pins the session defaults FIRST then
         // initialises — same ordering as POST /api/session/init.
@@ -1879,6 +1930,36 @@ async fn async_main() {
                         continue;
                     }
                 };
+                // AUDIT-C1 fail-safe: refuse to spawn an instance whose key the
+                // live session would derive DIFFERENTLY from the one persisted in
+                // config.toml. `add_instance` forces the session currency onto the
+                // pair and then APPENDS the result to config.toml, so spawning a
+                // mismatch silently created a duplicate under a new key — which
+                // the NEXT restart then hit "already exists" on, forever.
+                //
+                // This is redundant with the pre-flight check at session init (it
+                // already printed the mismatch); it is kept here so the invariant
+                // holds even if the session is re-pointed between init and spawn.
+                // (`internal_symbol` is exchange-independent — it is always
+                // `{base}-{quote}` — so the key the session would derive is a
+                // pure function of the base and the SESSION's quote.)
+                let session_quote = *bg_ctx.session.base_currency.read().await;
+                let expected_key = format!(
+                    "{}-{}",
+                    core_domain::symbol_rules::split_dex_qualifier(&base)
+                        .map(|(_, b)| b.to_string())
+                        .unwrap_or_else(|| base.clone()),
+                    session_quote
+                        .map(|c| c.as_str())
+                        .unwrap_or_else(|| quote.as_str())
+                );
+                if expected_key != entry.symbol {
+                    eprintln!(
+                        "🚫 Boot spawn: skipping {} — the live session would derive {} (spawning it would append a duplicate config.toml entry).",
+                        entry.symbol, expected_key
+                    );
+                    continue;
+                }
                 // M7 (production audit): instance creation is gated on a
                 // live exchange symbol_exists REST call — retry with
                 // backoff for up to ~10 minutes so a boot-time network
@@ -1920,6 +2001,23 @@ async fn async_main() {
                                 eprintln!(
                                     "⚠️  Failed to spawn instance {} after {} attempts: {} — retry on next restart",
                                     entry.symbol, attempt, e
+                                );
+                                break;
+                            }
+                            // AUDIT-C1: `add_instance` returns PERMANENT
+                            // errors ("already exists", "No active session",
+                            // invalid symbol, unsupported settlement) as well as
+                            // transient ones. The loop used to treat them
+                            // identically, burning 20 × 30 s ≈ 9.5 minutes per
+                            // offending entry — SERIALLY, so every instance after
+                            // it in the vector waited too. Worse, a failed spawn
+                            // is invisible: `GET /api/instances` reads the LIVE
+                            // map only, so the entry simply never appeared.
+                            // Retry only what can actually heal on its own.
+                            if portfolio_supervisor::session::spawn_error_is_permanent(&e) {
+                                eprintln!(
+                                    "🚫 Boot spawn: {} cannot be spawned ({}) — not retrying.",
+                                    entry.symbol, e
                                 );
                                 break;
                             }

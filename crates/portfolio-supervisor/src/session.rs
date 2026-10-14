@@ -100,6 +100,214 @@ impl ExchangeChoice {
     }
 }
 
+/// AUDIT-C1: the inverse of [`ExchangeChoice::as_str`], case-insensitive.
+/// Needed because the exchange is persisted as free text in two places — the
+/// `sessions` table and `[workspace].default_exchange` in `config.toml` — and
+/// neither is a typed field.
+pub fn exchange_from_str(raw: &str) -> Option<ExchangeChoice> {
+    if raw.eq_ignore_ascii_case("hyperliquid") {
+        Some(ExchangeChoice::Hyperliquid)
+    } else if raw.eq_ignore_ascii_case("bitget") {
+        Some(ExchangeChoice::Bitget)
+    } else if raw.eq_ignore_ascii_case("bybit") {
+        Some(ExchangeChoice::Bybit)
+    } else {
+        None
+    }
+}
+
+/// AUDIT-C1: the inverse of [`Currency::as_str`], case-insensitive.
+pub fn currency_from_str(raw: &str) -> Option<Currency> {
+    if raw.eq_ignore_ascii_case("USDT") {
+        Some(Currency::USDT)
+    } else if raw.eq_ignore_ascii_case("USDC") {
+        Some(Currency::USDC)
+    } else {
+        None
+    }
+}
+
+/// The environment a restart must bring back up, and one diagnostic per
+/// persisted instance that could not be safely derived.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BootEnvironment {
+    pub exchange: ExchangeChoice,
+    pub currency: Currency,
+    /// Instances whose persisted `symbol` disagrees with what the resolved
+    /// environment would derive. These MUST be skipped rather than spawned,
+    /// or the registry appends a duplicate entry to `config.toml` under a
+    /// different key (AUDIT-C1).
+    pub mismatches: Vec<BootSpawnMismatch>,
+    /// Which source won, for the boot log line.
+    pub source: BootEnvSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootEnvSource {
+    /// The interrupted session's `sessions` row — the environment the
+    /// operator actually ran (v11.12.23's `update_session_environment`).
+    InterruptedSession,
+    /// The first Running instance's own persisted quote suffix.
+    PersistedInstance,
+    /// `[workspace].default_exchange` / `.default_currency`.
+    WorkspaceDefaults,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BootSpawnMismatch {
+    /// The symbol as persisted in `config.toml`.
+    pub declared: String,
+    /// The key the resolved environment would actually produce.
+    pub derived: String,
+}
+
+/// AUDIT-C1: resolve the environment a restart must use.
+///
+/// The defect this replaces: `POST /api/session/init` (the wizard) persists the
+/// operator's real exchange/currency to the `sessions` DB row only — it never
+/// writes `config.toml`. At boot the daemon therefore called
+/// `init_session(cli.resolve_exchange(&workspace.default_exchange), …)`, i.e.
+/// the *stale template defaults* (Hyperliquid / USDC), and `add_instance` then
+/// FORCED that quote onto every persisted instance (`registry/mod.rs`), so
+/// `BTC-USDT` was re-created as `BTC-USDC` on Hyperliquid and **appended** to
+/// `config.toml` as a duplicate. The next restart then hit "already exists",
+/// which the boot loop could not distinguish from a transient network error,
+/// so it retried 20 × 30 s per entry before every instance after it.
+///
+/// Precedence:
+///   1. The interrupted session's row — what the operator actually ran.
+///   2. The first Running instance's own `symbol` quote suffix.
+///   3. `[workspace].default_exchange` / `.default_currency`.
+///
+/// Returns the exchange/currency plus a mismatch per instance that cannot be
+/// derived safely, so the caller reports loudly instead of spawning a duplicate.
+pub fn resolve_boot_environment(
+    default_exchange: &str,
+    default_currency: &str,
+    instances: &[config_models::InstanceEntry],
+    interrupted: Option<(&str, &str)>,
+) -> BootEnvironment {
+    let running: Vec<&config_models::InstanceEntry> = instances
+        .iter()
+        .filter(|i| i.status == config_models::InstanceStatus::Running)
+        .collect();
+
+    let mut mismatches = Vec::new();
+
+    // Try each source in precedence order; the first parseable one wins.
+    let mut all: Vec<(BootEnvSource, ExchangeChoice, Currency)> = Vec::new();
+
+    if let Some((ex, cur)) = interrupted {
+        if let (Some(e), Some(c)) = (exchange_from_str(ex), currency_from_str(cur)) {
+            all.push((BootEnvSource::InterruptedSession, e, c));
+        }
+    }
+    if let Some(first) = running.first() {
+        if let Some(quote) = first.symbol.rsplit_once('-').map(|(_, q)| q) {
+            if let Some(c) = currency_from_str(quote) {
+                if let Some(e) = interrupted
+                    .and_then(|(ex, _)| exchange_from_str(ex))
+                    .or_else(|| exchange_from_str(default_exchange))
+                {
+                    all.push((BootEnvSource::PersistedInstance, e, c));
+                }
+            }
+        }
+    }
+    if let (Some(e), Some(c)) = (
+        exchange_from_str(default_exchange),
+        currency_from_str(default_currency),
+    ) {
+        all.push((BootEnvSource::WorkspaceDefaults, e, c));
+    }
+
+    // Precedence is STRICT: take the first PARSEABLE candidate.
+    //
+    // Deliberately NOT filtered by `supports_currency`. That would reorder
+    // precedence — a stale-but-valid lower source could displace the
+    // environment that actually ran, which is precisely the bug this fixes. A
+    // settlement combination the venue cannot host cannot arise from the
+    // wizard (`init_session` gates it), and if one ever reaches the boot loop
+    // anyway, `add_instance` fails fast with a PERMANENT error
+    // (`spawn_error_is_permanent`) instead of the loop silently substituting a
+    // different venue behind the operator's back.
+    let chosen = all.first().copied();
+
+    let Some((source, exchange, currency)) = chosen else {
+        // Nothing parseable at all — keep the documented defaults so boot still
+        // initialises a session rather than panicking.
+        return BootEnvironment {
+            exchange: ExchangeChoice::Hyperliquid,
+            currency: Currency::USDC,
+            mismatches: Vec::new(),
+            source: BootEnvSource::WorkspaceDefaults,
+        };
+    };
+
+    for entry in &running {
+        let Some((base, _declared_quote)) = entry.symbol.split_once('-') else {
+            mismatches.push(BootSpawnMismatch {
+                declared: entry.symbol.clone(),
+                derived: entry.symbol.clone(),
+            });
+            continue;
+        };
+        // The registry strips a HIP-3 `dex:BASE` qualifier before deriving the
+        // key, so the comparison must do the same.
+        let base = core_domain::symbol_rules::split_dex_qualifier(base)
+            .map(|(_, b)| b.to_string())
+            .unwrap_or_else(|| base.to_string());
+        let derived = exchange.internal_symbol(&base, &currency);
+        if derived != entry.symbol {
+            mismatches.push(BootSpawnMismatch {
+                declared: entry.symbol.clone(),
+                derived,
+            });
+        }
+    }
+
+    BootEnvironment {
+        exchange,
+        currency,
+        mismatches,
+        source,
+    }
+}
+
+/// AUDIT-C1: classify a boot-spawn failure as PERMANENT (never heals on retry)
+/// or TRANSIENT (network blip, venue timeout — worth another attempt).
+///
+/// `registry::add_instance` returns `Result<_, String>` and both classes arrive
+/// as free text, so this matches on the stable message prefixes it produces.
+/// The boot loop previously retried everything 20 × 30 s ≈ 9.5 minutes per
+/// entry, SERIALLY, blocking every instance after it — and because
+/// `GET /api/instances` reads only the live map, a permanently-failing entry
+/// was invisible in the dashboard the entire time.
+///
+/// Anything not recognised as permanent is treated as transient: a new error
+/// message must not be able to make a recoverable boot failure give up early.
+///
+/// Substring (not prefix) matching is required because two of these messages
+/// are venue-prefixed by construction: `add_instance` renders the settlement
+/// error as `"{} does not support {} settlement."` and the symbol probe as
+/// `"'{}' isn't available on {} ..."`. Each phrase below is semantically
+/// definitive, so a substring match cannot collide with a transient transport
+/// failure.
+pub fn spawn_error_is_permanent(msg: &str) -> bool {
+    const PERMANENT_SUBSTRINGS: &[&str] = &[
+        "already exists",
+        "no active session",
+        "does not support",
+        "no saved config for pair",
+        "symbol too long",
+        "isn't available on",
+        "is not a valid symbol",
+        "invalid symbol",
+    ];
+    let lower = msg.to_ascii_lowercase();
+    PERMANENT_SUBSTRINGS.iter().any(|p| lower.contains(p))
+}
+
 pub struct SessionState {
     pub active: AtomicBool,
     /// v11.12: OPERATOR-INTENT activation — the flag `/api/session/status`

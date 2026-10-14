@@ -157,6 +157,17 @@ struct HlDexMetaBody {
     universe: Vec<HlMetaAsset>,
 }
 
+/// AUDIT-M21: total time budget for the HIP-3 perp-dex sweep in
+/// `resolve_venue_coin`.
+///
+/// Without it, an ambiguous base (one listed on several builder dexs) blocks
+/// symbol admission for `PROBE_ATTEMPTS(3) × PROBE_TOTAL_TIMEOUT(30s)` per dex
+/// plus backoff — roughly 95 s per dex, unbounded in aggregate. Because the
+/// sweep runs inside `add_instance`, and the boot loop retried every spawn error
+/// 20 × 30 s, one ambiguous symbol could stall a whole workspace's boot for
+/// many minutes with nothing on screen explaining why.
+const DEX_SWEEP_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// POST an info request with the v11.12.19 retry policy (transport errors only
 /// — a definitive venue answer is never retried).
 async fn post_info_with_retry(
@@ -325,8 +336,43 @@ pub async fn resolve_venue_coin(
 
     let dexes = fetch_perp_dexes(info_url).await?;
     let mut best: Option<ResolvedCoin> = None;
+    // AUDIT-M21: bound the sweep. `fetch_dex_universe` retries
+    // `PROBE_ATTEMPTS` (3) times with a `PROBE_TOTAL_TIMEOUT` (30s) each plus
+    // 1s/2s backoff, i.e. up to ~95s PER DEX, with no aggregate ceiling. The
+    // venue currently runs several builder dexs, so a single ambiguous symbol
+    // (e.g. `GOLD`, listed on six) could block the admission path for ~10
+    // minutes — and it is called from `add_instance`, which the boot loop then
+    // retried 20 times, compounding the stall.
+    //
+    // Total budget across the whole sweep, checked BEFORE each request so we
+    // never start a call we cannot afford. A partial sweep is still useful:
+    // whatever resolved best so far is returned.
+    let sweep_deadline = std::time::Instant::now() + DEX_SWEEP_BUDGET;
+    let mut swept = 0usize;
     for d in dexes {
-        let Ok(universe) = fetch_dex_universe(info_url, Some(&d)).await else {
+        let Some(remaining) = sweep_deadline.checked_duration_since(std::time::Instant::now())
+        else {
+            eprintln!(
+                "⚠️  Hyperliquid dex sweep: {}s budget exhausted after {swept} dex(es) — \
+                 returning the best match found so far{}. Narrow the search with a \
+                 `dex:BASE` qualifier if the asset is listed on a later dex.",
+                DEX_SWEEP_BUDGET.as_secs(),
+                if best.is_some() { "" } else { " (none)" },
+            );
+            break;
+        };
+        swept += 1;
+        // Bound the CALL, not just the loop. `fetch_dex_universe` retries
+        // PROBE_ATTEMPTS(3) x PROBE_TOTAL_TIMEOUT(30s) + backoff internally
+        // (~95 s), so checking only between dexes still let one wedged dex burn
+        // the whole per-dex worst case before the next check ran. Wrapping each
+        // fetch in the remaining budget makes the TOTAL sweep time bounded.
+        let Ok(Ok(universe)) =
+            tokio::time::timeout(remaining, fetch_dex_universe(info_url, Some(&d))).await
+        else {
+            // Either the dex wedged or the sweep budget expired mid-call; both
+            // mean "stop sweeping", and a partial sweep still returns whatever
+            // resolved best so far.
             continue;
         };
         let Some(hit) = pick_coin(&universe, Some(&d), &target, &base) else {

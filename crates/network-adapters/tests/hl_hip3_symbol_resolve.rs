@@ -332,3 +332,107 @@ async fn symbol_exists_agrees_with_the_resolver() {
         assert!(!symbol_exists(bad, &srv.url()).await.unwrap(), "{bad}");
     }
 }
+
+// ── AUDIT-M21: the dex sweep must be time-bounded ──────────────────────────
+//
+// `fetch_dex_universe` retries `PROBE_ATTEMPTS` (3) times with a
+// `PROBE_TOTAL_TIMEOUT` (30 s) each plus 1 s / 2 s backoff — roughly 95 s PER
+// DEX, with no aggregate ceiling. Because the sweep runs inside
+// `registry::add_instance`, and the boot loop retried every spawn error 20 ×
+// 30 s, one ambiguous symbol could stall a whole workspace's boot for many
+// minutes with nothing on screen explaining why.
+//
+// These tests drive a server that stalls on per-dex meta requests, proving the
+// sweep gives up on a budget instead of grinding through every dex.
+
+/// A server that answers `perpDexs` and the DEFAULT meta instantly, then
+/// stalls forever on every per-dex meta request (never writes a response).
+async fn spawn_stalling(default_meta: &'static str, stall_secs: u64) -> Recorded {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local_addr");
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).await.unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            sink.lock().await.push(req.clone());
+
+            // `perpDexs` and the DEFAULT dex answer immediately; any explicit
+            // `"dex":"..."` request hangs, simulating a wedged builder dex.
+            let stall = req.contains("\"dex\":\"");
+            let body: &'static str = if req.contains("perpDexs") {
+                PERP_DEXS
+            } else {
+                default_meta
+            };
+            if stall {
+                tokio::time::sleep(std::time::Duration::from_secs(stall_secs)).await;
+                let _ = stream.shutdown().await;
+                continue;
+            }
+            let bytes = body.as_bytes();
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            );
+            let _ = stream.write_all(head.as_bytes()).await;
+            let _ = stream.write_all(bytes).await;
+            let _ = stream.flush().await;
+            let _ = stream.shutdown().await;
+        }
+    });
+    Recorded { addr, seen }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_wedged_dex_does_not_stall_admission_for_the_full_probe_budget() {
+    // Every per-dex request stalls for 120 s. Without a sweep budget the
+    // resolver would spend ~95 s PER DEX across six dexes (~10 min). With the
+    // budget it must return promptly.
+    let srv = spawn_stalling(DEFAULT_META, 120).await;
+
+    let started = std::time::Instant::now();
+    // `TSTZZ` is in no universe, so the resolver must sweep and find nothing.
+    let r = resolve_venue_coin("TSTZZ", &srv.url()).await;
+    let elapsed = started.elapsed();
+
+    assert!(r.is_ok(), "the sweep must not surface an error: {r:?}");
+    assert!(r.unwrap().is_none(), "TSTZZ is listed nowhere");
+
+    // The budget bounds the TOTAL sweep: one 30 s window covers however many
+    // dexes there are. Allow slack for CI scheduling, but stay far below both
+    // the 93 s a single wedged dex cost before the fix AND the ~10 minutes the
+    // fully unbounded sweep allowed across six dexes.
+    assert!(
+        elapsed < std::time::Duration::from_secs(50),
+        "the sweep must honour its 30s budget, took {elapsed:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_default_dex_hit_still_bypasses_the_sweep_entirely() {
+    // The budget must not regress the fast path: a default-dex asset resolves
+    // without ever asking for the dex list.
+    let srv = spawn_stalling(DEFAULT_META, 120).await;
+    let started = std::time::Instant::now();
+    let r = resolve_venue_coin("BTC", &srv.url())
+        .await
+        .unwrap()
+        .expect("BTC is listed");
+    let elapsed = started.elapsed();
+
+    assert_eq!(r.venue_coin, "BTC");
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "a default-dex hit must stay instant, took {elapsed:?}"
+    );
+    assert!(
+        !srv.seen.lock().await.iter().any(|q| q.contains("perpDexs")),
+        "a default-dex hit must not fan out to every dex"
+    );
+}
