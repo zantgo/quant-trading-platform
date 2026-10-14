@@ -1,6 +1,6 @@
 # DIE Layer 3 — Data Quality Layer
 
-**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 3 of 4

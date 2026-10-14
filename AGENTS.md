@@ -36,7 +36,7 @@ The platform is organized around a **Two-Dimensional Architecture** — 6 specia
 | Trade Automation Engine (TAE) | `portfolio-supervisor` | Setup executor (4-TF top-setup aggregation, lifecycle state machine — **Lifecycle & Adoption Layer (L2)**, invalidation), unified execution engine + `ExecutionBackend` (`PaperSimulation` default; `LiveBroker` + `BitgetLiveBroker` live), **v8.2 allocation sizing (`allocation_pct` 1–100%, per-instance override, Σ ≤ 100%, ≤100 instances)**, **v10 lifecycle hardening (tri-state `setup_gone_policy` posture, pending re-price + replacement adoption, asymmetric SL/TP ratchet, entry dial incl. `chase`, exit dial incl. `sl_mode`/`tp_placement`/`min_sl_atr`/`confidence_drop_pct`; TP always closes 100%)**, STOP flatten; live `TradeAutomationDashboard` (`/api/instances/:id/automation`) | Implemented (paper default; live dispatch Hyperliquid + Bitget) |
 | Portfolio Management Engine (PME) | `portfolio-supervisor` | Instance lifecycle, session state, safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP), capital/margin ledger, position/exposure/capital/**overview** layers (v8.2: L4 renamed Portfolio → **Overview Layer**, matrix = `PortfolioOverviewMatrix`); informational (read-only); live `PortfolioDashboard` (`/api/instances/:id/portfolio` + `/safety`) | Implemented (informational) |
 | Performance Analytics Engine (PAE) | `performance-analytics` + `database-storage` | Dashboard stats compilation, strategy optimizer, performance evaluator, recorded-decision backtest runner (NHST: t-test, 10k Monte Carlo, α = 0.05, edge verdict); SQLite persistence for analytics tables; live backtest tab (`POST /api/backtest/run`) | Implemented |
-| Backtesting Engine (BTE) | `backtesting-engine` + `database-storage` | Candle archive (`candle_archive`, live-warm + on-demand backfill, 1..=365 days, **v8.2 exchange-aware ceilings: Hyperliquid 5,000-candle cap per TF, Bitget paginated**), historical runner (full MME pipeline replay, **v8.2 standalone multi-symbol runs**, shared `run_tick` parity contract, **simulated safety ladder + funding + end-of-run force-close**), recorded replay, DS persistence (`backtest_*` tables), single-run lock, **v8.2 async runs + progress/cancel endpoints**; `BacktestingDashboard` (observe-only in the UI) with the **v8.2 Backtest Launcher wizard**; **CLI backtest mode** (`--backtest` headless flags) | Implemented (production-ready v8.2) |
+| Backtesting Engine (BTE) | `backtesting-engine` + `database-storage` | Candle archive (`candle_archive`, live-warm + on-demand backfill, 1..=365 days, **v8.2 exchange-aware ceilings: Hyperliquid 5,000-candle cap per TF, Bitget paginated**), historical runner (full MME pipeline replay, **v8.2 standalone multi-symbol runs**, shared `run_tick` parity contract, **simulated safety ladder + funding + end-of-run force-close**), recorded replay, DS persistence (`backtest_*` tables), single-run lock, **v8.2 async runs + progress/cancel endpoints**; `BacktestingDashboard` (**paper-mode surface** — see `ui/src/lib/modeMaturity.ts` `ENGINE_HOME_MODE.backtesting = 'paper'`; hidden in the observe-only build, reachable by direct `#/engine/backtesting` URL and CLI) with the **v8.2 Backtest Launcher wizard**; **CLI backtest mode** (`--backtest` headless flags) | Implemented (production-ready v8.2) |
 | (cross-cutting) | `core-domain` | Stateless DTOs (`MarketSnapshot`, `AnalysisMatrix`, etc.), JSON-RPC 2.0 transport, normalized value maps | Implemented |
 | (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers (`[workspace.backtest]` v8) | Implemented |
 | (cross-cutting) | `api-gateway` | Axum HTTP router, Axum `AppState`, WebSocket broadcast server, static asset serving | Implemented |
@@ -125,6 +125,31 @@ right-panel per-row toggle — both drive `POST /api/instances/:id/lifecycle`
 TAE explicitly (`Activate TAE? y/N` prompt or `--tae-on`; default OFF — recorded in the
 session DS meta).
 
+### Execution-mode maturity — the single source of truth
+
+| Mode | Maturity | Sidebar engines | Status |
+|---|---|---|---|
+| **observe** | **production ready** | DIE, MME | Shipped and verified live on all three venues |
+| **paper** (simulated trading + backtesting) | **work in progress** | DIE, MME, TAE, PME, PAE, BTE | Not selectable in the wizard (`MODE_ORDER = ['observe']`) |
+| **live** (real orders) | **work in progress** | DIE, MME, TAE, PME, PAE | Backend/CLI/API only; no funded-account integration test |
+
+**Observe is the only production-ready posture.** Paper and live are works in
+progress: neither has been exercised through this UI, and live order dispatch is
+unverified on all three venues because there is no funded account.
+
+This is declared once in **`ui/src/lib/modeMaturity.ts`** — `MODE_MATURITY` for
+the table above, `ENGINE_HOME_MODE` for which posture an engine belongs to.
+`modeMaturity.test.ts` asserts this section stays in agreement with the code, so
+the docs cannot drift back from the declaration.
+
+**Engine home modes** (`ENGINE_HOME_MODE`): `data_infra` / `market_monitor` are
+`any` (visible everywhere); `trade_automation`, `portfolio`, `performance` and
+**`backtesting`** are `paper`. Backtesting belongs to paper because it replays
+history to simulate trades — it is *not* an observe surface, and three passages
+here used to say "observe-only in the UI", which misattributed it to the wrong
+posture. It is currently absent from every sidebar row only because paper mode is
+not selectable yet, which is a visibility fact, not a home-mode claim.
+
 ### v8 — Left-panel visibility per mode (BTE)
 
 The sidebar (`AppEngineSidebar.svelte`) filters the engine list by session mode:
@@ -133,13 +158,13 @@ The sidebar (`AppEngineSidebar.svelte`) filters the engine list by session mode:
 |--------|---------|-------|------|
 | Data Infrastructure (DIE) | ✅ | ✅ | ✅ |
 | Market Monitor (MME) | ✅ | ✅ | ✅ |
-| **Backtesting (BTE)** | ❌ (v11.7: hidden in the observe-only build; direct URLs + CLI backtests still work) | ❌ | ❌ |
+| **Backtesting (BTE)** | ❌ (hidden in the observe-only build; direct URLs + CLI backtests still work) | ❌ *(belongs here — paper mode not selectable yet)* | ❌ |
 | Trade Automation (TAE) | ❌ | ✅ | ✅ |
 | Portfolio Management (PME) | ❌ | ✅ | ✅ |
 | Performance Analytics (PAE) | ❌ | ✅ | ✅ |
 | Profile / Settings | ✅ | ✅ | ✅ |
 
-The Backtesting Engine (v8) is observe-only in the UI: it binds to **one running
+The Backtesting Engine (v8) is a **paper-mode** surface — backtesting replays historical candles to *simulate* trades, which is a paper activity, not an observe one. It binds to **one running
 instance** via the shared selection (right-side Instances panel / Market Monitor
 Workspace tab), runs one backtest at a time, and backfills the candle archive on
 demand (depth 1..=365 days, resumable, rate-limited). Its navbar is dynamic: no

@@ -1,6 +1,6 @@
 # Backtesting Engine — Overview
 
-**Version:** 11.13 (2026-10-13)
+**Version:** 11.13 (2026-10-14)
 
 > **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
 **Status:** Implemented (production-ready) — installer-style launcher, standalone multi-symbol runs, progress + cancel, CLI mode

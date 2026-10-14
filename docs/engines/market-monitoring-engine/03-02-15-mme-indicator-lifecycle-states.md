@@ -1,6 +1,6 @@
 # MME Indicator Lifecycle States
 
-**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Market Monitoring Engine (MME)
 **Owner:** market-analyzer + ui

@@ -1,6 +1,6 @@
 # PAE Layer 4 — Performance Layer
 
-**Version:** 11.13 (2026-10-13) — v7: implemented; grouping keyed by setup type.
+**Version:** 11.13 (2026-10-14) — v7: implemented; grouping keyed by setup type.
 **Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 4 of 4

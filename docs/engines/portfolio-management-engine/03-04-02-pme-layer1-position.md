@@ -1,6 +1,6 @@
 # PME Layer 1 — Position Layer
 
-**Version:** 11.13 (2026-10-13) — v7: PME is informational; this layer's math is unchanged.
+**Version:** 11.13 (2026-10-14) — v7: PME is informational; this layer's math is unchanged.
 **Status:** Implemented — pure math + live dashboard surface.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 1 of 4

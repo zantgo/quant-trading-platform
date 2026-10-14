@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Six engines implemented and production-ready (v11.12 — observe-default truth, observability hardening, unified Settings). The UI build is observe-only; paper/live execution remains a backend/CLI/API capability.
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 
@@ -17,7 +17,7 @@
 | **TAE — Trade Automation** | `crates/portfolio-supervisor` (v7 setup executor + unified execution engine, v8.2 allocation sizing, v9 strategy dials, v10 lifecycle hardening) | `TradeAutomationDashboard` (live fetches: automation state, orders, position, activity log, trade history) | **Yes — implemented** (paper default; live dispatch for Hyperliquid + Bitget) | Implemented |
 | **PME — Portfolio Management** | `crates/portfolio-supervisor` (safety-state ladder, position/exposure/capital/overview layers, mark-to-market) | `PortfolioDashboard` (live fetches: overview, positions, exposure, capital, safety) | **Yes — informational** (read-only; the TAE executor applies the safety soft gate + the v9 portfolio intake gates) | Implemented (informational) |
 | **PAE — Performance Analytics** | `crates/performance-analytics` (stats compiler, NHST strategy analytics, risk analytics, performance layer, strategy optimizer) | `PerformanceDashboard` (live data incl. Study/History tabs, session analytics, Comparison) | **Yes — implemented** | Implemented |
-| **BTE — Backtesting** | `crates/backtesting-engine` (candle archive + backfill, historical runner, recorded replay, DS persistence) | `BacktestingDashboard` (observe-only: Launcher wizard, progress/cancel, Study/Chart/History tabs) | **Yes — implemented** (v8.2 production-ready) | Implemented |
+| **BTE — Backtesting** | `crates/backtesting-engine` (candle archive + backfill, historical runner, recorded replay, DS persistence) | `BacktestingDashboard` (paper-mode surface; hidden in the observe-only build — Launcher wizard, progress/cancel, Study/Chart/History tabs) | **Yes — implemented** (v8.2 production-ready) | Implemented |
 | **Cross-cutting** (DTOs, config, API gateway, execution-daemon) | All 5 crates | App shell, store, websocket, settings, watchlist scanner, strategies builder | **Yes — implemented** | Implemented |
 
 ### 1.1 Three honest categories
@@ -111,7 +111,7 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 
 - `crates/backtesting-engine` — candle archive (live-warm + on-demand backfill, 1..=365 days, exchange-aware ceilings: Hyperliquid 5,000-candle cap, Bitget paginated), the **historical runner** (full MME pipeline replay over archived candles, simulated safety ladder + funding + end-of-run force-close, multi-symbol k-way tick clock) and the **recorded replay** (recorded decision snapshots through the shared `run_tick`).
 - **v10 (released):** the run's bound strategy flows into both runners (parity fix); strategy intake/portfolio gates evaluated on the simulated portfolio in historical mode; `backtest_trades` enrichment (`ts_entry_secs`/`hold_secs`/`mfe_pct`/`mae_pct`/`roi_pct`); per-run risk metrics; `GET /api/backtest/:id/input_bars`.
-- **Frontend:** `BacktestingDashboard` (observe-only in the UI) with the Launcher wizard, progress/cancel, Study/Chart/History tabs.
+- **Frontend:** `BacktestingDashboard` (paper-mode surface; hidden in the observe-only build) with the Launcher wizard, progress/cancel, Study/Chart/History tabs.
 - **CLI:** headless `--backtest` flags + `--backtest-show <id>` / `--sessions` / `--session-report <id>` DS commands.
 - **Verification:** `scripts/e2e-backtest-matrix.sh` (`./manage.sh e2e-backtest`) + `scripts/ds-verification-loop.sh` — both require live exchange REST.
 

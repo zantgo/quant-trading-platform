@@ -3,7 +3,7 @@
 > **Archived (v11.12).** This document describes a surface of the erased Home/Profile page — the Home page and the `profile` engine were erased (v11.9); the components are unreferenced. It is retained for history only.
 
 
-**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Surface:** `ui/src/components/AccountProfile.svelte` — the default home
 page (Profile tab 1, `profile/account` landing in all modes).

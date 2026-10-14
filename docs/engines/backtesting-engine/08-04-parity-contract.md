@@ -1,6 +1,6 @@
 # BTE Parity Contract — why backtest = paper
 
-**Version:** 11.13 (2026-10-13)
+**Version:** 11.13 (2026-10-14)
 **Engine:** Backtesting Engine
 **Code:** `crates/portfolio-supervisor/src/execution/session_tick.rs`
 

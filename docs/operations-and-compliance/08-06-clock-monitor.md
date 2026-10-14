@@ -1,6 +1,6 @@
 # Clock Monitor (NTP Drift Enforcement)
 
-**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 **Module path:** the clock-monitor task is spawned by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `[clock_monitor]` section of `config.toml`.
 

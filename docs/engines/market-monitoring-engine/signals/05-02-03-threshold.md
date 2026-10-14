@@ -1,6 +1,6 @@
 # SignalKind: Threshold
 
-**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Category:** Zone / level state

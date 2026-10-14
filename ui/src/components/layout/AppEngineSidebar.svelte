@@ -25,16 +25,21 @@
         { key: 'performance',       label: 'Performance Analytics' },
     ];
 
-    // v8/v11.7: mode-aware engine visibility. Observe is the
-    // market-monitor session (DIE + MME; Backtesting hidden in the
-    // observe-only build — direct URLs + CLI backtests still work);
-    // paper/live are the execution sessions (TAE + PME + PAE). The
-    // backend keeps computing in every mode — this only controls the
+    // v8/v11.7: mode-aware engine visibility. The sidebar shows only what the
+    // current posture can act on: observe is the market-monitor session (DIE +
+    // MME); paper/live are the execution sessions (TAE + PME + PAE).
+    //
+    // Which mode an engine BELONGS to is declared once in
+    // `src/lib/modeMaturity.ts` (ENGINE_HOME_MODE) — notably
+    // `backtesting: 'paper'`, because backtesting replays history to simulate
+    // trades. BTE is absent from every row below because paper mode is not
+    // selectable yet (LaunchSetup `MODE_ORDER = ['observe']`), so it has no
+    // surface to appear on. That is a visibility fact, not a home-mode claim:
+    // when paper mode is enabled, BTE belongs in the paper row.
+    //
+    // The backend keeps computing in every mode — this only controls the
     // left-panel surface.
     const VISIBLE_ENGINES: Record<'observe' | 'paper' | 'live', EngineKey[]> = {
-        // v11.7: observe-only build = market monitor — Backtesting is
-        // hidden from the sidebar (direct #/engine/backtesting URLs and
-        // headless CLI backtests remain functional).
         observe: ['data_infra', 'market_monitor'],
         paper: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance'],
         live: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance'],

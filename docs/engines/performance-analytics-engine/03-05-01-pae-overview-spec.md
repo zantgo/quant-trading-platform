@@ -1,6 +1,6 @@
 # Performance Analytics Engine — Overview Specification (v7)
 
-**Version:** 11.13 (2026-10-13) — the v7 release adds the **L5 Backtest layer**: recorded MME decisions are replayed through the unchanged setup executor + unified engine (paper only), and every result carries the full statistical treatment (t-test, Monte Carlo, α = 0.05, edge classification).
+**Version:** 11.13 (2026-10-14) — the v7 release adds the **L5 Backtest layer**: recorded MME decisions are replayed through the unchanged setup executor + unified engine (paper only), and every result carries the full statistical treatment (t-test, Monte Carlo, α = 0.05, edge classification).
 
 > **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
 **Status:** Specified — implemented; backtest delivered 2026-08-18.

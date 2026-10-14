@@ -1,6 +1,6 @@
 # MME Layer 1 — Metrics Layer
 
-**Version:** 11.13 (2026-10-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 1 of 7

@@ -4,6 +4,27 @@
 
 ------
 
+## v11.13.2 (2026-10-14) — Execution-mode maturity declared once; BTE is a PAPER surface
+
+**Observe is the only production-ready posture. Paper (simulated trading + backtesting) and live (real orders) are both works in progress. The Backtesting Engine is a paper-mode surface — it was documented as an observe-only surface in three places, which misattributed it to the wrong posture.**
+
+**The misstatement.** `AGENTS.md` described `BacktestingDashboard` as *"observe-only in the UI"* (three separate passages) plus two more in `docs/ROADMAP.md`. That phrasing reads as though backtesting is an observe-mode surface that is merely limited there. It is not: backtesting replays historical candles to **simulate** trades, which is a paper activity. It is hidden in the observe-only build because that build has no paper surface to hang it on — a visibility fact, not a home-mode claim.
+
+**The fix is a declaration, not a switch.** New `ui/src/lib/modeMaturity.ts` is the single source of truth:
+
+- `MODE_MATURITY` — observe = `production-ready`; paper = `work-in-progress`; live = `work-in-progress`
+- `ENGINE_HOME_MODE` — `data_infra` / `market_monitor` = `any`; `trade_automation`, `portfolio`, `performance` and **`backtesting`** = `paper`
+
+**No runtime behaviour changed.** `VISIBLE_ENGINES` in `AppEngineSidebar.svelte` is byte-identical: BTE stays hidden in every mode, because paper mode is not selectable in the wizard (`MODE_ORDER = ['observe']`). Only a comment was added there, pointing at the declaration so the sidebar and the declaration cannot drift apart silently. The wizard still offers Observe only.
+
+**Tests — the first automated coverage of this gate.** `ui/src/lib/modeMaturity.test.ts` (12 tests) asserts the maturity table, that `backtesting`'s home mode is `paper` and **not** `observe`, that no paper-home engine is ever observable without a trading surface, and — the important one — that **`AGENTS.md`'s wording matches the constant**. The "observe-only in the UI" phrasings are asserted absent, so the misattribution cannot silently return.
+
+**Also fixed:** `test-engine-live` was a no-op. It was gated on `LIVE_VENUE=1`, a variable **nothing in the tree reads**; the real gate is two-sided (a Rust `#[ignore]` attribute AND `BYBIT_LIVE=1` inside the test body), and the stage supplied neither, so the "live" stage silently re-ran the hermetic suite and reported success. It now passes `--include-ignored` with `BYBIT_LIVE=1`, and the six Bybit venue-contract tests execute for real against the live API — the full ≥60s duration pool, retention at the 365-day archive ceiling, the 1000-row page cap, the perpetual/ dated-future admission gate, and the TradFi line sharing `category=linear`. None of that had ever run.
+
+Also in this release: the two pre-existing test-stability fixes, committed separately — `drain_completed` now drains to a target instead of a fixed wall-clock window (it was reporting "expected ≥200, got 127" scheduling lag as a test failure), and the Vitest `testTimeout` raised 5 s → 30 s for the full-surface component tests.
+
+**Not changed, and recorded as untested:** the backtest e2e matrix (`scripts/e2e-backtest-matrix.sh` — 17 Bitget, 4 Hyperliquid, 10 Bybit cases) has never been executed, before or after this work. Paper mode is not enabled. Live order execution is unverified on all three venues (no funded account).
+
 ## v11.13.1 (2026-10-13) — Bybit Sub-Minute Repair: Zero Trades Were Decoding
 
 **Bybit delivered zero trades and zero liquidations since v11.13. Every sub-minute duration (1s/3s/5s/15s/30s) produced no candles; the ≥60s half kept rendering stale REST-warmed data, which is what made the failure look venue-specific rather than total.**
