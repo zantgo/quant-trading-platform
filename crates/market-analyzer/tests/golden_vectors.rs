@@ -385,7 +385,7 @@ fn squeeze_release_requires_min_duration() {
 
 #[test]
 fn hv_positive_with_volatile_returns() {
-    let mut hv = HistoricalVolatility::new(20);
+    let mut hv = HistoricalVolatility::new(20, 86_400);
     let mut p = 100.0;
     let mut last = 0.0;
     for _ in 0..30 {

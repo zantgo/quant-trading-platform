@@ -402,7 +402,7 @@ pub fn warm_indicators_for_timeframe(
     let mut obv_indicator = Obv::new(active_indicators.obv_smoothing);
     let mut cmf_indicator = Cmf::new(active_indicators.cmf_period);
     let mut mfi_indicator = Mfi::new(active_indicators.mfi_period);
-    let mut hv_indicator = HistoricalVolatility::new(active_indicators.hv_period);
+    let mut hv_indicator = HistoricalVolatility::new(active_indicators.hv_period, timeframe_secs);
     let mut aroon_indicator = Aroon::new(active_indicators.aroon_period);
     let mut choppiness_indicator = Choppiness::new(active_indicators.chop_period);
     let mut linreg_indicator = LinRegSlope::new(active_indicators.linreg_period);

@@ -1031,7 +1031,7 @@ pub async fn run_single(
         obv_indicator = Obv::new(active_indicators.obv_smoothing);
         cmf_indicator = Cmf::new(active_indicators.cmf_period);
         mfi_indicator = Mfi::new(active_indicators.mfi_period);
-        hv_indicator = HistoricalVolatility::new(active_indicators.hv_period);
+        hv_indicator = HistoricalVolatility::new(active_indicators.hv_period, timeframe_secs);
         aroon_indicator = Aroon::new(active_indicators.aroon_period);
         choppiness_indicator = Choppiness::new(active_indicators.chop_period);
         linreg_indicator = LinRegSlope::new(active_indicators.linreg_period);
