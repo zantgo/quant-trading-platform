@@ -1787,6 +1787,7 @@ dependencies = [
  "config-models",
  "core-domain",
  "database-storage",
+ "futures-util",
  "market-analyzer",
  "network-adapters",
  "rust_decimal",

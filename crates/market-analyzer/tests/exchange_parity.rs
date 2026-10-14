@@ -85,15 +85,7 @@ fn bitget_pipeline_produces_indicator_map_with_derivatives_ob_smc_keys() {
     let (oi, funding, mark, oi_delta, spread) = synthetic_derivative_snapshot();
     let mut map = std::collections::HashMap::new();
     inject_derivatives_indicators(
-        &mut map,
-        oi,
-        funding,
-        oi_delta,
-        mark,
-        spread,
-        None,
-        Some(3600),
-        0.001,
+        &mut map, oi, funding, oi_delta, mark, spread, None, 3600, 0.001,
     );
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
@@ -144,15 +136,7 @@ fn hl_pipeline_produces_same_indicator_map_keys_as_bitget() {
     let (oi, funding, mark, oi_delta, spread) = synthetic_derivative_snapshot();
     let mut map = std::collections::HashMap::new();
     inject_derivatives_indicators(
-        &mut map,
-        oi,
-        funding,
-        oi_delta,
-        mark,
-        spread,
-        None,
-        Some(3600),
-        0.001,
+        &mut map, oi, funding, oi_delta, mark, spread, None, 3600, 0.001,
     );
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
@@ -188,15 +172,7 @@ fn smc_event_driven_keys_remain_absent_until_first_event() {
     let (oi, funding, mark, oi_delta, spread) = synthetic_derivative_snapshot();
     let mut map = std::collections::HashMap::new();
     inject_derivatives_indicators(
-        &mut map,
-        oi,
-        funding,
-        oi_delta,
-        mark,
-        spread,
-        None,
-        Some(3600),
-        0.001,
+        &mut map, oi, funding, oi_delta, mark, spread, None, 3600, 0.001,
     );
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
@@ -292,15 +268,7 @@ fn bybit_pipeline_produces_same_indicator_map_keys_as_bitget_and_hl() {
     );
     let mut map = std::collections::HashMap::new();
     inject_derivatives_indicators(
-        &mut map,
-        oi,
-        funding,
-        oi_delta,
-        mark,
-        spread,
-        None,
-        Some(3600),
-        0.001,
+        &mut map, oi, funding, oi_delta, mark, spread, None, 3600, 0.001,
     );
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
