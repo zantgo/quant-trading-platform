@@ -53,7 +53,10 @@ fn entry(symbol: &str) -> config_models::InstanceEntry {
     config_models::InstanceEntry {
         id: symbol.to_lowercase(),
         symbol: symbol.into(),
-        quote: symbol.rsplit_once('-').map(|(_, q)| q.into()).unwrap_or_default(),
+        quote: symbol
+            .rsplit_once('-')
+            .map(|(_, q)| q.into())
+            .unwrap_or_default(),
         status: config_models::InstanceStatus::Running,
         timeframes: std::collections::BTreeMap::new(),
         automation: config_models::AutomationConfig::default(),
@@ -122,15 +125,16 @@ fn a_failed_recharge_leaves_the_old_instance_untouched() {
             .build()
             .expect("tokio runtime")
             .block_on(async {
-                let pool = SqlitePool::connect("sqlite::memory:").await.expect("sqlite");
+                let pool = SqlitePool::connect("sqlite::memory:")
+                    .await
+                    .expect("sqlite");
                 let state = app_state(pool).await;
 
                 // Install a real instance into the live map so the early-failure
                 // path has something to strand if the fix regresses.
                 let ctx = state.registry_context();
-                *state.session.base_currency.write().await = Some(
-                    portfolio_supervisor::session::Currency::USDT,
-                );
+                *state.session.base_currency.write().await =
+                    Some(portfolio_supervisor::session::Currency::USDT);
                 *state.session.exchange.write().await =
                     Some(portfolio_supervisor::session::ExchangeChoice::Bitget);
                 state
@@ -138,9 +142,12 @@ fn a_failed_recharge_leaves_the_old_instance_untouched() {
                     .active
                     .store(true, std::sync::atomic::Ordering::Relaxed);
 
-                let inst = portfolio_supervisor::registry::add_instance(&ctx, ("BTC".into(), "USDT".into()))
-                    .await
-                    .expect("add_instance must succeed with no live venue");
+                let inst = portfolio_supervisor::registry::add_instance(
+                    &ctx,
+                    ("BTC".into(), "USDT".into()),
+                )
+                .await
+                .expect("add_instance must succeed with no live venue");
 
                 let before_token = inst.cancel.clone();
                 assert!(
@@ -159,20 +166,13 @@ fn a_failed_recharge_leaves_the_old_instance_untouched() {
                 }
 
                 let res = recharge_instance(&ctx, "BTC-USDT").await;
-                assert!(
-                    res.is_err(),
-                    "the recharge was made to fail; got {res:?}"
-                );
+                assert!(res.is_err(), "the recharge was made to fail; got {res:?}");
 
                 // The old instance must still be in the workspace map...
-                let survivor = state
-                    .workspace
-                    .get("BTC-USDT")
-                    .await
-                    .expect(
-                        "the old instance must survive a failed recharge -- \
+                let survivor = state.workspace.get("BTC-USDT").await.expect(
+                    "the old instance must survive a failed recharge -- \
                          otherwise it is a zombie: listed as running but dead",
-                    );
+                );
 
                 // ...with a token that is NOT cancelled...
                 assert!(
@@ -207,7 +207,9 @@ fn a_recharge_for_an_unknown_pair_does_not_disturb_others() {
             .build()
             .expect("tokio runtime")
             .block_on(async {
-                let pool = SqlitePool::connect("sqlite::memory:").await.expect("sqlite");
+                let pool = SqlitePool::connect("sqlite::memory:")
+                    .await
+                    .expect("sqlite");
                 let state = app_state(pool).await;
                 let ctx = state.registry_context();
 
@@ -238,12 +240,13 @@ fn an_aborted_recharge_task_leaves_the_old_instance_running() {
             .build()
             .expect("tokio runtime")
             .block_on(async {
-                let pool = SqlitePool::connect("sqlite::memory:").await.expect("sqlite");
+                let pool = SqlitePool::connect("sqlite::memory:")
+                    .await
+                    .expect("sqlite");
                 let state = app_state(pool).await;
                 let ctx = state.registry_context();
-                *state.session.base_currency.write().await = Some(
-                    portfolio_supervisor::session::Currency::USDT,
-                );
+                *state.session.base_currency.write().await =
+                    Some(portfolio_supervisor::session::Currency::USDT);
                 *state.session.exchange.write().await =
                     Some(portfolio_supervisor::session::ExchangeChoice::Bitget);
                 state
@@ -259,7 +262,8 @@ fn an_aborted_recharge_task_leaves_the_old_instance_running() {
                 .expect("add_instance");
 
                 let ctx2 = ctx.clone();
-                let handle = tokio::spawn(async move { recharge_instance(&ctx2, "BTC-USDT").await });
+                let handle =
+                    tokio::spawn(async move { recharge_instance(&ctx2, "BTC-USDT").await });
 
                 // Let it get past the (now removed) top-of-function cancel and
                 // into the network-bound bootstrap.
