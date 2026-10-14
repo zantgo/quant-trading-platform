@@ -69,7 +69,6 @@ fn rapid_failures_trip_the_breaker_but_never_terminate_it() {
 #[test]
 fn a_connection_that_survives_connect_grace_is_a_success() {
     let mut breaker = WsBreaker::new(default_grace());
-    let grace = default_grace();
 
     // Four rapid failures to build up near-trip state.
     for _ in 0..4 {

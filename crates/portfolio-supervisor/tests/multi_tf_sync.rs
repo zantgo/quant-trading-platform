@@ -139,6 +139,8 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
                     Vec::new(),
                     Arc::new(core_domain::LatencyTracker::default()),
                     market_analyzer::active_set::ActiveSet::default(),
+                    // AUDIT-M3: start gate (None = ungated in tests).
+                    None,
                     None,
                     Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
                     None,

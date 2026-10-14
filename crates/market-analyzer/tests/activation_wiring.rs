@@ -156,6 +156,8 @@ async fn drive_pipeline(
             Vec::new(),
             Arc::new(core_domain::LatencyTracker::default()),
             active_set,
+            // AUDIT-M3: start gate (None = ungated in tests).
+            None,
             None,
             Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
             None,

@@ -799,6 +799,9 @@ pub async fn run_single(
     cross_tf_snapshots: Vec<Arc<RwLock<Option<MarketSnapshot>>>>,
     latency_tracker: core_domain::SharedLatencyTracker,
     active_set: crate::active_set::ActiveSet,
+    // AUDIT-M3: start gate. `None` (legacy replay / tests) means "no gate".
+    // See `registry::pipelines::PipelineContext::start_gate`.
+    start_gate: Option<tokio::sync::watch::Receiver<bool>>,
     quality_config: Option<QualityConfig>,
     reliability: Arc<ReliabilityTracker>,
     refetch: Option<RestRefetchSpec>,
@@ -1302,6 +1305,35 @@ pub async fn run_single(
     //  re-introduce a `pipeline_is_live: bool` here and gate the
     //  per-tick vs per-candle broadcast on it.)
 
+    // AUDIT-M3: wait for the registry to finish seeding the SHARED buffers.
+    //
+    // This task seeds its own indicator state from the warmed snapshot above,
+    // but the per-pair `history` / `snapshot_history` / `latest_snapshot`
+    // deques are also written by `bootstrap::populate_buffers`, which the
+    // registry calls AFTER `build_pipelines` has already spawned us. Both
+    // writers took the same `Arc<RwLock<..>>` with a read-once-then-act guard,
+    // so if we observed `is_empty() == true` and pushed AFTER `populate_single`
+    // finished, the window ended up holding 2x the warm candles -- silently
+    // double-counting warm bars in Fibonacci, pivot points, S/R, chart patterns
+    // and the cluster estimator's `price_history` at the handover moment they
+    // matter most. Byte accounting stays exact, so the budget never surfaced it.
+    //
+    // The gate makes the ordering deterministic instead of timing-dependent. It
+    // is bounded by the shutdown arm so a caller that forgets to signal cannot
+    // wedge the task forever.
+    if let Some(mut gate) = start_gate {
+        loop {
+            if *gate.borrow() {
+                break;
+            }
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => break,
+                _ = gate.wait_for(|ready| *ready) => {}
+            }
+        }
+    }
+
     enum LoopAction {
         Process(NormalizedEvent),
         StaleCheck,
@@ -1755,6 +1787,10 @@ pub async fn run_single(
                                     active_indicators.ema_long,
                                 ),
                                 &active_set,
+                                // AUDIT-M18: carry the last real structure forward.
+                                CarriedStructure::from_snapshot(
+                                    latest_snapshot.read().await.as_ref(),
+                                ),
                                 buffer_size,
                                 avg_vol,
                                 rvol,
@@ -1925,6 +1961,10 @@ pub async fn run_single(
                                         active_indicators.ema_long,
                                     ),
                                     &active_set,
+                                    // AUDIT-M18: carry the last real structure forward.
+                                    CarriedStructure::from_snapshot(
+                                        latest_snapshot.read().await.as_ref(),
+                                    ),
                                     buffer_size,
                                     avg_vol,
                                     rvol,
@@ -2293,6 +2333,10 @@ pub async fn run_single(
                                         active_indicators.ema_long,
                                     ),
                                     &active_set,
+                                    // AUDIT-M18: carry the last real structure forward.
+                                    CarriedStructure::from_snapshot(
+                                        latest_snapshot.read().await.as_ref(),
+                                    ),
                                     buffer_size,
                                     avg_vol,
                                     rvol,
@@ -4743,6 +4787,83 @@ fn apply_candle_to_indicators(
     }
 }
 
+/// AUDIT-M18: structural state carried forward from the last REAL snapshot.
+///
+/// Synthetic snapshots — doji-fill, idle-heartbeat and reconnect-gap — are
+/// built from a flat candle that never traded. They hardcoded
+/// `DivergenceState::None` and `fib/pattern/support/resistance: None`, so every
+/// one of them reported "no structure". The consequences were quiet and
+/// misleading: alignment dimension 5 (Structure) read `NO_DATA` for the entire
+/// stall window, and the Analysis/Opportunity layers lost their fib and pattern
+/// inputs — while EMA/RSI/ADX kept advancing, so the chart still *looked*
+/// healthy and the only symptom was a structural layer going dark exactly when
+/// the feed was already unreliable.
+///
+/// Carrying the last real values forward is strictly more honest than reporting
+/// `None`: the structure genuinely did not change during a no-trade window.
+#[derive(Default, Clone, Copy)]
+pub(super) struct CarriedStructure {
+    pub rsi_divergence: crate::indicators::DivergenceState,
+    pub macd_divergence: crate::indicators::DivergenceState,
+}
+
+impl CarriedStructure {
+    /// Read the last real structural state out of the pipeline's latest
+    /// snapshot. Returns the default (all `None`) when there is nothing to
+    /// carry, which is the correct state for a genuinely cold pipeline.
+    ///
+    /// `NormalizedIndicatorValue` has no dedicated divergence field — a
+    /// divergence is expressed as a `SignalKind::Divergence` signal whose
+    /// `status` (`Potential` / `Confirmed`) and `direction` carry exactly the
+    /// information `DivergenceState` encodes. That is the same derivation the
+    /// frontend performs, so the carried state and the rendered state agree.
+    pub(super) fn from_snapshot(snap: Option<&MarketSnapshot>) -> Self {
+        let Some(snap) = snap else {
+            return Self::default();
+        };
+        Self {
+            rsi_divergence: divergence_state_of(snap, "rsi"),
+            macd_divergence: divergence_state_of(snap, "macd"),
+        }
+    }
+}
+
+/// AUDIT-M18: map an indicator's divergence signals back to a
+/// [`crate::indicators::DivergenceState`], or `None` when it carries none.
+fn divergence_state_of(snap: &MarketSnapshot, key: &str) -> crate::indicators::DivergenceState {
+    use crate::indicators::DivergenceState;
+    use core_domain::indicator_dtos::{SignalDirection, SignalKind, SignalStatus};
+
+    let Some(value) = snap.indicators.get(key) else {
+        return DivergenceState::None;
+    };
+    let Some(sig) = value
+        .signals
+        .iter()
+        .find(|s| s.kind == SignalKind::Divergence)
+    else {
+        return DivergenceState::None;
+    };
+    let confirmed = sig.status == SignalStatus::Confirmed;
+    match sig.direction {
+        SignalDirection::Bullish => {
+            if confirmed {
+                DivergenceState::ConfirmedBullish
+            } else {
+                DivergenceState::PotentialBullish
+            }
+        }
+        SignalDirection::Bearish => {
+            if confirmed {
+                DivergenceState::ConfirmedBearish
+            } else {
+                DivergenceState::PotentialBearish
+            }
+        }
+        _ => DivergenceState::None,
+    }
+}
+
 /// Build a `MarketSnapshot` for a closed candle (real OR reconstructed
 /// doji) using the readings returned by [`apply_candle_to_indicators`].
 /// The produced snapshot has `is_completed = Some(true)` and a populated
@@ -4769,6 +4890,8 @@ pub(super) fn build_completed_snapshot_from_readings(
     // ribbon availability gate (AUDIT-V8-001).
     ema_periods: (usize, usize, usize, usize),
     active_set: &crate::active_set::ActiveSet,
+    // AUDIT-M18: structural state from the last real snapshot.
+    carried: CarriedStructure,
     // AUDIT-H7: buffer target for the staleness-aware pipeline state.
     buffer_size: usize,
     avg_vol: Option<Decimal>,
@@ -4792,8 +4915,10 @@ pub(super) fn build_completed_snapshot_from_readings(
         normalize::NormalizeParams {
             close: candle.close,
             rsi: readings.final_rsi,
-            rsi_divergence: crate::indicators::DivergenceState::None,
-            macd_divergence: crate::indicators::DivergenceState::None,
+            // AUDIT-M18: carry the last real divergence state forward instead
+            // of reporting "no structure" on every synthetic bar.
+            rsi_divergence: carried.rsi_divergence,
+            macd_divergence: carried.macd_divergence,
             stoch_k: readings.final_stoch.as_ref().map(|s| s.k_value),
             stoch_d: readings.final_stoch.as_ref().map(|s| s.d_value),
             chandemo: readings.final_cmo,

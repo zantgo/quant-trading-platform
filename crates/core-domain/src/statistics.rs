@@ -35,6 +35,14 @@ struct RollingStat {
 
 impl RollingStat {
     fn new(window: usize) -> Self {
+        // AUDIT-M10: clamp the window. `push` indexes `values[next_idx]` and
+        // takes `% self.window`, so a zero window is an out-of-bounds index AND
+        // a divide-by-zero. Production used the default 100, which is why this
+        // never fired -- but `StatisticsEngine::new` takes the window straight
+        // from config, so one bad value (or a future caller like the BTE replay
+        // path) would panic the pipeline task. With AUDIT-M10's `catch_unwind`
+        // that panic would now at least be *visible* rather than silent.
+        let window = window.max(1);
         Self {
             mean: 0.0,
             m2: 0.0,

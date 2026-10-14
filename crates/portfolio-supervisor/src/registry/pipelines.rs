@@ -138,6 +138,7 @@ use core_domain::liquidity::{ClusterRefreshStatus, ClusterStatusSnapshot};
 use core_domain::models::{CandlePipelineState, MarketSnapshot};
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
 use database_storage;
+use futures_util::FutureExt;
 use market_analyzer::analyzer;
 use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
@@ -170,6 +171,27 @@ pub struct PipelineContext {
     pub safety_config: SafetyConfig,
     pub intervals_config: IntervalsConfig,
     pub cancel: CancellationToken,
+    /// AUDIT-M3: start gate for the per-duration tasks.
+    ///
+    /// `build_pipelines` spawns `run_single`, which seeds its indicator state
+    /// and buffers from the warmed state; the registry then calls
+    /// `populate_buffers` to seed the SHARED history deques. Those two writers
+    /// used to race: both took the same `Arc<RwLock<VecDeque>>` and both used a
+    /// read-once-then-act guard (`if hist.is_empty() { push }` in `run_single`,
+    /// `clear(); push` in `populate_buffers`), so an interleaving where
+    /// `run_single` observed `is_empty() == true` and pushed AFTER
+    /// `populate_single` finished produced up to 2x 500 duplicated warm candles.
+    /// That silently corrupts Fibonacci, pivot points, S/R, chart patterns and
+    /// the cluster estimator's `price_history` at the exact handover moment they
+    /// are most relied upon. Byte accounting stays exact, so the budget never
+    /// surfaces it — and being timing-dependent, it only appeared
+    /// intermittently on the first-snapshot-after-boot path.
+    ///
+    /// A `watch` channel closes the window deterministically: `run_single`
+    /// signals readiness, then waits for the registry to finish `populate_buffers`
+    /// before touching a shared buffer. The registry ALWAYS signals, including
+    /// when there is no warmed state to seed, so no path can deadlock.
+    pub start_gate: Option<tokio::sync::watch::Receiver<bool>>,
     pub operational_mode: OperationalMode,
     #[allow(dead_code)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
@@ -369,6 +391,7 @@ pub async fn build_pipelines(
         &active_secs,
         &ctx.fib_config,
         &cancel,
+        ctx.start_gate.as_ref().map(|rx| rx.clone()),
         &broadcast_txs,
         &histories,
         &latests,
@@ -435,6 +458,8 @@ async fn spawn_tasks(
     active_secs: &[u64],
     fib_config: &FibonacciConfig,
     cancel: &CancellationToken,
+    // AUDIT-M3: start gate receiver handed to each duration's `run_single`.
+    start_gate: Option<tokio::sync::watch::Receiver<bool>>,
     broadcast_txs: &[tokio::sync::broadcast::Sender<MarketSnapshot>],
     histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>],
     latests: &[Arc<RwLock<Option<MarketSnapshot>>>],
@@ -567,6 +592,8 @@ async fn spawn_tasks(
         Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
         Option<analyzer::WarmedPipelineState>,
         market_analyzer::active_set::ActiveSet,
+        // AUDIT-M3: start gate receiver.
+        Option<tokio::sync::watch::Receiver<bool>>,
     )> = Vec::with_capacity(n);
     let pair_pipes = active_pair.all();
     let mut rx_iter = pipeline_rxs.into_iter();
@@ -591,6 +618,7 @@ async fn spawn_tasks(
             },
             warmed_opts[i].cloned(),
             pair_pipes[i].active_set.clone(),
+            start_gate.clone(),
         ));
     }
 
@@ -637,11 +665,14 @@ async fn spawn_tasks(
             candle_fwd,
             warmed,
             active_set,
+            start_gate,
         ),
     ) in pipeline_specs.into_iter().enumerate()
     {
         let a_symbol = internal_symbol.to_string();
         let a_pair_key = pair_key.to_string();
+        // AUDIT-M10: retained for the panic log (the call below moves its own).
+        let a_pair_key_log = a_pair_key.clone();
         let a_telemetry = state.telemetry_tx.clone();
         let a_cancel = cancel.clone();
         let a_fib = fib_config.clone();
@@ -685,6 +716,8 @@ async fn spawn_tasks(
         // (supervisor) and data-time reconstruction events (analyzer).
         let a_cq_scope = state.connection_quality.scope(pair_key, tf_secs).await;
         let a_buffer_size = buffer_size;
+        // AUDIT-M3: this pipeline's own receiver on the shared start gate.
+        let a_start_gate = start_gate.clone();
         // v6.10 (Phase 2 / B3): per-TF advisory handle for write-through.
         let a_advisory: Arc<RwLock<Option<core_domain::advisory::AdvisoryMatrix>>> =
             pair_pipes[i].advisory.clone();
@@ -696,6 +729,9 @@ async fn spawn_tasks(
         // v6.10 (Phase 3 / C3): per-TF pipeline_state handle for write-through.
         let a_pipeline_state: Arc<RwLock<core_domain::models::CandlePipelineState>> =
             pair_pipes[i].pipeline_state.clone();
+        // AUDIT-M10: retained handles for the panic path (the call below moves
+        // its own copies).
+        let panic_state = a_pipeline_state.clone();
 
         // Sibling handles: every OTHER ACTIVE duration's latest-snapshot
         // lock, in ladder order, excluding this pipeline's own.
@@ -708,12 +744,26 @@ async fn spawn_tasks(
         let stale_threshold_secs = stale_threshold_secs as u32;
 
         tokio::spawn(async move {
-            // v9 fix: `run_single`'s future is enormous in debug builds
-            // (~2 MB state machine). Box it so the outer task future stays
-            // tiny — constructing it on the worker stack used to overflow
-            // the default 2 MiB tokio worker stack (save_recharge_cycle
-            // abort).
-            Box::pin(analyzer::run_single(
+            // AUDIT-M10: supervise the pipeline task.
+            //
+            // The JoinHandle was dropped and there was NO `catch_unwind`
+            // anywhere in the workspace, so a panic inside `run_single` was
+            // completely invisible: `pipeline_state` is written only on a
+            // COMPLETED candle, so it stayed at whatever it last was; the
+            // per-duration broadcast ring (cap 32) drained and nothing
+            // refilled it; `/api/system/pipelines` kept reporting
+            // `LIVE`/`INITIALIZING` forever; and the frontend simply kept the
+            // last frame on screen with every indicator reading healthy.
+            //
+            // The operator saw a chart that quietly stopped updating, with no
+            // log line and no state change. This is the same failure shape as
+            // the Bybit v11.13 defect (a silent total loss of the trade stream)
+            // one layer up.
+            //
+            // `CandlePipelineState::Failed` already documents this case ("a
+            // non-self-recoverable calculator panic propagated to the
+            // pipeline"), it was simply never wired.
+            let outcome = std::panic::AssertUnwindSafe(Box::pin(analyzer::run_single(
                 rx,
                 a_telemetry,
                 bcast,
@@ -745,6 +795,7 @@ async fn spawn_tasks(
                 cross_tf_snapshots,
                 a_latency,
                 active_set,
+                a_start_gate,
                 a_quality,
                 a_reliability,
                 Some(a_refetch),
@@ -759,8 +810,24 @@ async fn spawn_tasks(
                 // and pipeline_state handles for write-through.
                 a_indicator_lifecycle,
                 a_pipeline_state,
-            ))
+            )))
+            .catch_unwind()
             .await;
+
+            // AUDIT-M10: make the panic VISIBLE. Without this the state stayed
+            // at whatever it last was, `/api/system/pipelines` kept reporting
+            // healthy, and the frontend kept the last frame on screen — a chart
+            // that quietly stopped updating with no log line and no state
+            // change. `Failed` is the variant whose own doc comment already
+            // reserved "a non-self-recoverable calculator panic propagated to
+            // the pipeline"; it was simply never wired.
+            if outcome.is_err() {
+                *panic_state.write().await = core_domain::models::CandlePipelineState::Failed;
+                eprintln!(
+                    "💥 Pipeline task panicked ({tf_secs}s, {a_pair_key_log}): the pipeline is DEAD \
+                     and will not recover until the instance is recharged or the daemon restarts."
+                );
+            }
         });
     }
 

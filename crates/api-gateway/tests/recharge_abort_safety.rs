@@ -183,16 +183,11 @@ fn a_failed_recharge_leaves_the_old_instance_untouched() {
 
                 // ...and still declaring its active durations (a flushed
                 // zombie would report a stale or empty ladder).
-                let mut buffered = 0usize;
-                for b in survivor.buffers() {
-                    buffered += b.history.read().await.len();
-                }
                 assert!(
                     survivor.active_secs.len() > 0,
                     "the survivor must still declare its active durations, got {:?}",
                     survivor.active_secs
                 );
-                let _ = buffered;
             });
     });
 }

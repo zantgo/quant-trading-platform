@@ -467,7 +467,22 @@ pub async fn add_instance(
         strategy: strategy_first,
         buffer_size,
         stale_threshold_secs,
+        // AUDIT-M3: set below, immediately before `build_pipelines`.
+        start_gate: None,
     };
+
+    // AUDIT-M3: start gate shared by every duration of this instance.
+    //
+    // `build_pipelines` spawns `run_single`, which seeds its indicator state and
+    // then touches the SHARED history deques; `populate_buffers` below seeds
+    // those same deques. Both used a read-once-then-act guard, so they raced and
+    // could double-seed the warm candles (up to 2x 500 duplicated bars, which
+    // silently corrupts Fibonacci / pivots / S-R / patterns / cluster lookbacks
+    // at handover). The gate makes the ordering deterministic.
+    let (start_tx, start_rx) = tokio::sync::watch::channel(false);
+    let mut pipeline_ctx = pipeline_ctx;
+    pipeline_ctx.start_gate = Some(start_rx);
+    let start_tx = Arc::new(start_tx);
 
     let artifacts = pipelines::build_pipelines(
         &pipeline_ctx,
@@ -514,6 +529,11 @@ pub async fn add_instance(
         )
         .await;
     }
+
+    // AUDIT-M3: release the pipelines. This MUST run on every path — including
+    // the no-warmed-state one, where `populate_buffers` was skipped entirely —
+    // or the tasks would wait on the gate forever and never process a trade.
+    let _ = start_tx.send(true);
 
     // Register instance: insert into both the live map AND the persisted
     // workspace config so a subsequent `recharge_instance` (or any other
@@ -994,6 +1014,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         strategy: strategy_recharge,
         buffer_size,
         stale_threshold_secs,
+        // AUDIT-M3: set below, immediately before `build_pipelines`.
+        start_gate: None,
     };
 
     let artifacts = pipelines::build_pipelines(
