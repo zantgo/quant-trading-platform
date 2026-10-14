@@ -60,6 +60,22 @@ add_case "hyperliquid-L1-d4"  hl BTC 60,180,300,900     4  "fail"
 add_case "hyperliquid-L7-d51" hl BTC 900,1800,3600,14400 51 "pass"
 add_case "hyperliquid-L7-d53" hl BTC 900,1800,3600,14400 53 "fail"
 
+# ── Bybit (depth-UNCAPPED: measured ~2,425 days retention on every interval,
+#    far past the 365-day archive ceiling, so every depth inside the ceiling
+#    PASSES — the opposite of Bitget's per-granularity retention table) ──
+add_case "bybit-L1-d1"   bybit BTC 60,180,300,900     1   "pass"
+add_case "bybit-L1-d7"   bybit BTC 60,180,300,900     7   "pass"
+add_case "bybit-L1-d30"  bybit BTC 60,180,300,900     30  "pass"
+add_case "bybit-L1-d365" bybit BTC 60,180,300,900     365 "pass"
+add_case "bybit-L7-d180" bybit BTC 900,1800,3600,14400 180 "pass"
+# Venue-specific negatives: HFP-03 has no Bybit sub-minute interval at all.
+add_case "bybit-negative-sub-minute"      bybit BTC 15,60,300,900   7 "fail"
+add_case "bybit-negative-non-ascending"   bybit BTC 900,60,300,180  7 "fail"
+add_case "bybit-negative-burn-in"         bybit BTC 60,180,300,900  1  "fail"
+# TradFi line lives in the same `category=linear` product — Bybit's headline
+# differentiator, and one the Bitget/Hyperliquid cases cannot cover.
+add_case "bybit-tradfi-XAU-d7" bybit XAU 60,180,300,900 7 "pass"
+
 # ── Negatives (exchange-agnostic payloads) ──
 add_case "negative-sub-minute"  bitget BTC 15,60,300,900  7 "fail"
 add_case "negative-non-ascending" bitget BTC 900,60,300,180 7 "fail"

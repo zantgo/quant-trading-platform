@@ -360,6 +360,16 @@ impl ExecutionBackend for BitgetLiveBroker {
 /// bracket as **position attributes** (`/v5/position/trading-stop`) rather
 /// than as standalone trigger orders, so a `Stop` packet sets the bracket on
 /// the position rather than submitting a conditional order.
+/// Marker prefix for the synthetic id returned when a Bybit `Stop` packet sets
+/// a position's TP/SL bracket.
+///
+/// Bybit models the bracket as a position attribute, so there is no venue
+/// `orderId`. `cancel_order` uses this prefix to route to
+/// [`BybitLiveClient::clear_trading_stop`] instead of the order-cancel
+/// endpoint — the parity fix with Bitget/Hyperliquid, where the id returned is
+/// genuinely cancellable.
+pub const BYBIT_TPSL_ID_PREFIX: &str = "bybit-tpsl-";
+
 pub struct BybitLiveBroker {
     pub client: network_adapters::adapters::bybit_live::BybitLiveClient,
 }
@@ -438,13 +448,24 @@ impl ExecutionBackend for BybitLiveBroker {
                         .set_trading_stop(&symbol, Some(&trigger), None, Some(&size), None)
                         .await?;
                 }
-                Ok(format!("bybit-tpsl-{}", link_id))
+                // Bybit attaches TP/SL to the POSITION, not to a resting
+                // order, so the venue returns no order id. This marker is
+                // deliberately prefixed so `cancel_order` can recognise it and
+                // clear the bracket through the venue's own API instead of
+                // handing a non-existent id to the cancel endpoint (which
+                // would fail at runtime and leave the bracket live).
+                Ok(format!("{}{}", BYBIT_TPSL_ID_PREFIX, link_id))
             }
         }
     }
 
     async fn cancel_order(&self, order_id: &str, symbol: &str) -> Result<(), String> {
         let symbol = network_adapters::adapters::bybit_live::bybit_symbol_from_internal(symbol);
+        // A TP/SL bracket is a position attribute: "cancelling" it means
+        // clearing the attribute, not cancelling a venue order.
+        if order_id.starts_with(BYBIT_TPSL_ID_PREFIX) {
+            return self.client.clear_trading_stop(&symbol).await;
+        }
         self.client.cancel_order(&symbol, order_id).await
     }
 

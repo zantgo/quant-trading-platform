@@ -92,13 +92,32 @@ pub fn parse_tf(raw: &str) -> Result<Vec<u64>, String> {
 }
 
 /// Resolve the exchange name to the normalized exchange enum.
+///
+/// All three venues are first-class here. Bybit was missing from this list
+/// until v11.13.1: the API path (`/api/backtest/run`,
+/// `/api/backtest/archive/backfill`) supported the venue but the CLI did not,
+/// so `--backtest --exchange bybit` hard-failed with a two-venue error message
+/// while every other Bybit surface worked — a CLI↔API parity hole.
 pub fn resolve_exchange(name: &str) -> Result<Exchange, String> {
     if name.eq_ignore_ascii_case("bitget") {
         Ok(Exchange::Bitget)
+    } else if name.eq_ignore_ascii_case("bybit") {
+        Ok(Exchange::Bybit)
     } else if name.eq_ignore_ascii_case("hyperliquid") || name.eq_ignore_ascii_case("hl") {
         Ok(Exchange::Hyperliquid)
     } else {
-        Err("exchange must be 'Hyperliquid' (hl) or 'Bitget'".to_string())
+        Err("exchange must be 'Hyperliquid' (hl), 'Bitget' or 'Bybit'".to_string())
+    }
+}
+
+/// Canonical display name for an [`Exchange`], used in envelopes and log
+/// lines. Returns `None` for a value outside the three venues so a future
+/// variant cannot be silently reported as a different one.
+fn exchange_display_name(exchange: Exchange) -> Option<&'static str> {
+    match exchange {
+        Exchange::Bitget => Some("Bitget"),
+        Exchange::Bybit => Some("Bybit"),
+        Exchange::Hyperliquid => Some("Hyperliquid"),
     }
 }
 
@@ -153,11 +172,7 @@ fn validate(workspace: &WorkspaceConfig, args: &CliBacktestArgs) -> Result<Excha
     // and Bitget's per-granularity retention (measured) — hard clamp on
     // smallest TF (fewest days) — operator knows before run, never silent
     // truncate. Smallest TF rules because it needs most candles per day.
-    let exchange_name = if exchange == Exchange::Bitget {
-        "Bitget"
-    } else {
-        "Hyperliquid"
-    };
+    let exchange_name = exchange_display_name(exchange).unwrap_or("Unknown");
     // Precompute smallest TF's ceiling for clear hard-clamp message
     let smallest_tf = args.tf.iter().copied().min().unwrap_or(60);
     let smallest_max = backtesting_engine::backfill::exchange_max_depth_secs(
@@ -172,7 +187,12 @@ fn validate(workspace: &WorkspaceConfig, args: &CliBacktestArgs) -> Result<Excha
             &workspace.backtest,
         );
         if max_depth_secs > 0 && (args.depth_days as i64) * 86400 > max_depth_secs {
-            let limit = if exchange == Exchange::Bitget {
+            let limit = if exchange == Exchange::Bybit {
+                format!(
+                    "Bybit's {tf}s history (retention ≈ {} days)",
+                    max_depth_secs / 86400
+                )
+            } else if exchange == Exchange::Bitget {
                 format!(
                     "Bitget's {tf}s history (retention ≈ {} days)",
                     max_depth_secs / 86400
@@ -225,11 +245,7 @@ async fn ensure_archive(
         .as_millis() as u64;
     let depth_ms = depth_days as u64 * 86400 * 1000;
     let from_ms = now_ms - depth_ms;
-    let exchange_name = if exchange == Exchange::Bitget {
-        "Bitget"
-    } else {
-        "Hyperliquid"
-    };
+    let exchange_name = exchange_display_name(exchange).unwrap_or("Unknown");
 
     for symbol in symbols {
         for tf in tf_ladder {
@@ -321,14 +337,44 @@ fn build_fetcher(
         .rsplit_once('-')
         .map(|(base, _)| base.to_string())
         .unwrap_or_else(|| symbol.to_string());
-    let choice = if exchange == Exchange::Bitget {
-        portfolio_supervisor::session::ExchangeChoice::Bitget
-    } else {
-        portfolio_supervisor::session::ExchangeChoice::Hyperliquid
+    let choice = match exchange {
+        Exchange::Bitget => portfolio_supervisor::session::ExchangeChoice::Bitget,
+        Exchange::Bybit => portfolio_supervisor::session::ExchangeChoice::Bybit,
+        Exchange::Hyperliquid => portfolio_supervisor::session::ExchangeChoice::Hyperliquid,
     };
     let raw = choice.raw_symbol(&base, &quote);
     let internal_symbol = symbol.to_string();
-    if exchange == Exchange::Bitget {
+    if exchange == Exchange::Bybit {
+        // Bybit serves every instrument from the single `category=linear`
+        // product, so there is no product-type parameter to thread — unlike
+        // Bitget, whose mix API is partitioned by USDT/USDC settlement.
+        let rest_url = {
+            let platform = config_models::load_platform().ok();
+            platform
+                .map(|p| p.bybit.kline_url())
+                .unwrap_or_else(|| "https://api.bybit.com".to_string())
+        };
+        let internal = internal_symbol.clone();
+        Arc::new(move |tf_secs, start_ms, end_ms| {
+            let raw = raw.clone();
+            let internal = internal.clone();
+            let rest_url = rest_url.clone();
+            Box::pin(async move {
+                let interval =
+                    network_adapters::adapters::bybit_rest::timeframe_secs_to_interval(tf_secs);
+                network_adapters::adapters::bybit_rest::fetch_historical_candles_page(
+                    &raw,
+                    &internal,
+                    interval,
+                    start_ms,
+                    end_ms,
+                    network_adapters::adapters::bybit_rest::BYBIT_PAGE_LIMIT,
+                    &rest_url,
+                )
+                .await
+            })
+        })
+    } else if exchange == Exchange::Bitget {
         let product_type = if raw.ends_with("USDT") {
             "USDT-FUTURES"
         } else {
@@ -413,10 +459,12 @@ pub async fn run_cli_backtest(
     };
 
     // Internal symbols: "BTC" → "BTC-USDC" / "BTC-USDT" per exchange.
-    let quote = if exchange == Exchange::Bitget {
-        "-USDT"
-    } else {
-        "-USDC"
+    // Bybit settles USDT perps as `{BASE}USDT` in the same `category=linear`
+    // product that also carries USDC perps, so it is USDT-first here — the
+    // same convention `ExchangeChoice::raw_symbol` applies.
+    let quote = match exchange {
+        Exchange::Bitget | Exchange::Bybit => "-USDT",
+        Exchange::Hyperliquid => "-USDC",
     };
     let symbols: Vec<String> = args
         .symbols
@@ -742,6 +790,53 @@ pub fn prompt_backtest_args(workspace: &WorkspaceConfig) -> CliBacktestArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// All three venues must resolve from the CLI. Bybit was absent from this
+    /// list until v11.13.1, so `--backtest --exchange bybit` hard-failed even
+    /// though every other Bybit surface (and the whole BTE API) supported it.
+    #[test]
+    fn resolve_exchange_accepts_every_venue_case_insensitively() {
+        for name in ["bybit", "Bybit", "BYBIT"] {
+            assert_eq!(
+                resolve_exchange(name).unwrap(),
+                Exchange::Bybit,
+                "{name} must resolve to Bybit"
+            );
+        }
+        for name in ["bitget", "Bitget", "BITGET"] {
+            assert_eq!(resolve_exchange(name).unwrap(), Exchange::Bitget, "{name}");
+        }
+        for name in ["hyperliquid", "Hyperliquid", "hl", "HL"] {
+            assert_eq!(
+                resolve_exchange(name).unwrap(),
+                Exchange::Hyperliquid,
+                "{name}"
+            );
+        }
+        // An unknown venue must be a loud error naming all three, never a
+        // silent fallback to one of them.
+        let err = resolve_exchange("kraken").unwrap_err();
+        for venue in ["Hyperliquid", "Bitget", "Bybit"] {
+            assert!(err.contains(venue), "error must name {venue}: {err}");
+        }
+    }
+
+    #[test]
+    fn every_exchange_maps_to_a_distinct_display_name() {
+        // Guards the two-venue `if Bitget { "Bitget" } else { "Hyperliquid" }`
+        // shape this module used to have in five places, which reported
+        // Bybit runs as "Hyperliquid" in the JSON envelope and log lines.
+        let names = [
+            exchange_display_name(Exchange::Bitget).unwrap(),
+            exchange_display_name(Exchange::Bybit).unwrap(),
+            exchange_display_name(Exchange::Hyperliquid).unwrap(),
+        ];
+        assert_eq!(names, ["Bitget", "Bybit", "Hyperliquid"]);
+        let mut sorted = names.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 3, "display names must be distinct");
+    }
 
     #[test]
     fn parse_tf_accepts_one_to_fourteen_slots() {

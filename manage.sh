@@ -292,7 +292,7 @@ run_tests() {
 
 test_core() {
     echo "🦀 TEST-CORE: Running core-domain + market-analyzer + config-models..."
-    cargo test --no-fail-fast -p core-domain -p market-analyzer -p config-models -- $CARGO_TEST_ARGS
+    cargo test $CARGO_BUILD_ARGS --no-fail-fast -p core-domain -p market-analyzer -p config-models -- $CARGO_TEST_ARGS
 }
 
 # ── v11.13.1: the engine suite is split by network dependency ────────────────
@@ -331,12 +331,22 @@ if [ "$(nproc 2>/dev/null || echo 4)" -lt "$TEST_THREADS" ]; then
 fi
 CARGO_TEST_ARGS="--test-threads=$TEST_THREADS"
 
+# Compile jobs. Bound separately from TEST_THREADS because they dominate peak
+# memory: linking one api-gateway test binary pulls ~600 MB of rust-lld, and
+# 25 of them at full nproc drove a 2.8 GB host to ~50 MB free mid-compile.
+# Defaults to the test bound; override with BUILD_JOBS=n.
+: "${BUILD_JOBS:=$TEST_THREADS}"
+if [ "$(nproc 2>/dev/null || echo 4)" -lt "$BUILD_JOBS" ]; then
+    BUILD_JOBS=$(nproc 2>/dev/null || echo 4)
+fi
+CARGO_BUILD_ARGS="--jobs=$BUILD_JOBS"
+
 test_engine_offline() {
     echo "🦀 TEST-ENGINE-OFFLINE: hermetic engine tests (no network)..."
     echo "    packages: $ENGINE_OFFLINE_PKGS"
     echo "    libtest threads: $TEST_THREADS (override with TEST_THREADS=n)"
     echo "    --no-fail-fast: a failure in one package cannot hide another package's results."
-    cargo test --no-fail-fast -p database-storage -p portfolio-supervisor \
+    cargo test $CARGO_BUILD_ARGS --no-fail-fast -p database-storage -p portfolio-supervisor \
         -p performance-analytics -p network-adapters -p execution-daemon \
         -- $CARGO_TEST_ARGS
 }
@@ -348,7 +358,7 @@ test_engine_live() {
     for sym in BTCUSDT BTC-USDC; do
         echo "    probing $sym ..." || missing=1
     done
-    LIVE_VENUE=1 cargo test --no-fail-fast -p api-gateway -p network-adapters \
+    LIVE_VENUE=1 cargo test $CARGO_BUILD_ARGS --no-fail-fast -p api-gateway -p network-adapters \
         -- $CARGO_TEST_ARGS
 }
 
@@ -371,7 +381,7 @@ test_indicators() {
     echo "    Each indicator (37 candle-based) is exercised through calculator → normalizer → signal deriver → lifecycle builder"
     echo "    with synthesized OHLCV candles in 4 market patterns (uptrend, downtrend, range, volatile)."
     echo "    Failures surface duplicate (label, kind) signal pairs that would trigger each_key_duplicate in the UI."
-    cargo test --no-fail-fast -p market-analyzer --test indicator_pipeline_e2e -- --nocapture --test-threads=1
+    cargo test $CARGO_BUILD_ARGS --no-fail-fast -p market-analyzer --test indicator_pipeline_e2e -- --nocapture --test-threads=1
 }
 
 test_engine_full() {

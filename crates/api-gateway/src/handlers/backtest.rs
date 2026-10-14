@@ -130,7 +130,18 @@ pub async fn serve_backfill_start(
             )
                 .into_response();
         }
-        exchange = exchange_name.to_string();
+        // Canonicalize the venue name. Validation above is case-INsensitive,
+        // but the string was forwarded verbatim, and the dispatch sites below
+        // match PascalCase literals — so `{"exchange":"bybit"}` passed
+        // validation and then silently fell through to the `_ =>` arm, i.e.
+        // the HYPERLIQUIDUM fetcher and page limits, for a Bybit symbol.
+        // Normalizing once here makes every downstream match total.
+        exchange = match exchange_name.to_ascii_lowercase().as_str() {
+            "bitget" => "Bitget",
+            "bybit" => "Bybit",
+            _ => "Hyperliquid",
+        }
+        .to_string();
         symbol = sym.to_string();
         ladder = tfs.clone();
         job_key = format!("{}:{}", exchange.to_lowercase(), symbol);
@@ -275,6 +286,22 @@ pub async fn serve_backfill_start(
         }
     };
 
+    // The fetcher dispatch below is total over the three canonical venue
+    // names — `exchange` was canonicalized above. A value that is still
+    // unrecognized here must be a LOUD error: the previous `_ =>` arm routed
+    // anything unknown to the Hyperliquid fetcher, so a casing slip silently
+    // backfilled a Bybit symbol from api.hyperliquid.xyz.
+    if !matches!(exchange.as_str(), "Bitget" | "Bybit" | "Hyperliquid") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("unrecognized exchange '{}'", exchange),
+                "code": "invalid_exchange",
+            })),
+        )
+            .into_response();
+    }
+
     // Production page fetcher wired to the exchange.
     let fetcher: PageFetcher = match exchange.as_str() {
         "Bitget" => {
@@ -336,7 +363,7 @@ pub async fn serve_backfill_start(
                 })
             })
         }
-        _ => {
+        "Hyperliquid" => {
             let raw = raw_symbol;
             let internal = symbol.clone();
             let rest_url = state.platform.read().await.hyperliquid.rest_url();
@@ -354,6 +381,17 @@ pub async fn serve_backfill_start(
                     )
                     .await
                 })
+            })
+        }
+        // Unreachable: the guard above rejects anything that is not one of
+        // the three canonical names. Kept total (rather than panicking) so a
+        // future venue added to validation without a fetcher fails loudly at
+        // call time instead of silently querying the wrong exchange.
+        other => {
+            let reason = format!("no page fetcher wired for exchange '{other}'");
+            Arc::new(move |_, _, _| {
+                let reason = reason.clone();
+                Box::pin(async move { Err(reason) })
             })
         }
     };

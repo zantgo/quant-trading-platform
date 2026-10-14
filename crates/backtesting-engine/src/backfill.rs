@@ -252,11 +252,18 @@ pub async fn run_backfill(
     tfs.sort_unstable();
     tfs.dedup();
 
+    // Venue names arrive canonicalized ("Bitget" | "Bybit" | "Hyperliquid")
+    // from the API handler. Matching case-INsensitively here as well keeps
+    // this table total for any caller: the previous exact-match form let a
+    // lowercase spelling fall into the Hyperliquid row, silently applying
+    // Hyperliquid's page cap and max-pages budget to another venue.
     let limits = |exchange: &str| -> config_models::ExchangeBacktestLimits {
-        match exchange {
-            "Bitget" => cfg.backtest.bitget.clone(),
-            "Bybit" => cfg.backtest.bybit.clone(),
-            _ => cfg.backtest.hyperliquid.clone(),
+        if exchange.eq_ignore_ascii_case("bitget") {
+            cfg.backtest.bitget.clone()
+        } else if exchange.eq_ignore_ascii_case("bybit") {
+            cfg.backtest.bybit.clone()
+        } else {
+            cfg.backtest.hyperliquid.clone()
         }
     };
 

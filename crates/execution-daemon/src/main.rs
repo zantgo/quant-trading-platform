@@ -1653,11 +1653,16 @@ async fn async_main() {
                 .filter(|q| !q.is_empty())
                 .unwrap_or_else(|| workspace.default_currency.clone());
 
-            let (address_or_key, secret_enc, passphrase_opt) = match workspace
-                .default_exchange
-                .as_str()
-            {
-                "Hyperliquid" => {
+            // `WorkspaceConfig::default_exchange` is an unvalidated free-form
+            // String (and the interactive prompt itself emits lowercase
+            // "bybit"), while every other venue call site in this binary
+            // matches case-insensitively. Matching it exactly here meant a
+            // lowercase value fell through to the `other` arm below, which
+            // refuses the live boot — so the daemon silently degraded to paper
+            // on a workspace that was configured for live. Canonicalize once.
+            let default_exchange_key = workspace.default_exchange.to_ascii_lowercase();
+            let (address_or_key, secret_enc, passphrase_opt) = match default_exchange_key.as_str() {
+                "hyperliquid" => {
                     let key_row = match sqlx::query_as::<_, (String, String, String)>(
                         "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
                          WHERE exchange = 'Hyperliquid' AND is_active = 1 ORDER BY id DESC LIMIT 1",
@@ -1682,7 +1687,7 @@ async fn async_main() {
                         }
                     }
                 }
-                "Bitget" => {
+                "bitget" => {
                     let key_row = match sqlx::query_as::<_, (String, String, String)>(
                         "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
                          WHERE exchange = 'Bitget' AND is_active = 1 ORDER BY id DESC LIMIT 1",
@@ -1716,7 +1721,7 @@ async fn async_main() {
                         }
                     }
                 }
-                "Bybit" => {
+                "bybit" => {
                     // Bybit V5 needs API key + secret only — NO passphrase
                     // (contrast Bitget, which requires one).
                     let key_row = match sqlx::query_as::<_, (String, String, String)>(

@@ -67,24 +67,105 @@ pub fn assign_sector(symbol: &str, venue_coin: Option<&str>) -> &'static str {
         None => (key_dex, key_base),
     };
 
-    // Non-crypto perps live exclusively on HIP-3 dexes, so the dex itself is a
-    // reliable "this is not crypto" signal before the ticker table is consulted.
+    // Non-crypto perps on a HIP-3 dex. The dex prefix IS the "this is not
+    // crypto" signal (those markets exist nowhere else), and it must be
+    // consulted BEFORE the crypto table: `xyz:TAO` is an equity proxy while a
+    // bare `TAO` is Bittensor.
     if dex.is_some() {
-        return match base.as_str() {
-            "GOLD" | "SILVER" | "PLATINUM" | "PALLADIUM" | "COPPER" | "ALUMINIUM" | "NATGAS" => {
-                "Commodity"
-            }
-            "CL" | "BRENTOIL" | "WTI" | "USOIL" | "NOK" | "TTF" | "HO" => "Energy",
-            "SP500" | "USA500" | "US500" | "XYZ100" | "USTECH" | "SMALL2000" | "VIX" | "BVIV"
-            | "NIFTY" | "JP225" | "JPN225" | "KR200" => "Index",
-            "EUR" | "GBP" | "JPY" | "KRW" | "DXY" => "FX",
-            "TLT" | "USBOND" | "GLDMINE" | "SHY" => "Rates / Bond",
-            "WHEAT" | "CORN" | "SOY" | "URANIUM" | "URNM" => "Agriculture",
-            _ => "Equity",
-        };
+        return classify_non_crypto(&base).unwrap_or("Equity");
     }
 
-    match base.as_str() {
+    // Crypto classification first — unchanged behaviour for every venue.
+    if let Some(sector) = classify_crypto(&base) {
+        return sector;
+    }
+
+    // Bybit's TradFi line lives in the SAME `category=linear` product as its
+    // crypto perps and carries NO dex qualifier, so the branch above never
+    // applied to it: `AAPLUSDT` reduced to the base `AAPLUSDT` and fell
+    // through to "Other", collapsing Bybit's entire headline catalogue (206
+    // equity / 56 ETF / 4 commodity / 3 FX perps) into one bucket and defeating
+    // the sector-concentration limits for exactly the markets that share the
+    // most exposure. Bybit's wire name is `{BASE}USDT`, so strip the quote and
+    // classify the real ticker against BOTH tables — crypto first, so
+    // `BTCUSDT` still reduces to `BTC` and stays `Base Chain`.
+    if let Some(stripped) = base.strip_suffix("USDT") {
+        if let Some(sector) = classify_crypto(stripped).or_else(|| classify_non_crypto(stripped)) {
+            return sector;
+        }
+    }
+
+    "Other"
+}
+
+/// Non-crypto asset classes, keyed on the bare ticker.
+///
+/// Shared by the HIP-3 dex path (prefixed, e.g. `xyz:GOLD`) and Bybit's
+/// un-prefixed `{BASE}USDT` line, so the two venues' TradFi catalogues land in
+/// the same buckets.
+fn classify_non_crypto(base: &str) -> Option<&'static str> {
+    // The tickers below are generated from Bybit's own
+    // `/v5/market/instruments-info` listing (measured 2026-10: 213 `stock`,
+    // 57 `ETF`, 4 `commodity`, 3 `forex`) unioned with Hyperliquid's HIP-3
+    // dex markets, so both venues' TradFi catalogues land in the same buckets.
+    // Specific buckets are matched BEFORE the ETF and equity tables so a
+    // ticker listed as both (TLT, URNM) resolves identically on either venue.
+    // A ticker in none of the tables returns None -> "Other", the SAFE
+    // direction: it under-claims a sector limit rather than inventing one.
+    Some(match base {
+        // Commodity
+        "GOLD" | "SILVER" | "PLATINUM" | "PALLADIUM" | "COPPER" | "ALUMINIUM" | "NATGAS"
+        | "XAU" | "XAG" => "Commodity",
+        // Energy
+        "CL" | "BZ" | "BRENTOIL" | "WTI" | "USOIL" | "NOK" | "TTF" | "HO" => "Energy",
+        // Index
+        "SP500" | "USA500" | "US500" | "XYZ100" | "USTECH" | "SMALL2000" | "VIX" | "BVIV"
+        | "NIFTY" | "JP225" | "JPN225" | "KR200" | "NAS100" | "NDX" => "Index",
+        // FX
+        "EUR" | "GBP" | "JPY" | "KRW" | "DXY" | "EURUSD" | "GBPUSD" | "USDJPY" => "FX",
+        // Rates / Bond
+        "TLT" | "USBOND" | "GLDMINE" | "SHY" | "TMF" | "TBT" => "Rates / Bond",
+        // Agriculture
+        "WHEAT" | "CORN" | "SOY" | "URANIUM" | "URNM" => "Agriculture",
+        // Bybit ETF perps (57 listed; already-checked tickers excluded)
+        "ARKK" | "BITO" | "BMNU" | "BWET" | "CONL" | "CSOPSAMSUNG2L" | "CSOPSKHYNIX2L" | "DRAM"
+        | "EWJ" | "EWT" | "EWY" | "EWZ" | "GDX" | "IBIT" | "INTW" | "IWM" | "KODEX200" | "KORU"
+        | "KSTR" | "LYTE" | "MAGS" | "MSFU" | "MSTU" | "MUU" | "MVLL" | "NCLD" | "NVDL" | "QQQ"
+        | "RAM" | "SKDD" | "SKUU" | "SMH" | "SNXX" | "SOXL" | "SOXS" | "SOXX" | "SPCH" | "SPXL"
+        | "SPY" | "SQQQ" | "SSPC" | "TQQQ" | "TSLL" | "TZA" | "UVXY" | "XBI" | "XLE" | "XLF"
+        | "XLK" | "XLP" | "XLU" | "XLV" | "ZCSH" => "ETF",
+        // Single-name equity perps (213 listed)
+        "AAL" | "AAOI" | "AAPL" | "ACN" | "ADBE" | "ADI" | "AEHR" | "ALAB" | "AMAT" | "AMC"
+        | "AMDSTOCK" | "AMGN" | "AMZN" | "AMZU" | "ANET" | "APLD" | "APPSTOCK" | "ARM" | "ASML"
+        | "ASTS" | "AVGO" | "AXTI" | "BABA" | "BAC" | "BBX" | "BE" | "BIIB" | "BMNR" | "BNC"
+        | "BOT" | "BRKB" | "BSP" | "BTDR" | "BX" | "BYD" | "CATSTOCK" | "CBRS" | "CGNX"
+        | "CIEN" | "CIFR" | "CLSK" | "COHR" | "COIN" | "CORZ" | "COST" | "CRCL" | "CRDO"
+        | "CRM" | "CRWD" | "CRWV" | "CSCO" | "CVNA" | "CVXSTOCK" | "CXMT" | "CYPH" | "DDOG"
+        | "DELL" | "DJT" | "DKNG" | "EBAY" | "FLEX" | "FLNC" | "FLY" | "FORMSTOCK" | "FUTU"
+        | "FWDI" | "GE" | "GEV" | "GIGADEVICE" | "GILD" | "GLW" | "GMESTOCK" | "GOOGL" | "GPRO"
+        | "GRAL" | "GS" | "GTLB" | "HANMI" | "HD" | "HIMS" | "HOOD" | "HORIZON" | "HPE"
+        | "HUAHONG" | "HUT" | "HYUNDAI" | "IBM" | "INFQ" | "INTC" | "INTU" | "IONQ" | "IREN"
+        | "ISRG" | "JD" | "JNJ" | "JPM" | "KLAC" | "KO" | "KUAISHOU" | "LAOPU" | "LENOVO"
+        | "LGELECTRONICS" | "LITE" | "LLY" | "LRCX" | "LULU" | "MA" | "MARA" | "MCD" | "MDB"
+        | "MEITU" | "MEITUAN" | "MELI" | "META" | "MINIMAX" | "MNST" | "MO" | "MP" | "MRK"
+        | "MRNA" | "MRVL" | "MSFT" | "MSTR" | "MU" | "NAVER" | "NBIS" | "NET" | "NFLX" | "NKE"
+        | "NOKIA" | "NOW" | "NUSTOCK" | "NVDA" | "NVO" | "OKLO" | "OKTA" | "ON" | "ONDS"
+        | "ORCL" | "OUST" | "PANW" | "PATH" | "PBR" | "PDD" | "PENGSTOCK" | "PEP" | "PLTR"
+        | "POET" | "POPMART" | "PURR" | "PYPL" | "QCOM" | "QNTX" | "RDDT" | "RDW" | "REGN"
+        | "RIOT" | "RIVN" | "RKLB" | "RUM" | "SAMSUNG" | "SAMSUNGEM" | "SDGR" | "SECZ"
+        | "SENSETIME" | "SHAZ" | "SHEIN" | "SHOP" | "SKHY" | "SKHYNIX" | "SMCI" | "SMIC"
+        | "SNDK" | "SNOW" | "SNPS" | "SOFI" | "SONY" | "SPCX" | "SPOT" | "STXX" | "TEAM"
+        | "TEM" | "TENCENT" | "TER" | "TSEM" | "TSLA" | "TSM" | "TTWO" | "TWST" | "TXN"
+        | "UBER" | "UMC" | "UNH" | "UNITREE" | "USAR" | "USDEX" | "V" | "VIST" | "VKTX" | "VRT"
+        | "VRTXSTOCK" | "VST" | "WDC" | "WENSTOCK" | "WMT" | "XIAOMI" | "XOM" | "YOFC" | "YPF"
+        | "ZHIPU" | "ZHONGJI" | "ZM" | "ZS" => "Equity",
+        _ => return None,
+    })
+}
+
+/// Crypto asset classes, keyed on the bare ticker.
+fn classify_crypto(base: &str) -> Option<&'static str> {
+    Some(match base {
         "BTC" | "SOL" | "AVAX" | "ADA" | "DOT" | "ATOM" => "Base Chain",
         "ARB" | "OP" | "MATIC" | "POL" | "IMX" | "STRK" => "L2 Protocols",
         "UNI" | "AAVE" | "MKR" | "COMP" | "CRV" | "LDO" | "PENDLE" => "DeFi",
@@ -92,8 +173,8 @@ pub fn assign_sector(symbol: &str, venue_coin: Option<&str>) -> &'static str {
         "LINK" | "RNDR" | "FET" | "OCEAN" | "AGIX" | "WLD" => "AI / Oracle",
         "ETH" | "BNB" | "SUI" | "APT" | "SEI" | "NEAR" | "FTM" => "L1 Smart Contract",
         "TAO" => "AI / Oracle",
-        _ => "Other",
-    }
+        _ => return None,
+    })
 }
 
 pub fn compute_correlation_matrix(price_histories: &HashMap<String, Vec<f64>>) -> CorrelationMap {

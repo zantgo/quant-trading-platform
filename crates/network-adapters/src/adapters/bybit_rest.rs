@@ -286,7 +286,14 @@ pub fn timeframe_secs_to_interval(secs: u64) -> &'static str {
         other if other < 3600 => "30",
         other if other < 14400 => "60",
         other if other < 43200 => "240",
-        _ => "720",
+        // Bybit's coarsest interval in the 14-duration pool is `D` (1 day).
+        // The previous catch-all was `"720"` (12 h), so any duration beyond
+        // 12 h that was not exactly 86400 silently became a 12-hour candle —
+        // the only venue whose fallback was NOT the largest interval
+        // (Hyperliquid and Bitget both fall back to their coarsest). Unreachable
+        // with the closed pool, where 86400 is an explicit arm, but a future
+        // duration must never silently produce a mis-granularity candle.
+        _ => "D",
     }
 }
 

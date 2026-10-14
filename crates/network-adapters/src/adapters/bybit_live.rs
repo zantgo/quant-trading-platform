@@ -239,6 +239,25 @@ impl BybitLiveClient {
     /// maps to `/v5/position/trading-stop` instead of Bitget's
     /// `place-tpsl-order`.
     #[allow(clippy::too_many_arguments)]
+    /// Clear a symbol's attached TP/SL.
+    ///
+    /// Bybit models TP/SL as a **position attribute**, not a resting order, so
+    /// there is no venue `orderId` to cancel. Bybit's own API clears the
+    /// brackets by re-posting `/v5/position/trading-stop` with a trigger price
+    /// of `"0"` — that is what the venue treats as "remove".
+    pub async fn clear_trading_stop(&self, symbol: &str) -> Result<(), String> {
+        let payload = serde_json::json!({
+            "category": "linear",
+            "symbol": symbol,
+            "positionIdx": 0,
+            "takeProfit": "0",
+            "stopLoss": "0",
+        });
+        self.signed_post("/v5/position/trading-stop", &payload)
+            .await?;
+        Ok(())
+    }
+
     pub async fn set_trading_stop(
         &self,
         symbol: &str,
