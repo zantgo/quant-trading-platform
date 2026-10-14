@@ -9,7 +9,7 @@
         app.fetchExchangeKeys();
     });
 
-    const EXCHANGES = ['Bitget', 'Hyperliquid', 'Bybit'];
+    const EXCHANGES = ['Hyperliquid', 'Bybit', 'Bitget'];
     let form = app.exchangeFormDraft;
     let showForm = $state(false);
 

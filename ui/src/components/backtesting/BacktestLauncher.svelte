@@ -186,10 +186,16 @@
         return `${secs}s`;
     }
 
-    function symbolOf(base: string): string {
-        const quote = exchange === 'Bitget' ? 'USDT' : 'USDC';
-        return base.includes('-') ? base.toUpperCase() : `${base}-${quote}`;
-    }
+function symbolOf(base: string): string {
+    // Must agree with `supportedCurrencies` above (line ~136), which is the
+    // authoritative per-venue quote list: Hyperliquid settles USDC only,
+    // Bitget and Bybit settle USDT. The previous `exchange === 'Bitget'`
+    // test made Bybit resolve to 'USDC', contradicting its own supported list,
+    // so every Bybit standalone run was keyed on a `-USDC` archive that no
+    // Bybit path ever writes.
+    const quote = exchange === 'Hyperliquid' ? 'USDC' : 'USDT';
+    return base.includes('-') ? base.toUpperCase() : `${base}-${quote}`;
+  }
 
     function goNext() {
         error = '';
@@ -523,8 +529,8 @@
                 <label class={styles.label} for="bl-exchange">Exchange</label>
                 <select id="bl-exchange" class={styles.input} bind:value={exchange}>
                     <option value="Hyperliquid">Hyperliquid</option>
-                    <option value="Bitget">Bitget</option>
                     <option value="Bybit">Bybit</option>
+                    <option value="Bitget">Bitget</option>
                 </select>
             </div>
             <div class={styles.field}>

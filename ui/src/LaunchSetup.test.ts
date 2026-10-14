@@ -88,10 +88,31 @@ async function goToEnvironment(container: HTMLElement) {
     await fireEvent.click(screen.getByText('Continue'));
 }
 
+/**
+ * Pin the wizard's venue explicitly on the Environment step.
+ *
+ * The default venue is Hyperliquid (USDC) since v11.13.1. Tests about symbol
+ * handling, review rendering or launch orchestration must not silently
+ * inherit a venue (and therefore a quote currency) they never asked for, so
+ * they select the venue they mean.
+ */
+async function selectExchange(container: HTMLElement, venue: 'Hyperliquid' | 'Bybit' | 'Bitget') {
+    const select = container.querySelector<HTMLSelectElement>('#launch-exchange');
+    if (!select) throw new Error('launch-exchange select not rendered');
+    await fireEvent.change(select, { target: { value: venue } });
+}
+
 /** v11.11: the ENVIRONMENT→INSTANCES transition initializes the session
  * (async) before the step flips — wait for the Instances step UI. */
-async function goToInstances(container: HTMLElement) {
+async function goToInstances(
+    container: HTMLElement,
+    venue?: 'Hyperliquid' | 'Bybit' | 'Bitget',
+) {
     await goToEnvironment(container);
+    // Pin the venue BEFORE continuing: the default is Hyperliquid (USDC), so a
+    // test asserting USDT pair keys must select one explicitly rather than
+    // silently inheriting a quote currency it never asked for.
+    if (venue) await selectExchange(container, venue);
     await fireEvent.click(screen.getByText('Continue'));
     await waitFor(() => expect(container.textContent).toContain('Add instance'));
 }
@@ -166,13 +187,18 @@ describe('Launch Setup — mode card (v11.11)', () => {
 });
 
 describe('Launch Setup — currency contract', () => {
-    it('defaults to Bitget + USDT (v11.11)', async () => {
+    it('defaults to Hyperliquid + USDC (v11.13.1)', async () => {
+        // Hyperliquid is now the wizard default, matching
+        // `[workspace].default_exchange = "Hyperliquid"` in config.toml /
+        // config.default.toml — the UI had been the outlier defaulting to
+        // Bitget while the backend already defaulted to Hyperliquid.
+        // Hyperliquid settles exclusively in USDC, so the currency must follow.
         const { container } = await render(LaunchSetup);
         await goToEnvironment(container);
         const exchange = container.querySelector<HTMLSelectElement>('#launch-exchange')!;
-        expect(exchange.value).toBe('Bitget');
-        expect(isCurrencyEnabled(container, 'USDT')).toBe(true);
-        expect(isCurrencyEnabled(container, 'USDC')).toBe(false);
+        expect(exchange.value).toBe('Hyperliquid');
+        expect(isCurrencyEnabled(container, 'USDC')).toBe(true);
+        expect(isCurrencyEnabled(container, 'USDT')).toBe(false);
     });
 
     it('Hyperliquid exposes only USDC', async () => {
@@ -202,14 +228,15 @@ describe('Launch Setup — currency contract', () => {
         await goToEnvironment(container);
         const exchange = container.querySelector<HTMLSelectElement>('#launch-exchange')!;
         const options = [...exchange.querySelectorAll('option')].map((o) => o.value);
-        expect(options).toEqual(['Hyperliquid', 'Bitget', 'Bybit']);
+        // Venue order is Hyperliquid (default) -> Bybit -> Bitget.
+        expect(options).toEqual(['Hyperliquid', 'Bybit', 'Bitget']);
     });
 });
 
 describe('Launch Setup — instances step', () => {
     it('offers NO per-slot timeframe picker and displays the ACTIVE ladder', async () => {
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
+        await goToInstances(container, 'Bybit');
 
         // v8 fixed ladder: there is no TF choice — no per-slot <select>
         // pickers exist on this step (the exchange select lives on the
@@ -227,7 +254,7 @@ describe('Launch Setup — instances step', () => {
     // returned before the chip was staged and before the POST was issued.
     it('accepts a non-English venue ticker on the add-instance step', async () => {
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
+        await goToInstances(container, 'Bybit');
 
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: '龙虾' } });
@@ -254,7 +281,7 @@ describe('Launch Setup — instances step', () => {
 
     it('adds and removes staged instances (active ladder shown per instance)', async () => {
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
+        await goToInstances(container, 'Bybit');
 
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: 'btc' } });
@@ -291,7 +318,7 @@ describe('Launch Setup — instances step', () => {
 
     it('review step lists the staged instances', async () => {
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
+        await goToInstances(container, 'Bybit');
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: 'ETH' } });
         await fireEvent.click(screen.getByText('+ Add'));
@@ -305,7 +332,7 @@ describe('Launch Setup — instances step', () => {
 
     it('CONTINUE stays locked while a staged instance is still loading', async () => {
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
+        await goToInstances(container, 'Bybit');
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
         await fireEvent.click(screen.getByText('+ Add'));
@@ -333,7 +360,7 @@ describe('Launch Setup — instances step', () => {
             return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
         }) as unknown as typeof fetch);
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
+        await goToInstances(container, 'Bybit');
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: 'ZZZZZZ' } });
         await fireEvent.click(screen.getByText('+ Add'));
@@ -380,7 +407,7 @@ describe('Launch Setup — launch orchestration', () => {
     it('launches an observe session with staged instances', { timeout: 20000 }, async () => {
         const { calls } = mockBackend();
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
+        await goToInstances(container, 'Bybit');
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
         await fireEvent.click(screen.getByText('+ Add'));
@@ -388,9 +415,12 @@ describe('Launch Setup — launch orchestration', () => {
         // POSTs have already fired before Review.
         await waitFor(() => expect(calls.some((c) => String(c.url) === '/api/instances')).toBe(true));
         const initCall = calls.find((c) => String(c.url).includes('/api/session/init'));
+        // The venue selected above is carried into the session init verbatim —
+        // pinning it here is what proves the wizard does not silently override
+        // the operator's choice with its own default.
         expect(initCall?.body).toMatchObject({
             mode: 'observe',
-            exchange: 'Bitget',
+            exchange: 'Bybit',
             currency: 'USDT',
         });
         // No capital submitted in observe mode.
@@ -1043,7 +1073,7 @@ describe('LaunchSetup — cancel during add-time creation (v11.12)', () => {
         });
         vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
         const { container } = await render(LaunchSetup);
-        await goToInstances(container);
+        await goToInstances(container, 'Bybit');
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
         await fireEvent.click(screen.getByText('+ Add'));

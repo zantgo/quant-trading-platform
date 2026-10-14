@@ -214,8 +214,8 @@
     // ─── Wizard state ────────────────────────────────────────────────
     let step = $state(1);
     let mode = $state<LaunchMode>('observe');
-    let exchange = $state('Bitget');
-    let currency = $state('USDT');
+    let exchange = $state('Hyperliquid');
+    let currency = $state('USDC');
     let capital = $state(1000);
     let walletAddress = $state('');
     let privateKey = $state('');
@@ -873,8 +873,8 @@
                     <label class={styles.formLabel} for="launch-exchange">Exchange</label>
                     <select id="launch-exchange" class={styles.formSelect} bind:value={exchange} disabled={recoveryMode}>
                         <option value="Hyperliquid">Hyperliquid</option>
-                        <option value="Bitget">Bitget</option>
                         <option value="Bybit">Bybit</option>
+                        <option value="Bitget">Bitget</option>
                     </select>
                 </div>
 
