@@ -354,12 +354,16 @@ test_engine_offline() {
 test_engine_live() {
     echo "🌐 TEST-ENGINE-LIVE: tests that reach live exchange APIs..."
     echo "    packages: $ENGINE_LIVE_PKGS"
-    local missing=0
-    for sym in BTCUSDT BTC-USDC; do
-        echo "    probing $sym ..." || missing=1
-    done
-    LIVE_VENUE=1 cargo test $CARGO_BUILD_ARGS --no-fail-fast -p api-gateway -p network-adapters \
-        -- $CARGO_TEST_ARGS
+    echo "    enabling: BYBIT_LIVE=1 + --include-ignored (unlocks the #[ignore]d"
+    echo "              venue-contract tests, e.g. network-adapters/bybit_live_contract)"
+    # The live network tests are double-gated: a Rust `#[ignore]` attribute AND a
+    # BYBIT_LIVE=1 env read inside the test body. BOTH are required — the env
+    # var alone is inert because cargo skips ignored tests, and --include-ignored
+    # alone runs them in a "skipping" no-op. An earlier version of this function
+    # set LIVE_VENUE, which nothing in the tree reads, so the "live" stage
+    # silently re-ran the hermetic suite.
+    BYBIT_LIVE=1 cargo test $CARGO_BUILD_ARGS --no-fail-fast -p api-gateway -p network-adapters \
+        -- --include-ignored $CARGO_TEST_ARGS
 }
 
 test_engine() {
