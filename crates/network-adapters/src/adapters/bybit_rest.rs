@@ -184,21 +184,35 @@ pub async fn fetch_historical_candles_page(
 
     let duration_ms = interval_duration_ms(interval);
 
-    Ok(parsed
+    // AUDIT-M23: this used to be a `filter_map` with `.ok()?` on every field, so
+    // ANY unparseable row vanished with no count, no log and no error. A
+    // systematic parse failure (e.g. the venue switching a numeric to a format
+    // `parse_decimal` rejects) dropped EVERY row, the page came back empty, the
+    // paginator saw an empty page and stopped, and `fetch()` returned
+    // `Ok(vec![])` -- zero candles, reported as success. Sub-minute AND >=60s
+    // durations would both blank out with nothing on screen to explain it.
+    //
+    // Bitget and Hyperliquid already used `?` so a bad row aborts the page with
+    // a real error; Bybit was the outlier. Restored to that contract: the caller
+    // sees a failed page (which the warm path reports and the retry logic can
+    // act on) instead of a silent empty success.
+    parsed
         .result
         .list
         .into_iter()
-        .filter_map(|row| {
+        .map(|row| {
             if row.len() < 6 {
-                return None;
+                return Err("Insufficient candle data fields".to_string());
             }
-            let start_time_ms: u64 = row[0].parse().ok()?;
-            let open = parse_decimal(&row[1]).ok()?;
-            let high = parse_decimal(&row[2]).ok()?;
-            let low = parse_decimal(&row[3]).ok()?;
-            let close = parse_decimal(&row[4]).ok()?;
-            let volume = parse_decimal(&row[5]).ok()?;
-            Some(NormalizedCandle {
+            let start_time_ms: u64 = row[0]
+                .parse()
+                .map_err(|e| format!("Failed to parse timestamp '{}': {}", row[0], e))?;
+            let open = parse_decimal(&row[1])?;
+            let high = parse_decimal(&row[2])?;
+            let low = parse_decimal(&row[3])?;
+            let close = parse_decimal(&row[4])?;
+            let volume = parse_decimal(&row[5])?;
+            Ok(NormalizedCandle {
                 exchange: Exchange::Bybit,
                 symbol: internal_symbol.to_string(),
                 start_time_ms,
@@ -212,7 +226,7 @@ pub async fn fetch_historical_candles_page(
                 reconstructed: Some(ReconstructionMethod::ExchangeHistorical),
             })
         })
-        .collect())
+        .collect()
 }
 
 /// Backward-compatible wrapper pinned to the venue page cap. Use

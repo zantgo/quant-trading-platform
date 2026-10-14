@@ -171,3 +171,106 @@ fn zero_connect_grace_does_not_divide_or_panic() {
     breaker.on_cycle_end(Duration::from_millis(1));
     assert_eq!(breaker.consecutive_failures(), 1);
 }
+
+/// AUDIT-M15: `[reconnect] initial_backoff_ms` / `max_backoff_ms` were
+/// accepted, validated, documented and served by the platform-config API — and
+/// then ignored, because the supervisor hardcoded 1 s → 30 s and
+/// `ReconnectPolicy` had no production caller at all.
+///
+/// An operator raising `initial_backoff_ms` to 10000 to avoid tripping a
+/// venue's connection rate limit got 1 s, with no warning.
+#[test]
+fn the_configured_backoff_ladder_is_honoured() {
+    use network_adapters::adapters::resilience::ReconnectPolicy;
+    use portfolio_supervisor::registry::pipelines::WsBreaker;
+
+    // An operator who wants a slow, polite reconnect.
+    let policy = ReconnectPolicy {
+        initial_backoff: Duration::from_secs(10),
+        max_backoff: Duration::from_secs(120),
+        jitter_pct: 0.0, // deterministic for the assertion
+        max_attempts: None,
+    };
+    let mut breaker = WsBreaker::with_policy(Duration::from_secs(3600), policy); // never a success
+
+    let delays: Vec<Duration> = (0..4)
+        .map(|_| match breaker.on_cycle_end(Duration::from_millis(1)) {
+            BreakerAction::Retry(d) => d,
+            BreakerAction::Cooldown(_) => panic!("unexpected trip within 4 cycles"),
+        })
+        .collect();
+
+    assert_eq!(
+        delays[0],
+        Duration::from_secs(10),
+        "the FIRST retry must use the configured initial_backoff_ms (was hardcoded 1s)"
+    );
+    assert_eq!(delays[1], Duration::from_secs(20), "ladder must double");
+    assert_eq!(delays[2], Duration::from_secs(40));
+    assert_eq!(delays[3], Duration::from_secs(80));
+    assert!(
+        delays.iter().all(|d| *d >= Duration::from_secs(10)),
+        "no retry may be shorter than the configured initial backoff"
+    );
+}
+
+#[test]
+fn the_backoff_ladder_saturates_at_the_configured_maximum() {
+    use network_adapters::adapters::resilience::ReconnectPolicy;
+    use portfolio_supervisor::registry::pipelines::WsBreaker;
+
+    let policy = ReconnectPolicy {
+        initial_backoff: Duration::from_secs(5),
+        max_backoff: Duration::from_secs(20),
+        jitter_pct: 0.0,
+        max_attempts: None,
+    };
+    let mut breaker = WsBreaker::with_policy(Duration::from_secs(3600), policy);
+
+    let mut saw_cap = false;
+    for _ in 0..12 {
+        match breaker.on_cycle_end(Duration::from_millis(1)) {
+            BreakerAction::Retry(d) => {
+                assert!(
+                    d <= Duration::from_secs(20),
+                    "must respect max_backoff: {d:?}"
+                );
+                if d == Duration::from_secs(20) {
+                    saw_cap = true;
+                }
+            }
+            BreakerAction::Cooldown(_) => break,
+        }
+    }
+    assert!(saw_cap, "the ladder must reach the configured ceiling");
+}
+
+/// A pathological config must not be able to hot-spin the supervisor.
+#[test]
+fn a_zero_or_tiny_backoff_config_cannot_hot_spin() {
+    use network_adapters::adapters::resilience::ReconnectPolicy;
+    use portfolio_supervisor::registry::pipelines::WsBreaker;
+
+    for (initial, maxb) in [
+        (Duration::ZERO, Duration::ZERO),
+        (Duration::from_millis(1), Duration::from_millis(1)),
+        (Duration::ZERO, Duration::from_secs(30)),
+    ] {
+        let policy = ReconnectPolicy {
+            initial_backoff: initial,
+            max_backoff: maxb,
+            jitter_pct: 1.0, // worst case: full jitter
+            max_attempts: None,
+        };
+        let mut breaker = WsBreaker::with_policy(Duration::from_secs(3600), policy);
+        for _ in 0..4 {
+            let BreakerAction::Retry(d) = breaker.on_cycle_end(Duration::from_millis(1)) else {
+                continue;
+            };
+            assert!(
+                d >= Duration::from_millis(500),
+                "backoff must never hot-spin, got {d:?} from {initial:?}/{maxb:?}"
+            );
+        }
+    }
+}

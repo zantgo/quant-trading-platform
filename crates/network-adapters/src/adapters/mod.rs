@@ -11,6 +11,7 @@ pub mod bybit_derivatives;
 pub mod bybit_historical_fetch;
 pub mod bybit_live;
 pub mod bybit_rest;
+pub mod diagnostics;
 pub mod historical_fetch;
 pub mod hl_derivatives_poller;
 pub mod http;

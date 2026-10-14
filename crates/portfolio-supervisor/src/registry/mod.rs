@@ -753,6 +753,13 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
         }
     }
 
+    // 2b. AUDIT-M17: drop the per-(pair, duration) connection-quality scopes in
+    //     the same breath as the buffers above, so the two retention accounting
+    //     paths cannot drift apart. The registry had no eviction API at all, so
+    //     every deleted instance left a permanent entry holding its event deque
+    //     -- steady-state growth in a daemon already OOM-killed once.
+    state.connection_quality.evict_pair(&pair_key).await;
+
     // 3. Drop from the live map.
     state.workspace.remove(&pair_key).await;
 

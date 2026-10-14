@@ -1,3 +1,4 @@
+use super::diagnostics::{ChannelTracker, ConnectionScope, DecodeWarnLimiter};
 use core_domain::normalized::{
     AssetContext, ConnectionStatus, Exchange, NormalizedEvent, NormalizedOrderBook,
     NormalizedTrade, TradeSide,
@@ -191,65 +192,37 @@ pub async fn run_for_symbol(
     // masking the exact bug we just fixed (Bitget V2 dropped the
     // dedicated OI/funding channels; if the subscription silently fails
     // for any reason the operator sees the dead channel here).
-    let diag_ticker = ticker_last.clone();
-    let diag_ticker_oi = ticker_with_oi_last.clone();
-    let diag_ticker_funding = ticker_with_funding_last.clone();
-    let diag_books = books_last.clone();
-    let diag_trade = trade_last.clone();
-    let diag_fill = fill_liq_last.clone();
-    let diag_public_liq = public_liq_last.clone();
-    let diag_symbol = symbol.clone();
-    let diag_cancel = cancel.clone();
-    tokio::spawn(async move {
-        // Skip the first tick so we don't log on a freshly-connected
-        // socket before the first frame has a chance to land.
-        let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        tick.tick().await; // skip first immediate tick
-        loop {
-            tokio::select! {
-                _ = diag_cancel.cancelled() => break,
-                _ = tick.tick() => {}
-            }
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0);
-            let silent_secs = |last: &std::sync::Arc<AtomicI64>| -> Option<i64> {
-                let v = last.load(Ordering::Relaxed);
-                if v == 0 {
-                    // Channel has never produced a frame. Surface this as
-                    // a sentinel duration so the diagnostic reports it
-                    // instead of silently skipping dead channels.
-                    Some(i64::MAX)
-                } else {
-                    Some((now - v) / 1000)
-                }
-            };
-            let channels: &[(&str, std::sync::Arc<AtomicI64>)] = &[
-                ("ticker", diag_ticker.clone()),
-                ("ticker.oi", diag_ticker_oi.clone()),
-                ("ticker.funding", diag_ticker_funding.clone()),
-                ("books5", diag_books.clone()),
-                ("trade", diag_trade.clone()),
-                ("fill (liquidation)", diag_fill.clone()),
-                ("liquidation (public)", diag_public_liq.clone()),
-            ];
-            for (name, last) in channels {
-                if let Some(s) = silent_secs(last) {
-                    if s >= 60 {
-                        let msg = if s == i64::MAX {
-                            "never seen a frame (channel missing or unreachable since boot/connect)"
-                                .to_string()
-                        } else {
-                            format!("silent for {}s (no events since boot/connect)", s)
-                        };
-                        eprintln!("⚠️  Bitget [{}]::{}: {}", diag_symbol, name, msg);
-                    }
-                }
-            }
-        }
-    });
+    // AUDIT-M22: the per-channel liveness reporter is now bound to THIS
+    // connection via `ConnectionScope` (RAII -- dropped when `run_for_symbol`
+    // returns). It used to be a bare `tokio::spawn` gated on the long-lived
+    // INSTANCE cancel token with the handle discarded, so EVERY reconnect
+    // leaked a task holding the previous connection's timestamps.
+    //
+    // The old `silent_secs` helper computed `(now - v) / 1000` against those
+    // stale timestamps, which grows without bound -- so after the first
+    // reconnect a perfectly HEALTHY connection printed "silent for 3600s"
+    // every 60 s, forever. Five reconnects meant seven such lines per minute
+    // per instance. Operators had to learn to ignore the diagnostic that
+    // exists precisely to make silence visible.
+    //
+    // The shared reporter uses per-connection timestamps, covers both the
+    // "never seen" and "went quiet mid-session" modes, and rate-limits per
+    // channel so a persistently dead one cannot become an endless log.
+    let _liveness = ConnectionScope::spawn_channel_liveness(
+        "Bitget",
+        symbol.clone(),
+        vec![
+            ChannelTracker::from_existing("ticker", &ticker_last),
+            ChannelTracker::from_existing("ticker.oi", &ticker_with_oi_last),
+            ChannelTracker::from_existing("ticker.funding", &ticker_with_funding_last),
+            ChannelTracker::from_existing("books5", &books_last),
+            ChannelTracker::from_existing("trade", &trade_last),
+            ChannelTracker::from_existing("fill (liquidation)", &fill_liq_last),
+            ChannelTracker::from_existing("liquidation (public)", &public_liq_last),
+        ],
+        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(600),
+    );
 
     loop {
         let msg = tokio::select! {
@@ -296,9 +269,19 @@ pub async fn run_for_symbol(
                 if raw_text.as_str().eq_ignore_ascii_case("pong") {
                     continue;
                 }
+                // AUDIT-M2: every decode in this match is REPORTED
+                // (rate-limited per topic) rather than silently discarded.
+                // serde drops a WHOLE frame when one field's type mismatches,
+                // so swallowing the error turned a single mistyped assumption
+                // into total, silent loss of that channel.
+                let mut decode_warn = DecodeWarnLimiter::new();
+                let _now = mark_now();
                 let full_msg: FullBitgetMessage = match serde_json::from_str(&raw_text) {
                     Ok(m) => m,
-                    Err(_) => continue,
+                    Err(e) => {
+                        decode_warn.report("Bitget", &symbol, "envelope", &e);
+                        continue;
+                    }
                 };
 
                 let channel = full_msg
@@ -323,7 +306,10 @@ pub async fn run_for_symbol(
                         trade_last.store(_now, Ordering::Relaxed);
                         let trades: Vec<TradeItem> = match serde_json::from_value(data_val) {
                             Ok(t) => t,
-                            Err(_) => continue,
+                            Err(e) => {
+                                decode_warn.report("Bitget", &symbol, "trade", &e);
+                                continue;
+                            }
                         };
                         for t in trades {
                             // AUDIT-C4: never coerce an unparseable trade into
@@ -378,7 +364,10 @@ pub async fn run_for_symbol(
                         books_last.store(_now, Ordering::Relaxed);
                         let books: Vec<BookItem> = match serde_json::from_value(data_val) {
                             Ok(b) => b,
-                            Err(_) => continue,
+                            Err(e) => {
+                                decode_warn.report("Bitget", &symbol, "books5", &e);
+                                continue;
+                            }
                         };
                         for book in books {
                             let bids: Vec<(Decimal, Decimal)> = book
@@ -433,7 +422,10 @@ pub async fn run_for_symbol(
                         let tickers: Vec<crate::adapters::bitget_derivatives::BitgetTickerData> =
                             match serde_json::from_value(data_val) {
                                 Ok(t) => t,
-                                Err(_) => continue,
+                                Err(e) => {
+                                    decode_warn.report("Bitget", &symbol, "ticker", &e);
+                                    continue;
+                                }
                             };
                         for tk in tickers {
                             // Stash the latest mark price for OI conversion
@@ -596,7 +588,10 @@ async fn emit_bitget_fill_liquidations_impl(
 ) {
     let fills: Vec<BitgetFillItem> = match serde_json::from_value(data_val.clone()) {
         Ok(f) => f,
-        Err(_) => return,
+        Err(e) => {
+            DecodeWarnLimiter::new().report("Bitget", internal_symbol, "fill (liquidation)", &e);
+            return;
+        }
     };
     for fill in fills {
         let is_liquidation = fill
@@ -692,7 +687,15 @@ async fn emit_bitget_public_liquidations_impl(
     let rows: Vec<crate::adapters::bitget_derivatives::BitgetPublicLiquidationData> =
         match serde_json::from_value(data_val.clone()) {
             Ok(r) => r,
-            Err(_) => return,
+            Err(e) => {
+                DecodeWarnLimiter::new().report(
+                    "Bitget",
+                    internal_symbol,
+                    "liquidation (public)",
+                    &e,
+                );
+                return;
+            }
         };
     for row in rows {
         if let Some(ev) =

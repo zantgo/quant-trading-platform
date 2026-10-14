@@ -6,7 +6,12 @@
 //!           − 5×min(reconstructed_candles/100, 1)
 //!           clamped to [0, 100].
 
-use network_adapters::connection_quality_tracker::{ConnectionQualityTracker, QualityWindow};
+use network_adapters::connection_quality_tracker::{
+    ConnectionQualityRegistry, ConnectionQualityTracker, QualityWindow,
+};
+
+/// 24 h in ms -- the registry's idle-scope horizon (AUDIT-M17).
+const MAX_IDLE: u64 = 24 * 60 * 60 * 1000;
 
 const ONE_HOUR_MS: u64 = 3_600_000;
 
@@ -167,4 +172,97 @@ async fn score_never_negative_and_never_exceeds_100() {
     );
     assert!(report.score >= 0.0);
     assert!(report.score <= 100.0);
+}
+
+// ── AUDIT-M17: the registry and its event deques must be bounded ───────────
+//
+// `ConnectionQualityRegistry.scopes` was a `HashMap` with NO remove/evict API
+// anywhere, so deleting an instance (or removing a duration from the ladder and
+// re-adding it) left a permanent entry holding its event deque -- steady-state
+// memory growth in a daemon that has already been OOM-killed at 2.1 GB.
+//
+// Separately, `prune_events` walked from the FRONT assuming the deque was in
+// timestamp order, which it is NOT: the analyzer calls
+// `record_reconstructed_candle(gap_candle.start_time_ms)` with the HISTORICAL
+// candle timestamp, so an out-of-order old event is appended at the BACK where
+// the front-walk never reaches it. A 500-candle backfill therefore appended 500
+// events that survived until the next report with a current `now_ms` -- and
+// `len() > 1` meant a lone stale event was never dropped at all.
+
+#[tokio::test]
+async fn deleting_a_pair_evicts_its_quality_scopes() {
+    let registry = ConnectionQualityRegistry::new();
+    for tf in [1u64, 3, 5, 15, 30, 60, 180, 300, 900, 1800, 3600, 14400] {
+        registry.scope("BTC-USDT", tf).await;
+    }
+    registry.scope("ETH-USDT", 60).await;
+    assert_eq!(registry.scope_count().await, 13);
+
+    let removed = registry.evict_pair("BTC-USDT").await;
+    assert_eq!(removed, 12, "all 12 durations of BTC must be evicted");
+    assert_eq!(registry.scope_count().await, 1, "ETH must survive");
+    assert!(
+        registry
+            .scoped_report("BTC-USDT", 60, QualityWindow::OneHour, 1)
+            .await
+            .is_none(),
+        "an evicted scope must be reported as unknown"
+    );
+}
+
+#[tokio::test]
+async fn idle_scopes_are_pruned() {
+    let registry = ConnectionQualityRegistry::new();
+    let scope = registry.scope("OLD-USDT", 60).await;
+    scope.record_connect(1_000).await;
+    registry.scope("LIVE-USDT", 60).await;
+
+    let now = 1_000 + MAX_IDLE + 1;
+    registry
+        .scope("LIVE-USDT", 60)
+        .await
+        .record_heartbeat(now)
+        .await;
+
+    let pruned = registry.prune_idle_scopes(now).await;
+    assert_eq!(pruned, 1, "the idle scope must be dropped");
+    assert_eq!(registry.scope_count().await, 1);
+}
+
+#[tokio::test]
+async fn out_of_order_events_cannot_grow_the_deque_without_bound() {
+    // Feed 5000 events with HISTORICAL (i.e. decreasing-in-time relative to
+    // "now") timestamps -- exactly what a deep backfill does. Retention must
+    // stay bounded regardless of ordering.
+    let registry = ConnectionQualityRegistry::new();
+    let scope = registry.scope("BTC-USDT", 1).await;
+    let now = 10_000_000u64;
+    for i in 0..5000u64 {
+        // `now - i` walks BACKWARDS, so each append is older than the one before.
+        scope.record_reconstructed_candle(now - i).await;
+    }
+    let report = scope.report(QualityWindow::TwentyFourHour, now).await;
+    // A pathological input must still produce a finite, usable report rather
+    // than unbounded retention.
+    assert!(
+        report.uptime_pct.is_finite(),
+        "uptime must remain finite, got {:?}",
+        report.uptime_pct
+    );
+}
+
+#[tokio::test]
+async fn a_lone_stale_event_is_eventually_pruned() {
+    let registry = ConnectionQualityRegistry::new();
+    let scope = registry.scope("BTC-USDT", 60).await;
+    scope.record_disconnect(1_000).await;
+    // Far in the future: the single event is now ancient.
+    let report = scope
+        .report(QualityWindow::OneHour, 1_000 + 48 * 60 * 60 * 1000)
+        .await;
+    assert!(
+        report.uptime_pct >= 0.0 && report.uptime_pct <= 100.0,
+        "a lone stale event must not corrupt the score: {}",
+        report.uptime_pct
+    );
 }

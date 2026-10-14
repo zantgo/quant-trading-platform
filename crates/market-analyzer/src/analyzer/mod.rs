@@ -355,12 +355,51 @@ pub async fn run_event_router(
         // `try_send` drops the event for the congested TF only; the
         // broadcast channel's `Lagged` handling + the TF's own
         // staleness machinery keep the pipeline consistent.
+        //
+        // AUDIT-M14: the drop itself was discarded (`let _ =`), so a stalled
+        // pipeline silently built its next candle from a PARTIAL trade set — a
+        // lower high / lower low than reality — with no counter and no log
+        // anywhere. `run_single` blocks on `.await` at several points per candle
+        // (the D4 cross-TF boundary spin, `read_derivative_snapshot_state` write
+        // locks, `flush_to_flow` + the `snapshot_real_buckets` clone, and the
+        // doji-fill loop which can build up to `MAX_GAP_FILL_BARS` full
+        // snapshots plus a SQLite `try_send` each), so at 7+ trades/s across 12
+        // durations on one instance a single stall was enough to fill a channel.
+        //
+        // Now counted and reported exactly like `TELEMETRY_DROPS` above, so the
+        // loss is observable instead of theoretical.
         if let Some((last, others)) = pipeline_txs.split_last() {
             for tx in others {
-                let _ = tx.try_send(event.clone());
+                if tx.try_send(event.clone()).is_err() {
+                    record_pipeline_drop();
+                }
             }
-            let _ = last.try_send(event);
+            if last.try_send(event).is_err() {
+                record_pipeline_drop();
+            }
         }
+    }
+}
+
+/// AUDIT-M14: trades dropped by the per-pipeline fan-out because a consumer
+/// stalled. Reported on the first drop and every 500th, matching the telemetry
+/// channel's policy so a persistently slow pipeline cannot flood the log.
+static PIPELINE_DROPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Total events dropped by the pipeline fan-out since process start.
+pub fn pipeline_drop_count() -> u64 {
+    PIPELINE_DROPS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn record_pipeline_drop() {
+    use std::sync::atomic::Ordering;
+    let n = PIPELINE_DROPS.fetch_add(1, Ordering::Relaxed) + 1;
+    if n == 1 || n % 500 == 0 {
+        eprintln!(
+            "⚠️ pipeline event dropped — {} event(s) total. A duration pipeline is not \
+             draining its channel; its candles are being built from a PARTIAL trade set.",
+            n
+        );
     }
 }
 

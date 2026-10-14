@@ -40,6 +40,7 @@
 //! treated as a stalled stream so the supervisor's backoff takes over — the
 //! same policy Bitget uses with its literal `ping`/`pong` text frames.
 
+use super::diagnostics::{ChannelTracker, ConnectionScope, DecodeWarnLimiter};
 use core_domain::normalized::{
     ConnectionStatus, Exchange, NormalizedEvent, NormalizedOrderBook, NormalizedTrade, TradeSide,
 };
@@ -62,8 +63,6 @@ use super::bybit_derivatives::{
 const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(20);
 /// Consecutive unanswered pings before the stream is declared stalled.
 const MAX_MISSED_PONGS: u32 = 2;
-/// How often the per-channel silence diagnostic reports.
-const DIAGNOSTIC_INTERVAL_SECS: u64 = 60;
 
 /// Envelope for every inbound frame. Bybit answers subscribe/ping with
 /// `success`/`op` and no `topic`; data frames carry `topic` + `type` + `data`.
@@ -213,40 +212,6 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// How long to stay quiet after reporting a frame-decode failure.
-const PARSE_WARN_REPEAT_SECS: u64 = 300;
-
-/// Report a frame-decode failure once per topic per [`PARSE_WARN_REPEAT_SECS`].
-///
-/// serde discards a whole frame when any single field's type does not match,
-/// so one bad assumption costs an entire payload. v11.13 shipped with
-/// `Err(_) => continue`, which turned a mistyped integer timestamp into a
-/// silent, total loss of the trade + liquidation streams while every test
-/// stayed green. A decode failure is therefore an operator-visible event, but
-/// it is not rate-limited to silence either: a permanently mismatched schema
-/// would otherwise print on every 20 ms order-book frame.
-fn warn_once(
-    slot: &mut Option<(std::time::Instant, String)>,
-    topic: &str,
-    symbol: &str,
-    err: &serde_json::Error,
-) {
-    let now = std::time::Instant::now();
-    if let Some((last, last_topic)) = slot {
-        if last_topic == topic
-            && now.duration_since(*last) < std::time::Duration::from_secs(PARSE_WARN_REPEAT_SECS)
-        {
-            return;
-        }
-    }
-    *slot = Some((now, topic.to_string()));
-    eprintln!(
-        "❌ Bybit [{}]::{}: frame decode failed ({}). EVERY event in this frame is discarded — \
-         check the adapter against the venue schema.",
-        symbol, topic, err
-    );
-}
-
 /// Connect, subscribe to every public topic for one symbol, and stream
 /// normalized events until the socket closes or `cancel` fires.
 ///
@@ -326,7 +291,7 @@ pub async fn run_for_symbol(
     // enough: the loop handles one frame at a time and every call site passes
     // its own topic name, so a different topic is never suppressed by a
     // previous one's silence window.
-    let mut parse_warned: Option<(std::time::Instant, String)> = None;
+    let mut parse_warned = DecodeWarnLimiter::new();
 
     let mut ping_interval = tokio::time::interval_at(
         tokio::time::Instant::now() + HEARTBEAT_INTERVAL,
@@ -335,42 +300,38 @@ pub async fn run_for_symbol(
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut awaiting_pongs: u32 = 0;
 
-    {
-        // Layer 5 diagnostic: one line per channel that is silent for >60 s.
-        let channels = [
-            ("publicTrade", trade_last.clone()),
-            ("orderbook.50", books_last.clone()),
-            ("tickers", ticker_last.clone()),
-            ("allLiquidation", liq_last.clone()),
-        ];
-        let sym = symbol.clone();
-        let diag_cancel = cancel.clone();
-        tokio::spawn(async move {
-            let mut tick =
-                tokio::time::interval(std::time::Duration::from_secs(DIAGNOSTIC_INTERVAL_SECS));
-            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            tick.tick().await; // skip the immediate tick so a fresh socket isn't flagged
-            loop {
-                tokio::select! {
-                    _ = diag_cancel.cancelled() => break,
-                    _ = tick.tick() => {}
-                }
-                let now = now_ms() as i64;
-                for (name, last) in &channels {
-                    let v = last.load(Ordering::Relaxed);
-                    let msg = if v == 0 {
-                        "never seen a frame (channel missing or unreachable since boot/connect)"
-                    } else {
-                        // Report only past the threshold; the caller keeps the
-                        // interval at 60s so this is effectively "silent".
-                        continue;
-                    };
-                    eprintln!("⚠️  Bybit [{}]::{}: {}", sym, name, msg);
-                }
-                let _ = now;
-            }
-        });
-    }
+    // AUDIT-M22: the per-channel liveness reporter is now bound to THIS
+    // connection via `ConnectionScope` (RAII -- dropped when `run_for_symbol`
+    // returns). It used to be a bare `tokio::spawn` gated on the long-lived
+    // INSTANCE cancel token with the handle discarded, so every reconnect
+    // leaked a task holding the PREVIOUS connection's timestamps.
+    //
+    // Two concrete consequences, both fixed here:
+    //   * The old check was `if v == 0 { report } else { continue }` -- it only
+    //     ever reported "never seen a frame". A channel that died MID-SESSION
+    //     printed NOTHING, which is the operator problem that matters most
+    //     (delisting, venue-side channel retirement, or a schema drift that
+    //     parses the envelope but not the payload). The elapsed calculation was
+    //     clearly intended and never written: `let _ = now;` discarded the
+    //     `now` it had just computed.
+    //   * Bitget's equivalent computed `(now - stale_timestamp) / 1000`, which
+    //     grows without bound -- so after the first reconnect a perfectly
+    //     HEALTHY connection printed "silent for 3600s" every 60 s, forever.
+    //
+    // The shared reporter covers both modes and rate-limits per channel so a
+    // persistently dead one cannot become an endless log.
+    let _liveness = ConnectionScope::spawn_channel_liveness(
+        "Bybit",
+        symbol.clone(),
+        vec![
+            ChannelTracker::from_existing("publicTrade", &trade_last),
+            ChannelTracker::from_existing("orderbook.50", &books_last),
+            ChannelTracker::from_existing("tickers", &ticker_last),
+            ChannelTracker::from_existing("allLiquidation", &liq_last),
+        ],
+        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(600),
+    );
 
     loop {
         let msg = tokio::select! {
@@ -457,7 +418,7 @@ pub async fn run_for_symbol(
                         // so it is reported loudly (once per topic, then
                         // rate-limited) instead of vanishing.
                         Err(e) => {
-                            warn_once(&mut parse_warned, "publicTrade", &symbol, &e);
+                            parse_warned.report("Bybit", &symbol, "publicTrade", &e);
                             continue;
                         }
                     };
@@ -497,7 +458,7 @@ pub async fn run_for_symbol(
                     let book: BybitBook = match serde_json::from_value(data) {
                         Ok(b) => b,
                         Err(e) => {
-                            warn_once(&mut parse_warned, "orderbook.50", &symbol, &e);
+                            parse_warned.report("Bybit", &symbol, "orderbook.50", &e);
                             continue;
                         }
                     };
@@ -546,7 +507,7 @@ pub async fn run_for_symbol(
                     let frame: BybitTickerFrame = match serde_json::from_value(data) {
                         Ok(f) => f,
                         Err(e) => {
-                            warn_once(&mut parse_warned, "tickers", &symbol, &e);
+                            parse_warned.report("Bybit", &symbol, "tickers", &e);
                             continue;
                         }
                     };
@@ -567,7 +528,7 @@ pub async fn run_for_symbol(
                     let rows: Vec<BybitLiquidationData> = match serde_json::from_value(data) {
                         Ok(r) => r,
                         Err(e) => {
-                            warn_once(&mut parse_warned, "allLiquidation", &symbol, &e);
+                            parse_warned.report("Bybit", &symbol, "allLiquidation", &e);
                             continue;
                         }
                     };

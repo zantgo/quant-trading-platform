@@ -16,6 +16,12 @@ const WS_BREAKER_COOLDOWN_SECS: u64 = 300;
 /// reset the counter, so this only counts rapid handshake failures.
 const WS_BREAKER_TRIP_COUNT: u32 = 5;
 
+/// AUDIT-M15: floor applied to the FINAL post-jitter delay. See
+/// `WsBreaker::on_cycle_end` -- with `jitter_pct >= 1.0` the jitter multiplier
+/// can be exactly zero, which would otherwise collapse the backoff to a hot
+/// spin regardless of how conservatively the operator configured it.
+const WS_MIN_BACKOFF: Duration = Duration::from_millis(500);
+
 /// What the supervisor should do after a connection cycle ends.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BreakerAction {
@@ -36,23 +42,40 @@ pub enum BreakerAction {
 /// frozen on the last bar, every indicator still reading "Live", one log line,
 /// and a daemon restart as the only recovery.
 ///
-/// Two rules now hold:
+/// Three rules now hold:
 ///   * A cycle that survived `connect_grace` — the window the connect task
 ///     itself uses to judge a handshake genuine — is a SUCCESS and clears both
 ///     the strike counter and the backoff.
 ///   * The breaker never terminates the loop. It returns [`BreakerAction::Cooldown`].
+///   * AUDIT-M15: the backoff ladder comes from `[reconnect]`
+///     (`ReconnectPolicy`), which the operator can configure, instead of a
+///     hardcoded 1 s → 30 s.
 #[derive(Debug, Clone)]
 pub struct WsBreaker {
     consecutive_failures: u32,
-    backoff_secs: u64,
+    policy: network_adapters::adapters::resilience::ReconnectPolicy,
+    next_backoff: Duration,
     connect_grace: Duration,
 }
 
 impl WsBreaker {
     pub fn new(connect_grace: Duration) -> Self {
+        Self::with_policy(
+            connect_grace,
+            network_adapters::adapters::resilience::ReconnectPolicy::default(),
+        )
+    }
+
+    /// Build from the operator's `[reconnect]` configuration.
+    pub fn with_policy(
+        connect_grace: Duration,
+        policy: network_adapters::adapters::resilience::ReconnectPolicy,
+    ) -> Self {
+        let initial = policy.initial_backoff.max(WS_MIN_BACKOFF);
         Self {
             consecutive_failures: 0,
-            backoff_secs: 1,
+            policy,
+            next_backoff: initial,
             connect_grace,
         }
     }
@@ -62,23 +85,39 @@ impl WsBreaker {
     /// `connected_for` is how long the adapter ran before returning.
     pub fn on_cycle_end(&mut self, connected_for: Duration) -> BreakerAction {
         if connected_for >= self.connect_grace {
+            // AUDIT-C2: a connection that survived the connect grace window is
+            // a genuine success. Reset the strike counter and the backoff here,
+            // not on some arbitrary 300 s survival threshold — otherwise a
+            // socket that connects and drops every 10 s accrues strikes forever
+            // and eventually kills the supervisor permanently.
             self.consecutive_failures = 0;
-            self.backoff_secs = 1;
+            self.next_backoff = self.policy.initial_backoff.max(WS_MIN_BACKOFF);
         }
         self.consecutive_failures += 1;
 
         if self.consecutive_failures >= WS_BREAKER_TRIP_COUNT {
             self.consecutive_failures = 0;
-            self.backoff_secs = 1;
+            self.next_backoff = self.policy.initial_backoff.max(WS_MIN_BACKOFF);
             return BreakerAction::Cooldown(Duration::from_secs(WS_BREAKER_COOLDOWN_SECS));
         }
 
+        // AUDIT-M15: the ladder starts at `initial_backoff_ms` and saturates at
+        // `max_backoff_ms`, both from `[reconnect]`. The jitter percentage is
+        // the configured one.
+        //
+        // The floor is applied to the FINAL delay, not just the input:
+        // `apply_jitter` multiplies by `1.0 + gen_range(-jitter..=jitter)`, and
+        // with `jitter_pct >= 1.0` that factor can be exactly 0, collapsing a
+        // 1 s delay to zero and turning the supervisor into a hot spin. Flooring
+        // the input alone does not prevent that, so the ceiling and floor are
+        // both enforced on the result.
         let delay = network_adapters::adapters::resilience::apply_jitter(
-            Duration::from_secs(self.backoff_secs),
-            0.2,
+            self.next_backoff,
+            self.policy.jitter_pct,
         )
-        .min(Duration::from_secs(30));
-        self.backoff_secs = (self.backoff_secs * 2).min(30);
+        .min(self.policy.max_backoff.max(WS_MIN_BACKOFF))
+        .max(WS_MIN_BACKOFF);
+        self.next_backoff = (self.next_backoff * 2).min(self.policy.max_backoff);
         BreakerAction::Retry(delay)
     }
 
@@ -777,6 +816,14 @@ async fn spawn_tasks(
     let reconnect_cfg = state.platform.read().await.reconnect;
     let connect_grace = Duration::from_millis(reconnect_cfg.connect_grace_ms);
     let disconnect_grace_ms = reconnect_cfg.disconnect_grace_ms;
+    // AUDIT-M15: honour `[reconnect] initial_backoff_ms` / `max_backoff_ms` /
+    // `jitter_pct`. These were accepted, validated, documented and exposed by the
+    // platform-config API — and then ignored: the supervisor hardcoded 1 s → 30 s
+    // with 0.2 jitter, and `ReconnectPolicy` had no production caller at all
+    // (only tests). An operator raising `initial_backoff_ms` to 10000 to avoid
+    // tripping a venue's connection rate limit got 1 s, with no warning.
+    let reconnect_policy =
+        network_adapters::adapters::resilience::ReconnectPolicy::from_config(&reconnect_cfg);
     tokio::spawn(async move {
         // Per-symbol WS supervisor (03-01-01 §4 / 08-03): exponential backoff
         // 1 s → 30 s with ±20 % jitter applied before the cap; a circuit
@@ -824,7 +871,7 @@ async fn spawn_tasks(
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0)
         };
-        let mut breaker = WsBreaker::new(connect_grace);
+        let mut breaker = WsBreaker::with_policy(connect_grace, reconnect_policy);
         let mut last_disconnect_ms: Option<u64> = None;
         // Pending deferred disconnect (B1). Holds the JoinHandle of a
         // grace task scheduled when the adapter returns. Aborted on

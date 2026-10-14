@@ -60,6 +60,11 @@ struct TrackerState {
     last_heartbeat_ms: u64,
     last_connected_ms: Option<u64>,
     cumulative_connected_secs: u64,
+    /// AUDIT-M17: wall-clock of the most recent interaction, used only by
+    /// `ConnectionQualityRegistry::prune_idle_scopes` to drop scopes nobody
+    /// has touched. Distinct from `last_heartbeat_ms`, which tracks stream
+    /// liveness and is deliberately not written by replay/backfill paths.
+    last_seen_ms: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -93,12 +98,24 @@ impl ConnectionQualityTracker {
                 last_heartbeat_ms: 0,
                 last_connected_ms: None,
                 cumulative_connected_secs: 0,
+                last_seen_ms: 0,
             })),
+        }
+    }
+
+    /// AUDIT-M17: most recent interaction, for idle-scope pruning.
+    pub fn last_seen_ms(&self) -> u64 {
+        // A non-blocking peek: `prune_idle_scopes` runs on the persistence
+        // sweep and must never stall behind a per-scope write lock.
+        match self.state.try_read() {
+            Ok(g) => g.last_seen_ms,
+            Err(_) => 0,
         }
     }
 
     pub async fn record_connect(&self, at_ms: u64) {
         let mut state = self.state.write().await;
+        state.last_seen_ms = state.last_seen_ms.max(at_ms);
         if state.last_connected_ms.is_none() {
             state.last_connected_ms = Some(at_ms);
         }
@@ -107,6 +124,7 @@ impl ConnectionQualityTracker {
 
     pub async fn record_disconnect(&self, at_ms: u64) {
         let mut state = self.state.write().await;
+        state.last_seen_ms = state.last_seen_ms.max(at_ms);
         if let Some(connected_at_ms) = state.last_connected_ms.take() {
             if at_ms >= connected_at_ms {
                 state.cumulative_connected_secs = state
@@ -119,6 +137,7 @@ impl ConnectionQualityTracker {
 
     pub async fn record_reconnect(&self, at_ms: u64, duration_ms: u64) {
         let mut state = self.state.write().await;
+        state.last_seen_ms = state.last_seen_ms.max(at_ms);
         if state.last_connected_ms.is_none() {
             state.last_connected_ms = Some(at_ms);
         }
@@ -131,6 +150,7 @@ impl ConnectionQualityTracker {
 
     pub async fn record_heartbeat(&self, at_ms: u64) {
         let mut state = self.state.write().await;
+        state.last_seen_ms = state.last_seen_ms.max(at_ms);
         state.last_heartbeat_ms = at_ms;
     }
 
@@ -266,6 +286,42 @@ impl ConnectionQualityRegistry {
             .clone()
     }
 
+    /// AUDIT-M17: drop every scope for a pair.
+    ///
+    /// The registry used to be a `HashMap` with NO remove/evict API anywhere, so
+    /// deleting an instance -- or removing a duration from the ladder via
+    /// `POST /api/config` and later re-adding it -- left a permanent entry
+    /// holding its event deque. Over a long-lived process with pair churn that
+    /// is steady-state memory growth in a daemon that has already been
+    /// OOM-killed at 2.1 GB.
+    ///
+    /// Call this from the same place the retained-snapshot budget is refunded on
+    /// delete/recharge, so the two accounting paths cannot drift apart.
+    pub async fn evict_pair(&self, pair_key: &str) -> usize {
+        let mut scopes = self.scopes.write().await;
+        let before = scopes.len();
+        scopes.retain(|(k, _), _| k != pair_key);
+        before - scopes.len()
+    }
+
+    /// AUDIT-M17: drop scopes that have not been touched since `now_ms - idle`.
+    ///
+    /// A cheap sweep for anything `evict_pair` missed (e.g. a pair renamed by a
+    /// C1 key correction). Called from the periodic persistence loop, which
+    /// already walks every scope.
+    pub async fn prune_idle_scopes(&self, now_ms: u64) -> usize {
+        let cutoff = now_ms.saturating_sub(MAX_SCOPE_IDLE_MS);
+        let mut scopes = self.scopes.write().await;
+        let before = scopes.len();
+        scopes.retain(|_, tracker| tracker.last_seen_ms() >= cutoff);
+        before - scopes.len()
+    }
+
+    /// Number of live scopes (test/diagnostic visibility).
+    pub async fn scope_count(&self) -> usize {
+        self.scopes.read().await.len()
+    }
+
     /// Report for one scope, or `None` when the scope has never been seen.
     pub async fn scoped_report(
         &self,
@@ -392,6 +448,16 @@ impl ConnectionQualityRegistry {
                 _ = interval.tick() => {
                     let now: DateTime<Utc> = Utc::now();
                     let now_ms = now.timestamp_millis().max(0) as u64;
+                    // AUDIT-M17: sweep scopes nobody has touched in 24 h. The
+                    // registry previously had NO eviction path at all, so every
+                    // deleted instance and every removed duration left a
+                    // permanent entry. This loop already walks every scope.
+                    if self.prune_idle_scopes(now_ms).await > 0 {
+                        eprintln!(
+                            "🧹 Connection-quality registry: pruned idle scopes, {} remaining",
+                            self.scope_count().await
+                        );
+                    }
                     for window in [
                         QualityWindow::OneHour,
                         QualityWindow::SixHour,
@@ -435,7 +501,31 @@ impl Default for ConnectionQualityTracker {
 fn append_event(state: &mut TrackerState, event: QualityEvent, at_ms: u64) {
     state.events.push_back(event);
     prune_events(state, at_ms);
+    // AUDIT-M17: hard cap on retained events.
+    //
+    // `prune_events` alone is not a bound. It walks from the FRONT assuming the
+    // deque is in timestamp order, and that assumption does not hold: the
+    // analyzer calls `record_reconstructed_candle(gap_candle.start_time_ms)`
+    // with the HISTORICAL candle timestamp, so an out-of-order old event is
+    // appended at the BACK where the front-walk never reaches it. A 500-candle
+    // sub-minute backfill therefore appended 500 events that survived until the
+    // next `report()` with a current `now_ms` — and if no report ever ran for
+    // that scope, indefinitely.
+    //
+    // An absolute cap makes retention independent of ordering, which is the
+    // only robust bound here. 512 is far above any real connection-event rate
+    // (the longest window is 24 h) while keeping the O(n log n) sort in
+    // `report()` cheap.
+    while state.events.len() > MAX_EVENTS_PER_SCOPE {
+        state.events.pop_front();
+    }
 }
+
+/// AUDIT-M17: absolute per-scope event cap. See `append_event`.
+const MAX_EVENTS_PER_SCOPE: usize = 512;
+
+/// AUDIT-M17: how long a scope may go unseen before the registry drops it.
+const MAX_SCOPE_IDLE_MS: u64 = 24 * 60 * 60 * 1000;
 
 fn prune_events(state: &mut TrackerState, reference_ms: u64) {
     let cutoff_ms = reference_ms.saturating_sub(MAX_EVENT_RETENTION_MS);
@@ -449,6 +539,19 @@ fn prune_events(state: &mut TrackerState, reference_ms: u64) {
             state.events.pop_front();
         } else {
             break;
+        }
+    }
+    // AUDIT-M17: `len() > 1` above deliberately kept the last event, but a
+    // lone event older than the cutoff was then never removed — so a scope that
+    // disconnected once and never reconnected kept that event forever. Drop it.
+    if state.events.len() == 1 {
+        let stale = state
+            .events
+            .front()
+            .map(|e| event_timestamp(e) < cutoff_ms)
+            .unwrap_or(false);
+        if stale {
+            state.events.pop_front();
         }
     }
 }

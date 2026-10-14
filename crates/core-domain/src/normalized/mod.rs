@@ -110,8 +110,13 @@ impl NormalizedOrderBook {
         // `OrderBookAnalysis::update` reads `bids[0]`/`asks[0]` as top of book
         // with no re-sort, so ordering is a correctness contract, not a
         // presentation detail.
-        bids.sort_by(|a, b| b.0.cmp(&a.0)); // descending: best (highest) bid first
-        asks.sort_by(|a, b| a.0.cmp(&b.0)); // ascending:  best (lowest) ask first
+        #[allow(clippy::unnecessary_sort_by)]
+        {
+            // `Reverse`/`Ord` on `Decimal` gives descending / ascending without
+            // the borrow gymnastics `sort_by_key` needs on a tuple field.
+            bids.sort_by(|a, b| b.0.cmp(&a.0)); // descending: best (highest) bid first
+            asks.sort_by(|a, b| a.0.cmp(&b.0)); // ascending:  best (lowest) ask first
+        }
 
         if bids[0].0 >= asks[0].0 {
             return None;

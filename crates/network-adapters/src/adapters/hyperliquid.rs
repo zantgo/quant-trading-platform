@@ -1,3 +1,4 @@
+use super::diagnostics::DecodeWarnLimiter;
 use core_domain::normalized::{
     AssetContext, ConnectionStatus, Exchange, NormalizedEvent, NormalizedOrderBook,
     NormalizedTrade, TradeSide,
@@ -221,169 +222,180 @@ pub async fn run_for_symbol(
                 if raw_text.contains("\"channel\":\"pong\"") {
                     continue;
                 }
-                if raw_text.contains("\"channel\":\"l2Book\"") {
-                    if let Ok(envelope) = serde_json::from_str::<L2BookEnvelope>(&raw_text) {
-                        // The venue echoes the subscribed coin. On a HIP-3 dex
-                        // that is `<dex>:<coin>`, so a strict `==` against the
-                        // bare base would drop every frame for a HIP-3 market.
-                        if let Some(payload) =
-                            envelope.data.filter(|p| frame_matches(&p.coin, &symbol))
-                        {
-                            if payload.levels.len() >= 2
-                                && !payload.levels[0].is_empty()
-                                && !payload.levels[1].is_empty()
-                            {
-                                let bids: Vec<(Decimal, Decimal)> = payload.levels[0]
-                                    .iter()
-                                    .filter_map(|l| {
-                                        let p = Decimal::from_str(&l.px).ok()?;
-                                        let s = Decimal::from_str(&l.sz).ok()?;
-                                        Some((p, s))
-                                    })
-                                    .collect();
-                                let asks: Vec<(Decimal, Decimal)> = payload.levels[1]
-                                    .iter()
-                                    .filter_map(|l| {
-                                        let p = Decimal::from_str(&l.px).ok()?;
-                                        let s = Decimal::from_str(&l.sz).ok()?;
-                                        Some((p, s))
-                                    })
-                                    .collect();
-
-                                // AUDIT-M20: Hyperliquid was the only venue with
-                                // a real emptiness guard, but it still never
-                                // sorted the sides nor checked for a cross, and
-                                // `filter_map` can promote a worse surviving
-                                // level to `bids[0]`. Route through the shared
-                                // choke point so all three venues share one
-                                // contract.
-                                let Some(event) = NormalizedOrderBook::validated(
-                                    Exchange::Hyperliquid,
-                                    internal_symbol.clone(),
-                                    bids,
-                                    asks,
-                                    payload.time,
-                                )
-                                .map(NormalizedEvent::OrderBook) else {
-                                    continue;
-                                };
-                                let _ = event_tx.send(event).await;
+                // AUDIT-M2: Hyperliquid had NO decode diagnostics at all -- three bare
+                // `if let Ok(..)` with no `else`, so a schema drift was
+                // indistinguishable from silence. serde drops a WHOLE frame when
+                // one field's type mismatches, so a single mistyped assumption
+                // cost an entire payload silently -- the same defect class that
+                // shipped v11.13 with zero live trades.
+                let mut decode_warn = DecodeWarnLimiter::new();
+                macro_rules! decode_or_report {
+                    ($ty:ty, $topic:expr) => {
+                        match serde_json::from_str::<$ty>(&raw_text) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                decode_warn.report("Hyperliquid", &symbol, $topic, &e);
+                                continue;
                             }
+                        }
+                    };
+                }
+                if raw_text.contains("\"channel\":\"l2Book\"") {
+                    let envelope = decode_or_report!(L2BookEnvelope, "l2Book");
+                    // The venue echoes the subscribed coin. On a HIP-3 dex
+                    // that is `<dex>:<coin>`, so a strict `==` against the
+                    // bare base would drop every frame for a HIP-3 market.
+                    if let Some(payload) = envelope.data.filter(|p| frame_matches(&p.coin, &symbol))
+                    {
+                        if payload.levels.len() >= 2
+                            && !payload.levels[0].is_empty()
+                            && !payload.levels[1].is_empty()
+                        {
+                            let bids: Vec<(Decimal, Decimal)> = payload.levels[0]
+                                .iter()
+                                .filter_map(|l| {
+                                    let p = Decimal::from_str(&l.px).ok()?;
+                                    let s = Decimal::from_str(&l.sz).ok()?;
+                                    Some((p, s))
+                                })
+                                .collect();
+                            let asks: Vec<(Decimal, Decimal)> = payload.levels[1]
+                                .iter()
+                                .filter_map(|l| {
+                                    let p = Decimal::from_str(&l.px).ok()?;
+                                    let s = Decimal::from_str(&l.sz).ok()?;
+                                    Some((p, s))
+                                })
+                                .collect();
+
+                            // AUDIT-M20: Hyperliquid was the only venue with
+                            // a real emptiness guard, but it still never
+                            // sorted the sides nor checked for a cross, and
+                            // `filter_map` can promote a worse surviving
+                            // level to `bids[0]`. Route through the shared
+                            // choke point so all three venues share one
+                            // contract.
+                            let Some(event) = NormalizedOrderBook::validated(
+                                Exchange::Hyperliquid,
+                                internal_symbol.clone(),
+                                bids,
+                                asks,
+                                payload.time,
+                            )
+                            .map(NormalizedEvent::OrderBook) else {
+                                continue;
+                            };
+                            let _ = event_tx.send(event).await;
                         }
                     }
                 } else if raw_text.contains("\"channel\":\"trades\"") {
-                    if let Ok(envelope) = serde_json::from_str::<TradesEnvelope>(&raw_text) {
-                        if let Some(trades) = envelope.data {
-                            for t in trades
-                                .into_iter()
-                                .filter(|t| frame_matches(&t.coin, &symbol))
-                            {
-                                // AUDIT-C4: never coerce an unparseable trade into
-                                // `Decimal::ZERO` and emit it as a REAL trade. A
-                                // zero-price tick opens a candle bucket at 0 (or
-                                // drags `low` to 0), and `assert_validity` accepts
-                                // an all-zero OHLCV candle -- so the poisoned bar
-                                // was persisted and broadcast as genuine, then fed
-                                // to every downstream indicator. Sub-minute
-                                // durations have no REST refetch fallback.
-                                //
-                                // Placed BEFORE the liquidation branch below: a
-                                // zero-price forced-close is equally junk and
-                                // must not reach the L2.5 accumulator either.
-                                let price = match Decimal::from_str(&t.px) {
-                                    Ok(p) if p > Decimal::ZERO => p,
-                                    _ => continue,
-                                };
-                                let size = match Decimal::from_str(&t.sz) {
-                                    Ok(s) if s > Decimal::ZERO => s,
-                                    _ => continue,
-                                };
-                                let side = if t.side == "A" {
-                                    TradeSide::Sell
+                    let envelope = decode_or_report!(TradesEnvelope, "trades");
+                    if let Some(trades) = envelope.data {
+                        for t in trades
+                            .into_iter()
+                            .filter(|t| frame_matches(&t.coin, &symbol))
+                        {
+                            // AUDIT-C4: never coerce an unparseable trade into
+                            // `Decimal::ZERO` and emit it as a REAL trade. A
+                            // zero-price tick opens a candle bucket at 0 (or
+                            // drags `low` to 0), and `assert_validity` accepts
+                            // an all-zero OHLCV candle -- so the poisoned bar
+                            // was persisted and broadcast as genuine, then fed
+                            // to every downstream indicator. Sub-minute
+                            // durations have no REST refetch fallback.
+                            //
+                            // Placed BEFORE the liquidation branch below: a
+                            // zero-price forced-close is equally junk and
+                            // must not reach the L2.5 accumulator either.
+                            let price = match Decimal::from_str(&t.px) {
+                                Ok(p) if p > Decimal::ZERO => p,
+                                _ => continue,
+                            };
+                            let size = match Decimal::from_str(&t.sz) {
+                                Ok(s) if s > Decimal::ZERO => s,
+                                _ => continue,
+                            };
+                            let side = if t.side == "A" {
+                                TradeSide::Sell
+                            } else {
+                                TradeSide::Buy
+                            };
+
+                            // Liquidation extraction (market-wide).
+                            // Hyperliquid does NOT publish public liquidations on
+                            // a dedicated channel (the `userFills` channel is
+                            // account-scoped and requires `[workspace.liquidity]
+                            // user_address`). Instead, every liquidation fill is
+                            // marked on the public `trades` channel itself via the
+                            // `liquidation` field — a non-empty string (typically
+                            // `"A"` or `"B"`) on a forced-close fill. We translate
+                            // each marked trade into a `NormalizedEvent::Liquidation`
+                            // so the per-candle `LiquidityEventAccumulator` sees
+                            // market-wide liquidations without per-account setup —
+                            // matching Bitget's public `liquidation` channel.
+                            //
+                            // Side semantics (same as the userFills handler):
+                            //   t.side == "A" (aggressor was seller) → a long was
+                            //     force-closed → LiquidationSide::Long
+                            //   t.side == "B" (aggressor was buyer)  → a short was
+                            //     force-closed → LiquidationSide::Short
+                            let is_liquidation = t
+                                .liquidation
+                                .as_deref()
+                                .map(|s| !s.is_empty() && s != "false")
+                                .unwrap_or(false);
+                            if is_liquidation {
+                                let liq_side = if t.side == "A" {
+                                    core_domain::normalized::LiquidationSide::Long
                                 } else {
-                                    TradeSide::Buy
+                                    core_domain::normalized::LiquidationSide::Short
                                 };
-
-                                // Liquidation extraction (market-wide).
-                                // Hyperliquid does NOT publish public liquidations on
-                                // a dedicated channel (the `userFills` channel is
-                                // account-scoped and requires `[workspace.liquidity]
-                                // user_address`). Instead, every liquidation fill is
-                                // marked on the public `trades` channel itself via the
-                                // `liquidation` field — a non-empty string (typically
-                                // `"A"` or `"B"`) on a forced-close fill. We translate
-                                // each marked trade into a `NormalizedEvent::Liquidation`
-                                // so the per-candle `LiquidityEventAccumulator` sees
-                                // market-wide liquidations without per-account setup —
-                                // matching Bitget's public `liquidation` channel.
-                                //
-                                // Side semantics (same as the userFills handler):
-                                //   t.side == "A" (aggressor was seller) → a long was
-                                //     force-closed → LiquidationSide::Long
-                                //   t.side == "B" (aggressor was buyer)  → a short was
-                                //     force-closed → LiquidationSide::Short
-                                let is_liquidation = t
-                                    .liquidation
-                                    .as_deref()
-                                    .map(|s| !s.is_empty() && s != "false")
-                                    .unwrap_or(false);
-                                if is_liquidation {
-                                    let liq_side = if t.side == "A" {
-                                        core_domain::normalized::LiquidationSide::Long
-                                    } else {
-                                        core_domain::normalized::LiquidationSide::Short
-                                    };
-                                    let _ = event_tx
-                                        .send(NormalizedEvent::Liquidation(
-                                            core_domain::normalized::LiquidationEvent {
-                                                exchange: Exchange::Hyperliquid,
-                                                symbol: internal_symbol.clone(),
-                                                side: liq_side,
-                                                price,
-                                                size,
-                                                timestamp_ms: t.time,
-                                                venue_order_id: if t.hash.is_empty() {
-                                                    None
-                                                } else {
-                                                    Some(t.hash.clone())
-                                                },
+                                let _ = event_tx
+                                    .send(NormalizedEvent::Liquidation(
+                                        core_domain::normalized::LiquidationEvent {
+                                            exchange: Exchange::Hyperliquid,
+                                            symbol: internal_symbol.clone(),
+                                            side: liq_side,
+                                            price,
+                                            size,
+                                            timestamp_ms: t.time,
+                                            venue_order_id: if t.hash.is_empty() {
+                                                None
+                                            } else {
+                                                Some(t.hash.clone())
                                             },
-                                        ))
-                                        .await;
-                                }
-
-                                let event = NormalizedEvent::Trade(NormalizedTrade {
-                                    exchange: Exchange::Hyperliquid,
-                                    symbol: internal_symbol.clone(),
-                                    price,
-                                    size,
-                                    side,
-                                    timestamp_ms: t.time,
-                                    trade_id: t.tid.to_string(),
-                                });
-                                let _ = event_tx.send(event).await;
+                                        },
+                                    ))
+                                    .await;
                             }
+
+                            let event = NormalizedEvent::Trade(NormalizedTrade {
+                                exchange: Exchange::Hyperliquid,
+                                symbol: internal_symbol.clone(),
+                                price,
+                                size,
+                                side,
+                                timestamp_ms: t.time,
+                                trade_id: t.tid.to_string(),
+                            });
+                            let _ = event_tx.send(event).await;
                         }
                     }
                 } else if raw_text.contains("\"channel\":\"activeAssetCtx\"") {
-                    if let Ok(envelope) = serde_json::from_str::<ActiveAssetCtxEnvelope>(&raw_text)
-                    {
-                        if let Some(data) =
-                            envelope.data.filter(|d| frame_matches(&d.coin, &symbol))
-                        {
-                            if let Some(ctx) = data.ctx {
-                                if let Some(px) = ctx
-                                    .prev_day_px
-                                    .as_deref()
-                                    .and_then(|s| Decimal::from_str(s).ok())
-                                {
-                                    let _ = event_tx
-                                        .send(NormalizedEvent::AssetContext(AssetContext {
-                                            symbol: internal_symbol.clone(),
-                                            prev_day_px: px,
-                                        }))
-                                        .await;
-                                }
+                    let envelope = decode_or_report!(ActiveAssetCtxEnvelope, "activeAssetCtx");
+                    if let Some(data) = envelope.data.filter(|d| frame_matches(&d.coin, &symbol)) {
+                        if let Some(ctx) = data.ctx {
+                            if let Some(px) = ctx
+                                .prev_day_px
+                                .as_deref()
+                                .and_then(|s| Decimal::from_str(s).ok())
+                            {
+                                let _ = event_tx
+                                    .send(NormalizedEvent::AssetContext(AssetContext {
+                                        symbol: internal_symbol.clone(),
+                                        prev_day_px: px,
+                                    }))
+                                    .await;
                             }
                         }
                     }
