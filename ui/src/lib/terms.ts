@@ -41,10 +41,13 @@ export function overlayRepTerm(
  * Falls back to the full 14-duration pool until the payload arrives (or
  * on malformed/empty data).
  */
-export function activeDurations(
-    pair: InstanceState | null | undefined,
-): number[] {
-    const active = pair?.activeDurations;
+/// Only the ladder is needed. Accepting `unknown` and narrowing here keeps every
+/// caller honest without forcing a cast: the router's deep-link path holds a
+/// value TypeScript widens to an all-optional shape, and TS's weak-type rule
+/// then rejects it against ANY declared interface it does not exactly match.
+export function activeDurations(pair: unknown): number[] {
+    const active = (pair as { activeDurations?: number[] | null } | null | undefined)
+        ?.activeDurations;
     if (!Array.isArray(active) || active.length === 0) return [...DURATIONS];
     const set = new Set(active);
     return DURATIONS.filter((secs) => set.has(secs));
@@ -67,13 +70,34 @@ export function activeDurations(
  * `InstanceState` opens no sockets at all until `reconcileInstances` has read
  * `GET /api/config.timeframes` (or the per-instance `active_secs` fallback).
  */
-export function socketDurations(
-    pair: InstanceState | null | undefined,
-): number[] {
-    const active = pair?.activeDurations;
+export function socketDurations(pair: unknown): number[] {
+    const active = (pair as { activeDurations?: number[] | null } | null | undefined)
+        ?.activeDurations;
     if (!Array.isArray(active) || active.length === 0) return [];
     const set = new Set(active);
     return DURATIONS.filter((secs) => set.has(secs));
+}
+
+/**
+ * AUDIT-M19: clamp a chart duration into the instance's ACTIVE ladder.
+ *
+ * `activeTf` defaulted to `1` and was never checked against the ladder. Deactivate
+ * the 1s duration in Settings, then reload: `activeTf` resets to 1, the rail is
+ * built from `activeDurations()` (which excludes it), so NO rail item is
+ * highlighted, and `pair.terms[1]` has neither a socket nor a snapshot. The chart
+ * rendered empty with the warmup badge stuck on `WARMING` forever — and because
+ * `activeTf` was in-memory only, it re-broke on every reload.
+ *
+ * The deep-link path had the same hole: `#/engine/market_monitor/workspace/
+ * instance/BTC-USDT/tf/1d` rendered a dead 1d pane on a ladder without 1d.
+ *
+ * Falls back to the FASTEST active duration rather than returning null, so
+ * there is always a live selection to render.
+ */
+export function clampToActiveDuration(pair: unknown, secs: number): number {
+    const ladder = activeDurations(pair);
+    if (ladder.includes(secs)) return secs;
+    return ladder[0] ?? secs;
 }
 
 /**

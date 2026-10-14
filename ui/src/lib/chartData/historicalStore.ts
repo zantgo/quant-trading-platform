@@ -72,6 +72,19 @@ export function hasHistorical(pairKey: string, timeframe: number, slot?: string)
     return historicalData.has(keyFor(pairKey, timeframe, slot));
 }
 
+/// AUDIT-M7: drop every cached series for a pair (see `liveRing.purgePair`).
+export function purgePair(pairKey: string): number {
+    const prefix = `${pairKey}@`;
+    let n = 0;
+    for (const k of [...historicalCache.keys()]) {
+        if (k.startsWith(prefix)) { historicalCache.delete(k); n++; }
+    }
+    for (const k of [...historicalData.keys()]) {
+        if (k.startsWith(prefix)) { historicalData.delete(k); n++; }
+    }
+    return n;
+}
+
 export function purgeHistorical(pairKey: string, timeframe: number, slot?: number | string): void {
     const k = keyFor(pairKey, timeframe, slot);
     historicalCache.delete(k);

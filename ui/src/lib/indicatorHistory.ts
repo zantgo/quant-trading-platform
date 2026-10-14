@@ -14,6 +14,7 @@
 import { tfLabel } from '../types';
 import type { Time } from 'lightweight-charts';
 import * as HistoricalStore from './chartData/historicalStore';
+import { purgeBadgeHistoryForPair } from './badgeHistory.svelte';
 import * as LiveRing from './chartData/liveRing';
 import { reconcile, normalizeHistoryForStore } from './chartData/reconciledView';
 
@@ -233,6 +234,24 @@ export function clearHistoryCache(): void {
     historyData.clear();
     HistoricalStore.clearHistorical();
     LiveRing.clearLive();
+}
+
+/// AUDIT-M7: purge EVERY cached series for a removed pair, across all four
+/// module-level stores. The per-key `purgeCacheForKey` below needs a known
+/// timeframe, but instance removal only knows the pair.
+export function purgeCacheForPair(pairKey: string): number {
+    const prefix = `${pairKey}@`;
+    let n = 0;
+    for (const k of [...cache.keys()]) {
+        if (k.startsWith(prefix)) { cache.delete(k); n++; }
+    }
+    for (const k of [...historyData.keys()]) {
+        if (k.startsWith(prefix)) { historyData.delete(k); n++; }
+    }
+    n += HistoricalStore.purgePair(pairKey);
+    n += LiveRing.purgePair(pairKey);
+    n += purgeBadgeHistoryForPair(pairKey);
+    return n;
 }
 
 export function purgeCacheForKey(pairKey: string, timeframe: number, slot?: number | string): void {

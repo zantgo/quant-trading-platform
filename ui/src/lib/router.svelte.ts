@@ -15,6 +15,7 @@
 
 import { ENGINE_DEFAULT_TAB, ENGINE_TABS, type EngineKey } from './engineTabs';
 import { DURATIONS, tfLabel, type CurrentView } from '../types';
+import { clampToActiveDuration } from './terms';
 
 /// Serialize the per-pair chart selection: the tf segment carries the
 /// derived duration label ("1m", "15s", …).
@@ -241,7 +242,11 @@ export function applyRouteToStore(
                 pair.currentView = (params.view as CurrentView) ?? 'terminal';
                 const tfSecs = params.tf ? tfFromParam(params.tf) : undefined;
                 if (tfSecs !== undefined) {
-                    pair.activeTf = tfSecs;
+                    // AUDIT-M19: a deep link can name a duration that is not on
+                    // this instance's active ladder. Binding to it rendered a
+                    // permanently dead pane (no socket, no snapshot) with the
+                    // warmup badge stuck on WARMING.
+                    pair.activeTf = clampToActiveDuration(pair, tfSecs);
                 }
             }
             // Unknown pair → ignore the segment gracefully (keep the

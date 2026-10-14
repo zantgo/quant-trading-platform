@@ -17,6 +17,7 @@
     import { fetchConfigFromServer, applyConfigToStore, syncInstanceIdsFromList, postInstanceLifecycle } from './lib/api.svelte';
     import { pickInstanceLivePrice } from './lib/livePrice';
     import { connectWsForInstance, disconnectWsForInstance, shouldReconnect, type WsState } from './lib/websocket.svelte';
+    import { purgeCacheForPair } from './lib/indicatorHistory';
     import { buildEngineHash, parseEngineHash, currentHashFor, applyRouteToStore, writeHash } from './lib/router.svelte';
     import { loadPref, savePref } from './lib/prefs';
     import { applyResilientCache, type PairCacheEntry } from './lib/resilientActivePair';
@@ -393,6 +394,40 @@
                 const state = wssMap[sym];
                 if (!state || shouldReconnect(app, state, sym)) {
                     connectWsForInstance(app, wssMap, sym);
+                }
+            }
+
+            // AUDIT-M7: tear down sockets whose instance is GONE.
+            //
+            // `AppStore.removeInstance` deletes the map entry and nothing else,
+            // and only ONE of the seven removal paths (`executeDelete` in this
+            // file) called `disconnectWsForInstance`. The other six — the 30 s
+            // `reconcileInstances`, `applyConfigToStore`, the WatchlistScanner,
+            // LaunchSetup, TabHeader — each leaked 12 sockets (one per active
+            // duration) per removed instance.
+            //
+            // The WatchlistScanner is the worst: it connects every scanned
+            // symbol and then removes it on TIMEOUT or DELETE, so a 30-symbol
+            // scan leaked up to 360 sockets, accumulating across scans.
+            //
+            // At 12 sockets x 20 instances x 3 tabs = 720 against the server's
+            // `MAX_WS_CONNECTIONS` 512, new upgrades were refused with a bare
+            // 429 — and because the budget is GLOBAL, that killed sockets for
+            // HEALTHY instances too. Charts silently stopped connecting for
+            // everything, and a page reload was the only recovery.
+            //
+            // Pruning here is the single choke point that fixes every removal
+            // path regardless of which one ran.
+            for (const sym of Object.keys(wssMap)) {
+                if (!app.instancesMap[sym]) {
+                    disconnectWsForInstance(wssMap, sym);
+                    // AUDIT-M7: also drop the per-pair chart caches. Four
+                    // module-level Maps keyed by `${pair}@${slot}@${secs}` were
+                    // only purged from the WS reconnect path, never on removal,
+                    // so browser memory grew monotonically with pair churn
+                    // (~12 MB per instance at the 12-duration ladder, plus an
+                    // equal-order historicalStore copy per >=60 s slot).
+                    purgeCacheForPair(sym);
                 }
             }
         });

@@ -96,6 +96,48 @@ function num(v: unknown): number | null {
     return Number.isNaN(n) ? null : n;
 }
 
+
+/**
+ * AUDIT-M6: structural equality for an indicator map.
+ *
+ * Compares key sets and per-entry identity cheaply: the expensive part of a
+ * real change is the 52 keys and their `values` sub-maps, so this short-circuits
+ * on the first genuinely different entry rather than building a diff.
+ */
+function indicatorMapsEqual(a: IndicatorMap | undefined, b: IndicatorMap): boolean {
+    if (!a) return false;
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const k of bKeys) {
+        const av = a[k];
+        const bv = b[k];
+        if (av === bv) continue;
+        if (!av) return false;
+        if (av.raw_value !== bv.raw_value || av.normalized !== bv.normalized) return false;
+        if (av.state_label !== bv.state_label) return false;
+        // `values` sub-maps: shadow frames carry the same numbers as the last
+        // completed candle, so this is where most shadow ticks are caught.
+        const av2 = av.values;
+        const bv2 = bv.values;
+        if (av2 === bv2) continue;
+        if (!av2 || !bv2) return false;
+        const vk = Object.keys(bv2);
+        if (vk.length !== Object.keys(av2).length) return false;
+        for (const v of vk) {
+            if (av2[v] !== bv2[v]) return false;
+        }
+        // Signal lists are structural markers that only change on a completed
+        // bar, so identity comparison is sufficient here.
+        const as = av.signals;
+        const bs = bv.signals;
+        if (as !== bs) {
+            if (!as || !bs || as.length !== bs.length) return false;
+        }
+    }
+    return true;
+}
+
 /**
  * Parse a WebSocket `broadcast.market_snapshot` notification into the
  * timeframe telemetry. The nested `indicators` map is the sole source of
@@ -197,7 +239,22 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
                 } as never;
             }
         }
-        tf.indicators = merged;
+        // AUDIT-M6: only REPLACE the map when the content actually changed.
+        //
+        // This ran on EVERY frame, including shadow ticks, and assigning to
+        // `tf.indicators` gives the property a NEW identity each time. That
+        // invalidated `MtfView`'s entire `$derived` chain (rows, groups,
+        // divergenceRows, signalCells, levelCellsByKind — each spanning 52
+        // indicators x 12 slots) from ANY duration socket, so the ~1,200-span
+        // MTF grid re-diffed at the sub-minute tick rate.
+        //
+        // Content equality is the cheap, correct gate: a shadow tick that
+        // carries the same completed-candle indicator values as the frame
+        // before it must not invalidate anything. Genuine value changes — and
+        // every completed candle — still assign, so nothing goes stale.
+        if (!indicatorMapsEqual(tf.indicators, merged)) {
+            tf.indicators = merged;
+        }
     }
     // Update latestSnapshot on every inbound frame so chart $effect
     // blocks always re-fire. Shadow ticks (broadcast_live_snapshot in
@@ -588,7 +645,25 @@ export function connectWebsocketForTimeframe(
         }
         state.backoff[wsKey] = freshBackoff();
     };
-    newWs.onmessage = (event) => applySnapshotToTimeframe(app, tf, event, symbol);
+    // AUDIT-M6: park WS parsing while the tab is hidden.
+    //
+    // There was NO `visibilitychange` handling anywhere in `ui/src`. The rAF
+    // coalescer already suppresses CHART work in a background tab, but
+    // `applySnapshotToTimeframe` is not throttled: a hidden Charts tab kept
+    // `JSON.parse`-ing ~55 KB per frame across 12 sockets and running the
+    // 52-key indicator merge at full rate — roughly 30-50% of a core for a tab
+    // nobody is looking at, plus a multi-second catch-up backlog on return.
+    //
+    // Chrome's timer throttling does NOT apply to WebSocket message events, so
+    // nothing else was stopping it.
+    //
+    // Frames that arrive while hidden are DROPPED rather than queued: the store
+    // reconciles from `/api/history` and the next live frame on return, so a
+    // background tab has no need for a backlog it cannot render.
+    newWs.onmessage = (event) => {
+        if (typeof document !== 'undefined' && document.hidden) return;
+        applySnapshotToTimeframe(app, tf, event, symbol);
+    };
     newWs.onclose = () => {
         const pairAfter = app.instancesMap[symbol];
         if (pairAfter) pairAfter.isConnected = false;

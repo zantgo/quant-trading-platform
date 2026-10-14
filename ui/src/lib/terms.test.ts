@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { DURATIONS } from '../types';
 import type { InstanceState } from '../types';
-import { activeDurations, durationsFromSecs, withActiveDurations } from './terms';
+import { activeDurations, clampToActiveDuration, durationsFromSecs, withActiveDurations } from './terms';
 import { makeTerms } from '../tests/makeTerms';
 
 function pairWith(activeDurations?: number[]): InstanceState {
@@ -68,5 +68,49 @@ describe('withActiveDurations', () => {
     it('clamps out-of-range counts into 1..=14 (mirrors the backend clamp)', () => {
         expect(withActiveDurations(0)).toEqual([1]);
         expect(withActiveDurations(99)).toEqual([...DURATIONS]);
+    });
+});
+
+// ── AUDIT-M19: clamp the chart duration into the ACTIVE ladder ──────────────
+//
+// `activeTf` defaulted to 1 and was never checked against the ladder. Deactivate
+// the 1s duration in Settings, then reload: `activeTf` resets to 1, the rail is
+// built from `activeDurations()` (which excludes it), so NO rail item is
+// highlighted and `pair.terms[1]` has neither a socket nor a snapshot. The chart
+// rendered empty with the warmup badge stuck on `WARMING` forever — and because
+// `activeTf` was in-memory only, it re-broke on every reload.
+//
+// The deep-link path had the same hole: a URL naming a duration outside the
+// ladder rendered a permanently dead pane.
+
+describe('clampToActiveDuration', () => {
+    it('keeps a duration that IS on the ladder', () => {
+        const pair = pairWith([1, 60, 300]);
+        expect(clampToActiveDuration(pair, 60)).toBe(60);
+        expect(clampToActiveDuration(pair, 300)).toBe(300);
+    });
+
+    it('clamps a duration that is NOT on the ladder to the fastest active one', () => {
+        // The reported case: 1s deactivated, `activeTf` still 1.
+        const pair = pairWith([3, 5, 60]);
+        expect(clampToActiveDuration(pair, 1)).toBe(3);
+        expect(clampToActiveDuration(pair, 3600)).toBe(3);
+    });
+
+    it('falls back to the full pool when the ladder is unknown', () => {
+        expect(clampToActiveDuration(null, 300)).toBe(300);
+        expect(clampToActiveDuration(pairWith(undefined), 300)).toBe(300);
+        // A duration that is not in the pool at all resolves to the FASTEST
+        // available, never to the bogus input — otherwise the chart would bind
+        // to a duration with no pipeline.
+        expect(clampToActiveDuration(pairWith(undefined), 77)).toBe(1);
+    });
+
+    it('never returns a duration outside the ladder it was given', () => {
+        const ladder = [5, 15, 60, 300];
+        const pair = pairWith(ladder);
+        for (const candidate of [1, 3, 7, 180, 900, 3600, 14400, 86400]) {
+            expect(ladder).toContain(clampToActiveDuration(pair, candidate));
+        }
     });
 });

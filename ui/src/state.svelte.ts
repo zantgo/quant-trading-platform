@@ -7,7 +7,7 @@ import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 import { ENGINE_DEFAULT_TAB } from './lib/engineTabs';
 import { loadPref } from './lib/prefs';
-import { durationsFromSecs } from './lib/terms';
+import { clampToActiveDuration, durationsFromSecs } from './lib/terms';
 import { pushBadge, notifyBadgeChanged, L7_KEY } from './lib/badgeHistory.svelte';
 import { buildL7OverviewHeader } from './lib/layerHeader';
 import { applyChartOverlays } from './lib/chartOverlays';
@@ -251,7 +251,25 @@ export class AppStore {
     setActiveTf(pairKey: string, tf: number) {
         this.markNavOrigin('user');
         const p = this.instancesMap[pairKey];
-        if (p) p.activeTf = tf;
+        // AUDIT-M19: clamp into the ACTIVE ladder. Without this, deactivating a
+        // duration and then selecting it left the chart bound to a duration with
+        // no socket and no snapshot — an empty pane stuck on `WARMING` forever.
+        if (p) p.activeTf = clampToActiveDuration(p, tf);
+    }
+
+    /// AUDIT-M19: re-clamp every instance's chart duration against its ladder.
+    ///
+    /// Called after the ladder is reconciled from `GET /api/config`. `activeTf`
+    /// is in-memory only, so it resets to 1 on reload; if 1s is no longer active
+    /// the Charts page renders a dead pane with no rail item selected, and it
+    /// re-breaks on every reload until the operator clicks another duration.
+    clampActiveTfs(): void {
+        for (const key of Object.keys(this.instancesMap)) {
+            const p = this.instancesMap[key];
+            if (!p) continue;
+            const clamped = clampToActiveDuration(p, p.activeTf ?? 1);
+            if (clamped !== p.activeTf) p.activeTf = clamped;
+        }
     }
 
     // ─── BTE run state (moved from BacktestingDashboard, Phase 3) ─────
@@ -581,6 +599,12 @@ export class AppStore {
                     }
                 }
             }
+            // AUDIT-M19: after the ladder is known, re-clamp every instance's
+            // chart duration. `activeTf` defaults to 1 and is in-memory only, so
+            // on a ladder without 1s the Charts page rendered a dead pane with
+            // no rail item selected and re-broke on every reload.
+            this.clampActiveTfs();
+
             // A poll-discovered ladder change (other tab / CLI edit) must
             // re-attach the per-duration WS sockets without a restart.
             if (ladderChanged) this.bumpWsVersion();

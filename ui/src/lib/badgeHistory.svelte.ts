@@ -109,6 +109,23 @@ export function getBadgeTrail(key: string): BadgeHistoryEntry[] {
 
 /** Clear everything (tests + explicit operator reset). Also drops the
  *  persisted copy. */
+/// AUDIT-M7: drop every badge-trail entry for a removed pair.
+///
+/// The key space mixes layer prefixes with pair keys (`l1:<pair>:<slot>`,
+/// `l2:<pair>`, ..., `mtf:<pair>`), so a pair can appear anywhere in the key.
+/// The map is capped per key but its key SPACE was unbounded, and it is
+/// persisted to localStorage on a 2 s debounce whose `QuotaExceededError` was
+/// swallowed — so once it outgrew the quota, persistence stopped silently and
+/// with no diagnostic.
+export function purgeBadgeHistoryForPair(pairKey: string): number {
+    let n = 0;
+    for (const k of [...history.keys()]) {
+        if (k.includes(pairKey)) { history.delete(k); n++; }
+    }
+    if (n > 0) persist();
+    return n;
+}
+
 export function clearBadgeHistory(): void {
     history.clear();
     if (isBrowser()) {

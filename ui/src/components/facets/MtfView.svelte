@@ -248,11 +248,23 @@
         return t;
     });
 
+    // AUDIT-M6: these two tooltip builders ran in the TEMPLATE, so they were
+    // re-evaluated on every render (~144 + ~108 map/join/toFixed per frame)
+    // even though their inputs only change on a COMPLETED candle — a per-frame
+    // cost that produced nothing. Cache by the cell's entry identity so a stable
+    // cell costs a Map lookup instead of a string build.
+    const signalTooltipCache = new WeakMap<MtfSignalCell, string>();
+    const levelTooltipCache = new WeakMap<MtfLevelCell, string>();
+
     function signalCellTooltip(cell: MtfSignalCell): string {
+        const cached = signalTooltipCache.get(cell);
+        if (cached !== undefined) return cached;
         const lines = cell.entries.map((e) =>
             `${e.displayName} — ${e.signal.label} (Strength ${e.signal.strength_label ?? (e.signal.strength * 100).toFixed(0)} · ${e.signal.status} · Age ${ageLabel(e.signal.age_bars)})`,
         );
-        return lines.length > 0 ? lines.join('\n') : 'no active signals of this kind';
+        const out = lines.length > 0 ? lines.join('\n') : 'no active signals of this kind';
+        signalTooltipCache.set(cell, out);
+        return out;
     }
 
     // ── Divergences: capable indicators × strongest sub-type per TF ──
@@ -467,10 +479,14 @@
     });
 
     function levelCellTooltip(cell: MtfLevelCell): string {
+        const cached = levelTooltipCache.get(cell);
+        if (cached !== undefined) return cached;
         const lines = cell.entries.map((e) =>
             `${e.displayName} — ${e.levelName} ${e.priceText} (${e.signal.direction} · Strength ${(e.signal.strength * 100).toFixed(0)} · ${e.signal.status})`,
         );
-        return lines.length > 0 ? lines.join('\n') : 'no active level tests of this kind';
+        const out = lines.length > 0 ? lines.join('\n') : 'no active level tests of this kind';
+        levelTooltipCache.set(cell, out);
+        return out;
     }
 
     let collapsed = $state<Record<string, boolean>>({});

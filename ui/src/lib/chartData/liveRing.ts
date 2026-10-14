@@ -29,6 +29,25 @@ export function clearLive(): void {
     liveCandles.clear();
 }
 
+/// AUDIT-M7: drop EVERY cached series for a pair, across all durations and
+/// slots. Called when an instance is removed — the per-key purge above requires
+/// a known timeframe, but removal only knows the pair.
+///
+/// These module-level Maps are never pruned on their own, so with pair churn
+/// they grew monotonically: each `(pair, slot)` holds ~52 sub-keyed `number[]`
+/// series capped at `HIST_MAX` 1000, which is roughly 1 MB per slot.
+export function purgePair(pairKey: string): number {
+    const prefix = `${pairKey}@`;
+    let n = 0;
+    for (const k of [...liveHistory.keys()]) {
+        if (k.startsWith(prefix)) { liveHistory.delete(k); n++; }
+    }
+    for (const k of [...liveCandles.keys()]) {
+        if (k.startsWith(prefix)) { liveCandles.delete(k); n++; }
+    }
+    return n;
+}
+
 export function purgeLive(pairKey: string, timeframe: number, slot?: number | string): void {
     const k = keyFor(pairKey, timeframe, slot);
     liveHistory.delete(k);
