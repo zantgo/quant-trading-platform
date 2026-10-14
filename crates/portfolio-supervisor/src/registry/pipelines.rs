@@ -5,6 +5,89 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 
+/// AUDIT-C2: how long the per-symbol WS supervisor pauses after the circuit
+/// breaker trips (5 consecutive rapid-failing cycles). The loop RETRIES after
+/// this; it never gives up. A venue that is genuinely down therefore costs one
+/// log line per cooldown rather than a permanently dead instance.
+const WS_BREAKER_COOLDOWN_SECS: u64 = 300;
+
+/// AUDIT-C2: consecutive cycles that may fail *before the connection ever
+/// establishes* before the breaker trips. Cycles that survive `connect_grace`
+/// reset the counter, so this only counts rapid handshake failures.
+const WS_BREAKER_TRIP_COUNT: u32 = 5;
+
+/// What the supervisor should do after a connection cycle ends.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BreakerAction {
+    /// Keep retrying after this (already-jittered) delay.
+    Retry(Duration),
+    /// Circuit breaker tripped: log, report `reconnecting`, wait this long,
+    /// then try again. The supervisor stays alive.
+    Cooldown(Duration),
+}
+
+/// AUDIT-C2: the reconnect strike/backoff policy, extracted from the supervisor
+/// loop so it is directly testable.
+///
+/// The defect this replaces counted ANY cycle as a failure unless the session
+/// survived 300 s, and `break`ed the supervisor task outright on the 5th strike.
+/// Nothing re-spawns that task, so any ~30 s outage (laptop suspend, VPN drop,
+/// Wi-Fi flap, a venue 429 burst) permanently killed every instance: charts
+/// frozen on the last bar, every indicator still reading "Live", one log line,
+/// and a daemon restart as the only recovery.
+///
+/// Two rules now hold:
+///   * A cycle that survived `connect_grace` — the window the connect task
+///     itself uses to judge a handshake genuine — is a SUCCESS and clears both
+///     the strike counter and the backoff.
+///   * The breaker never terminates the loop. It returns [`BreakerAction::Cooldown`].
+#[derive(Debug, Clone)]
+pub struct WsBreaker {
+    consecutive_failures: u32,
+    backoff_secs: u64,
+    connect_grace: Duration,
+}
+
+impl WsBreaker {
+    pub fn new(connect_grace: Duration) -> Self {
+        Self {
+            consecutive_failures: 0,
+            backoff_secs: 1,
+            connect_grace,
+        }
+    }
+
+    /// Record one finished connection cycle and decide what happens next.
+    ///
+    /// `connected_for` is how long the adapter ran before returning.
+    pub fn on_cycle_end(&mut self, connected_for: Duration) -> BreakerAction {
+        if connected_for >= self.connect_grace {
+            self.consecutive_failures = 0;
+            self.backoff_secs = 1;
+        }
+        self.consecutive_failures += 1;
+
+        if self.consecutive_failures >= WS_BREAKER_TRIP_COUNT {
+            self.consecutive_failures = 0;
+            self.backoff_secs = 1;
+            return BreakerAction::Cooldown(Duration::from_secs(WS_BREAKER_COOLDOWN_SECS));
+        }
+
+        let delay = network_adapters::adapters::resilience::apply_jitter(
+            Duration::from_secs(self.backoff_secs),
+            0.2,
+        )
+        .min(Duration::from_secs(30));
+        self.backoff_secs = (self.backoff_secs * 2).min(30);
+        BreakerAction::Retry(delay)
+    }
+
+    /// Current strike count (test/diagnostic visibility).
+    pub fn consecutive_failures(&self) -> u32 {
+        self.consecutive_failures
+    }
+}
+
 use crate::instance::{Instance, TimeframeBuffers};
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
@@ -696,11 +779,27 @@ async fn spawn_tasks(
     let disconnect_grace_ms = reconnect_cfg.disconnect_grace_ms;
     tokio::spawn(async move {
         // Per-symbol WS supervisor (03-01-01 §4 / 08-03): exponential backoff
-        // 1 s → 30 s with ±20 % jitter applied before the cap; permanent
-        // disable after 5 consecutive failed cycles; the failure counter
-        // resets when a connection survives longer than 300 s. Connection
+        // 1 s → 30 s with ±20 % jitter applied before the cap; a circuit
+        // breaker that cools down for `WS_BREAKER_COOLDOWN_SECS` after 5
+        // consecutive RAPID-failing cycles; the failure counter resets as
+        // soon as a connection survives past `connect_grace`. Connection
         // lifecycle events feed the per-(pair, timeframe) quality scopes
         // (08-05).
+        //
+        // AUDIT-C2 (observe-mode readiness): two defects made a ~30 s
+        // network blip terminally kill EVERY configured instance, with no
+        // recovery path short of a daemon restart:
+        //   * The counter reset only when a session survived 300 s, so a
+        //     connection that succeeded and ran 10 s still counted as a
+        //     "failure". Any recurring short outage accumulated strikes
+        //     permanently. The real success signal is `connect_grace` —
+        //     the same window the connect task uses to judge a handshake
+        //     genuine — so that is what resets it now.
+        //   * Hitting 5 strikes called `set_disabled` and `break`, exiting
+        //     the supervisor task. Nothing re-spawns it, so the instance
+        //     was dead forever while still reporting `running`. It now
+        //     cools down and RETRIES, and reports `reconnecting` (not
+        //     `disabled`) because it genuinely intends to come back.
         //
         // AUDIT-V9 fixes (B1/B5/B6/B10):
         //   * Disconnect marking is DEFERRED by `disconnect_grace_ms`
@@ -725,8 +824,7 @@ async fn spawn_tasks(
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0)
         };
-        let mut backoff_secs = 1u64;
-        let mut consecutive_failures = 0u32;
+        let mut breaker = WsBreaker::new(connect_grace);
         let mut last_disconnect_ms: Option<u64> = None;
         // Pending deferred disconnect (B1). Holds the JoinHandle of a
         // grace task scheduled when the adapter returns. Aborted on
@@ -925,41 +1023,43 @@ async fn spawn_tasks(
                 break;
             }
 
-            if session_start.elapsed() > std::time::Duration::from_secs(300) {
-                consecutive_failures = 0;
-                backoff_secs = 1;
+            match breaker.on_cycle_end(session_start.elapsed()) {
+                BreakerAction::Cooldown(cooldown) => {
+                    eprintln!(
+                        "🛑 WS Supervisor [{}]: circuit breaker tripped after rapid-failing cycles — cooling down {}s before retrying.",
+                        ws_internal,
+                        cooldown.as_secs()
+                    );
+                    es_disconnect.set_reconnecting(&es_disconnect_label).await;
+                    es_disconnect
+                        .increment_reconnect(&es_disconnect_label)
+                        .await;
+                    tokio::select! {
+                        biased;
+                        _ = ws_cancel.cancelled() => break,
+                        _ = tokio::time::sleep(cooldown) => {}
+                    }
+                    continue;
+                }
+                BreakerAction::Retry(delay) => {
+                    es_disconnect.set_reconnecting(&es_disconnect_label).await;
+                    es_disconnect
+                        .increment_reconnect(&es_disconnect_label)
+                        .await;
+                    eprintln!(
+                        "🔁 WS Supervisor [{}]: reconnecting in {:.1}s (strike {}/{})...",
+                        ws_internal,
+                        delay.as_secs_f64(),
+                        breaker.consecutive_failures(),
+                        WS_BREAKER_TRIP_COUNT
+                    );
+                    tokio::select! {
+                        biased;
+                        _ = ws_cancel.cancelled() => break,
+                        _ = tokio::time::sleep(delay) => {}
+                    }
+                }
             }
-            consecutive_failures += 1;
-            if consecutive_failures >= 5 {
-                eprintln!(
-                    "🛑 WS Supervisor [{}]: permanently disabled after 5 consecutive failed cycles.",
-                    ws_internal
-                );
-                es_disconnect.set_disabled(&es_disconnect_label).await;
-                break;
-            }
-
-            es_disconnect.set_reconnecting(&es_disconnect_label).await;
-            es_disconnect
-                .increment_reconnect(&es_disconnect_label)
-                .await;
-            let delay = network_adapters::adapters::resilience::apply_jitter(
-                std::time::Duration::from_secs(backoff_secs),
-                0.2,
-            )
-            .min(std::time::Duration::from_secs(30));
-            eprintln!(
-                "🔁 WS Supervisor [{}]: reconnecting in {:.1}s (attempt {}/5)...",
-                ws_internal,
-                delay.as_secs_f64(),
-                consecutive_failures
-            );
-            tokio::select! {
-                biased;
-                _ = ws_cancel.cancelled() => break,
-                _ = tokio::time::sleep(delay) => {}
-            }
-            backoff_secs = (backoff_secs * 2).min(30);
         }
         // Clean up any straggler grace task before the supervisor exits.
         if let Some(handle) = pending_disconnect.take() {
