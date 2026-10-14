@@ -199,6 +199,33 @@ not S&P500). If the ticker is listed more than once, name the market explicitly,
     )
 }
 
+/// AUDIT-C5: cancels the tasks it owns if it is dropped without being
+/// explicitly disarmed.
+///
+/// Used to make a half-built pipeline set abort-safe. `build_pipelines` spawns
+/// the per-duration `run_single` tasks; if the enclosing task is aborted (a
+/// `JoinSet` dropped because the HTTP client disconnected, for example) after
+/// the spawn but before the swap, those tasks would otherwise be orphaned --
+/// running, feeding a broadcast channel nobody reads, and never installed in
+/// the workspace map.
+///
+/// Armed at construction; [`AbortOnDrop::disarm`] is called on the success path.
+struct AbortOnDrop(CancellationToken);
+
+impl AbortOnDrop {
+    fn disarm(&mut self) {
+        // Replacing the token with a fresh, never-cancelled one makes the Drop
+        // below a no-op without needing an Option<Token> dance.
+        self.0 = CancellationToken::new();
+    }
+}
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
 /// Add a new instance to the state, starting all pipeline tasks.
 pub async fn add_instance(
     state: &RegistryContext,
@@ -769,22 +796,28 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         old_instance.id
     );
 
-    // Cancel all active tasks for old instance
-    old_instance.cancel.cancel();
-
-    // Drain old buffers (all ACTIVE durations; the recharged instance
-    // gets fresh buffers from `build_pipelines`). v11.12.24: refunds the
-    // retained-snapshot byte budget alongside the free.
-    {
-        for buf in old_instance.buffers() {
-            buf.history.write().await.clear();
-            buf.latest.write().await.take();
-            let mut snaps = buf.snapshot_history.write().await;
-            market_analyzer::analyzer::history_budget::drain(&mut snaps);
-        }
-    }
-
-    // Build fresh pipeline configs from saved TOML config
+    // AUDIT-C5 — BUILD-THEN-SWAP.
+    //
+    // This function used to cancel the live instance and flush its buffers
+    // HERE, at the top, and only later do the fallible work (config lookup,
+    // venue resolve, REST bootstrap, `build_pipelines`) before the single
+    // `workspace.insert` at the end. Any error or abort in that window left the
+    // workspace map holding the OLD instance whose `CancellationToken` was
+    // already cancelled and whose buffers were cleared — so it still reported
+    // `status: running`, its WS socket stayed open (the `broadcast::Sender` is
+    // owned by the `Arc<TimeframePipeline>` the map still holds) and it
+    // delivered NOTHING, forever. Every indicator read "Live" while the chart
+    // was frozen, `/api/system/pipelines` reported healthy, and the only
+    // recovery was delete + re-add.
+    //
+    // The trigger was mundane: the recharges run inside a `tokio::task::JoinSet`
+    // (api-gateway handlers/config.rs), and `JoinSet`'s Drop ABORTS every
+    // contained task. Axum drops the handler future when the client
+    // disconnects, so simply closing the browser tab 3 seconds after pressing
+    // SAVE was enough to strand an instance permanently.
+    //
+    // The live instance is therefore left RUNNING for the whole build, and is
+    // only cancelled and drained at the swap point below.
     let (base, _quote) = old_instance.pair.clone();
     let config_guard = state.workspace.config().await;
     let pair_cfg = config_guard
@@ -917,7 +950,19 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     }
 
     // Build fresh pipelines
+    //
+    // AUDIT-C5 (abort safety): `build_pipelines` SPAWNS the pipeline tasks.
+    // If this task is then aborted — which is exactly what happens when the
+    // JoinSet in the config handler is dropped because the browser tab closed
+    // — those half-built pipelines would be orphaned: running, feeding a
+    // broadcast channel nobody reads, and never installed in the workspace.
+    //
+    // `AbortOnDrop` cancels them unless the swap below completes. Combined with
+    // the old instance no longer being cancelled up front, an aborted save now
+    // leaves the PREVIOUS instance fully intact and still streaming, which is
+    // the correct outcome: nothing changed rather than something broke.
     let cancel = CancellationToken::new();
+    let mut abort_guard = AbortOnDrop(cancel.clone());
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
         venue_coin: recharge_venue_coin.clone(),
@@ -995,16 +1040,20 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         instance: _,
         buffers: recharged_buffers,
     } = artifacts;
+
+    // AUDIT-C5: snapshot the carried-over trading state from a FROZEN old
+    // instance. Under build-then-swap the old instance is still running during
+    // the (potentially minutes-long) REST bootstrap, so reading `trading`
+    // here would capture a state that then moved on underneath us and silently
+    // discard those changes when the swap lands. The read therefore happens at
+    // the swap point below, immediately after `cancel()`.
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
         active_secs: config_guard_active_ladder_secs.clone(),
         pair: old_instance.pair.clone(),
         exchange: old_instance.exchange,
         cancel: cancel.clone(),
-        trading: {
-            let old_trading = old_instance.trading.read().await;
-            tokio::sync::RwLock::new(old_trading.clone())
-        },
+        trading: tokio::sync::RwLock::new(old_instance.trading.read().await.clone()),
         config_state: tokio::sync::RwLock::new(ConfigState::new(
             intervals_config,
             pair_cfg.operational_mode.clone(),
@@ -1022,11 +1071,36 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         venue_coin: recharge_venue_coin.clone(),
     });
 
-    // Swap in state map
+    // ── THE SWAP ────────────────────────────────────────────────────────
+    // Everything above is fallible; nothing above touched the live instance.
+    // Only now, with a fully-built replacement in hand, is the old one retired.
+    //
+    // 1. Cancel the old pipelines (the token is idempotent, so this is safe
+    //    even when the instance was already Stopped).
+    old_instance.cancel.cancel();
+
+    // 2. Drain the old buffers. `history_budget::drain` (not a bare `clear()`)
+    //    so the global retained-snapshot byte counter is refunded in step with
+    //    the freed memory — a bare clear would leak budget credit and start
+    //    evicting live chart history for nothing.
+    {
+        for buf in old_instance.buffers() {
+            buf.history.write().await.clear();
+            buf.latest.write().await.take();
+            let mut snaps = buf.snapshot_history.write().await;
+            market_analyzer::analyzer::history_budget::drain(&mut snaps);
+        }
+    }
+
+    // 3. Install the replacement.
     state
         .workspace
         .insert(pair_key.to_string(), Arc::clone(&new_instance))
         .await;
+
+    // 4. The swap succeeded — disarm the abort guard so the guard's Drop does
+    //    not cancel the freshly installed pipelines.
+    abort_guard.disarm();
 
     sync_exchange_status_active_pairs(state).await;
 
