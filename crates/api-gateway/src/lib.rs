@@ -286,12 +286,26 @@ impl AppState {
         ws.instances.clear();
         self.workspace.set_config(ws.clone()).await;
 
+        // AUDIT-M8c: propagate the failure.
+        //
+        // `save_workspace` re-reads and re-parses `config.toml`, so it fails
+        // OUTRIGHT whenever the on-disk file is unparseable — i.e. exactly the
+        // operator scenario where "quit" matters most. The old code logged and
+        // returned 200 `{"success": true, "message": "Session terminated. All
+        // instances stopped."}`.
+        //
+        // The operator was told their instances were gone, the dashboard showed
+        // an empty workspace, and the daemon was stopped — then the next
+        // `./manage.sh run` re-read the UNCHANGED `config.toml` and respawned
+        // every pair, including any live-mode ones.
         if let Err(e) = config_models::save_workspace(&ws) {
-            eprintln!("⚠️  Failed to persist workspace after quit: {}", e);
-            // Don't fail the quit — the in-memory state is already
-            // correct and the operator can recover with `destroy` if
-            // the TOML is unreadable.
-        } else {
+            return Err(format!(
+                "Workspace cleared in memory but could NOT be persisted to config.toml ({e}). \
+                 The instances are still declared on disk and WILL respawn on the next start. \
+                 Fix config.toml (or delete it) before restarting."
+            ));
+        }
+        {
             println!(
                 "💾 Workspace persisted: 0 instances after quit (deleted {} entries from config.toml)",
                 live_pair_keys.len()
@@ -417,8 +431,14 @@ impl AppState {
         let mut ws = self.workspace.config().await;
         ws.instances.clear();
         self.workspace.set_config(ws.clone()).await;
+        // AUDIT-M8c: propagate. This previously swallowed the error while still
+        // claiming "settings back to defaults" — and the config was untouched,
+        // so the next boot restored the discarded workspace anyway.
         if let Err(e) = config_models::save_workspace(&ws) {
-            eprintln!("⚠️  Failed to persist discarded workspace: {}", e);
+            return Err(format!(
+                "Discard cleared the workspace in memory but could NOT be persisted ({e}). \
+                 config.toml is unchanged and will be restored on the next start."
+            ));
         }
 
         if let Some(info) = &info {

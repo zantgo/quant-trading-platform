@@ -377,8 +377,22 @@ pub async fn serve_update_instance_config(
     } else {
         config.instances.push(entry);
     }
+    // AUDIT-M8c: persist BEFORE publishing to memory, and propagate a failure.
+    //
+    // This previously logged the error and continued, so a save that failed left
+    // memory and disk diverged AND the endpoint still answered 200 — the operator
+    // saw "saved" for a change that would vanish on the next restart. It also
+    // published to memory first, so a subsequent reader saw a config the disk
+    // never received.
     if let Err(e) = config_models::save_workspace(&config) {
-        eprintln!("⚠️  Failed to persist workspace config: {}", e);
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "Instance config NOT saved: config.toml could not be persisted ({e}). \
+                 Nothing was changed in memory, so the running instance is untouched."
+            ),
+        )
+            .into_response();
     }
     // Bridge in-memory state: workspace.config() returns a clone, so the
     // mutation above is invisible to subsequent readers until we publish it.

@@ -79,6 +79,45 @@ impl WorkspaceState {
         *self.inner.config.write().await = new_config;
     }
 
+    /// AUDIT-M8: mutate the workspace config and persist it ATOMICALLY.
+    ///
+    /// The nine workspace mutators (`POST /api/config`,
+    /// `POST /api/instances/:id/config`, `add_instance`, `delete_instance`,
+    /// `recharge_instance`, the strategy upsert, `POST /api/account/capital`,
+    /// `quit_session`, and the background boot-spawn retry loop which runs for
+    /// minutes) each did `config()` -> mutate -> `save_workspace` ->
+    /// `set_config`. Each step is individually locked but the SEQUENCE is not,
+    /// so two mutators could interleave: A's ladder change was silently
+    /// overwritten by B's instance write (A returning 200), or a `500` came
+    /// from a rename race.
+    ///
+    /// Holding the write lock across read -> mutate -> persist -> publish
+    /// closes the window. `mutate` receives the CURRENT config and returns the
+    /// new one; returning `None` aborts without writing.
+    ///
+    /// `save_workspace` itself is also internally serialised and uses a unique
+    /// temp filename, so even a caller that cannot take this lock cannot
+    /// corrupt the file or lose the rename.
+    pub async fn mutate_and_persist<F>(&self, mutate: F) -> Result<WorkspaceConfig, String>
+    where
+        F: for<'a> FnOnce(&'a mut WorkspaceConfig) -> Option<WorkspaceConfig>,
+    {
+        let mut guard = self.inner.config.write().await;
+        // AUDIT-M8: mutate a DRAFT, not the stored config. Handing the closure
+        // `&mut guard` directly would let a caller that mutates and then
+        // returns `None` (or whose write fails) leave the in-memory config
+        // permanently diverged from disk.
+        let mut draft = guard.clone();
+        let Some(updated) = mutate(&mut draft) else {
+            // Caller declined; leave the stored config untouched.
+            return Ok(guard.clone());
+        };
+        config_models::save_workspace(&updated)
+            .map_err(|e| format!("could not persist config.toml: {e}"))?;
+        *guard = updated.clone();
+        Ok(updated)
+    }
+
     /// Look up a live `Arc<Instance>` by pair key.
     pub async fn get(&self, pair_key: &str) -> Option<Arc<Instance>> {
         self.inner.instances.read().await.get(pair_key).cloned()

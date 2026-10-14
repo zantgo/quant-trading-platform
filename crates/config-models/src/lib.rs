@@ -1360,13 +1360,45 @@ fn validate_platform(platform: &PlatformConfig) -> Result<()> {
     Ok(())
 }
 
+/// AUDIT-M8: serialises the read-modify-write so concurrent mutators cannot
+/// interleave.
+///
+/// Nine call sites mutate the workspace: `POST /api/config`,
+/// `POST /api/instances/:id/config`, `registry::add_instance`,
+/// `registry::delete_instance`, `recharge_instance`, the strategy upsert,
+/// `POST /api/account/capital`, `quit_session`, and the background boot-spawn
+/// retry loop (which runs for up to ~10 minutes per entry). Each did
+/// clone -> mutate -> `save_workspace` with no lock, and `WorkspaceState`'s
+/// `RwLock` is a whole-value COPY, so it serialises nothing for this sequence.
+///
+/// Two writers interleaving on one shared `config.toml.tmp` produced either a
+/// LOST UPDATE (A's ladder change silently overwritten by B's instance write,
+/// with A returning 200) or a spurious `500 "Failed to persist configuration
+/// file"` on a rename that lost the race — while the data was in fact on disk.
+fn save_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    &LOCK
+}
+
 /// Serialize a `WorkspaceConfig` back to TOML and persist to `config.toml`.
 ///
 /// The platform-level fields (exchanges, clock monitor) are not overwritten:
 /// we read the current file, mutate the `[workspace]` table, and write the
 /// file back. This preserves any platform-level edits the operator made
 /// outside the workspace UI.
+///
+/// The whole read-modify-write runs under [`save_lock`], and the temp file is
+/// named per-writer, so two concurrent saves cannot clobber each other.
 pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
+    // A poisoned lock means a previous holder panicked mid-write. The write
+    // itself is atomic (tmp + rename), so the data is fine; recover the guard
+    // rather than failing every future save forever.
+    let _guard = save_lock().lock().unwrap_or_else(|e| e.into_inner());
+    save_workspace_locked(workspace)
+}
+
+/// The body of [`save_workspace`]. Callers must already hold [`save_lock`].
+fn save_workspace_locked(workspace: &WorkspaceConfig) -> Result<()> {
     validate_workspace(workspace)?;
     assert_no_legacy_files()?;
     let path = config_path();
@@ -1407,7 +1439,10 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
             bak.display()
         );
     }
-    let tmp = path.with_extension("toml.tmp");
+    // AUDIT-M8: a SHARED `config.toml.tmp` let two writers overwrite each
+    // other's staged content before either renamed. The unique name makes the
+    // rename race impossible; the cleanup below removes the loser.
+    let tmp = path.with_extension(format!("toml.{}.tmp", std::process::id()));
     std::fs::write(&tmp, &serialized).map_err(|e| ConfigError::Io {
         path: tmp.clone(),
         source: e,

@@ -465,24 +465,35 @@ pub async fn serve_workspace_toml_import(
             .into_response();
     }
 
-    // Apply the imported workspace to memory.
-    state.workspace.set_config(workspace.clone()).await;
+    // AUDIT-M8b: persist FIRST, apply to memory only on success.
+    //
+    // This handler had three defects at once:
+    //   * `std::fs::write` truncates then writes — no temp file, no rename, and
+    //     NO `.bak`. A crash, OOM or full disk mid-write DESTROYED
+    //     `config.toml`, and the boot path then fell back to `.bak` (the
+    //     previous workspace) or the factory template, losing everything
+    //     including `[[workspace.instances]]`.
+    //   * The `Result` was discarded via `let _ =`, and the response was 200 OK
+    //     either way — so a failed import was silent. The operator was told it
+    //     succeeded when the file may be untouched, partially written, or (if
+    //     the read/parse chain short-circuited) never written at all.
+    //   * Memory was updated BEFORE the write, so a failed write left memory and
+    //     disk permanently diverged.
+    //
+    // `config_models::save_workspace` already provides the crash-safe path
+    // (bak refresh -> temp -> atomic rename) and preserves the platform-level
+    // tables by re-reading the current file, which is exactly this handler's
+    // stated intent. Route through it so all config writes share one durable
+    // path.
+    if let Err(e) = config_models::save_workspace(&workspace) {
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Import failed: could not persist config.toml ({e}). The in-memory workspace was NOT changed."),
+        )
+            .into_response();
+    }
 
-    // Persist: read current file, swap workspace table, write back.
-    let _ = std::fs::read_to_string("config.toml")
-        .ok()
-        .and_then(|raw| toml::from_str::<toml::Value>(&raw).ok())
-        .and_then(|disk_val| {
-            let mut table = disk_val.as_table()?.clone();
-            let ws_toml = toml::to_string_pretty(&workspace)
-                .ok()
-                .and_then(|s| toml::from_str::<toml::Value>(&s).ok())
-                .unwrap_or(toml::Value::Table(toml::Table::new()));
-            table.insert("workspace".to_string(), ws_toml);
-            toml::to_string_pretty(&toml::Value::Table(table))
-                .ok()
-                .map(|serialised| std::fs::write("config.toml", serialised))
-        });
+    state.workspace.set_config(workspace.clone()).await;
 
     println!(
         "Workspace '{}' imported from TOML ({} instances). Platform-level fields preserved.",

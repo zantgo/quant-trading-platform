@@ -583,10 +583,17 @@ pub async fn add_instance(
             };
             config.instances.push(entry);
         }
-        if let Err(e) = config_models::save_workspace(&config) {
+        // AUDIT-M8: the append and the persist happen under one write lock, so a
+        // concurrent `POST /api/config` cannot have its ladder change overwritten
+        // by this instance write (the boot-spawn loop can run for minutes per
+        // entry, so this genuinely collides in practice).
+        if let Err(e) = state
+            .workspace
+            .mutate_and_persist(|_| Some(config.clone()))
+            .await
+        {
             eprintln!("⚠️  Failed to persist workspace after add: {}", e);
         }
-        state.workspace.set_config(config).await;
     }
 
     // Seed the live trading/safety state with the same capital the
@@ -784,17 +791,21 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
     state.workspace.remove(&pair_key).await;
 
     // 4. Drop from the workspace config + persist to TOML.
+    //
+    // AUDIT-M8: retain + persist under one write lock, so a concurrent save
+    // cannot reintroduce the deleted entry or lose its own change.
     {
-        let mut config = state.workspace.config().await;
-        config.instances.retain(|i| i.symbol != pair_key);
-        if let Err(e) = config_models::save_workspace(&config) {
+        let key = pair_key.clone();
+        if let Err(e) = state
+            .workspace
+            .mutate_and_persist(move |cfg| {
+                cfg.instances.retain(|i| i.symbol != key);
+                Some(cfg.clone())
+            })
+            .await
+        {
             eprintln!("⚠️  Failed to persist workspace after delete: {}", e);
         }
-        // Publish the deletion to the in-memory snapshot so the next reader
-        // sees the cleared list. Without this, an entry could linger in
-        // WorkspaceConfig indefinitely, surviving daemon restarts via disk
-        // alone but never being observable to live code.
-        state.workspace.set_config(config).await;
     }
 
     sync_exchange_status_active_pairs(state).await;
