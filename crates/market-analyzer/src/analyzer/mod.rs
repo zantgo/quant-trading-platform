@@ -1075,6 +1075,56 @@ pub async fn run_single(
                 // reconcile them with the instance's active set so the WS
                 // bootstrap replay matches the first live snapshot.
                 active_set.filter_snapshot_indicators(&mut filtered);
+
+                // AUDIT-SLOW-TF-STATE: adopt the warm snapshot's OWN lifecycle
+                // state instead of leaving the slot `Initializing`.
+                //
+                // `pipeline_state` is a per-pipeline Arc that only
+                // `synthesize_completed_candle` writes, and it starts at
+                // `Initializing` (`registry::pipelines`). So a duration whose
+                // first candle had not yet closed since boot reported
+                // `Initializing` no matter how much warm history it held —
+                // up to one full interval of nothing. Live capture on the
+                // default 12-duration Hyperliquid ladder, four minutes after
+                // boot: 1s-15m `LIVE`, while 30m/1h/4h sat at `INITIALIZING`
+                // with a full 500-candle buffer each. The UI rendered those
+                // columns as empty, so "the timeframe shows no data" tracked
+                // the hour boundary rather than the feed.
+                //
+                // The warm snapshot already carries the state it was computed
+                // with — full history, and a duration-scaled staleness budget
+                // since AUDIT-ILS-09 — so it is the honest value to start
+                // from. Live closes take over from the next candle.
+                *pipeline_state_handle.write().await = filtered.pipeline_state;
+
+                // Warm snapshots carry an EMPTY lifecycle map
+                // (`analyzer::warm`), because the lifecycle is a property of a
+                // LIVE pipeline rather than of a replayed candle. Left empty,
+                // every indicator row on a slow duration has no operational
+                // status, so the MTF grid has nothing to render per row and the
+                // column reads as blank even though the indicator map is full.
+                //
+                // Build it from the warm indicator set so the grid has the same
+                // shape it has on a fast duration.
+                let warm_bars = w.history.len() as u32;
+                let warm_lifecycle = build_indicator_lifecycle_map(
+                    &filtered.indicators,
+                    &IndicatorLifecycleMap::new(),
+                    stale_threshold_secs,
+                    warm_bars,
+                    warm_bars,
+                    false,
+                    core_domain::LatencyTracker::now_ms(),
+                    filtered.pipeline_state == CandlePipelineState::Live,
+                );
+                if !warm_lifecycle.is_empty() {
+                    *indicator_lifecycle.write().await = warm_lifecycle.clone();
+                    // The WS bootstrap frame is served from `latest_snapshot`,
+                    // not from the pipeline handle, so the map has to be on the
+                    // SNAPSHOT too or the cached frame still arrives empty.
+                    filtered.indicator_lifecycle = warm_lifecycle;
+                }
+
                 *latest_snapshot.write().await = Some(filtered);
             }
             // Pre-populate snapshot_history from warmed state (only ≥60s —
