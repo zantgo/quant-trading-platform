@@ -9,9 +9,51 @@
 
 use api_gateway::AppState;
 use axum::{body::Body, http::Request, Router};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
+
+/// AUDIT-TEST-ISOLATION: point `config_path()` at a per-test sandbox.
+///
+/// `/api/session/quit` and `/api/session/discard` PERSIST before they publish,
+/// which is the AUDIT-M8c ordering — a failed write must not leave the dashboard
+/// showing an empty workspace while `config.toml` still declares every instance.
+/// Persistence resolves the path through `config_models::config_path()`, and
+/// Cargo runs integration tests with CWD set to the PACKAGE directory, so the
+/// repo-root `config.toml` is not on that path and the save failed with
+/// `could not read config.toml: No such file or directory` — turning the
+/// persist-failure response into a 500 and failing two tests that assert
+/// success.
+///
+/// These tests were never executed in CI: `test-engine-live` used to gate on a
+/// `LIVE_VENUE=1` variable nothing in the tree reads, so `api-gateway` was
+/// silently skipped until v11.13.2 made the stage two-sided. They only passed
+/// locally by accident — a stray `config.toml` in the crate directory.
+///
+/// Same pattern as `quit_persists.rs`: a process-global env var read without
+/// locking, so concurrent tests need the mutex as well as unique paths.
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+// `tokio::sync::Mutex`, not `std`: the guard is held across `.await`
+// points in the test bodies, and a `std` guard is neither `Send` nor safe
+// to hold across a suspension.
+static CONFIG_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Seed a sandbox config and point the loader at it. The caller holds
+/// `CONFIG_ENV_LOCK` for the duration of the test.
+fn sandbox_config() -> std::path::PathBuf {
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("session_ui_gate_{}_{n}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("sandbox dir");
+    let path = dir.join("config.toml");
+    std::fs::write(
+        &path,
+        "[workspace]\nid = \"main\"\nname = \"T\"\ndefault_currency = \"USDC\"\ndefault_exchange = \"Hyperliquid\"\n",
+    )
+    .expect("seed config");
+    std::env::set_var("MARKET_MONITOR_CONFIG", &path);
+    path
+}
 
 async fn build_router() -> Router {
     let pool = sqlx::SqlitePool::connect("sqlite::memory:")
@@ -93,6 +135,8 @@ async fn fresh_boot_reports_inactive_until_the_operator_acts() {
 
 #[tokio::test]
 async fn session_init_releases_the_gate_and_quit_re_engages_it() {
+    let _env_lock = CONFIG_ENV_LOCK.lock().await;
+    let _sandbox = sandbox_config();
     let router = build_router().await;
 
     let res = router
@@ -137,6 +181,8 @@ async fn session_init_releases_the_gate_and_quit_re_engages_it() {
 
 #[tokio::test]
 async fn discard_re_engages_the_gate() {
+    let _env_lock = CONFIG_ENV_LOCK.lock().await;
+    let _sandbox = sandbox_config();
     let pool = sqlx::SqlitePool::connect("sqlite::memory:")
         .await
         .expect("mem pool");

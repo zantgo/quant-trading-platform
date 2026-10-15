@@ -35,11 +35,32 @@ use portfolio_supervisor::instance::{Instance, TimeframeBuffers};
 use portfolio_supervisor::session::ExchangeChoice;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
+use std::sync::OnceLock;
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 const PAIR_KEY: &str = "BTC-USDT";
+
+/// AUDIT-WS-TEST-ISOLATION: serialise the tests in this binary.
+///
+/// `connected_client_count()` reads a PROCESS-GLOBAL counter
+/// (`ws::ACTIVE_WS_CONNECTIONS`), and each test asserts on an EXACT count
+/// (`wait_for_connections(1, ..)`). Cargo runs test functions in parallel
+/// within one binary, so a socket opened by `churned_slow_duration_..` was
+/// counted against `a_healthy_socket_is_counted_and_stays_open`'s expectation of
+/// exactly 1 — the assertion failed for reasons that had nothing to do with the
+/// liveness behaviour under test.
+///
+/// These tests passed only when the harness happened to run them serially;
+/// `cargo test -- --test-threads=1` makes all three pass deterministically. A
+/// global resource needs a global lock; `tokio::sync::Mutex` (not `std`) so the
+/// guard can be held across `.await` inside the async test bodies.
+static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+
+async fn serial_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    SERIAL.get_or_init(|| Mutex::new(())).lock().await
+}
 
 /// Build a state with one instance whose pipelines all share a broadcast channel
 /// that nothing ever writes to — i.e. a socket that receives NO frames. That is
@@ -228,6 +249,7 @@ async fn wait_for_no_connections(within: Duration) -> bool {
 /// peer was gone — the slot stayed counted until the cap was hit.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn churned_slow_duration_sockets_do_not_exhaust_the_connection_cap() {
+    let _guard = serial_guard().await;
     let state = app_state().await;
     let addr = serve(state).await;
 
@@ -268,6 +290,7 @@ async fn churned_slow_duration_sockets_do_not_exhaust_the_connection_cap() {
 /// regressing the good path.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_graceful_close_is_reclaimed_immediately() {
+    let _guard = serial_guard().await;
     let state = app_state().await;
     let addr = serve(state).await;
     assert!(wait_for_no_connections(Duration::from_secs(5)).await);
@@ -293,6 +316,7 @@ async fn a_graceful_close_is_reclaimed_immediately() {
 /// the liveness work must not break the happy path.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_healthy_socket_is_counted_and_stays_open() {
+    let _guard = serial_guard().await;
     let state = app_state().await;
     let addr = serve(state).await;
     assert!(wait_for_no_connections(Duration::from_secs(5)).await);
