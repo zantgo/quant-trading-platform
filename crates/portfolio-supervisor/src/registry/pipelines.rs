@@ -1436,10 +1436,32 @@ async fn spawn_tasks(
                         }
                         Err(e) => {
                             consecutive_skips += 1;
-                            eprintln!(
-                                "⚠️  Cluster Refresh: {} {} skipped this tick: {} (skip {} of {})",
-                                pair_log, &slot_label, e, consecutive_skips, MAX_CONSECUTIVE_SKIPS,
-                            );
+                            // AUDIT-M18-SPAM: warn on every tick up to the
+                            // threshold, then go quiet and report only the
+                            // transition into the cleared state.
+                            //
+                            // Previously this printed unconditionally, so a
+                            // slot whose OI feed never arrives logged on EVERY
+                            // refresh for the life of the process — and the
+                            // counter kept climbing past the threshold it was
+                            // being compared against, printing the
+                            // self-contradicting "skip 7 of 3". A slow duration
+                            // whose derivatives poller has not populated the
+                            // symbol is exactly this case, so the noise was on a
+                            // normal path, not a rare one.
+                            if consecutive_skips < MAX_CONSECUTIVE_SKIPS {
+                                eprintln!(
+                                    "⚠️  Cluster Refresh: {} {} skipped this tick: {} (skip {} of {})",
+                                    pair_log, &slot_label, e, consecutive_skips, MAX_CONSECUTIVE_SKIPS,
+                                );
+                            } else if consecutive_skips == MAX_CONSECUTIVE_SKIPS {
+                                eprintln!(
+                                    "⚠️  Cluster Refresh: {} {} skipped {} consecutive ticks (last: {}) — \
+                                     further skips will not be logged; the matrix stays cleared until \
+                                     the feed recovers",
+                                    pair_log, slot_label, MAX_CONSECUTIVE_SKIPS, e,
+                                );
+                            }
                             write_cluster_status(
                                 &status_handle,
                                 ClusterRefreshStatus::Skipped,
