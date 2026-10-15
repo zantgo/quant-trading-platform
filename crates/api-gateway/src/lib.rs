@@ -282,9 +282,30 @@ impl AppState {
         }
 
         // (4) Clear the declarative config + persist to TOML.
-        let mut ws = self.workspace.config().await;
-        ws.instances.clear();
-        self.workspace.set_config(ws.clone()).await;
+        // AUDIT-M8: persist FIRST, publish second, both under one lock.
+        //
+        // The old order cleared memory, published it, and only then tried to
+        // write -- so a failed write left memory and disk permanently diverged:
+        // the dashboard showed an empty workspace while `config.toml` still
+        // declared every instance. `mutate_and_persist` writes the file and
+        // stores the new config in the same locked step, so the two can only
+        // ever agree. Note this also drops the contradictory old message,
+        // which told the operator "nothing was changed" after memory had
+        // already been cleared.
+        self.workspace
+            .mutate_and_persist(|ws| {
+                ws.instances.clear();
+                Some(ws.clone())
+            })
+            .await
+            .map_err(|e| {
+                format!(
+                    "Could NOT persist the cleared workspace to config.toml ({e}). \
+                     Nothing was changed in memory or on disk -- the instances \
+                     are still declared and WILL respawn on the next start. \
+                     Fix config.toml (or delete it) before restarting."
+                )
+            })?;
 
         // AUDIT-M8c: propagate the failure.
         //
@@ -298,13 +319,6 @@ impl AppState {
         // an empty workspace, and the daemon was stopped — then the next
         // `./manage.sh run` re-read the UNCHANGED `config.toml` and respawned
         // every pair, including any live-mode ones.
-        if let Err(e) = config_models::save_workspace(&ws) {
-            return Err(format!(
-                "Workspace cleared in memory but could NOT be persisted to config.toml ({e}). \
-                 The instances are still declared on disk and WILL respawn on the next start. \
-                 Fix config.toml (or delete it) before restarting."
-            ));
-        }
         {
             println!(
                 "💾 Workspace persisted: 0 instances after quit (deleted {} entries from config.toml)",
@@ -428,18 +442,26 @@ impl AppState {
         for pair_key in &live_pair_keys {
             self.workspace.remove(pair_key).await;
         }
-        let mut ws = self.workspace.config().await;
-        ws.instances.clear();
-        self.workspace.set_config(ws.clone()).await;
+        // AUDIT-M8: same persist-then-publish ordering as quit. This previously
+        // swallowed the error while still claiming "settings back to defaults",
+        // with memory already cleared -- and since the file was untouched, the
+        // next boot restored the discarded workspace anyway.
+        self.workspace
+            .mutate_and_persist(|ws| {
+                ws.instances.clear();
+                Some(ws.clone())
+            })
+            .await
+            .map_err(|e| {
+                format!(
+                    "Discard could NOT be persisted ({e}). Nothing was changed in \
+                     memory or on disk -- config.toml is unchanged and the \
+                     workspace will be restored on the next start."
+                )
+            })?;
         // AUDIT-M8c: propagate. This previously swallowed the error while still
         // claiming "settings back to defaults" — and the config was untouched,
         // so the next boot restored the discarded workspace anyway.
-        if let Err(e) = config_models::save_workspace(&ws) {
-            return Err(format!(
-                "Discard cleared the workspace in memory but could NOT be persisted ({e}). \
-                 config.toml is unchanged and will be restored on the next start."
-            ));
-        }
 
         if let Some(info) = &info {
             database_storage::queries::sessions::mark_session_discarded(&self.pool, info.id)

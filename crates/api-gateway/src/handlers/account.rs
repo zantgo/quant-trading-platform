@@ -93,16 +93,25 @@ pub async fn set_account_capital(
         );
     }
 
-    let mut workspace = state.workspace.config().await;
-    workspace.portfolio_capital_usd = payload.portfolio_capital_usd;
-    workspace.config_version = workspace.config_version.saturating_add(1);
-    if let Err(e) = config_models::save_workspace(&workspace) {
+    // AUDIT-M8: atomic read-modify-write. The old sequence released the lock
+    // between reading the config and writing it back, so a concurrent mutator
+    // could land in between and have its change discarded by this write while
+    // the response still reported success.
+    let capital = payload.portfolio_capital_usd;
+    if let Err(e) = state
+        .workspace
+        .mutate_and_persist(move |workspace| {
+            workspace.portfolio_capital_usd = capital;
+            workspace.config_version = workspace.config_version.saturating_add(1);
+            Some(workspace.clone())
+        })
+        .await
+    {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("persist failed: {e}") })),
         );
     }
-    state.workspace.set_config(workspace).await;
     // Session default for NEW sessions — existing ledgers are never
     // silently reseeded (only the explicit Reset action does that).
     state

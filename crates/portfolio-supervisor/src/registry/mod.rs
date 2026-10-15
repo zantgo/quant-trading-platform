@@ -1029,6 +1029,25 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         start_gate: None,
     };
 
+    // AUDIT-M3: the recharge path needs the SAME handover ordering as the
+    // first-spawn path.
+    //
+    // It was left as `start_gate: None`, so a recharged instance kept the
+    // original double-seed race: `build_pipelines` spawns `run_single`, which
+    // seeds its own indicator state and then writes the shared `history` /
+    // `snapshot_history` deques, while `populate_buffers` below writes the same
+    // deques. Both take the same `Arc<RwLock<..>>` behind a read-then-act
+    // empty-guard, so observing empty concurrently means both push and the
+    // warm candles are counted twice.
+    //
+    // This is the hot path, not a cold one: a recharge fires on every ladder
+    // edit, every config save that touches a duration, and every strategy
+    // change, so the race window was being re-entered continuously.
+    let (recharge_start_tx, recharge_start_rx) = tokio::sync::watch::channel(false);
+    let mut pipeline_ctx = pipeline_ctx;
+    pipeline_ctx.start_gate = Some(recharge_start_rx);
+    let recharge_start_tx = Arc::new(recharge_start_tx);
+
     let artifacts = pipelines::build_pipelines(
         &pipeline_ctx,
         state,
@@ -1074,6 +1093,15 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         )
         .await;
     }
+
+    // AUDIT-M3: release the recharged pipelines.
+    //
+    // MUST run on every path — including the `warmed_states` error path, where
+    // `populate_buffers` was skipped entirely — or `run_single` waits on the
+    // gate forever and the recharged instance silently never processes a trade.
+    // The shutdown arm bounds the wait, so a miss degrades to a cancelled
+    // pipeline rather than a hang; but it is released unconditionally here.
+    let _ = recharge_start_tx.send(true);
 
     let recharged_active_pair = artifacts.instance.active_pair.clone();
     let pipelines::PipelineArtifacts {

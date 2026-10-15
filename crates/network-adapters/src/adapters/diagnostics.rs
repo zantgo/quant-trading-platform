@@ -191,6 +191,25 @@ impl ConnectionScope {
     }
 }
 
+impl Drop for ConnectionScope {
+    /// AUDIT-M22: the reporter is bound to this scope's lifetime.
+    ///
+    /// This impl is the whole point of the type — the doc comment on
+    /// `spawn_channel_liveness` promises "the reporter stops when it is
+    /// dropped", but without it the `CancellationToken` was simply forgotten
+    /// and every task waited on a 60 s `tick` forever. The reconnect loop
+    /// holds its scope in `_liveness`, so every reconnect produced another
+    /// permanently-live task: an unbounded leak, one per reconnect, each
+    /// holding its `channels` vec and `HashMap` alive for the life of the
+    /// process.
+    ///
+    /// Cancelling here also wakes the `select!` immediately instead of
+    /// letting it fall out on the next tick.
+    fn drop(&mut self) {
+        self.token.cancel();
+    }
+}
+
 fn now_unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

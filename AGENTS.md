@@ -79,10 +79,19 @@ bun run build
 
 # 2. Build & run engine from workspace root
 cd ../..             # back to workspace root
-cargo run --bin execution-daemon -- --web
+./manage.sh build-release && ./manage.sh run
 ```
 
 The execution-daemon binary reads `config.toml` from CWD at runtime. Run from the workspace root.
+
+**Use the release binary.** `run_single` is a ~2 MB async state machine (see the
+`Box::pin` note in `crates/portfolio-supervisor/src/registry/pipelines.rs`), so a
+debug build costs roughly 2 MB of stack-adjacent state per pipeline — ~200 MB
+across a 100-pipeline workspace, on top of a much larger total RSS. On a 2.8 GB
+host that difference has been enough to get the daemon OOM-killed while the
+release build ran in the same workspace. `cargo run --bin execution-daemon` is
+fine for a quick one-pipeline smoke test, but it is not what `run` /
+`run-silent` do, and the discrepancy has cost real debugging time before.
 
 ### Launch modes
 

@@ -689,6 +689,43 @@ pub fn derive_pipeline_state(buffer_len: usize, target: usize) -> CandlePipeline
 /// A quiet ≥60 s market (no heartbeat) surfaces the state on the next
 /// event-driven snapshot; sub-minute pipelines stay `Live` because their
 /// idle-heartbeat closes keep the last-close age fresh.
+/// AUDIT-ILS-09: the staleness budget must scale with the candle interval.
+///
+/// `candle_buffer.stale_threshold_secs` is a single platform-wide value (300 s
+/// by default) applied to EVERY duration, and both the pipeline-state
+/// escalation above and the ILS-09 indicator-lifecycle escalation measure "no
+/// completed candle for longer than N seconds".
+///
+/// For a duration whose INTERVAL exceeds that budget the test is impossible to
+/// pass between closes, so the pipeline was guaranteed to degrade on schedule:
+/// a 1h pipeline goes `Stale` at 300 s and `Failed` at 600 s after every close,
+/// then recovers for a moment at the top of the hour. Live capture on the
+/// default ladder: 1h reported `FAILED` and 4h reported `FAILED` /
+/// `INITIALIZING` while 1s and 1m were `LIVE` — the slow columns were
+/// permanently marked broken because their feeds were healthy.
+///
+/// That also masked real findings: on the 4h column a genuinely dead feed and
+/// a perfectly healthy one both read `FAILED`.
+///
+/// The budget is now `max(configured, interval * 3 / 2)`:
+///
+///   - Fast durations are UNCHANGED. For 1s and 1m the configured value already
+///     exceeds 1.5 intervals, so detection sensitivity is exactly what the
+///     operator configured — a 1m pipeline that misses its close for ten
+///     minutes is still flagged, as before.
+///   - A slow duration is only declared stale once 1.5 intervals have elapsed
+///     with no close, which is what "the feed died" actually means: it allows
+///     one full interval plus half a margin.
+///   - `Failed` remains `2x` that, i.e. three intervals for a slow duration.
+///
+/// A flat budget could not express "slow feed is fine" and "flat feed is not",
+/// so slow columns had to be reported broken to keep fast columns sensitive.
+pub fn effective_stale_threshold_secs(configured_secs: u32, timeframe_secs: u64) -> u32 {
+    let configured = configured_secs as u64;
+    let interval_grace = timeframe_secs.saturating_mul(3) / 2;
+    configured.max(interval_grace).clamp(1, u32::MAX as u64) as u32
+}
+
 pub fn derive_pipeline_state_with_staleness(
     buffer_len: usize,
     target: usize,
@@ -920,6 +957,40 @@ pub async fn run_single(
     let mut sil_engine = StatisticsEngine::new(statistics_config);
     let mut prev_sil_close: f64 = 0.0;
     let mut mc_counter: u64 = 0;
+
+    // AUDIT-M3: wait for the registry to finish seeding the SHARED buffers,
+    // BEFORE this task touches any of them.
+    //
+    // `bootstrap::populate_buffers` is the single seeder for the per-pair
+    // `history` / `snapshot_history` deques, and the registry runs it AFTER
+    // `build_pipelines` has already spawned us. The empty-guards below
+    // (AUDIT-AIU-117) make double-seeding idempotent for a SINGLE writer, but
+    // they are read-then-act across an await: two writers that both observe
+    // `is_empty() == true` both push, and the window ends up holding 2x the
+    // warm candles -- silently double-counting warm bars in Fibonacci, pivot
+    // points, S/R, chart patterns and the cluster estimator's `price_history`.
+    // Byte accounting stays exact, so the memory budget never surfaced it.
+    //
+    // This wait used to sit ~350 lines BELOW the seeding it was meant to
+    // order, which made it decorative: `run_single` had already written every
+    // shared deque before it ever looked at the gate. Waiting here, first,
+    // is what actually makes the ordering deterministic -- `populate_buffers`
+    // wins, and the empty-guards below correctly skip.
+    //
+    // Bounded by the shutdown arm so a caller that forgets to signal cannot
+    // wedge the task forever.
+    if let Some(mut gate) = start_gate {
+        loop {
+            if *gate.borrow() {
+                break;
+            }
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => break,
+                _ = gate.wait_for(|ready| *ready) => {}
+            }
+        }
+    }
 
     if let Some(w) = warmed {
         ema_fast = w.ema_fast;
@@ -1317,41 +1388,21 @@ pub async fn run_single(
     //
     // The rate is derived from the WINDOW (so a young window fills quickly) and
     // bounded to <= 60 s so a 1 s pipeline cannot append 3600 samples an hour.
+    // AUDIT-M18: the last REAL structural state for this duration.
+    //
+    // Seeded from the latest snapshot at start-up (divergence only, since that
+    // is all a snapshot encodes) and refreshed by every real close, so the
+    // synthetic doji/idle/gap frames that follow a no-trade window report the
+    // structure that actually held instead of "no structure".
+    let mut carried_structure =
+        CarriedStructure::from_snapshot(latest_snapshot.read().await.as_ref());
+
     let oi_delta_window_secs =
         config_models::liquidity_profile::oi_delta_window_secs(timeframe_secs);
     let oi_sample_every_secs = (oi_delta_window_secs / 8).clamp(1, 60);
     let mut oi_sampler =
         tokio::time::interval(std::time::Duration::from_secs(oi_sample_every_secs));
     oi_sampler.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-    // AUDIT-M3: wait for the registry to finish seeding the SHARED buffers.
-    //
-    // This task seeds its own indicator state from the warmed snapshot above,
-    // but the per-pair `history` / `snapshot_history` / `latest_snapshot`
-    // deques are also written by `bootstrap::populate_buffers`, which the
-    // registry calls AFTER `build_pipelines` has already spawned us. Both
-    // writers took the same `Arc<RwLock<..>>` with a read-once-then-act guard,
-    // so if we observed `is_empty() == true` and pushed AFTER `populate_single`
-    // finished, the window ended up holding 2x the warm candles -- silently
-    // double-counting warm bars in Fibonacci, pivot points, S/R, chart patterns
-    // and the cluster estimator's `price_history` at the handover moment they
-    // matter most. Byte accounting stays exact, so the budget never surfaced it.
-    //
-    // The gate makes the ordering deterministic instead of timing-dependent. It
-    // is bounded by the shutdown arm so a caller that forgets to signal cannot
-    // wedge the task forever.
-    if let Some(mut gate) = start_gate {
-        loop {
-            if *gate.borrow() {
-                break;
-            }
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled() => break,
-                _ = gate.wait_for(|ready| *ready) => {}
-            }
-        }
-    }
 
     enum LoopAction {
         Process(NormalizedEvent),
@@ -1672,6 +1723,11 @@ pub async fn run_single(
                         // `/api/history` serves the sub-minute chart
                         // continuously (they are real candles, so the
                         // wire carries no `reconstructed` flag).
+                        let (completed_snapshot, real_structure) = completed_snapshot;
+                        // AUDIT-M18: remember the structure a REAL close produced; the
+                        // synthetic frames that follow a no-trade window report it rather
+                        // than "no structure".
+                        carried_structure = real_structure;
                         push_history_snapshot(&snapshot_history, completed_snapshot).await;
                         // PRI-06 (v6.10.7): real force-closed candles also
                         // feed the `history` buffer — the input for
@@ -1823,9 +1879,7 @@ pub async fn run_single(
                                 ),
                                 &active_set,
                                 // AUDIT-M18: carry the last real structure forward.
-                                CarriedStructure::from_snapshot(
-                                    latest_snapshot.read().await.as_ref(),
-                                ),
+                                carried_structure.clone(),
                                 buffer_size,
                                 avg_vol,
                                 rvol,
@@ -1997,9 +2051,7 @@ pub async fn run_single(
                                     ),
                                     &active_set,
                                     // AUDIT-M18: carry the last real structure forward.
-                                    CarriedStructure::from_snapshot(
-                                        latest_snapshot.read().await.as_ref(),
-                                    ),
+                                    carried_structure.clone(),
                                     buffer_size,
                                     avg_vol,
                                     rvol,
@@ -2369,9 +2421,7 @@ pub async fn run_single(
                                     ),
                                     &active_set,
                                     // AUDIT-M18: carry the last real structure forward.
-                                    CarriedStructure::from_snapshot(
-                                        latest_snapshot.read().await.as_ref(),
-                                    ),
+                                    carried_structure.clone(),
                                     buffer_size,
                                     avg_vol,
                                     rvol,
@@ -2626,6 +2676,11 @@ pub async fn run_single(
                             hist.pop_front();
                         }
                     }
+                    let (completed_snapshot, real_structure) = completed_snapshot;
+                    // AUDIT-M18: remember the structure a REAL close produced; the
+                    // synthetic frames that follow a no-trade window report it rather
+                    // than "no structure".
+                    carried_structure = real_structure;
                     push_history_snapshot(&snapshot_history, completed_snapshot).await;
                     if let Some(ref tx) = candle_forward {
                         let _ = tx.send(completed.clone()).await;
@@ -2696,6 +2751,8 @@ pub async fn run_single(
                             shadow_prev_day_px,
                             bar_count,
                             real_bar_count,
+                            stale_threshold_secs,
+                            carried_structure.clone(),
                             (
                                 active_indicators.ema_fast,
                                 active_indicators.ema_medium,
@@ -2815,6 +2872,8 @@ pub async fn run_single(
                             shadow_prev_day_px,
                             bar_count,
                             real_bar_count,
+                            stale_threshold_secs,
+                            carried_structure.clone(),
                             (
                                 active_indicators.ema_fast,
                                 active_indicators.ema_medium,
@@ -2934,7 +2993,10 @@ async fn synthesize_completed_candle(
     active_set: &crate::active_set::ActiveSet,
     buffer_size: usize,
     // AUDIT-H7: `[candle_buffer] stale_threshold_secs` for the lifecycle map.
-    stale_threshold_secs: u32,
+    // AUDIT-ILS-09: normalised against the candle interval below, so every
+    // consumer in this function (pipeline state + indicator lifecycle) uses one
+    // budget that a healthy slow duration can actually satisfy.
+    mut stale_threshold_secs: u32,
     // AUDIT-H7: DCP-05 staleness inputs — last completed candle start + now.
     last_completed_ms: Option<u64>,
     now_ms: u64,
@@ -2991,11 +3053,17 @@ async fn synthesize_completed_candle(
     latency_tracker: &core_domain::SharedLatencyTracker,
     // v9: the effective strategy.
     strategy: &StrategyConfig,
-) -> MarketSnapshot {
+) -> (MarketSnapshot, CarriedStructure) {
     // Freshness guard for the order-book-backed envelope fields
     // (`mid_price` mid-of-book, `bid_size`/`ask_size` top-of-book depth).
     // Same AUDIT-V8-002 semantics as the doji-fill path: the book is only
     // authoritative while the last book event sits inside the grace window.
+    // AUDIT-ILS-09: scale the staleness budget to this candle's interval.
+    // Every downstream consumer in this function (the pipeline-state
+    // derivation and both `build_indicator_lifecycle_map` calls) reads this
+    // one value, so normalising here covers them together.
+    stale_threshold_secs = effective_stale_threshold_secs(stale_threshold_secs, timeframe_secs);
+
     let ob_fresh = last_ob_ms > 0
         && core_domain::LatencyTracker::now_ms().saturating_sub(last_ob_ms) <= grace_period_ms;
     // Deconstruct the just-computed readings into the named bindings the
@@ -4073,7 +4141,19 @@ async fn synthesize_completed_candle(
     *pipeline_state_handle.write().await = current_state;
     *indicator_lifecycle.write().await = completed_snapshot.indicator_lifecycle.clone();
 
-    completed_snapshot
+    // AUDIT-M18: hand the structure this REAL candle produced back to the
+    // pipeline, so the doji/idle/gap frames that follow a no-trade window can
+    // report it instead of "no structure".
+    let carried = CarriedStructure::from_real(
+        divergence_state_of(&completed_snapshot, "rsi"),
+        divergence_state_of(&completed_snapshot, "macd"),
+        Some(&fib),
+        Some(&pattern_result),
+        &sr_supports,
+        &sr_resistances,
+    );
+
+    (completed_snapshot, carried)
 }
 
 /// Snapshot of the latest WS / poller state for derivatives + order book
@@ -4966,10 +5046,41 @@ fn apply_candle_to_indicators(
 ///
 /// Carrying the last real values forward is strictly more honest than reporting
 /// `None`: the structure genuinely did not change during a no-trade window.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub(super) struct CarriedStructure {
     pub rsi_divergence: crate::indicators::DivergenceState,
     pub macd_divergence: crate::indicators::DivergenceState,
+    /// AUDIT-M18: the last REAL Fibonacci range. Synthetic bars hardcoded
+    /// `fib: None`, so the fibonacci indicator rendered "no structure" on
+    /// every doji/idle/gap frame.
+    pub fib: Option<crate::indicators::FibonacciRange>,
+    /// AUDIT-M18: the last REAL detected chart pattern.
+    pub pattern: Option<crate::indicators::PatternResult>,
+    /// AUDIT-M18: the last REAL support / resistance levels.
+    pub support_levels: Vec<f64>,
+    pub resistance_levels: Vec<f64>,
+}
+
+impl CarriedStructure {
+    /// Capture the structure a REAL candle produced, so the synthetic frames
+    /// that follow a no-trade window can report it unchanged.
+    pub(super) fn from_real(
+        rsi_divergence: crate::indicators::DivergenceState,
+        macd_divergence: crate::indicators::DivergenceState,
+        fib: Option<&crate::indicators::FibonacciRange>,
+        pattern: Option<&crate::indicators::PatternResult>,
+        support_levels: &[f64],
+        resistance_levels: &[f64],
+    ) -> Self {
+        Self {
+            rsi_divergence,
+            macd_divergence,
+            fib: fib.cloned(),
+            pattern: pattern.cloned(),
+            support_levels: support_levels.to_vec(),
+            resistance_levels: resistance_levels.to_vec(),
+        }
+    }
 }
 
 impl CarriedStructure {
@@ -4986,9 +5097,16 @@ impl CarriedStructure {
         let Some(snap) = snap else {
             return Self::default();
         };
+        // Only divergence is recoverable from a snapshot: it is encoded in the
+        // indicator's signals. Fibonacci, patterns and S/R are NOT --
+        // `NormalizedIndicatorValue` keeps a scalar, a label and a value map,
+        // not the range/level structure -- so those come from
+        // `CarriedStructure::from_real`, which the real-close path fills in.
+        // Reading a snapshot is therefore a cold-start fallback only.
         Self {
             rsi_divergence: divergence_state_of(snap, "rsi"),
             macd_divergence: divergence_state_of(snap, "macd"),
+            ..Self::default()
         }
     }
 }
@@ -5064,7 +5182,8 @@ pub(super) fn build_completed_snapshot_from_readings(
     // AUDIT-H7: `[candle_buffer] stale_threshold_secs` — threaded from the
     // pipeline so doji/idle/gap-fill lifecycle maps honour the config
     // (was hardcoded 300).
-    stale_threshold_secs: u32,
+    // AUDIT-ILS-09: normalised against the candle interval below.
+    mut stale_threshold_secs: u32,
     // AUDIT-H7: DCP-05 staleness inputs — last completed candle start + now.
     last_completed_ms: Option<u64>,
     now_ms: u64,
@@ -5074,6 +5193,10 @@ pub(super) fn build_completed_snapshot_from_readings(
     price_trend_sharpe: Option<f64>,
 ) -> MarketSnapshot {
     let close_f = readings.close_f;
+    // AUDIT-ILS-09: scale the staleness budget to this candle's interval so a
+    // healthy slow duration is not declared Stale/Failed between closes.
+    stale_threshold_secs = effective_stale_threshold_secs(stale_threshold_secs, timeframe_secs);
+
     let ema_stack_str = readings.ema_stack_state.as_deref();
 
     let indicators = normalize::build_indicator_map(
@@ -5125,10 +5248,13 @@ pub(super) fn build_completed_snapshot_from_readings(
             rvol,
             volume: Some(candle.volume),
             average_volume: avg_vol,
-            fib: None,
-            pattern: None,
-            support_levels: &[],
-            resistance_levels: &[],
+            // AUDIT-M18: carry the last REAL structure forward. These were
+            // hardcoded empty, so every synthetic frame rendered "no structure"
+            // for fib / patterns / support-resistance.
+            fib: carried.fib.as_ref(),
+            pattern: carried.pattern.as_ref(),
+            support_levels: &carried.support_levels,
+            resistance_levels: &carried.resistance_levels,
             active_position: None,
             adx_consecutive_deceleration: false,
             supertrend_flipped: readings
@@ -5410,6 +5536,14 @@ fn broadcast_live_snapshot(
     bar_count: u32,
     // PRI-12: real (non-synthetic) completed candles.
     real_bar_count: u32,
+    // AUDIT-ILS-09: the pipeline's CONFIGURED staleness budget. This path used
+    // to pass a hardcoded 300 to the lifecycle map, so the shadow frame's
+    // staleness was decided by a constant that ignored config.toml entirely and
+    // could never account for the duration.
+    stale_threshold_secs: u32,
+    // AUDIT-M18: the last REAL structure, so a shadow tick inside a no-trade
+    // window reports the structure that held rather than "no structure".
+    carried: CarriedStructure,
     // Configured EMA periods `(fast, medium, slow, long)` — per-line
     // ribbon availability gate (AUDIT-V8-001).
     ema_periods: (usize, usize, usize, usize),
@@ -5539,10 +5673,13 @@ fn broadcast_live_snapshot(
             rvol,
             volume: Some(candle.volume),
             average_volume: avg_vol,
-            fib: None,
-            pattern: None,
-            support_levels: &[],
-            resistance_levels: &[],
+            // AUDIT-M18: carry the last REAL structure forward. These were
+            // hardcoded empty, so every synthetic frame rendered "no structure"
+            // for fib / patterns / support-resistance.
+            fib: carried.fib.as_ref(),
+            pattern: carried.pattern.as_ref(),
+            support_levels: &carried.support_levels,
+            resistance_levels: &carried.resistance_levels,
             active_position: None,
             adx_consecutive_deceleration: false,
             supertrend_flipped: false,
@@ -5607,7 +5744,8 @@ fn broadcast_live_snapshot(
         indicator_lifecycle: build_indicator_lifecycle_map(
             &indicators,
             &IndicatorLifecycleMap::new(),
-            300,
+            // AUDIT-ILS-09: duration-scaled, and no longer the hardcoded 300.
+            effective_stale_threshold_secs(stale_threshold_secs, timeframe_secs),
             bar_count,
             real_bar_count,
             true,

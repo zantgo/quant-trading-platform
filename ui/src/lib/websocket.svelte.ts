@@ -127,12 +127,25 @@ function indicatorMapsEqual(a: IndicatorMap | undefined, b: IndicatorMap): boole
         for (const v of vk) {
             if (av2[v] !== bv2[v]) return false;
         }
-        // Signal lists are structural markers that only change on a completed
-        // bar, so identity comparison is sufficient here.
+        // Signal lists change only on a completed bar, but they CAN change
+        // without changing LENGTH: a `BULLISH` becomes `BEARISH`, a
+        // `Potential` becomes `Confirmed`. Comparing identity-or-length let
+        // those through as "equal", so a completed candle whose signal set
+        // changed in place never reassigned and the grid kept showing the
+        // previous bar's markers. Compare the content that the UI renders.
         const as = av.signals;
         const bs = bv.signals;
         if (as !== bs) {
             if (!as || !bs || as.length !== bs.length) return false;
+            for (let i = 0; i < as.length; i += 1) {
+                const x = as[i];
+                const y = bs[i];
+                if (x === y) continue;
+                if (x.label !== y.label) return false;
+                if (x.kind !== y.kind) return false;
+                if (x.status !== y.status) return false;
+                if (x.direction !== y.direction) return false;
+            }
         }
     }
     return true;
@@ -248,11 +261,20 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // indicators x 12 slots) from ANY duration socket, so the ~1,200-span
         // MTF grid re-diffed at the sub-minute tick rate.
         //
-        // Content equality is the cheap, correct gate: a shadow tick that
-        // carries the same completed-candle indicator values as the frame
-        // before it must not invalidate anything. Genuine value changes — and
-        // every completed candle — still assign, so nothing goes stale.
-        if (!indicatorMapsEqual(tf.indicators, merged)) {
+        // Content equality is the cheap gate for SHADOW ticks: a shadow
+        // frame that carries the same completed-candle indicator values as
+        // the frame before it must not invalidate anything (the ~1,200-span
+        // MTF grid otherwise re-diffs at the sub-minute tick rate).
+        //
+        // A COMPLETED candle always assigns, whatever the comparison says.
+        // The comparison is a heuristic over a deep structure, and a
+        // completed frame is the authoritative statement about that bar:
+        // gating it on a partial equality check means any field the check
+        // fails to model (a new signal key, a re-ordered list, a
+        // derived value that only exists on close) silently keeps the
+        // PREVIOUS bar on screen — a stale indicator with no error.
+        // Shadow ticks are the only ones allowed to be skipped.
+        if (isCompletedFrame || !indicatorMapsEqual(tf.indicators, merged)) {
             tf.indicators = merged;
         }
     }

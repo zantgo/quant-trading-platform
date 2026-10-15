@@ -76,7 +76,7 @@ async fn upsert_impl(state: Arc<AppState>, payload: StrategyUpsert) -> impl Into
             Json(serde_json::json!({ "error": "strategy name must not be empty" })),
         );
     }
-    let mut workspace = state.workspace.config().await;
+    let workspace = state.workspace.config().await;
 
     // Resolve against the declared base (or the built-in default) so the
     // stored entry is the full resolved strategy — later edits re-resolve.
@@ -119,24 +119,35 @@ async fn upsert_impl(state: Arc<AppState>, payload: StrategyUpsert) -> impl Into
         entry.description = d;
     }
 
-    if let Some(existing) = workspace
-        .strategies
-        .iter_mut()
-        .find(|s| s.name == payload.name)
+    // AUDIT-M8: persist atomically under the workspace write lock. The old
+    // `config()` -> mutate -> `save_workspace` -> `set_config` sequence released
+    // the lock between the read and the write, so a concurrent mutator (a
+    // ladder edit, an instance add, the boot-spawn retry loop) could persist a
+    // snapshot taken before this edit and silently discard it while this
+    // handler returned 200.
+    let strategy_name = payload.name.clone();
+    if let Err(e) = state
+        .workspace
+        .mutate_and_persist(move |workspace| {
+            if let Some(existing) = workspace
+                .strategies
+                .iter_mut()
+                .find(|s| s.name == strategy_name)
+            {
+                *existing = entry;
+            } else {
+                workspace.strategies.push(entry);
+            }
+            workspace.config_version = workspace.config_version.saturating_add(1);
+            Some(workspace.clone())
+        })
+        .await
     {
-        *existing = entry;
-    } else {
-        workspace.strategies.push(entry);
-    }
-    workspace.config_version = workspace.config_version.saturating_add(1);
-
-    if let Err(e) = config_models::save_workspace(&workspace) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("persist failed: {e}") })),
         );
     }
-    state.workspace.set_config(workspace).await;
 
     // Strategy edits affect the MME/TAE behavior of bound instances —
     // recharge them (idempotent; failures logged, never fatal).
@@ -183,7 +194,7 @@ pub async fn delete_strategy(
             Json(serde_json::json!({ "error": "the default strategy is locked" })),
         );
     }
-    let mut workspace = state.workspace.config().await;
+    let workspace = state.workspace.config().await;
     // Block deletion while another strategy inherits from it.
     if let Some(dependent) = workspace
         .strategies
@@ -197,22 +208,46 @@ pub async fn delete_strategy(
             })),
         );
     }
-    let before = workspace.strategies.len();
-    workspace.strategies.retain(|s| s.name != name);
-    if workspace.strategies.len() == before {
+    let exists = workspace.strategies.iter().any(|s| s.name == name);
+    if !exists {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": format!("strategy '{name}' not found") })),
         );
     }
-    workspace.config_version = workspace.config_version.saturating_add(1);
-    if let Err(e) = config_models::save_workspace(&workspace) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("persist failed: {e}") })),
-        );
+    // AUDIT-M8: the removal and the write happen under one lock acquisition.
+    let target = name.clone();
+    let outcome = state
+        .workspace
+        .mutate_and_persist(move |workspace| {
+            let before = workspace.strategies.len();
+            workspace.strategies.retain(|s| s.name != target);
+            if workspace.strategies.len() == before {
+                return None;
+            }
+            workspace.config_version = workspace.config_version.saturating_add(1);
+            Some(workspace.clone())
+        })
+        .await;
+    match outcome {
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("persist failed: {e}") })),
+            )
+        }
+        Ok(persisted) => {
+            if persisted.strategies.iter().any(|s| s.name == name) {
+                // Another writer restored it between the check and the lock —
+                // report the truth rather than claiming a delete that did not
+                // happen.
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({ "error": format!("strategy '{name}' not found") })),
+                );
+            }
+        }
     }
-    state.workspace.set_config(workspace).await;
     (StatusCode::OK, Json(serde_json::json!({ "success": true })))
 }
 
@@ -221,7 +256,7 @@ pub async fn clone_strategy(
     Path(name): Path<String>,
     Json(payload): Json<StrategyCloneRequest>,
 ) -> impl IntoResponse {
-    let mut workspace = state.workspace.config().await;
+    let workspace = state.workspace.config().await;
     let source = match workspace.resolve_strategy(&name) {
         Ok(s) => s,
         Err(e) => {
@@ -246,15 +281,27 @@ pub async fn clone_strategy(
     let mut entry = source;
     entry.name = payload.new_name.clone();
     entry.base = None; // fully-resolved clone — no inheritance chain
-    workspace.strategies.push(entry);
-    workspace.config_version = workspace.config_version.saturating_add(1);
-    if let Err(e) = config_models::save_workspace(&workspace) {
+                       // AUDIT-M8: atomic with respect to concurrent mutators.
+    let new_name = payload.new_name.clone();
+    if let Err(e) = state
+        .workspace
+        .mutate_and_persist(move |workspace| {
+            // Re-check under the lock: the existence test above ran against a
+            // snapshot that another mutator may already have changed.
+            if workspace.strategies.iter().any(|s| s.name == new_name) {
+                return None;
+            }
+            workspace.strategies.push(entry);
+            workspace.config_version = workspace.config_version.saturating_add(1);
+            Some(workspace.clone())
+        })
+        .await
+    {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("persist failed: {e}") })),
         );
     }
-    state.workspace.set_config(workspace).await;
     (
         StatusCode::OK,
         Json(serde_json::json!({ "success": true, "name": payload.new_name })),

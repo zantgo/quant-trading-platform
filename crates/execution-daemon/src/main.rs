@@ -1593,8 +1593,30 @@ async fn async_main() {
                 activation: None,
             });
         }
-        let _ = config_models::save_workspace(&cfg);
-        workspace_state.set_config(cfg).await;
+        // AUDIT-M8: apply the launch plan under one lock instead of
+        // save-then-publish, which left a window where the file and memory
+        // disagreed and any concurrent mutator's change was reverted.
+        match workspace_state
+            .mutate_and_persist(move |ws| {
+                ws.instances = cfg.instances.clone();
+                ws.config_version = ws.config_version.saturating_add(1);
+                Some(ws.clone())
+            })
+            .await
+        {
+            // The persisted config is already published to memory by
+            // `mutate_and_persist`; nothing downstream needs `cfg` again.
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("❌ Could not persist the CLI launch plan: {e}");
+                println!(
+                    "✅ CLI launch plan applied to workspace config ({} instance{})",
+                    plan.instances.len(),
+                    if plan.instances.len() == 1 { "" } else { "s" }
+                );
+                return;
+            }
+        }
         println!(
             "✅ CLI launch plan applied to workspace config ({} instance{})",
             plan.instances.len(),
@@ -1986,10 +2008,19 @@ async fn async_main() {
                                     inst.cancel.cancel();
                                 }
                                 bg_app.workspace.remove(&pair_key).await;
-                                let mut ws = bg_app.workspace.config().await;
-                                ws.instances.clear();
-                                bg_app.workspace.set_config(ws.clone()).await;
-                                let _ = config_models::save_workspace(&ws);
+                                // AUDIT-M8: atomic with respect to every other
+                                // mutator. The old sequence cleared memory,
+                                // published it, and then swallowed the write
+                                // error with `let _ =` -- so a failed write left
+                                // memory empty while `config.toml` still declared
+                                // the instance, and the next boot resurrected it.
+                                let _ = bg_app
+                                    .workspace
+                                    .mutate_and_persist(|ws| {
+                                        ws.instances.clear();
+                                        Some(ws.clone())
+                                    })
+                                    .await;
                                 return;
                             }
                             println!("✅ Instance spawned: {}", entry.symbol);

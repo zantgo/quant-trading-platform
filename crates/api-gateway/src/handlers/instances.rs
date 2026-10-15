@@ -306,7 +306,7 @@ pub async fn serve_update_instance_config(
         }
     };
 
-    let mut config = state.workspace.config().await;
+    let config = state.workspace.config().await;
     let symbol = pair_key.clone();
 
     // Locate the existing entry by symbol (workspace.instances is a
@@ -371,20 +371,37 @@ pub async fn serve_update_instance_config(
         entry.strategy = Some(strategy);
     }
 
-    // Replace or insert the entry in workspace.instances.
-    if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == symbol) {
-        *slot = entry;
-    } else {
-        config.instances.push(entry);
-    }
-    // AUDIT-M8c: persist BEFORE publishing to memory, and propagate a failure.
+    // AUDIT-M8: replace-or-insert AND persist under one lock acquisition.
     //
-    // This previously logged the error and continued, so a save that failed left
-    // memory and disk diverged AND the endpoint still answered 200 — the operator
-    // saw "saved" for a change that would vanish on the next restart. It also
-    // published to memory first, so a subsequent reader saw a config the disk
-    // never received.
-    if let Err(e) = config_models::save_workspace(&config) {
+    // The old sequence read the config, mutated this entry, wrote it back and
+    // only then published to memory. Between the read and the write another
+    // mutator (a ladder edit on `POST /api/config`, an instance add, the
+    // boot-spawn retry loop) could land, and this write would persist a
+    // snapshot taken before it — silently reverting that change while this
+    // endpoint answered 200.
+    //
+    // Persisting BEFORE publishing to memory is preserved: a failed write must
+    // leave memory and disk agreeing, so the running instance is untouched and
+    // the operator sees the failure instead of a change that vanishes on the
+    // next restart.
+    let target_symbol = symbol.clone();
+    if let Err(e) = state
+        .workspace
+        .mutate_and_persist(move |config| {
+            if let Some(slot) = config
+                .instances
+                .iter_mut()
+                .find(|i| i.symbol == target_symbol)
+            {
+                *slot = entry;
+            } else {
+                config.instances.push(entry);
+            }
+            config.config_version = config.config_version.saturating_add(1);
+            Some(config.clone())
+        })
+        .await
+    {
         return (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             format!(
@@ -394,12 +411,10 @@ pub async fn serve_update_instance_config(
         )
             .into_response();
     }
-    // Bridge in-memory state: workspace.config() returns a clone, so the
-    // mutation above is invisible to subsequent readers until we publish it.
-    // Without this the next call (and in particular `recharge_instance`)
-    // would see a stale Vec<InstanceEntry> and fail with
-    // "No saved config for pair ...", exactly the bug the caller reported.
-    state.workspace.set_config(config).await;
+    // `mutate_and_persist` already published the new config to memory as part
+    // of the same locked sequence (it writes the file, then stores), so there
+    // is no separate bridge to do here. Re-publishing the pre-mutation
+    // snapshot would actively UNDO the edit.
     println!(
         "Instance config saved: {} — triggering pipeline recharge",
         pair_key

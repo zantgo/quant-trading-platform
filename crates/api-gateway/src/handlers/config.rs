@@ -233,34 +233,13 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
     None
 }
 
-pub async fn update_config(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<ConfigUpdateRequest>,
-) -> impl IntoResponse {
-    // Reject out-of-range engine-settings values BEFORE touching disk —
-    // the dashboards mirror these ranges, so a breach means a stale client.
-    if let Some(msg) = validate_ranges(&payload) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            format!("Invalid configuration: {}", msg),
-        )
-            .into_response();
-    }
-
-    let runtime_fields_present = payload.minimal_tae.is_some()
-        || payload.safety.is_some()
-        || payload.risk_limits.is_some()
-        || payload.analytics.is_some()
-        || payload.execution.is_some()
-        || payload.fees.is_some()
-        || payload.leverage.is_some()
-        || payload.activation.is_some()
-        || payload.backtest.is_some()
-        // v11.9: the active timeframe set reshapes every running
-        // instance's pipeline set — recharge so it applies live.
-        || payload.timeframes.is_some();
-
-    let mut merged = state.workspace.config().await;
+/// AUDIT-M8: the pure merge step of `POST /api/config`, extracted so it can be
+/// applied to the config as it is UNDER the workspace lock rather than onto a
+/// snapshot read before the lock was taken.
+fn merge_config_payload(
+    mut merged: config_models::WorkspaceConfig,
+    payload: ConfigUpdateRequest,
+) -> config_models::WorkspaceConfig {
     if let Some(candles) = payload.candles {
         merged.candles = candles;
     }
@@ -304,10 +283,78 @@ pub async fn update_config(
         merged.backtest = backtest;
     }
     merged.config_version = merged.config_version.saturating_add(1);
+    merged
+}
 
-    // M8: full numeric validation before persisting — `validate_ranges` above
-    // covers engine-settings, but indicator periods / liquidity guards live in
-    // `validate_workspace`.
+pub async fn update_config(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ConfigUpdateRequest>,
+) -> impl IntoResponse {
+    // Reject out-of-range engine-settings values BEFORE touching disk —
+    // the dashboards mirror these ranges, so a breach means a stale client.
+    if let Some(msg) = validate_ranges(&payload) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("Invalid configuration: {}", msg),
+        )
+            .into_response();
+    }
+
+    let runtime_fields_present = payload.minimal_tae.is_some()
+        || payload.safety.is_some()
+        || payload.risk_limits.is_some()
+        || payload.analytics.is_some()
+        || payload.execution.is_some()
+        || payload.fees.is_some()
+        || payload.leverage.is_some()
+        || payload.activation.is_some()
+        || payload.backtest.is_some()
+        // v11.9: the active timeframe set reshapes every running
+        // instance's pipeline set — recharge so it applies live.
+        || payload.timeframes.is_some();
+
+    // AUDIT-M8: the merge AND the write happen under ONE lock acquisition.
+    //
+    // `POST /api/config` is the highest-traffic mutator (the ladder editor, the
+    // settings forms) and it used to read a snapshot, merge into it, validate
+    // it and write it back with the lock released in between. Any other
+    // mutator landing in that window — an instance add, a strategy edit, the
+    // boot-spawn retry loop that runs for minutes — had its change reverted by
+    // this write while this endpoint still answered 200. That is the "I saved
+    // and it came back" failure, with no error anywhere.
+    //
+    // `mutate_and_persist` hands the closure the config as it is UNDER the
+    // lock, so the merge is re-applied onto the current state rather than onto
+    // a stale snapshot, and validation and write observe the same config no
+    // other mutator can change underneath them.
+    let merged = match state
+        .workspace
+        .mutate_and_persist(move |current| {
+            let merged = merge_config_payload(std::mem::take(current), payload);
+            if let Err(e) = config_models::validate_workspace(&merged) {
+                eprintln!("Rejected configuration update: {}", e);
+                return None;
+            }
+            *current = merged;
+            Some(current.clone())
+        })
+        .await
+    {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "Failed to write configuration updates to config.toml: {}",
+                e
+            );
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to persist configuration file",
+            )
+                .into_response();
+        }
+    };
+    // A declined mutation returns the config UNCHANGED. Re-running validation
+    // here gives the operator the specific reason rather than a bare 400.
     if let Err(e) = config_models::validate_workspace(&merged) {
         return (
             axum::http::StatusCode::BAD_REQUEST,
@@ -315,26 +362,6 @@ pub async fn update_config(
         )
             .into_response();
     }
-
-    // Persist through `save_workspace` (NOT a bare `toml::to_string_pretty`
-    // of the WorkspaceConfig): the on-disk shape wraps the workspace in a
-    // `[workspace]` table and keeps the platform sections (`[hyperliquid]`,
-    // `[bitget]`, `[clock_monitor]`, `[reconnect]`, `[candle_buffer]`,
-    // `[snapshot_export]`) intact — a bare write previously produced a file
-    // the daemon could not boot from (`load_platform` panics without the
-    // required `OnDiskConfig.workspace`).
-    if let Err(e) = config_models::save_workspace(&merged) {
-        eprintln!(
-            "Failed to write configuration updates to config.toml: {}",
-            e
-        );
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to persist configuration file",
-        )
-            .into_response();
-    }
-    state.workspace.set_config(merged).await;
 
     // v7.4: engine-settings edits (TAE / PME / PAE / Profile) are applied
     // LIVE — recharge every running instance so the executors, safety
@@ -485,15 +512,28 @@ pub async fn serve_workspace_toml_import(
     // tables by re-reading the current file, which is exactly this handler's
     // stated intent. Route through it so all config writes share one durable
     // path.
-    if let Err(e) = config_models::save_workspace(&workspace) {
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Import failed: could not persist config.toml ({e}). The in-memory workspace was NOT changed."),
-        )
-            .into_response();
-    }
-
-    state.workspace.set_config(workspace.clone()).await;
+    //
+    // AUDIT-M8: the write and the in-memory publish are ONE locked step. They
+    // were two acquisitions, so a mutator landing between them read the
+    // pre-import config and then clobbered the import on its own write.
+    let imported = workspace.clone();
+    let workspace = match state
+        .workspace
+        .mutate_and_persist(move |ws| {
+            *ws = imported;
+            Some(ws.clone())
+        })
+        .await
+    {
+        Ok(w) => w,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Import failed: could not persist config.toml ({e}). The in-memory workspace was NOT changed."),
+            )
+                .into_response();
+        }
+    };
 
     println!(
         "Workspace '{}' imported from TOML ({} instances). Platform-level fields preserved.",
