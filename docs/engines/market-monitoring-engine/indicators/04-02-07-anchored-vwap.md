@@ -1,6 +1,6 @@
 # Anchored VWAP (Multi-Session)
 
-**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
 
 **Group:** Trend
 

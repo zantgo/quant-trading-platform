@@ -4,6 +4,92 @@
 
 ------
 
+## v11.14.0 (2026-10-15) — The reliability release: what was actually broken, and how we found out
+
+**Five defects that produced silent wrong answers, none of which any test could see, were found by pointing the platform at a live venue socket and reading what actually came back. This release is the record of them. 16 commits, 85 files, +8255/−647.**
+
+The method matters more than the list. Every fix below shipped with a regression that reproduces the original failure. In four cases the regression was written, then the fix reverted, and the new test watched it fail — because a test that has never failed is not evidence of anything.
+
+---
+
+**The OI delta was never fixed. The "fix" was the bug.**
+
+AUDIT-M1 sampled open interest on a wall-clock timer so the L2.5 derivatives layer could stop being permanently dark on every duration ≥ 1 min. It looked correct. It was not, and unit tests could not tell.
+
+Live smoke against a real Hyperliquid socket found three defects stacked on top of each other:
+
+1. **The sampler never outran the duration it served.** It rode `stale_check.tick()`, whose interval is `timeframe_secs / 2` — so the 1 h slot sampled every **30 minutes** and the 4 h slot every **2 hours**, against a 3600 s window. A slot that samples less often than its own window can never hold two samples, so the delta stayed `None` on exactly the slow columns the fix existed to repair. Observed: 1 s and 1 m resolved while 5 m/1 h/4 h were still null.
+2. **One deque, many durations, destructive pruning.** `oi_history` is shared by every duration of a pair, but each duration pruned it down to *its own* window. The 1 s slot's 60 s prune therefore dictated global retention and truncated the 1 h column's history. Measured `n == 0` in **76 of 76 reads**, `oi_delta_pct` null on every duration — with no error and no `Failed` state. The duplicate-skip that guarded deque growth had to go too: skipping an unchanged reading meant a **flat** OI never grew the deque past one entry, so a quiet market reported "no data" instead of a zero delta.
+3. **`oi_delta_pct` published an absolute count under a percent name.** A 1.04e6 change on a 3.31e9 OI — **0.03 %** in reality — surfaced as `1039234 %`. This predates M1 and was masked by it; M1's fix made it reachable, so shipping M1 as-is would have traded "always null" for "wrong by 100×". The two contracts are now served separately from one computation: the ABSOLUTE change still feeds `normalize_oi_delta` (which thresholds an absolute count — "500 contracts over a 1 h window = 500/h"), and the PERCENT goes to `MarketSnapshot.oi_delta_pct`.
+
+Related, and found by the same probe: the normalizer was being given the **actual anchor span** (51 s) instead of the configured window (3600 s). It divides by that window to get a per-hour rate, so a young span inflated the rate **70×** and latched `OI_RISING` on every freshly-warmed slot.
+
+Live after, on Bybit: `oi_delta_pct = 0.1537 %` over a real 20 s span, `OI_RISING`, with the percentage scale correct.
+
+---
+
+**Slow durations rendered blank above the first candle boundary.**
+
+Reported as *"Bitget works perfectly, Bybit and Hyperliquid show no info above 1 minute."* It was not venue-specific — it was a timing artefact, and whichever venue happened to be past a boundary at the time of looking appeared healthy.
+
+`TimeframePipeline.pipeline_state` is a per-pipeline `Arc` created at `Initializing` in `registry::pipelines`, and the **only** writer was `synthesize_completed_candle`. A 4 h slot therefore reported `Initializing` for up to **four hours** regardless of how much history it held, and the UI gates the column on that state. Live capture on the default 12-duration Hyperliquid ladder, four minutes after boot:
+
+```
+1s LIVE  3s LIVE  5s LIVE  15s LIVE  30s LIVE
+1m LIVE  3m LIVE  5m LIVE  15m LIVE
+30m INITIALIZING  depth=500
+1h  INITIALIZING  depth=500
+4h  INITIALIZING  depth=500
+```
+
+Full 500-candle buffers, healthy feeds. The warm seed now adopts the warm snapshot's own `pipeline_state` and builds its indicator lifecycle map — warm snapshots ship an **empty** one (`analyzer::warm` sets `HashMap::new()`), so even where the indicator map was full, every row had no operational status for the grid to render. After: `slots=12  LIVE=12  not-live=none`.
+
+---
+
+**AUDIT-ILS-09 — the staleness budget could not scale (pre-existing).**
+
+`candle_buffer.stale_threshold_secs` is one platform-wide value (300 s) applied to **every** duration, and both escalations measure "no completed candle for longer than N seconds". For any duration whose *interval* exceeds N, the healthy path is impossible to hold between closes — so a 1 h pipeline went `Stale` at 5 min and `Failed` at 10 min after **every healthy close**, and a genuinely dead feed was indistinguishable from a working one. That indistinguishability is what masked the slow-TF bug above.
+
+Now `max(configured, interval × 3 / 2)`: fast durations are untouched (1 s/1 m sensitivity is exactly as the operator configured it), a slow duration is stale only after 1.5 intervals with no close, and `Failed` at three. Detection is not blinded — pinned at each boundary. The shadow path was additionally passing a **hardcoded 300**, ignoring `config.toml` entirely.
+
+---
+
+**Every workspace write could lose a concurrent one (AUDIT-M8).**
+
+Nine mutators did `config()` → mutate → `save_workspace` → `set_config` with the lock released between the read and the write, so a second mutator landing in that window persisted a snapshot taken before the first's change and **silently discarded it while returning `200`** — the "I saved and it came back" class of bug, with no error anywhere. Only two of nine were atomic.
+
+All nine now persist under one lock acquisition. `POST /api/config` additionally re-applies its merge onto the config as it is *under* the lock rather than onto a snapshot read before it. Quit and discard now persist **before** publishing, so a failed write can no longer leave the dashboard showing an empty workspace while `config.toml` still declares every instance — the old error message even claimed "nothing was changed" after memory had already been cleared.
+
+---
+
+**Smaller defects, same character — a correct-looking value that was wrong.**
+
+- **AUDIT-C3** — historical volatility annualised with a hardcoded `sqrt(365)`, wrong on **13 of 14** durations.
+- **AUDIT-C4/M20** — zero-price trades poisoned candles; order books were accepted unvalidated.
+- **AUDIT-C1/M21** — a restart recreated instances on the **wrong exchange and quote**, because the boot spawn derived the venue coin from a session row that had not been updated when the operator changed environment.
+- **AUDIT-C5** — closing the tab mid-SAVE left an instance running with **zero pipelines**.
+- **AUDIT-M22** — `ConnectionScope` promised in its own doc comment that "the reporter stops when it is dropped", and had no `Drop` impl. The token was simply forgotten, so every reconnect left another permanently-live task pinning its tracker map. Invisible in tests (idle, not misbehaving) and only observable as a slow RSS climb across reconnects.
+- **AUDIT-M6** — completed candles were gated behind a shadow-tick equality check, and signals were compared by **length**. A candle that flipped `BULLISH`→`BEARISH` compared equal and never reassigned, so the grid kept rendering the previous bar with no error anywhere.
+- **AUDIT-M18** — synthetic (doji/idle/gap) frames carried divergence forward but hardcoded `fib: None, pattern: None, support_levels: &[], resistance_levels: &[]`, so every no-trade window reported "no structure".
+- **AUDIT-M3** — the warm-seed gate waited ~350 lines *below* the seeding it was meant to order, and the recharge path had none at all. Stated precisely: AUDIT-AIU-117's empty-guards already hold the write lock across their append, so the double-seed is **not** reproducible through the guarded path today. The gate is defence in depth, and its regression asserts the idempotence that actually protects us rather than a race we could not produce.
+- **Cluster refresh** — the skip warning printed unconditionally past its own threshold, logging `skip 7 of 3` forever on a path that any multi-duration ladder hits routinely.
+
+---
+
+**Memory and dashboard usability.**
+
+The daemon was OOM-killed repeatedly on a 2.8 GB host. Bounded: cumulative history fill, per-socket read/ping liveness (a dead socket used to pin an `Arc<ActivePair>` for up to an hour per tab-close, and ~13 tab-closes inside an hour made new upgrades fail with a bare `429`), the snapshot-history budget, and the governor. The dashboard rendered **29 live charts** at default settings and re-diffed the ~1,200-span MTF grid at the sub-minute tick rate; chart groups are now lazy-mounted and shadow frames are gated by genuine content equality.
+
+---
+
+**Verified where it can be, declared where it cannot.**
+
+All six suites, 1430 UI tests, 44 indicator tests, `fmt` clean, and `clippy` at its 35-warning baseline with zero errors. Live against **all three venues** (Hyperliquid, Bitget, Bybit) with zero panics and zero decode failures, and the OI delta and structural indicators confirmed on real sockets.
+
+**Not verified, and recorded as such:** network-loss and tab-close-mid-save recovery need a real interruption and have not been executed; live order execution is unverified on all three venues (no funded account); the backtest e2e matrix has still never run; paper mode remains unselectable.
+
+**Known and parked:** admitting a Hyperliquid non-crypto perp (`EUR`, `GOLD`, `SP500`) takes noticeably longer than crypto, because the dex sweep queries every HIP-3 perp dex to resolve the qualified wire name (`xyz:EUR`) that the venue requires — a bare subscribe closes the socket with zero frames. It is correct, just slow; the sweep budget is the thing to tighten if it stays annoying.
+
 ## v11.13.2 (2026-10-14) — Execution-mode maturity declared once; BTE is a PAPER surface
 
 **Observe is the only production-ready posture. Paper (simulated trading + backtesting) and live (real orders) are both works in progress. The Backtesting Engine is a paper-mode surface — it was documented as an observe-only surface in three places, which misattributed it to the wrong posture.**

@@ -1,6 +1,6 @@
 # DIE Candle Pipeline State Machine
 
-**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** market-analyzer + portfolio-supervisor

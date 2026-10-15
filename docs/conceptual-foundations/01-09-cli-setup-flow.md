@@ -1,6 +1,6 @@
 # CLI Launch Mode — Flow & Rationale
 
-**Version:** 11.13 (2026-10-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators using `execution-daemon --mode cli` for terminal-only monitoring.
 
