@@ -95,6 +95,28 @@ All six suites, 1430 UI tests, 44 indicator tests, `fmt` clean, and `clippy` at 
 
 **Known and parked:** admitting a Hyperliquid non-crypto perp (`EUR`, `GOLD`, `SP500`) takes noticeably longer than crypto, because the dex sweep queries every HIP-3 perp dex to resolve the qualified wire name (`xyz:EUR`) that the venue requires — a bare subscribe closes the socket with zero frames. It is correct, just slow; the sweep budget is the thing to tighten if it stays annoying.
 
+## v11.14.1 (2026-10-15) — The wizard let you in before the workspace was ready
+
+**Reported: "they say still warming but the CONTINUE button is clickable, and when I get in there it is not ready because not all timeframes are loaded."** Three independent defects, all of which had to be fixed together — fixing only the button would have hidden the slow warm behind a longer wait.
+
+**The readiness gate asked the wrong question.** `LaunchSetup.svelte` probed `activeDurations(pair).some(secs => pair.terms[secs]?.latestSnapshot != null)`. `some`, not all. The 1s slot fills from live trades (HFP-03 bypasses the REST warm) and satisfied `some` within a second, so the chip went `ready ✓` while every duration >= 1m was still replaying. Worse, the 60 s cap rewrote pending chips to `timeout`, and `stagedReady` accepted `timeout` alongside `ready` — so "the cap elapsed and it is still not ready" was silently converted into "ready enough to proceed". The operator landed on an Overview whose 3m/5m/15m/30m/1h/4h rows were blank.
+
+CONTINUE now requires **every** active duration to have produced a first snapshot; `timeout` blocks exactly as the recovery gate's `ready`-only rule already did; the chip reports live progress (`warming 7/12`); and an explicit, separately-armed **CONTINUE ANYWAY** appears rather than a silent auto-pass, so one dead duration cannot deadlock the wizard but a half-warmed workspace can never be entered by a reflexive click. The same rule now applies to the launch-steps gate, which had the identical `some(...)` probe.
+
+**The warm-up was sequential and blocked the runtime — the actual slowness.** The REST fetch was always concurrent; the CPU replay that consumed it was not. `fetch_and_warm_bootstrap` called the synchronous `warm_indicators_for_timeframe` in a sequential `.map()`, so a 12-duration ladder paid 12 x 500 x 52 indicator computations IN SERIES — and, critically, directly on a Tokio worker. That did not merely add latency: it **stalled the runtime**, so the HTTP server, the WebSockets and the *next* instance's spawn could not progress while one instance replayed.
+
+The replay now runs under `spawn_blocking` with a semaphore of the new `[candle_buffer] warm_concurrency` (default 4, valid 1..=14, `1` restores strictly-sequential). The permit is acquired on the **async** side so waiting never parks a blocking-pool thread. Moving the work off the workers is the real fix; bounding the fan-out keeps peak memory predictable, since each in-flight replay holds a full warm state plus its snapshot history. Documented as CB-13a.
+
+**A second deep clone per candle, discarded.** `latest_snapshot = Some(snapshot.clone())` ran on every warm candle, and `history_projection()` clones internally too — two full deep clones per candle, of which **499 of every 500 were immediately overwritten**. The projection is now taken first and the snapshot MOVED.
+
+**The Overview said nothing where it should have said "warming".** A duration with no first snapshot rendered the same bare dash as a dead feed, so a still-replaying slow duration was indistinguishable from a broken pair. The Instance Status table now renders an explicit amber `WARMING` badge — the honesty the gate itself depends on.
+
+Also corrected: the CSS class for that badge is camelCase (`.warmingBadge`), matching this project's `localsConvention: 'camelCaseOnly'`; a kebab-case name silently produces no module key.
+
+**Verified:** the warm replay is deterministic, durations do not contaminate each other under a parallel pool, and `latest_snapshot` / `snapshot_history` are unchanged by the move-and-project reordering; fan-out stays within the configured bound; `1` is sequential; `0` cannot deadlock. The UI tests were reverted and re-run to confirm they fail against the old `some(...)` logic — the first version of the "single warm duration must not unlock CONTINUE" test passed against the reverted code because it asserted only `disabled`, which is also true while a chip is merely `waiting`. It now asserts the chip state.
+
+Gate: all 6 suites, the full `api-gateway` package, fmt clean, clippy at the 35-warning baseline with zero errors, svelte-check 0/0.
+
 ## v11.13.2 (2026-10-14) — Execution-mode maturity declared once; BTE is a PAPER surface
 
 **Observe is the only production-ready posture. Paper (simulated trading + backtesting) and live (real orders) are both works in progress. The Backtesting Engine is a paper-mode surface — it was documented as an observe-only surface in three places, which misattributed it to the wrong posture.**

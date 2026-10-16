@@ -216,3 +216,12 @@
     padding: 1px 6px;
     opacity: 0.92;
 }
+
+/* v11.14.1: an explicit warming state for a duration with no first snapshot.
+   Amber is the project's direction-first "caution / in-progress" colour (never
+   a direction colour), so it can never be misread as a LONG or SHORT call. */
+.warmingBadge {
+    border-style: dashed;
+    color: var(--amber, #f59e0b);
+    letter-spacing: 0.06em;
+}

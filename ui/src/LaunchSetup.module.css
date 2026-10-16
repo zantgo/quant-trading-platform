@@ -521,6 +521,34 @@
     opacity: 0.4;
     cursor: not-allowed;
 }
+/* v11.14.1: the explicit escape from a still-warming gate. Deliberately
+   quieter than `.primary-button` and placed to its left, so the default
+   action remains Continue and the override is never the reflexive click. */
+.secondary-button {
+    margin-left: auto;
+    padding: 0.7rem 1.2rem;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.secondary-button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+.secondary-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+/* `.primary-button` sits beside it, so it must not push the pair apart. */
+.secondary-button + .primary-button {
+    margin-left: 0.75rem;
+}
 .launch-button {
     margin-left: auto;
     padding: 0.7rem 1.8rem;

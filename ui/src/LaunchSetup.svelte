@@ -156,6 +156,11 @@
         status: 'creating' | 'waiting' | 'ready' | 'timeout' | 'failed';
         error?: string;
         instanceId?: string;
+        /// v11.14.1: how many ACTIVE durations have produced a first snapshot
+        /// (out of `totalDurations`). Drives the `warming N/M` readout so the
+        /// wait is legible instead of an undifferentiated spinner.
+        readyDurations?: number;
+        totalDurations?: number;
         /// v11.12.23: the RECOVERED pair's own quote (the config symbol
         /// verbatim, e.g. `USDT`) — ADD-time drafts derive it from the
         /// session (`app.quote`).
@@ -263,16 +268,61 @@
         return supportedCurrencies.includes(c);
     }
 
+
+    // ── v11.14.1: readiness means EVERY active duration, not any one ──
+    //
+    // The probe used to be `activeDurations(pair).some((secs) => ...)`, so the
+    // fastest slot (1s, which fills from live trades because HFP-03 bypasses
+    // the REST warm) flipped the chip to `ready ✓` within a second while every
+    // duration >= 1m was still replaying its warm. The operator was let through
+    // onto an Overview whose 3m/5m/15m/30m/1h/4h columns were blank, with no
+    // indication they were still warming rather than broken — and that gate is
+    // the only thing standing between the wizard and that state.
+    //
+    // All-durations is also the honest reading of "ready": the Overview and the
+    // MTF grid render one row per ACTIVE duration, so a partial warm is not a
+    // ready instance.
+    function readinessOfFor(pairKey: string): { ready: number; total: number } {
+        const pair = app.instancesMap[pairKey];
+        const secs = pair ? activeDurations(pair) : [];
+        if (secs.length === 0) return { ready: 0, total: 0 };
+        const ready = secs.filter((s) => pair.terms[s]?.latestSnapshot != null).length;
+        return { ready, total: secs.length };
+    }
+
+    function readinessOf(base: string): { ready: number; total: number } {
+        return readinessOfFor(app.pairKeyFor(base));
+    }
+
+    function isFullyWarm(base: string): boolean {
+        const { ready, total } = readinessOf(base);
+        return total > 0 && ready === total;
+    }
+
     const stepTitles = ['Mode', 'Environment', 'Instances', 'Review'];
 
-    // v11.11: CONTINUE from the Instances step is gated on every staged
-    // chip having finished loading (failed chips block until removed; a
-    // timed-out chip passes with a "still warming" note). Zero staged
-    // instances keeps the skip affordance.
+    // v11.14.1: CONTINUE is gated on EVERY ACTIVE DURATION of EVERY staged chip
+    // having produced its first snapshot.
+    //
+    // It used to accept `timeout` alongside `ready`, which turned "the warm cap
+    // elapsed and it is still not ready" into "ready enough to proceed" — so
+    // the operator landed on a half-empty Overview with no way to tell that from
+    // a broken feed. `timeout` now blocks, exactly like the recovery gate's
+    // `ready`-only rule already did; the escape is an explicit, separately
+    // labelled CONTINUE ANYWAY (below) rather than a silent auto-pass.
     const stagedReady = $derived(
-        instances.length === 0
-            || instances.every((i) => i.status === 'ready' || i.status === 'timeout'),
+        instances.length === 0 || instances.every((i) => i.status === 'ready'),
     );
+
+    /// True once at least one chip is still short of a full warm, so the
+    /// override can be offered instead of leaving the operator stuck.
+    const stagedPending = $derived(
+        instances.some((i) => i.status === 'timeout' || i.status === 'waiting'),
+    );
+
+    /// v11.14.1: CONTINUE ANYWAY is only ever enabled once the operator has
+    /// explicitly opted in, so it can never be reached by accident.
+    let overrideArmed = $state(false);
 
     async function goNext() {
         error = null;
@@ -402,20 +452,30 @@
         while (Date.now() < deadline) {
             // Cancel guard: the chip was ✕-removed mid-warm — stop polling.
             if (!instances.some((i) => i.base === base)) return;
-            const pair = app.instancesMap[key];
-            const ready = !!pair
-                && activeDurations(pair).some(
-                    (secs) => pair.terms[secs]?.latestSnapshot != null,
+            const { ready, total } = readinessOf(base);
+            if (ready !== (instances.find((i) => i.base === base)?.readyDurations ?? -1)) {
+                instances = instances.map((i) =>
+                    i.base === base ? { ...i, readyDurations: ready, totalDurations: total } : i,
                 );
-            if (ready) {
-                instances = instances.map((i) => (i.base === base ? { ...i, status: 'ready' } : i));
+            }
+            if (total > 0 && ready === total) {
+                instances = instances.map((i) =>
+                    i.base === base ? { ...i, status: 'ready', readyDurations: ready, totalDurations: total } : i,
+                );
                 return;
             }
             await new Promise((resolve) => setTimeout(resolve, 400));
         }
+        // The cap reached without a full warm. This is now an HONEST 'not
+        // ready' state: it no longer satisfies `stagedReady`, so the operator
+        // sees exactly how far each instance got and can decide.
         instances = instances.map((i) =>
             i.base === base
-                ? { ...i, status: 'timeout', error: 'Still warming — the first snapshot has not arrived yet.' }
+                ? {
+                    ...i,
+                    status: 'timeout',
+                    error: `Still warming — ${i.readyDurations ?? 0}/${i.totalDurations ?? 0} durations have produced their first snapshot.`,
+                }
                 : i,
         );
     }
@@ -546,13 +606,13 @@
         while (Date.now() < deadline) {
             let allReady = true;
             const next = loadingSteps.map((entry) => {
-                const pair = app.instancesMap[entry.key];
-                const ready = !!pair
-                    && activeDurations(pair).some(
-                        (secs) => pair.terms[secs]?.latestSnapshot != null,
-                    );
-                if (!ready) allReady = false;
-                return ready === entry.ready ? entry : { ...entry, ready };
+                // v11.14.1: same ALL-durations rule. The launch-steps gate
+                // previously passed on the fastest slot alone and then showed a
+                // warm workspace whose slow durations were still blank.
+                const { ready: warmCount, total: warmTotal } = readinessOfFor(entry.key);
+                const isWarm = warmTotal > 0 && warmCount === warmTotal;
+                if (!isWarm) allReady = false;
+                return isWarm === entry.ready ? entry : { ...entry, ready: isWarm };
             });
             loadingSteps = next;
             if (allReady) return;
@@ -607,12 +667,24 @@
                             if (withId.status === 'ready' || withId.status === 'failed') {
                                 return withId;
                             }
-                            const pair = app.instancesMap[key];
-                            const ready = !!pair
-                                && activeDurations(pair).some(
-                                    (secs) => pair.terms[secs]?.latestSnapshot != null,
-                                );
-                            if (ready) return { ...withId, status: 'ready' as const };
+                            // v11.14.1: same ALL-durations rule as the
+                            // ADD-time path — a recovered instance is only
+                            // `ready` when every active duration has its first
+                            // snapshot, and it carries the same N/M progress so
+                            // the chip reads identically to a fresh add.
+                            const { ready: rdy, total: tot } = readinessOfFor(key);
+                            if (tot > 0 && rdy === tot) {
+                                return {
+                                    ...withId,
+                                    status: 'ready' as const,
+                                    readyDurations: rdy,
+                                    totalDurations: tot,
+                                };
+                            }
+                            if (rdy !== (withId.readyDurations ?? -1)) {
+                                withId.readyDurations = rdy;
+                                withId.totalDurations = tot;
+                            }
                             // The backend has spawned it — now it waits on
                             // the first snapshot (mirrors the ADD-time
                             // `creating…` → `waiting…` sequence).
@@ -969,7 +1041,22 @@
                             {#if inst.status === 'creating'}
                                 <span class={styles.instanceStatus} title="Creating the instance and warming its pipelines…">creating…</span>
                             {:else if inst.status === 'waiting'}
-                                <span class={styles.instanceStatus} title="Waiting for the first live snapshot">waiting for first snapshot…</span>
+                                <!--
+                                    v11.14.1: show WHICH durations are in, so
+                                    the wait is legible. The label used to be a
+                                    bare "waiting for first snapshot…" with no
+                                    way to tell progress from a stall.
+                                -->
+                                <span
+                                    class={styles.instanceStatus}
+                                    title="Waiting for every active duration to produce its first snapshot"
+                                >
+                                    {#if inst.totalDurations}
+                                        warming {inst.readyDurations ?? 0}/{inst.totalDurations}…
+                                    {:else}
+                                        waiting for first snapshot…
+                                    {/if}
+                                </span>
                             {:else if inst.status === 'ready'}
                                 <span class="{styles.instanceStatus} {styles.instanceStatusReady}">ready ✓</span>
                             {:else if inst.status === 'timeout'}
@@ -1052,11 +1139,31 @@
             {/if}
             {#if step < 4}
                 {@const gateBlocked = step === 3 && !(recoveryMode ? recoveryReady : stagedReady)}
+                <!--
+                    v11.14.1: a pending warm blocks CONTINUE outright. The ONLY
+                    way past it is the separate, explicitly-armed override
+                    below — never the primary button, so a half-warmed
+                    workspace can never be entered by a reflexive click.
+                -->
+                {#if gateBlocked && stagedPending}
+                    <button
+                        class={styles.secondaryButton}
+                        onclick={() => (overrideArmed = true)}
+                        disabled={loading}
+                        title="Proceed while some durations are still warming"
+                    >
+                        {overrideArmed ? 'Confirm: continue anyway' : 'Continue anyway…'}
+                    </button>
+                {/if}
                 <button
                     class={styles.primaryButton}
                     onclick={() => (recoveryMode && step === 3 ? landOnOverview() : goNext())}
-                    disabled={loading || gateBlocked}
-                    title={gateBlocked ? 'Instances are still loading…' : undefined}
+                    disabled={loading || ((gateBlocked || stagedPending) && !overrideArmed)}
+                    title={
+                        gateBlocked
+                            ? 'Some durations are still warming — every active duration must produce its first snapshot first.'
+                            : undefined
+                    }
                 >
                     Continue
                 </button>

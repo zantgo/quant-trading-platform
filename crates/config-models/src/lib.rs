@@ -1352,6 +1352,19 @@ fn validate_platform(platform: &PlatformConfig) -> Result<()> {
             ),
         });
     }
+    // v11.14.1: `warm_concurrency` bounds how many indicator warm replays run
+    // at once, so `0` would stall the spawn forever (no permit is ever
+    // released) and a value above the 14-duration pool is meaningless.
+    // Reject both at load rather than discovering them as a hung wizard.
+    if platform.candle_buffer.warm_concurrency == 0 || platform.candle_buffer.warm_concurrency > 14
+    {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[candle_buffer].warm_concurrency = {} (must be in 1..=14)",
+                platform.candle_buffer.warm_concurrency
+            ),
+        });
+    }
     if platform.candle_buffer.size == 0 {
         return Err(ConfigError::InvalidNumeric {
             detail: "[candle_buffer].size = 0 (must be >0)".into(),
@@ -1521,6 +1534,39 @@ default_exchange = "Hyperliquid"
         let mut platform = PlatformConfig::default();
         platform.server.port = 0;
         assert!(validate_platform(&platform).is_err());
+    }
+
+    /// v11.14.1: `warm_concurrency` bounds the parallel warm replay, so `0`
+    /// would stall every instance spawn forever (a semaphore with no permits
+    /// never hands one out) and a value above the 14-duration pool is
+    /// meaningless. Both must be rejected at load rather than surfacing as a
+    /// wizard that never finishes warming.
+    #[test]
+    fn candle_buffer_warm_concurrency_bounds() {
+        for bad in [0usize, 15, 100] {
+            let mut platform = PlatformConfig::default();
+            platform.candle_buffer.warm_concurrency = bad;
+            assert!(
+                validate_platform(&platform).is_err(),
+                "warm_concurrency = {bad} must be rejected"
+            );
+        }
+        for good in [1usize, 2, 4, 12, 14] {
+            let mut platform = PlatformConfig::default();
+            platform.candle_buffer.warm_concurrency = good;
+            assert!(
+                validate_platform(&platform).is_ok(),
+                "warm_concurrency = {good} must be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn warm_concurrency_defaults_to_four() {
+        assert_eq!(CandleBufferConfig::default().warm_concurrency, 4);
+        // A config.toml written before this field existed must still load.
+        let parsed: CandleBufferConfig = toml::from_str("size = 500").expect("parse");
+        assert_eq!(parsed.warm_concurrency, 4);
     }
 
     #[test]

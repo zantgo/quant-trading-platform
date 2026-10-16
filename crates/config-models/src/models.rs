@@ -192,6 +192,31 @@ pub struct CandleBufferConfig {
     /// rely on the per-duration cap alone.
     #[serde(default = "default_max_snapshot_history_bytes")]
     pub max_snapshot_history_bytes: usize,
+
+    /// v11.14.1: how many durations may run their indicator warm-up replay
+    /// CONCURRENTLY within one instance spawn.
+    ///
+    /// The REST candle fetch has always been concurrent (one task per
+    /// duration), but the CPU replay that follows it was a synchronous
+    /// sequential `.map()` — so a 12-duration ladder paid 12 x 500 x 52
+    /// indicator computations IN SERIES, directly on a Tokio worker thread.
+    /// That is both the dominant cost of a spawn and a runtime stall: the HTTP
+    /// server, the WebSockets and the NEXT instance's warm could not progress
+    /// while one instance replayed. Observed as "the wizard takes forever and
+    /// sub-minute slots load while everything >= 1m is still empty" (the
+    /// sub-minute slots bypass REST via HFP-03 and fill from live trades, so
+    /// only the replayed durations waited).
+    ///
+    /// The replay now runs under `spawn_blocking` with a semaphore of this
+    /// width, so it happens OFF the async workers (which is the real fix)
+    /// without fanning out all durations at once — the v11.12.25 OOM notes
+    /// record what an unbounded warm does to a small host, and each in-flight
+    /// replay holds a full warm state plus its snapshot history.
+    ///
+    /// Default: **4**. Higher is faster and peaks higher in memory; `1`
+    /// restores the old strictly-sequential behaviour.
+    #[serde(default = "default_warm_concurrency")]
+    pub warm_concurrency: usize,
 }
 
 impl Default for CandleBufferConfig {
@@ -202,12 +227,19 @@ impl Default for CandleBufferConfig {
             fetch_timeout_ms: default_fetch_timeout_ms(),
             sub_minute_skip_historical: default_sub_minute_skip_historical(),
             max_snapshot_history_bytes: default_max_snapshot_history_bytes(),
+            warm_concurrency: default_warm_concurrency(),
         }
     }
 }
 
 fn default_candle_buffer_size() -> usize {
     500
+}
+
+/// v11.14.1 — bounded parallel warm replay; see
+/// [`CandleBufferConfig::warm_concurrency`].
+fn default_warm_concurrency() -> usize {
+    4
 }
 
 /// 512 MiB — see [`CandleBufferConfig::max_snapshot_history_bytes`].

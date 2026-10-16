@@ -257,3 +257,57 @@ describe('InstanceStatusTable — empty instance', () => {
         for (const p of pills) expect(p.textContent).toContain('loading');
     });
 });
+
+/**
+ * v11.14.1: a duration with no first snapshot says WARMING, not nothing.
+ *
+ * `metricsBadgeFor` reports an EMPTY badge when a term has no market context,
+ * which renders as a bare dash. That dash is indistinguishable from a dead
+ * feed — and because only sub-minute slots fill from live trades, a still-
+ * replaying slow duration looked exactly like a broken pair. The reported
+ * symptom was "the chart is empty for 30m+ but it eventually works".
+ *
+ * The table now distinguishes the two states so a warming duration is visibly
+ * in-progress rather than absent.
+ */
+describe('InstanceStatusTable — v11.14.1 warming state', () => {
+    it('a duration with no first snapshot renders WARMING', async () => {
+        // `makeTerms` leaves `latestSnapshot: null` for every duration.
+        seed('BTC-USDT', makeInstance({ activeDurations: [1, 300] }));
+        renderTable();
+        const table = screen.getByLabelText('Per-instance status');
+        await fireEvent.click(screen.getByLabelText(/Expand BTC/));
+
+        const warming = table.querySelectorAll('div[class*="warmingBadge"]');
+        expect(
+            warming.length,
+            'both durations have no snapshot, so both must read WARMING',
+        ).toBe(2);
+        expect(table.textContent).toContain('WARMING');
+    });
+
+    it('a duration that HAS a snapshot renders its market badge, not WARMING', async () => {
+        const inst = makeInstance({ activeDurations: [1, 300] });
+        // Only the fast slot is warm — the exact mixed state a partial warm-up
+        // produces on a real ladder.
+        inst.terms[1].latestSnapshot = {} as never;
+        inst.terms[300].latestSnapshot = null;
+        seed('BTC-USDT', inst);
+        renderTable();
+        const table = screen.getByLabelText('Per-instance status');
+        await fireEvent.click(screen.getByLabelText(/Expand BTC/));
+
+        expect(table.querySelectorAll('div[class*="warmingBadge"]').length).toBe(1);
+    });
+
+    it('every duration warm → no WARMING badge remains', async () => {
+        const inst = makeInstance({ activeDurations: [1, 300] });
+        inst.terms[1].latestSnapshot = {} as never;
+        inst.terms[300].latestSnapshot = {} as never;
+        seed('BTC-USDT', inst);
+        renderTable();
+        const table = screen.getByLabelText('Per-instance status');
+        await fireEvent.click(screen.getByLabelText(/Expand BTC/));
+        expect(table.querySelectorAll('div[class*="warmingBadge"]').length).toBe(0);
+    });
+});

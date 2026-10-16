@@ -64,6 +64,16 @@
     /// order mirrors `config.instances` (creation) order, so the reversed
     /// sequence puts the most recently added instance on top and the
     /// oldest at the bottom.
+    /// v11.14.1: true while a duration has no first snapshot yet.
+    ///
+    /// `metricsBadgeFor` reports an EMPTY badge for a missing context, which
+    /// reads identically whether the slot is warming or the feed is dead. This
+    /// separates the two so the Overview can say which it is.
+    function warmingFor(inst: InstanceState, slot: number): boolean {
+        const tf = inst.terms?.[slot];
+        return !tf || tf.latestSnapshot == null;
+    }
+
     const rows = $derived.by<InstanceRow[]>(() => {
         const all = Object.entries(app.instancesMap) as [string, InstanceState][];
         return all.reverse().map(([pairKey, inst]) => ({ pairKey, inst }));
@@ -216,20 +226,39 @@
                                     <span class={styles.tfName}>{slotLabel(slot)}</span>
                                 </td>
                                 <td class={styles.badgeCell}>
-                                    <div
-                                        class="{headerStyles.badge} {styles.tfBadgeSm} {badgeCls[info.badge.state]}"
-                                        style="border-color: {info.badge.color}; color: {info.badge.color}; background-color: {info.badge.background};"
-                                        aria-label="TF badge: {info.badge.label}"
-                                    >
-                                        {#if info.badge.state === 'error'}
-                                            <span class={headerStyles.errorIcon} aria-hidden="true">⚠</span>
-                                        {/if}
-                                        <span>{info.badge.label}</span>
-                                        {#if info.badge.sublabel}
-                                            <span class={headerStyles.badgeDivider} aria-hidden="true">•</span>
-                                            <span>{info.badge.sublabel}</span>
-                                        {/if}
-                                    </div>
+                                    <!--
+                                        v11.14.1: a duration that has not produced
+                                        its first snapshot renders an explicit
+                                        WARMING badge instead of the bare empty
+                                        dash. The dash is indistinguishable from
+                                        a broken feed, which is why a
+                                        still-warming slow duration read as
+                                        "this pair is dead" on the Overview.
+                                    -->
+                                    {#if warmingFor(inst, slot)}
+                                        <div
+                                            class="{headerStyles.badge} {styles.tfBadgeSm} {badgeCls.empty} {styles.warmingBadge}"
+                                            aria-label="Still warming — no snapshot yet for {slotLabel(slot)}"
+                                            title="This duration has not produced its first snapshot yet. Sub-minute durations fill from live trades; durations at or above 1 minute complete their historical warm first."
+                                        >
+                                            <span>WARMING</span>
+                                        </div>
+                                    {:else}
+                                        <div
+                                            class="{headerStyles.badge} {styles.tfBadgeSm} {badgeCls[info.badge.state]}"
+                                            style="border-color: {info.badge.color}; color: {info.badge.color}; background-color: {info.badge.background};"
+                                            aria-label="TF badge: {info.badge.label}"
+                                        >
+                                            {#if info.badge.state === 'error'}
+                                                <span class={headerStyles.errorIcon} aria-hidden="true">⚠</span>
+                                            {/if}
+                                            <span>{info.badge.label}</span>
+                                            {#if info.badge.sublabel}
+                                                <span class={headerStyles.badgeDivider} aria-hidden="true">•</span>
+                                                <span>{info.badge.sublabel}</span>
+                                            {/if}
+                                        </div>
+                                    {/if}
                                     <BadgeTrail entries={tfTrail} flat flatSize={9.5} />
                                 </td>
                                 <td class={styles.probsCell}>

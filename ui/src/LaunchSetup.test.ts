@@ -138,14 +138,41 @@ async function completeStagedWarmup() {
     const app = useAppStore();
     await waitFor(
         () => {
-            for (const pair of Object.values(app.instancesMap)) {
-                if (pair.terms[1]) pair.terms[1].latestSnapshot = {} as never;
-            }
+            // v11.14.1: ALL durations, not just the 1s slot. The old helper set
+            // `terms[1]` only, which was enough solely because readiness was
+            // `some(...)` — and that is the defect this release fixes.
+            for (const key of Object.keys(app.instancesMap)) markFullyWarm(key);
             const btn = screen.getByText('Continue') as HTMLButtonElement;
             expect(btn.disabled).toBe(false);
         },
         { timeout: 3000 },
     );
+}
+
+/**
+ * v11.14.1: mark a pair FULLY warm — every active duration has a first
+ * snapshot.
+ *
+ * These tests used to set `terms[1]` alone, which passed only because the
+ * readiness probe was `some(...)`: the 1s slot filled instantly (HFP-03
+ * bypasses the REST warm) and the chip went `ready` while every duration >= 1m
+ * was still replaying. Readiness is now all-durations, so a pair is ready only
+ * when every active duration has produced a snapshot.
+ */
+function markFullyWarm(pairKey: string, count?: number): void {
+    const app = useAppStore();
+    const pair = app.instancesMap[pairKey];
+    if (!pair) return;
+    const secs = Object.keys(pair.terms).map(Number).filter((n) => !Number.isNaN(n));
+    const targets = count === undefined ? secs : secs.slice(0, count);
+    for (const s of targets) {
+        if (pair.terms[s]) pair.terms[s].latestSnapshot = {} as never;
+    }
+}
+
+/** Set a first snapshot on exactly `count` durations, for partial-warm tests. */
+function markPartiallyWarm(pairKey: string, count: number): void {
+    markFullyWarm(pairKey, count);
 }
 
 describe('Launch Setup — mode selection', () => {
@@ -336,12 +363,12 @@ describe('Launch Setup — instances step', () => {
         const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
         await fireEvent.click(screen.getByText('+ Add'));
-        await waitFor(() => expect(container.textContent).toContain('waiting for first snapshot'));
+        await waitFor(() => expect(container.textContent).toMatch(/warming \d+\/\d+|waiting for first snapshot/));
         const continueBtn = screen.getByText('Continue') as HTMLButtonElement;
         expect(continueBtn.disabled).toBe(true);
         // First snapshot arrives → chip ready → CONTINUE unlocks.
         const app = useAppStore();
-        app.instancesMap['BTC-USDT'].terms[1].latestSnapshot = {} as never;
+        markFullyWarm('BTC-USDT');
         await waitFor(() => expect(continueBtn.disabled).toBe(false), { timeout: 3000 });
     });
 
@@ -455,7 +482,7 @@ describe('Launch Setup — launch orchestration', () => {
 
         // First snapshot arrives → ready → land on the Market Monitor Overview.
         expect(app.instancesMap['BTC-USDT']).toBeTruthy();
-        app.instancesMap['BTC-USDT'].terms[1].latestSnapshot = {} as never;
+        markFullyWarm('BTC-USDT');
         await waitFor(() => expect(app.currentEngine).toBe('market_monitor'), { timeout: 5000 });
         expect(app.middleTab).toBe('overview');
         expect(app.activeEngineTab).toBe('overview');
@@ -638,11 +665,11 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
         // Backend finishes spawning → the chip advances to the snapshot
         // wait → the poll seeds the store → snapshots → ready + unlock.
         runtimeUp = true;
-        await waitFor(() => expect(container.textContent).toContain('waiting for first snapshot'), { timeout: 3000 });
+        await waitFor(() => expect(container.textContent).toMatch(/warming \d+\/\d+|waiting for first snapshot/), { timeout: 3000 });
         await waitFor(() => expect(app.instancesMap['BTC-USDT']).toBeTruthy(), { timeout: 3000 });
         await waitFor(() => expect(app.instancesMap['ETH-USDT']).toBeTruthy(), { timeout: 3000 });
-        app.instancesMap['BTC-USDT'].terms[1].latestSnapshot = {} as never;
-        app.instancesMap['ETH-USDT'].terms[1].latestSnapshot = {} as never;
+        markFullyWarm('BTC-USDT');
+        markFullyWarm('ETH-USDT');
         await waitFor(() => expect(container.textContent).toContain('ready ✓'), { timeout: 3000 });
         await waitFor(() => expect(cont.disabled).toBe(false), { timeout: 3000 });
         expect(app.sessionAcknowledged).toBe(false);
@@ -695,7 +722,7 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
             .find((b) => b.textContent?.includes('Recover last session'))!;
         await fireEvent.click(btn);
         await waitFor(() => expect(app.instancesMap['BTC-USDC']).toBeTruthy(), { timeout: 3000 });
-        app.instancesMap['BTC-USDC'].terms[1].latestSnapshot = {} as never;
+        markFullyWarm('BTC-USDC');
         await waitFor(() => expect(container.textContent).toContain('ready ✓'));
         const cont = Array.from(container.querySelectorAll('button'))
             .find((b) => b.textContent?.trim() === 'Continue')!;
@@ -760,7 +787,7 @@ describe('LaunchSetup — interrupted-session recovery card', () => {
             .find((b) => b.textContent?.includes('Recover last session'))!;
         await fireEvent.click(btn);
         await waitFor(() => expect(app.instancesMap['ETH-USDC']).toBeTruthy(), { timeout: 3000 });
-        app.instancesMap['BTC-USDC'].terms[1].latestSnapshot = {} as never;
+        markFullyWarm('BTC-USDC');
         await waitFor(() => expect(container.textContent).toContain('ready ✓'));
         const cont = Array.from(container.querySelectorAll('button'))
             .find((b) => b.textContent?.trim() === 'Continue')!;
@@ -1078,12 +1105,105 @@ describe('LaunchSetup — cancel during add-time creation (v11.12)', () => {
         await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
         await fireEvent.click(screen.getByText('+ Add'));
         // instanceId assigned once the create resolves (failed DELETE path)
-        await waitFor(() => expect(container.textContent).toContain('waiting for first snapshot'));
+        await waitFor(() => expect(container.textContent).toMatch(/warming \d+\/\d+|waiting for first snapshot/));
         await fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Remove BTC"]')!);
         await waitFor(() => {
             // The failure rides the chip's tooltip (visible state = ✕ unavailable).
             expect(container.querySelector('span[title^="Removal failed"]')).toBeTruthy();
         });
         vi.unstubAllGlobals();
+    });
+});
+
+/**
+ * v11.14.1: the CONTINUE gate means "every ACTIVE DURATION is warm".
+ *
+ * The gate used to be satisfied by a single duration:
+ *
+ *   activeDurations(pair).some((secs) => pair.terms[secs]?.latestSnapshot != null)
+ *
+ * The 1s slot fills from live trades (HFP-03 bypasses the REST warm), so it
+ * satisfied `some` within a second while every duration >= 1m was still
+ * replaying its 500-candle warm. The operator was let onto an Overview whose
+ * 3m/5m/15m/30m/1h/4h rows were blank — indistinguishable from a dead feed.
+ *
+ * Worse, the 60 s cap rewrote pending chips to `timeout`, and `stagedReady`
+ * accepted `timeout` alongside `ready`, so "the cap elapsed and it is still not
+ * ready" was silently converted into "ready enough to proceed".
+ */
+describe('LaunchSetup — v11.14.1 all-durations readiness gate', () => {
+    it('a single warm duration does NOT unlock CONTINUE', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container, 'Bybit');
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        await waitFor(() => expect(container.textContent).toMatch(/warming \d+\/\d+|waiting for first snapshot/));
+
+        // Exactly the old regression: only the 1s slot has a snapshot.
+        markFullyWarm('BTC-USDT', 1);
+        await new Promise((r) => setTimeout(r, 400));
+
+        // Assert the CHIP, not just the button: `disabled` is also true while
+        // the chip is merely `waiting`, so asserting only that passes
+        // vacuously and would not catch the `some(...)` regression at all.
+        expect(
+            container.textContent,
+            'a 1-of-N warm must still read as warming, not ready',
+        ).not.toContain('ready ✓');
+        expect(container.textContent).toMatch(/warming 1\/\d+/);
+
+        const continueBtn = screen.getByText('Continue') as HTMLButtonElement;
+        expect(
+            continueBtn.disabled,
+            'CONTINUE must stay locked while any duration is still warming',
+        ).toBe(true);
+    });
+
+    it('the chip reports how many durations are warm', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container, 'Bybit');
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        await waitFor(() => expect(container.textContent).toMatch(/warming \d+\/\d+/));
+        expect(container.textContent).toMatch(/warming \d+\/\d+/);
+    });
+
+    it('reaching every active duration unlocks CONTINUE', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container, 'Bybit');
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        await waitFor(() => expect(container.textContent).toMatch(/warming \d+\/\d+|waiting for first snapshot/));
+
+        markFullyWarm('BTC-USDT');
+        const continueBtn = screen.getByText('Continue') as HTMLButtonElement;
+        await waitFor(() => expect(continueBtn.disabled).toBe(false), { timeout: 3000 });
+        expect(container.textContent).toContain('ready ✓');
+    });
+
+    it('a still-warming chip offers an explicit override that is not armed by default', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container, 'Bybit');
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        await waitFor(() => expect(container.textContent).toMatch(/warming \d+\/\d+|waiting for first snapshot/));
+
+        // Partial warm: CONTINUE stays locked and the override is offered.
+        markFullyWarm('BTC-USDT', 2);
+        await new Promise((r) => setTimeout(r, 400));
+
+        expect(container.textContent).not.toContain('ready ✓');
+        const continueBtn = screen.getByText('Continue') as HTMLButtonElement;
+        expect(continueBtn.disabled, 'the PRIMARY button must stay locked').toBe(true);
+
+        const overrideBtn = screen.getByText(/Continue anyway/);
+        expect(overrideBtn).toBeTruthy();
+        // Arming the override is a separate, deliberate click.
+        await fireEvent.click(overrideBtn);
+        await waitFor(() => expect((screen.getByText('Continue') as HTMLButtonElement).disabled).toBe(false));
     });
 });

@@ -416,6 +416,7 @@ pub async fn add_instance(
     let stale_threshold_secs = candle_buffer.stale_threshold_secs;
     let fetch_timeout_ms = candle_buffer.fetch_timeout_ms;
     let sub_minute_skip_historical = candle_buffer.sub_minute_skip_historical;
+    let warm_concurrency = candle_buffer.warm_concurrency;
 
     // ── Historical Bootstrap FIRST ──
     let bootstrap_input = bootstrap::BootstrapInput {
@@ -433,6 +434,7 @@ pub async fn add_instance(
         fetch_timeout_ms,
         sub_minute_skip_historical,
         reliability: Some(state.reliability.clone()),
+        warm_concurrency,
     };
 
     let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
@@ -960,6 +962,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let stale_threshold_secs = candle_buffer.stale_threshold_secs;
     let fetch_timeout_ms = candle_buffer.fetch_timeout_ms;
     let sub_minute_skip_historical = candle_buffer.sub_minute_skip_historical;
+    let warm_concurrency = candle_buffer.warm_concurrency;
 
     // Fresh historical bootstrap
     let bootstrap_input = bootstrap::BootstrapInput {
@@ -977,6 +980,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         fetch_timeout_ms,
         sub_minute_skip_historical,
         reliability: Some(state.reliability.clone()),
+        warm_concurrency,
     };
 
     let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;

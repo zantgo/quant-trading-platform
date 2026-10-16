@@ -781,8 +781,19 @@ pub fn warm_indicators_for_timeframe(
             mark_price: snapshot.mark_price,
             index_price: snapshot.index_price,
         });
-        latest_snapshot = Some(snapshot.clone());
-        snapshot_history.push(snapshot.history_projection());
+        // v11.14.1: project first, then MOVE the snapshot.
+        //
+        // `history_projection()` clones `self` internally, so the previous
+        // order did TWO full deep clones per candle — and the first one
+        // (`Some(snapshot.clone())`) was overwritten by the next iteration in
+        // all but the last. Over a 500-candle warm that is 499 wasted deep
+        // clones per duration, and with the replay now running up to
+        // `warm_concurrency` durations at once those allocations were on the
+        // critical path. `snapshot` is not read after this point, so it can be
+        // moved rather than cloned.
+        let projected = snapshot.history_projection();
+        latest_snapshot = Some(snapshot);
+        snapshot_history.push(projected);
     }
 
     // The raw-candle `history` is bounded by the bootstrap's effective seed cap

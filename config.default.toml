@@ -105,6 +105,12 @@ duration_seconds = 60
 #                                        and above-minute, same behavior)
 [candle_buffer]
 size = 500
+# v11.14.1: how many durations may run their indicator warm-up replay at once.
+# The replay is CPU-bound (500 candles x 52 indicators per duration) and runs
+# off the async workers, so raising this shortens an instance spawn; the
+# semaphore bounds it so peak memory stays predictable. 1 = strictly
+# sequential. Valid 1..=14.
+warm_concurrency = 4
 
 [workspace.indicators]
 ema_fast = 10

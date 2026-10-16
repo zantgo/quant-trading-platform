@@ -47,6 +47,10 @@ pub struct BootstrapInput {
     /// When present, bootstrap candle provenance (DB-warm vs REST-gap) is
     /// recorded into the pipeline reliability source mix (03-01-04 §5).
     pub reliability: Option<Arc<network_adapters::pipeline_reliability::ReliabilityTracker>>,
+    /// v11.14.1: how many durations may run the indicator warm replay at once.
+    /// Bounded by a semaphore; `1` reproduces the old sequential behaviour.
+    /// Zero is treated as 1 so a hand-edited config cannot stall the spawn.
+    pub warm_concurrency: usize,
 }
 
 /// Fetch candles for a single timeframe via the
@@ -444,23 +448,86 @@ pub async fn fetch_and_warm_bootstrap(
 
     // Warm each ACTIVE duration with its own candles, config, and derived
     // duration label (ascending fastest → slowest).
-    let warmed: Vec<analyzer::WarmedPipelineState> = slot_candles
-        .iter_mut()
-        .enumerate()
-        .map(|(i, candles)| {
+    // v11.14.1: run the per-duration indicator replay CONCURRENTLY, and OFF
+    // the async workers.
+    //
+    // The REST fetch above has always been concurrent — one spawned task per
+    // duration. The CPU replay that consumes it was not: it was a synchronous
+    // `.map()` calling `warm_indicators_for_timeframe` directly, so a
+    // 12-duration ladder paid 12 x 500 candles x 52 indicators IN SERIES, on a
+    // Tokio worker thread.
+    //
+    // Two consequences, and the second is the one users actually felt:
+    //
+    //   1. Wall time was the SUM of the durations, not the maximum — the
+    //      natural parallelism was thrown away after the (concurrent) fetch.
+    //   2. Because it ran inline on the runtime rather than on a blocking
+    //      pool, it STALLED the runtime for its whole duration: the HTTP
+    //      server, the WebSockets and the next instance's spawn could not make
+    //      progress while one instance replayed. Adding a second instance was
+    //      slower than the first for that reason alone.
+    //
+    // That produced the reported symptom exactly: sub-minute slots (which
+    // bypass REST via HFP-03 and fill from live trades) appeared immediately,
+    // while every duration >= 1m stayed blank — and the wizard's readiness
+    // probe passed on the sub-minute ones.
+    //
+    // `spawn_blocking` is the real fix (it frees the workers); the semaphore
+    // bounds fan-out so peak memory stays predictable. Each in-flight replay
+    // holds a full warm state plus its snapshot history, and v11.12.25 records
+    // what an unbounded warm does to a small host.
+    let permits = input.warm_concurrency.max(1);
+    let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(permits));
+    let mut tasks: Vec<tokio::task::JoinHandle<analyzer::WarmedPipelineState>> =
+        Vec::with_capacity(slot_candles.len());
+    for (i, candles) in slot_candles.into_iter().enumerate() {
+        // Acquire the permit HERE, on the async side, and hand it to the task.
+        // Waiting inside `spawn_blocking` instead would park a blocking-pool
+        // thread for the whole wait, which is the resource this change exists
+        // to stop consuming; awaiting here yields properly and bounds the
+        // number of replays actually in flight.
+        let permit = slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| format!("warm replay semaphore closed: {e}"))?;
+        let ladder_cfgs = input.ladder_cfgs.clone();
+        let fib_config = input.fib_config.clone();
+        let internal_symbol = input.internal_symbol.clone();
+        let secs = ladder_secs[i];
+        // The closure must be `'static`, so every borrowed input is captured by
+        // value rather than by reference out of `input`.
+        let buffer_size = input.buffer_size;
+        let active_set = warm_active_set.clone();
+        tasks.push(tokio::task::spawn_blocking(move || {
+            // Held for the replay's lifetime, so fan-out stays bounded.
+            let _permit = permit;
             analyzer::warm_indicators_for_timeframe(
-                std::mem::take(candles),
-                &input.ladder_cfgs[i],
-                &input.fib_config,
-                &input.internal_symbol,
-                ladder_secs[i],
-                core_domain::duration_label(ladder_secs[i]),
-                input.buffer_size,
-                &warm_active_set,
+                candles,
+                &ladder_cfgs[i],
+                &fib_config,
+                &internal_symbol,
+                secs,
+                core_domain::duration_label(secs),
+                buffer_size,
+                &active_set,
                 Some(warm_exchange),
             )
-        })
-        .collect();
+        }));
+    }
+    let mut warmed: Vec<analyzer::WarmedPipelineState> = Vec::with_capacity(tasks.len());
+    for t in tasks {
+        warmed.push(t.await.map_err(|e| {
+            // A panicking replay fails the whole warm, which the caller already
+            // handles by logging and starting every pipeline cold. There is no
+            // per-slot recovery here: `WarmedPipelineState` has no `Default`
+            // (every indicator needs a configured constructor), and a replay
+            // that panicked has not produced trustworthy state for its slot
+            // either — the per-slot tolerance above covers the realistic
+            // failure, which is a fetch error, not a replay panic.
+            format!("warm replay task panicked: {e}")
+        })?);
+    }
 
     Ok(warmed)
 }
@@ -861,6 +928,7 @@ mod cold_start_sub_minute_tests {
             fetch_timeout_ms: 100,
             sub_minute_skip_historical: true,
             reliability: None,
+            warm_concurrency: 4,
         };
 
         // ≥60s durations require a reachable REST in `collect_candles`.
@@ -1007,6 +1075,7 @@ mod tolerance_tests {
             fetch_timeout_ms: 500,
             sub_minute_skip_historical: false,
             reliability: None,
+            warm_concurrency: 4,
         };
 
         let warmed = fetch_and_warm_bootstrap(&input)
