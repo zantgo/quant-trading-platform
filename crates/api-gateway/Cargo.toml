@@ -1,32 +1,32 @@
 [package]
 name = "api-gateway"
-rust-version.workspace = true
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 
 [dependencies]
-futures-util = { version = "0.3", features = ["sink", "std"] }
+api-core = { path = "../api-core" }
+api-market = { path = "../api-market" }
+api-instances = { path = "../api-instances" }
+api-analytics = { path = "../api-analytics" }
+api-system = { path = "../api-system" }
 
 core-domain = { path = "../core-domain" }
 config-models = { path = "../config-models" }
-market-analyzer = { path = "../market-analyzer" }
 database-storage = { path = "../database-storage" }
-portfolio-supervisor = { path = "../portfolio-supervisor" }
-performance-analytics = { path = "../performance-analytics" }
-backtesting-engine = { path = "../backtesting-engine" }
 network-adapters = { path = "../network-adapters" }
+portfolio-supervisor = { path = "../portfolio-supervisor" }
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.8"
-rust_decimal = { version = "1.34", features = ["serde-with-str"] }
-rust_decimal_macros = "1"
 tokio = { version = "1", features = ["full"] }
-async-trait = "0.1"
 axum = { version = "0.7", features = ["ws", "json"] }
 tower-http = { version = "0.5", features = ["fs", "cors"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
-chrono = "0.4"
 
+# Test-only dependencies. The integration tests reach into the engine crates
+# directly (e.g. `axum_routes` builds `ActivePair`/`TimeframePipeline` by hand)
+# in addition to the `api_gateway::` facade, so those stay declared here.
 [dev-dependencies]
 tower = { version = "0.4", features = ["util"] }
 hyper = { version = "1", features = ["server"] }
@@ -34,3 +34,22 @@ http-body-util = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = "0.26"
+futures-util = { version = "0.3", features = ["sink", "std"] }
+tempfile = "3"
+
+core-domain = { path = "../core-domain" }
+config-models = { path = "../config-models" }
+market-analyzer = { path = "../market-analyzer" }
+database-storage = { path = "../database-storage" }
+network-adapters = { path = "../network-adapters" }
+portfolio-supervisor = { path = "../portfolio-supervisor" }
+performance-analytics = { path = "../performance-analytics" }
+backtesting-engine = { path = "../backtesting-engine" }
+
+serde_json = "1.0"
+toml = "0.8"
+chrono = "0.4"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+axum = { version = "0.7", features = ["ws", "json"] }
+rust_decimal = { version = "1.34", features = ["serde-with-str"] }
+rust_decimal_macros = "1"

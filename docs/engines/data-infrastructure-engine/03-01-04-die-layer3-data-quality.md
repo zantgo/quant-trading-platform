@@ -1,6 +1,6 @@
 # DIE Layer 3 — Data Quality Layer
 
-**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 3 of 4
@@ -139,7 +139,7 @@ Candles failing validity are quarantined and refetched from REST.
 
 ## 5. Pipeline Reliability Metrics
 
-These are **per-instance** operational metrics (not the per-candle `CandleQualityEnvelope` envelope defined in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md)). They are served via `GET /api/data-quality` (`crates/api-gateway/src/handlers/data_quality.rs`; see [06-01-api-gateway-contract.md §2.11](../../integration-and-api/06-01-api-gateway-contract.md)) and roll up to the dashboard's Data Quality panel.
+These are **per-instance** operational metrics (not the per-candle `CandleQualityEnvelope` envelope defined in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md)). They are served via `GET /api/data-quality` (`crates/api-system/src/data_quality.rs`; see [06-01-api-gateway-contract.md §2.11](../../integration-and-api/06-01-api-gateway-contract.md)) and roll up to the dashboard's Data Quality panel.
 
 | Metric | Meaning |
 |--------|---------|

@@ -168,7 +168,7 @@ async fn rejects_pair_key_corrupting_separators() {
 #[tokio::test]
 async fn rejects_symbol_over_the_character_budget() {
     // 21 CJK characters — over the 20-character budget.
-    let long: String = std::iter::repeat('龙').take(21).collect();
+    let long: String = "龙".repeat(21);
     let (status, body) = post_add(&long, "USDT").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body.contains("Symbol too long"), "{body}");
@@ -188,7 +188,7 @@ async fn accepts_the_boundary_length_before_consulting_the_venue() {
     // probe, whose answer is environment-dependent; the invariant under test is
     // only that the character budget no longer rejects it. The OLD byte-based
     // limit rejected this at 60 bytes.
-    let twenty: String = std::iter::repeat('龙').take(20).collect();
+    let twenty: String = "龙".repeat(20);
     let (status, body) = post_add(&twenty, "USDT").await;
     assert!(
         !body.contains("Symbol too long"),

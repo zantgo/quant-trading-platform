@@ -1,6 +1,6 @@
 # 03-01-09: Bybit V5 Derivatives Telemetry Wire Format
 
-**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE) → MME L1.5 Derivatives Telemetry
 **Scope:** Bybit V5 (`category=linear`) WebSocket push payloads + REST endpoints

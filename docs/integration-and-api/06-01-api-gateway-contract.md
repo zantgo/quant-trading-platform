@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -311,15 +311,15 @@ Served since v6.4.1 (previously tracked as the Phase-3 handlers under AUDIT-V6-3
 
 | Method | Path | Response |
 |--------|------|----------|
-| `GET` | `/api/system/clock` | `ClockStatusResponse` — `{ within_threshold, drift_us?, jitter_rms_us?, last_poll_ms?, breach_count, breach_action, ntp_servers, sample_count, threshold_micros }` (`crates/api-gateway/src/handlers/clock.rs`). Returns `503 Service Unavailable` when the clock monitor is disabled. `breach_count` is a running `AtomicU32` counter incremented on each observed breach since process start. |
-| `GET` | `/api/exchange-status` | Per-exchange connectivity status (`crates/api-gateway/src/handlers/exchange_status.rs`). |
-| `GET` | `/api/data-quality` | `PipelineReliabilityMetrics` — `{ coverage, gap_count, outliers_rejected, outliers_bypassed, out_of_order_dropped, total_candles_processed, reconstructed_candles, source_mix }` where `source_mix` has `{ db_warm, rest_gap, live }` (`crates/api-gateway/src/handlers/data_quality.rs`; contract in [03-01-04 §5](../engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md)). Aggregates process-wide across all instances. |
+| `GET` | `/api/system/clock` | `ClockStatusResponse` — `{ within_threshold, drift_us?, jitter_rms_us?, last_poll_ms?, breach_count, breach_action, ntp_servers, sample_count, threshold_micros }` (`crates/api-system/src/clock.rs`). Returns `503 Service Unavailable` when the clock monitor is disabled. `breach_count` is a running `AtomicU32` counter incremented on each observed breach since process start. |
+| `GET` | `/api/exchange-status` | Per-exchange connectivity status (`crates/api-system/src/exchange_status.rs`). |
+| `GET` | `/api/data-quality` | `PipelineReliabilityMetrics` — `{ coverage, gap_count, outliers_rejected, outliers_bypassed, out_of_order_dropped, total_candles_processed, reconstructed_candles, source_mix }` where `source_mix` has `{ db_warm, rest_gap, live }` (`crates/api-system/src/data_quality.rs`; contract in [03-01-04 §5](../engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md)). Aggregates process-wide across all instances. |
 
 ### 2.11.1 Platform & DIE system endpoints (v7.3)
 
 | Method | Path | Response |
 |--------|------|----------|
-| `GET` | `/api/system/platform-config` | The serialized `PlatformConfig` from `config.toml` — `{ hyperliquid, bitget, clock_monitor?, quality?, reconnect, candle_buffer, snapshot_export }`. DIE Settings renders these real values (`crates/api-gateway/src/handlers/system.rs`). |
+| `GET` | `/api/system/platform-config` | The serialized `PlatformConfig` from `config.toml` — `{ hyperliquid, bitget, clock_monitor?, quality?, reconnect, candle_buffer, snapshot_export }`. DIE Settings renders these real values (`crates/api-system/src/system.rs`). |
 | `GET` | `/api/system/pipelines` | `{ pipelines: [{ pair, slot, timeframe_secs, pipeline_state, buffer_depth, buffer_size, last_completed_close, last_completed_ts, reconstructed_candles }] }` — per-instance × slot candle-pipeline state (DIE L2 Market Data tab). |
 | `GET` | `/api/system/distribution` | `{ observation_loop_latency_ms, ingest_skew_ms, system_heartbeat_latency_ms, ws_clients_connected }` — DIE L4 egress telemetry (latency snapshot + live WS client count). |
 | `GET` | `/api/connection-quality` | Connection quality report(s) — process-wide aggregate or per-scope when `instance_id` + `timeframe_secs` are supplied; `window=one_hour\|six_hour\|twenty_four_hour`. |
@@ -368,7 +368,7 @@ The Performance Analytics Engine exposes serving endpoints under `/api/analytics
 | `GET` | `/api/backtest/:id/metrics` | Summary + NHST key/values for a run. |
 | `GET` | `/api/backtest` | Catch-all for `/api/backtest/*` references — **not registered** (returns 404; only the concrete rows above are served). |
 
-The endpoints above are documented in segment form (not in the canonical `(METHOD, /path)` row layout) for readability. Each path is canonical to the per-tab `PerformanceDashboard` `fetch()` call and the `api-gateway` HTTP handler in `crates/api-gateway/src/handlers/analytics.rs`.
+The endpoints above are documented in segment form (not in the canonical `(METHOD, /path)` row layout) for readability. Each path is canonical to the per-tab `PerformanceDashboard` `fetch()` call and the `api-gateway` HTTP handler in `crates/api-analytics/src/analytics.rs`.
 
 ---
 

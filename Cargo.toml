@@ -8,6 +8,11 @@ members = [
     "crates/portfolio-supervisor",
     "crates/performance-analytics",
     "crates/backtesting-engine",
+    "crates/api-core",
+    "crates/api-market",
+    "crates/api-instances",
+    "crates/api-analytics",
+    "crates/api-system",
     "crates/api-gateway",
     "crates/execution-daemon",
 ]
@@ -17,6 +22,45 @@ resolver = "2"
 # MSRV lint family and by toolchain managers). The codebase already uses
 # `std::sync::LazyLock` (stable 1.80) and `let ... else` (stable 1.65),
 # so 1.80 is the floor.
+# ---------------------------------------------------------------------------
+# Build cost profiles (v11.14.2)
+#
+# These crates previously built on stock Rust defaults, i.e. `debug = true`
+# (FULL debuginfo) with `split-debuginfo = 'off'`, which on Linux embeds a
+# complete copy of the debuginfo for the ENTIRE dependency tree in every
+# artifact. Measured on one integration-test binary:
+#
+#     .debug_info     115.5 MB      35%      .text (the actual code)
+#     .debug_str       97.7 MB      30%       31.8 MB        10%
+#     other .debug_*   ~35   MB      11%
+#                                  ----
+#                                  326 MB total
+#
+# A/B measured on `api-gateway --test mode_at_creation` (identical work each
+# time: recompile one test crate, then link):
+#
+#     variant                              link      binary
+#     stock (debug = true)                 9.89 s    326 MB
+#     debug = 1                          6.41 s    185 MB   <- adopted
+#     debug = 1 + split-debuginfo         27.81 s    96 MB
+#     + opt-level = 1 on deps
+#
+# So `debug = 1` is faster AND smaller: it keeps line tables, meaning
+# backtraces, panic locations and `cargo test --nocapture` stay accurate, and
+# only gdb's variable inspection / pretty-printing is given up.
+#
+# `split-debuginfo = "unpacked"` and `opt-level = 1` on dependencies were both
+# tried and REJECTED: together they made linking ~4x slower (27.81 s vs 6.41 s).
+# The extra 96 MB was not worth a 4x link regression, and optimised
+# dependencies buy nothing here -- the daemon is release-built, and test
+# runtimes are already seconds, not minutes.
+# ---------------------------------------------------------------------------
+[profile.dev]
+debug = 1
+
+[profile.test]
+debug = 1
+
 [workspace.package]
 rust-version = "1.80"
 

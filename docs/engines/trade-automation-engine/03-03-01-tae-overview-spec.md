@@ -1,6 +1,6 @@
 # Trade Automation Engine — Overview Specification (v7)
 
-**Version:** 11.14 (2026-10-15) — the v7 redesign replaces the policy-driven TAE with a **setup executor** that consumes MME top setups directly.
+**Version:** 11.14 (2026-10-16) — the v7 redesign replaces the policy-driven TAE with a **setup executor** that consumes MME top setups directly.
 
 > **Availability (v11.12 — observe-only build).** The UI wizard offers **Observe only** and the sidebar hides TAE / PME / PAE / BTE. Everything below describes implemented **backend** capabilities; paper/live execution and the hidden dashboards remain reachable via `config.toml`, the CLI and the HTTP API. Observe sessions never dispatch orders.
 **Status:** Implemented (v11) — observe ghost radar is the current UI posture; paper/live are backend/CLI/API capabilities.

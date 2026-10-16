@@ -4,6 +4,52 @@
 
 ------
 
+## v11.14.2 (2026-10-16) — Build-time release: `api-gateway` split, and the debuginfo nobody had looked at
+
+**The premise everyone accepted — "the compile is slow because the crate is big" — was wrong. Measured: `api-gateway` had a third of `market-analyzer`'s lines (10,509 vs 33,323) and took 3.5× longer than that crate plus two others combined (247 s vs 69 s). Lines were never the cost. Two distinct causes, both fixed, both measured before and after.**
+
+### Cause 1: stock Rust defaults put 76% of every artifact into debug info
+
+The workspace had **no `[profile.*]` section at all**, so every binary was built with `debug = true` (full debuginfo) and `split-debuginfo = 'off'`, which on Linux embeds a complete copy of the debuginfo for the entire dependency tree. One integration-test binary, measured:
+
+| Section | Size | Share |
+|---|---|---|
+| `.debug_info` | 115.5 MB | 35% |
+| `.debug_str` | 97.7 MB | 30% |
+| other `.debug_*` | ~35 MB | 11% |
+| **`.text` (the actual program)** | **31.8 MB** | **10%** |
+| | **326 MB** | |
+
+The compiler was emitting roughly ten times more debug metadata than code, into twenty-eight separate test binaries.
+
+**Fix:** `[profile.dev] debug = 1` and `[profile.test] debug = 1`. Line tables are kept, so backtraces, panic locations and `cargo test --nocapture` stay accurate; only gdb variable inspection is given up. A/B measured on identical work (recompile one test crate, then link):
+
+| variant | link | binary |
+|---|---|---|
+| stock (`debug = true`) | 9.89 s | 326 MB |
+| **`debug = 1`** | **6.41 s** | **185 MB** |
+| `debug = 1` + `split-debuginfo = "unpacked"` + `opt-level = 1` on deps | 27.81 s | 96 MB |
+
+`split-debuginfo` and dependency `opt-level` were **tried and rejected**: together they made linking 4.3× slower, and optimised dependencies buy nothing here — the daemon is release-built. `debug = 1` alone is both faster and smaller, so it is what shipped. That was not the predicted outcome, which is why the A/B was run rather than assumed.
+
+### Cause 2: one compilation unit, and the split cannot reduce total work
+
+`api-gateway` is now a facade over five crates: `api-core` (`AppState`, wire types, the WebSocket handler, middleware), and four sibling handler groups — `api-market`, `api-instances`, `api-analytics`, `api-system`. `api-gateway` itself keeps only `build_router`, and re-exports the others so **no consumer import path changed**: all twenty-eight test files and `execution-daemon` still say `api_gateway::…`.
+
+`cargo-llvm-lines` was used to decide how far to take this, and it says **stop**. Across the four handler crates: 404,710 lines of LLVM IR from 9,582 lines of source (42× expansion), but the top-100 functions account for only 33–40% and the tail is 60–67%. There is no hotspot; the cost is ~2,500–3,500 small monomorphised functions per crate (serde, sqlx row mapping, axum handler traits). 22.5% of all IR is `serde` serialising the core-domain matrices, and **zero** types are serialised in more than one crate, so the split introduced no duplicated work. Dividing further would buy single-digit percentages. The honest summary: the split converts serial work into parallel work, roughly a 40% wall-clock win, and does not make the code cheaper.
+
+### The twenty-eight test binaries, and why they did not become six
+
+Each integration test was its own binary, re-linking the whole dependency tree. Sixteen modules that touch no process-global state are merged into six grouped binaries; twelve are not, because they mutate **`MARKET_MONITOR_CONFIG`** (read by `config-models` on *every* config load, so readers race too) or call **`crypto::init_master_key`**, which sets `static MASTER_KEY: Mutex<Option<[u8;32]>>`. Process-global state requires process-level isolation.
+
+This was not a theoretical concern — both failures were reproduced during the merge: `quit_session_persists_empty_workspace_to_disk` saw 1 instance instead of 2 through interference with `save_recharge_cycle`, and `keys_crud_encryption_rotation_and_backup` returned `409 CONFLICT` through interference with `mode_at_creation`. A shared lock was rejected after analysis: the tests mix synchronous `#[test]` and `#[tokio::test]`, `std::sync::MutexGuard` is not `Send` so it cannot be held across `.await`, and a `tokio::sync::Mutex` cannot be locked from a synchronous test. Those modules also declare their own per-module `CONFIG_ENV_LOCK`/`COUNTER`, so after merging each holds a *different* lock and contains nothing. Cargo runs test binaries one at a time, so isolating them costs no wall clock at all.
+
+**Result: 28 binaries → 18. Test artifacts 9.2 GB → 3.01 GB (avg 171 MB per binary). All 135 tests pass.** The contract for future tests is written down in `crates/api-gateway/tests/MARKET_MONITOR_CONFIG_ISOLATION.md`.
+
+### Verified
+
+Full gate green (6 suites, 1437 UI tests), 135/135 api-gateway tests, fmt clean, clippy at the 35-warning baseline with zero errors, svelte-check 0/0, `test-doc` green after updating eleven stale `api-gateway/src/handlers/…` links across five documents.
+
 ## v11.14.0 (2026-10-15) — The reliability release: what was actually broken, and how we found out
 
 **Five defects that produced silent wrong answers, none of which any test could see, were found by pointing the platform at a live venue socket and reading what actually came back. This release is the record of them. 16 commits, 85 files, +8255/−647.**
@@ -1348,7 +1394,7 @@ Fixes the sub-minute EMA rendering anomalies (lines all starting at the same rig
 
 **AUDIT-V8-004 — history continuity (`market-analyzer` + `api-gateway`):**
 * Force-close and heartbeat snapshots are now pushed into the in-memory `snapshot_history` (never the DB), so `/api/history` serves continuous candles + indicator series (no straight-line EMA bridges after a tab switch).
-* `crates/api-gateway/src/handlers/history.rs` now sets `HistoryCandle.reconstructed` from `quality_envelope.is_gap_filled` (was hardcoded `None`), so the frontend's `candleReconstructed` filter keeps synthetic dojis out of its persistent candle cache — no "ghost flat-line" regression.
+* `crates/api-market/src/history.rs` now sets `HistoryCandle.reconstructed` from `quality_envelope.is_gap_filled` (was hardcoded `None`), so the frontend's `candleReconstructed` filter keeps synthetic dojis out of its persistent candle cache — no "ghost flat-line" regression.
 
 **AUDIT-V8-005 — reconnect-gap indicator continuity (`market-analyzer`):**
 * The trade-triggered missing-bar recovery previously broadcast each reconstructed gap candle via `build_gapfill_snapshot` — a snapshot with an **empty `indicators` map** — so the chart's EMA/RSI lines bridged reconnect gaps with straight diagonals. Reconstructed gap candles are now fed through `apply_candle_to_indicators` and broadcast as fully-populated snapshots (still never persisted to the DB). `build_gapfill_snapshot` is now test-only.
@@ -1385,7 +1431,7 @@ The Trading Platform gains a periodic per-tab JSON dump for offline data science
 * Default cadence: 60s. Floor 5s, ceiling 3600s. Default retention: 1000 snapshots (~24h at 60s cadence).
 * The 9 canonical tabs are exhaustive: `metrics`, `mtf`, `alignment`, `opportunity`, `risk`, `analysis`, `advisory`, `decision`, `recommendation`. Operators may opt out per-tab via the `tabs` field.
 
-**REST endpoints (new in `crates/api-gateway/src/handlers/snapshot_export.rs`):**
+**REST endpoints (new in `crates/api-market/src/snapshot_export.rs`):**
 * `GET  /api/snapshot-export/status` — live runtime.
 * `PUT  /api/snapshot-export/config` — partial patch. Validation: `output_path` non-empty (otherwise 400); `interval_secs` clamped `[5, 3600]`; `max_snapshots_retained` clamped `[10, 100000]`; unknown tab IDs silently dropped; empty `tabs` falls back to all 9.
 * `POST /api/snapshot-export/run-now` — fires a `tokio::sync::Notify` for an immediate tick (the next scheduled tick proceeds as usual).

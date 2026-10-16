@@ -64,10 +64,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "api-analytics"
+version = "0.1.0"
+dependencies = [
+ "api-core",
+ "axum",
+ "backtesting-engine",
+ "chrono",
+ "config-models",
+ "core-domain",
+ "database-storage",
+ "market-analyzer",
+ "network-adapters",
+ "performance-analytics",
+ "portfolio-supervisor",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "api-core"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "backtesting-engine",
+ "chrono",
+ "config-models",
+ "core-domain",
+ "database-storage",
+ "futures-util",
+ "market-analyzer",
+ "network-adapters",
+ "portfolio-supervisor",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower-http 0.5.2",
+]
+
+[[package]]
 name = "api-gateway"
 version = "0.1.0"
 dependencies = [
- "async-trait",
+ "api-analytics",
+ "api-core",
+ "api-instances",
+ "api-market",
+ "api-system",
  "axum",
  "backtesting-engine",
  "chrono",
@@ -87,12 +137,83 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tempfile",
  "tokio",
  "tokio-tungstenite 0.26.2",
  "tokio-util",
  "toml",
  "tower 0.4.13",
  "tower-http 0.5.2",
+]
+
+[[package]]
+name = "api-instances"
+version = "0.1.0"
+dependencies = [
+ "api-core",
+ "axum",
+ "backtesting-engine",
+ "chrono",
+ "config-models",
+ "core-domain",
+ "database-storage",
+ "market-analyzer",
+ "network-adapters",
+ "performance-analytics",
+ "portfolio-supervisor",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "toml",
+]
+
+[[package]]
+name = "api-market"
+version = "0.1.0"
+dependencies = [
+ "api-core",
+ "axum",
+ "backtesting-engine",
+ "chrono",
+ "config-models",
+ "core-domain",
+ "database-storage",
+ "market-analyzer",
+ "network-adapters",
+ "performance-analytics",
+ "portfolio-supervisor",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "api-system"
+version = "0.1.0"
+dependencies = [
+ "api-core",
+ "axum",
+ "backtesting-engine",
+ "chrono",
+ "config-models",
+ "core-domain",
+ "database-storage",
+ "market-analyzer",
+ "network-adapters",
+ "performance-analytics",
+ "portfolio-supervisor",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]

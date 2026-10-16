@@ -1,6 +1,6 @@
 # MME Layer 3 — Analysis Layer
 
-**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 3 of 7

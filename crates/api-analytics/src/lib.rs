@@ -1,0 +1,9 @@
+//! HTTP handler group extracted from `api-gateway` (v11.14.2 build-time split).
+//!
+//! These handlers are addressed through the `api_gateway::handlers::`
+//! namespace, which `api-gateway` re-assembles from the group crates so
+//! that no consumer import path changed.
+
+pub mod analytics;
+pub mod backtest;
+pub mod trades;

@@ -1,6 +1,6 @@
 # Snapshot Export Operator Manual
 
-**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators configuring the periodic JSON dump that feeds the offline data-science pipeline.
 
@@ -293,7 +293,7 @@ production deployment, lower the retention to 200 (~72MB) or move the output to 
 - [`docs/conceptual-foundations/01-09-cli-setup-flow.md`](../conceptual-foundations/01-09-cli-setup-flow.md) — Full text + UX rationale of the CLI setup flow.
 - [`crates/core-domain/src/snapshot_export.rs`](../../crates/core-domain/src/snapshot_export.rs) — Shared types (`SnapshotExportRuntime`, `ALL_TABS`, `runtime_from_config`).
 - [`crates/execution-daemon/src/snapshot_export.rs`](../../crates/execution-daemon/src/snapshot_export.rs) — Periodic task implementation.
-- [`crates/api-gateway/src/handlers/snapshot_export.rs`](../../crates/api-gateway/src/handlers/snapshot_export.rs) — HTTP handlers.
+- [`crates/api-market/src/snapshot_export.rs`](../../crates/api-market/src/snapshot_export.rs) — HTTP handlers.
 - [`ui/src/components/SnapshotSchedulerButton.svelte`](../../ui/src/components/SnapshotSchedulerButton.svelte) — Bottom CTA button.
 - [`ui/src/components/SnapshotSchedulerModal.svelte`](../../ui/src/components/SnapshotSchedulerModal.svelte) — Configuration modal.
 

@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — End-to-End Flow
 
-**Version:** 11.14 (2026-10-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document is the **single integrated narrative** for the Data Infrastructure Engine. It traces one trade tick from the exchange WebSocket to the dashboard broadcast and SQLite persistence in one diagram + walkthrough. Each layer's detailed contract lives in its dedicated doc; this document only cross-references them.
@@ -112,7 +112,7 @@ SQLite connection_quality_samples        per-(pair_key, timeframe_secs) rows
     │
     ▼
 GET /api/connection-quality?instance_id=…&timeframe_secs=…&window=…
-    │  api-gateway/src/handlers/connection_quality.rs
+    │  api-market/src/connection_quality.rs
     ▼
 Svelte runes store → ConnectionQualityPanel.svelte
 ```
@@ -146,7 +146,7 @@ The DIE does not compute indicators, bias, or risk. Those happen in the MME (con
 - `NormalizedEvent` stream (L1 → L2)
 - `NormalizedCandle` stream (L2 → L3 → L4 → Candle Aggregator). DIE L4 publishes `NormalizedCandle` frames on its broadcast channel; the Candle Aggregator is the sole subscriber.
 - `MarketSnapshot` transport (MME L1 artifact) — the snapshot is **built by the MME analyzer pipeline** (MME L1; see `01-06` §1 and `03-02-02 §8`). DIE does not construct, attach envelopes to, or route the `MarketSnapshot`; that is MME L1's responsibility.
-- `PipelineReliabilityMetrics` (per-instance; served via `GET /api/data-quality` — `crates/api-gateway/src/handlers/data_quality.rs`; see [06-01-api-gateway-contract.md §2.11](../../integration-and-api/06-01-api-gateway-contract.md))
+- `PipelineReliabilityMetrics` (per-instance; served via `GET /api/data-quality` — `crates/api-system/src/data_quality.rs`; see [06-01-api-gateway-contract.md §2.11](../../integration-and-api/06-01-api-gateway-contract.md))
 - `ConnectionQualityReport` (per-`(pair_key, timeframe_secs)`, exposed via `/api/connection-quality`)
 
 Anything that requires interpretation of the data (indicators, signals, regime, risk, opportunity, decision) is MME's responsibility and is documented in the MME spec files under `docs/engines/market-monitoring-engine/`.
