@@ -26,6 +26,16 @@ FENCE_RE = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
 # past releases, and the audit-ID register); DOCS-CONSISTENCY-MANIFEST.md
 # describes the gate patterns themselves.
 GOVERNANCE = {"README.md", "CHANGELOG.md", "DOCS-CONSISTENCY-MANIFEST.md"}
+# Nested index documents. A sub-tree that ships its own README is a governance
+# document too, and must be named here rather than counted as a numbered doc.
+# The state-axes staging corpus (docs/state-axes-update) is folded into the
+# numbered corpus by phase P2 and erased by P15; when it is deleted these two
+# entries go with it and G2's expected governance count returns to 3.
+INDEX_FILES = {
+    "state-axes-update/README.md",
+    "state-axes-update/indicators/README.md",
+}
+EXPECTED_GOVERNANCE = len(GOVERNANCE) + len(INDEX_FILES)
 HISTORY = {"CHANGELOG.md"}
 GATE_SPEC = {"DOCS-CONSISTENCY-MANIFEST.md"}
 
@@ -43,8 +53,11 @@ def ok(msg):
 def all_md():
     return sorted(ROOT.rglob("*.md"))
 
+def is_governance(p):
+    return p.name in GOVERNANCE or p.relative_to(ROOT).as_posix() in INDEX_FILES
+
 def numbered_docs():
-    return [p for p in all_md() if p.name not in GOVERNANCE]
+    return [p for p in all_md() if not is_governance(p)]
 
 def current_version():
     """Corpus version per D2: parse the CHANGELOG top entry (`## vX.Y.Z (date)`).
@@ -181,8 +194,9 @@ def check_g2_file_count():
     elif (int(mm.group(1)), int(mm.group(2)), int(mm.group(3))) != (total, numbered, governance):
         fail(f"MANIFEST §2 ({mm.group(1)}/{mm.group(2)}/{mm.group(3)}) != filesystem ({total}/{numbered}/{governance})")
         errors += 1
-    if governance != 3:
-        fail(f"governance file count is {governance}, expected 3 (README, CHANGELOG, MANIFEST)")
+    if governance != EXPECTED_GOVERNANCE:
+        named = sorted(GOVERNANCE) + sorted(INDEX_FILES)
+        fail(f"governance file count is {governance}, expected {EXPECTED_GOVERNANCE} ({', '.join(named)})")
         errors += 1
     if errors == 0:
         ok(f"File count: {total} = {numbered} numbered + {governance} governance (matches README + MANIFEST §2)")

@@ -115,3 +115,7 @@ snapshots/
 
 # Multi-session experiment folders (per-folder configs + results)
 experiments/
+
+# Python bytecode cache produced by the doc gate (scripts/check_docs.py)
+__pycache__/
+*.pyc
