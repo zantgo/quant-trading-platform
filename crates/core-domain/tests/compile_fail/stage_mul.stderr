@@ -1,0 +1,13 @@
+error[E0369]: cannot multiply `Stage` by `{float}`
+ --> tests/compile_fail/stage_mul.rs:7:15
+  |
+7 |     let _ = s * 0.5;
+  |             - ^ --- {float}
+  |             |
+  |             Stage
+  |
+note: `Stage` does not implement `Mul<{float}>`
+ --> src/axes.rs
+  |
+  | pub enum Stage {
+  | ^^^^^^^^^^^^^^ `Stage` is defined in another crate

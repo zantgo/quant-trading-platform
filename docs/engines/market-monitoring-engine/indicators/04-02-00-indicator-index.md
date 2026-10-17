@@ -108,7 +108,7 @@
 
 | Metric | Count |
 |--------|-------|
-| Authoritative Registry Entries | 44 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 5 Regime + 4 Institutional) |
+| Authoritative Registry Entries | 44 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 5 Trend Quality + 4 Institutional) |
 | Files in this directory | 45 (44 entries + this master index) |
 | Directional (scoring contributors) | 38 |
 | Non-Directional Gates | 6 (Volume, RVOL, ATR, BBWP, Hist. Volatility, Choppiness) |

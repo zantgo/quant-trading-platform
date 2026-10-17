@@ -152,15 +152,18 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         // canonical "non-directional gate" marker, not "no data yet".
         const tf = makeTf({
             indicators: {
-                funding_rate: warmingPlaceholder(),
+                choppiness: warmingPlaceholder(),
             },
             indicatorLifecycle: lifecycle({
-                funding_rate: { state: 'Loading', barsSeen: 5, barsRequired: 1 },
+                choppiness: { state: 'Loading', barsSeen: 5, barsRequired: 1 },
             }),
         });
-        const registry = [meta('funding_rate', {
-            group: 'DerivativesData',
-            value_format: 'percent1',
+        // `funding_rate` / `DerivativesData` were the candle-only purge's orphans
+        // (CR-10). `choppiness` is a shipped `ContextOnly` indicator, so it
+        // exercises the same rendering contract on a real registry entry.
+        const registry = [meta('choppiness', {
+            group: 'TrendQuality',
+            value_format: 'decimals1',
             normalization_mode: 'ContextOnly',
         })];
 
@@ -262,17 +265,20 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
                 // WaitingFeed contract) so we pass an empty indicators map.
             },
             indicatorLifecycle: lifecycle({
-                open_interest: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
-                funding_rate: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
-                oi_delta: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
-                oi_price_divergence: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
+                choppiness: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
+                rvol: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
+                atr: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
+                volume: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
             }),
         });
+        // The three `DerivativesData` rows were the candle-only purge's orphans
+        // (CR-10 removed open interest, OI delta and OI/price divergence). Four
+        // shipped indicators keep the walk over more than three rows.
         const registry = [
-            meta('open_interest', { group: 'DerivativesData', value_format: 'usd_notional' }),
-            meta('funding_rate', { group: 'DerivativesData', value_format: 'percent1' }),
-            meta('oi_delta', { group: 'DerivativesData', value_format: 'decimals2' }),
-            meta('oi_price_divergence', { group: 'DerivativesData', value_format: 'decimals2' }),
+            meta('choppiness', { group: 'TrendQuality', value_format: 'decimals1' }),
+            meta('rvol', { group: 'Volume', value_format: 'decimals2' }),
+            meta('atr', { group: 'Volatility', value_format: 'decimals4' }),
+            meta('volume', { group: 'Volume', value_format: 'decimals2' }),
         ];
 
         const { container } = render(IndicatorsView, {
@@ -434,7 +440,7 @@ describe('IndicatorsView EMA Ribbon micro-grid', () => {
             },
         });
         const registry = [meta('price_trend_sharpe', {
-            group: 'Regime',
+            group: 'TrendQuality',
             class: 'Lagging',
             value_format: 'ratio2',
         })];

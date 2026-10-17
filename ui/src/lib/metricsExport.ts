@@ -822,7 +822,7 @@ export function buildMtfExportJson(args: MtfExportArgs): string {
     // Group rollup — mirrors the GROUP_ORDER layout used by MtfView.svelte.
     const groupOrder: string[] = [
         'Trend', 'Momentum', 'Volume', 'Volatility',
-        'Structure', 'Regime', 'Institutional', 'DerivativesData',
+        'Structure', 'TrendQuality', 'Institutional',
     ];
     const groupCounts = new Map<string, number>();
     for (const ind of indicators) {
@@ -834,7 +834,7 @@ export function buildMtfExportJson(args: MtfExportArgs): string {
         Volume:          { label: 'Volume',       accent: '#fb923c' },
         Volatility:      { label: 'Volatility',   accent: '#ef4444' },
         Structure:       { label: 'Structure',    accent: '#60a5fa' },
-        Regime:          { label: 'Regime',       accent: '#facc15' },
+        TrendQuality:     { label: 'Trend Quality', accent: '#facc15' },
         Institutional:   { label: 'SMC',          accent: '#ec4899' },
         DerivativesData: { label: 'Derivatives',  accent: '#34d399' },
     };

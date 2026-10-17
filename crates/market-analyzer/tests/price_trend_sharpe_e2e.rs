@@ -361,7 +361,7 @@ fn registry_metadata_matches_window_and_group() {
     assert_eq!(meta.bars_required as usize, SHARPE_WINDOW);
     assert_eq!(
         meta.group,
-        market_analyzer::indicators::registry::IndicatorGroup::Regime
+        market_analyzer::indicators::registry::IndicatorCluster::TrendQuality
     );
     assert_eq!(meta.value_format, "ratio2");
     assert!(!meta.updates_on_shadow);

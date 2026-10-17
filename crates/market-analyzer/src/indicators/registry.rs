@@ -9,17 +9,30 @@
 //! + (its chart component). No scattered hardcoded lists.
 
 use super::normalized::SignalKind;
+use core_domain::axes::AxisId;
 use serde::Serialize;
 
-/// Functional category (blueprint grouping).
+/// Functional category — **display only**.
+///
+/// CR-11 + CR-18: a cluster is a grouping of indicators that read the **same
+/// source series** for the reader's convenience. It has **no weight effect**
+/// whatsoever and is never consulted when scoring. The axis a reading votes on is
+/// `owner_axis`, declared separately; the two must not be conflated.
+///
+/// `Regime` is renamed `TrendQuality` per CR-11. Every indicator in the old group
+/// — `aroon`, `choppiness`, `linreg_slope`, `zscore`, `price_trend_sharpe` —
+/// measures the age, strength, slope or quality of a trend. None classifies the
+/// market into a state, which is what the banned word named. The distinction
+/// matters: `MarketRegime`/`MarketPhase` collapsed into `diagnostics`, and
+/// diagnostics are not a cluster and not an axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-pub enum IndicatorGroup {
+pub enum IndicatorCluster {
     Trend,
     Momentum,
     Volume,
     Volatility,
     Structure,
-    Regime,
+    TrendQuality,
     Institutional,
 }
 
@@ -126,7 +139,7 @@ pub enum IndicatorNormalizationMode {
 pub struct IndicatorMeta {
     pub key: &'static str,
     pub display_name: &'static str,
-    pub group: IndicatorGroup,
+    pub group: IndicatorCluster,
     pub class: IndicatorClass,
     pub render: RenderKind,
     /// `true` = signed [-1,1] scoring contributor; `false` = non-directional gate/multiplier.
@@ -219,8 +232,8 @@ pub enum SignalCapability {
 }
 
 use IndicatorClass::*;
+use IndicatorCluster::*;
 use IndicatorDataSource::*;
-use IndicatorGroup::*;
 use IndicatorNormalizationMode::*;
 use RenderKind::*;
 use SignalKind::*;
@@ -1131,7 +1144,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "aroon",
         display_name: "Aroon",
-        group: Regime,
+        group: TrendQuality,
         class: Hybrid,
         render: Pane,
         directional: true,
@@ -1154,7 +1167,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "choppiness",
         display_name: "Choppiness",
-        group: Regime,
+        group: TrendQuality,
         class: Hybrid,
         render: Pane,
         directional: false,
@@ -1180,7 +1193,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "linreg_slope",
         display_name: "LinReg Slope",
-        group: Regime,
+        group: TrendQuality,
         class: Lagging,
         render: Pane,
         directional: true,
@@ -1203,7 +1216,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "zscore",
         display_name: "Z-Score",
-        group: Regime,
+        group: TrendQuality,
         class: Leading,
         render: Pane,
         directional: true,
@@ -1339,7 +1352,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "price_trend_sharpe",
         display_name: "Price Trend Sharpe",
-        group: Regime,
+        group: TrendQuality,
         class: Lagging,
         render: Pane,
         directional: true,
@@ -1530,22 +1543,22 @@ mod tests {
             kinds.len()
         );
         // Group-level contract from 03-02-02 §1.3 (10 Trend / 7 Momentum /
-        // 7 Volume / 6 Volatility / 5 Structure / 5 Regime / 4 Institutional
+        // 7 Volume / 6 Volatility / 5 Structure / 5 TrendQuality / 4 Institutional
         // / 8 Derivatives = 52).
-        let group_counts: std::collections::HashMap<IndicatorGroup, usize> = INDICATORS
+        let group_counts: std::collections::HashMap<IndicatorCluster, usize> = INDICATORS
             .iter()
             .fold(std::collections::HashMap::new(), |mut acc, m| {
                 *acc.entry(m.group).or_insert(0) += 1;
                 acc
             });
-        let expect: std::collections::HashMap<IndicatorGroup, usize> = [
-            (IndicatorGroup::Trend, 10),
-            (IndicatorGroup::Momentum, 7),
-            (IndicatorGroup::Volume, 7),
-            (IndicatorGroup::Volatility, 6),
-            (IndicatorGroup::Structure, 5),
-            (IndicatorGroup::Regime, 5),
-            (IndicatorGroup::Institutional, 4),
+        let expect: std::collections::HashMap<IndicatorCluster, usize> = [
+            (IndicatorCluster::Trend, 10),
+            (IndicatorCluster::Momentum, 7),
+            (IndicatorCluster::Volume, 7),
+            (IndicatorCluster::Volatility, 6),
+            (IndicatorCluster::Structure, 5),
+            (IndicatorCluster::TrendQuality, 5),
+            (IndicatorCluster::Institutional, 4),
         ]
         .into_iter()
         .collect();
@@ -1749,5 +1762,164 @@ mod tests {
                 m.key,
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Axis identity — CR-18
+// ---------------------------------------------------------------------------
+
+/// **One observable = one indicator = exactly one owner axis.**
+///
+/// The rule is about what a *trader recognises*, not how many passes over the
+/// candles an indicator costs. `rsi`, `rsi_slope` and `rsi_divergence` are three
+/// recognisable facts about the same calculation, so they are three observables on
+/// three axes — expressed with [`calculator_for`], not by duplicating the series.
+///
+/// The cluster in [`IndicatorCluster`] is **not** this. A cluster groups indicators
+/// that read the same source series for the reader's convenience and has no weight
+/// effect. An axis is where a reading votes.
+///
+/// Every one of the 44 shipped indicators is listed. Progression has **no**
+/// present entry, which is not an oversight: the corpus puts 3 present readings on
+/// Progression and CR-16's measurement-quality audit cuts the 22 planned ones to
+/// 11–13. Progression is therefore almost entirely Block 2 work, and the axis is
+/// empty until those batches land.
+pub const AXIS_ASSIGNMENT: &[(&str, AxisId)] = &[
+    // ── Direction — where price is going ──────────────────────────────────
+    ("ema_stack", AxisId::Direction),
+    ("supertrend", AxisId::Direction),
+    ("donchian", AxisId::Direction),
+    ("keltner", AxisId::Direction),
+    ("vwap", AxisId::Direction),
+    ("anchored_vwap", AxisId::Direction),
+    ("ichimoku", AxisId::Direction),
+    ("hull_ma", AxisId::Direction),
+    ("psar", AxisId::Direction),
+    ("linreg_slope", AxisId::Direction),
+    ("aroon", AxisId::Direction),
+    ("zscore", AxisId::Direction),
+    // ── Momentum — how fast, and whether participation supports it ────────
+    ("rsi", AxisId::Momentum),
+    ("stochastic", AxisId::Momentum),
+    ("williams_r", AxisId::Momentum),
+    ("chandemo", AxisId::Momentum),
+    ("awesome_oscillator", AxisId::Momentum),
+    ("cci", AxisId::Momentum),
+    ("macd", AxisId::Momentum),
+    ("adx", AxisId::Momentum),
+    ("choppiness", AxisId::Momentum),
+    ("price_trend_sharpe", AxisId::Momentum),
+    ("bbwp", AxisId::Momentum),
+    ("squeeze", AxisId::Momentum),
+    ("volume", AxisId::Momentum),
+    ("rvol", AxisId::Momentum),
+    ("obv", AxisId::Momentum),
+    ("cmf", AxisId::Momentum),
+    ("mfi", AxisId::Momentum),
+    ("force_index", AxisId::Momentum),
+    // ── Structure — is the structure intact, and what is priced ──────────
+    ("fibonacci", AxisId::Structure),
+    ("support_resistance", AxisId::Structure),
+    ("pivot_points", AxisId::Structure),
+    ("patterns", AxisId::Structure),
+    ("candlestick", AxisId::Structure),
+    ("smc_structure", AxisId::Structure),
+    ("smc_liquidity", AxisId::Structure),
+    ("smc_fvg", AxisId::Structure),
+    ("smc_order_blocks", AxisId::Structure),
+    // Volume Profile owns Structure: it emits levels (POC / VAH / VAL / HVN / LVN),
+    // not a direction and not an acceleration.
+    ("volume_profile", AxisId::Structure),
+    ("bollinger", AxisId::Structure),
+    ("stddev_channel", AxisId::Structure),
+    ("atr", AxisId::Structure),
+    ("hv", AxisId::Structure),
+    // ── Progression — empty until Block 2 (CR-16) ─────────────────────────
+];
+
+/// The axis a reading votes on.
+pub fn owner_axis(key: &str) -> Option<AxisId> {
+    AXIS_ASSIGNMENT
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, a)| *a)
+}
+
+/// Which calculator produces this observable's series.
+///
+/// Defaults to the observable's own key. Only observables that share code declare
+/// a different calculator — `rsi`, `rsi_slope` and `rsi_divergence` are three keys
+/// over one `rsi` calculator (Block 2, when the latter two exist).
+///
+/// Takes `&'static str` because a registry key is already static, so the default
+/// path allocates nothing. An empty [`CALCULATOR_OVERRIDES`] is not an omission —
+/// it means every current observable is its own calculator, and a non-empty table
+/// is what appears the moment two observables share one.
+pub fn calculator_for(key: &'static str) -> &'static str {
+    CALCULATOR_OVERRIDES
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, c)| *c)
+        .unwrap_or(key)
+}
+
+/// Observables whose series comes from a calculator other than their own key.
+pub const CALCULATOR_OVERRIDES: &[(&str, &str)] = &[];
+
+/// **Families** — indicators that *cannot disagree* and therefore share one weight.
+///
+/// A family is a genuine redundancy. `williams_r ≡ stochastic_k − 100` is the only
+/// confirmed case today: if both vote, they vote identically, so counting them
+/// twice would double-weight one number. A second candidate must survive the
+/// incremental-information test before being admitted.
+///
+/// This is deliberately not the same as a cluster. A cluster has no weight effect
+/// at all; a family has exactly one.
+pub const FAMILIES: &[(&str, &[&str])] = &[("oscillator_saturated", &["stochastic", "williams_r"])];
+
+/// The family this observable belongs to, if any.
+pub fn family_for(key: &str) -> Option<&'static str> {
+    FAMILIES
+        .iter()
+        .find(|(_, members)| members.contains(&key))
+        .map(|(name, _)| *name)
+}
+
+/// Every observable in a family, for the single-weight aggregation.
+pub fn family_members(family: &str) -> &'static [&'static str] {
+    FAMILIES
+        .iter()
+        .find(|(name, _)| *name == family)
+        .map(|(_, m)| *m)
+        .unwrap_or(&[])
+}
+
+impl IndicatorMeta {
+    /// The display-only cluster this indicator belongs to.
+    ///
+    /// The struct field stays named `group` because it is **on the wire** — the
+    /// frontend reads `group` off `/api/config` and the Metrics table groups by it.
+    /// Renaming the serialised key would break the UI contract for no behavioural
+    /// gain, so the Rust type is `IndicatorCluster` and this accessor is the
+    /// Rust-side name. The rename is about what a cluster *is* (display-only, no
+    /// weight), not about its field spelling.
+    pub fn cluster(&self) -> IndicatorCluster {
+        self.group
+    }
+
+    /// The axis this indicator's reading votes on.
+    pub fn owner_axis(&self) -> Option<AxisId> {
+        owner_axis(self.key)
+    }
+
+    /// The calculator that produces this observable's series.
+    pub fn calculator(&self) -> &'static str {
+        calculator_for(self.key)
+    }
+
+    /// The family this observable belongs to, if any.
+    pub fn family(&self) -> Option<&'static str> {
+        family_for(self.key)
     }
 }

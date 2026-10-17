@@ -1,7 +1,7 @@
 <script lang="ts">
     // GroupConfluenceGrid — row 2 of the redesigned Metrics view.
     //
-    // Renders 8 cards, one per functional IndicatorGroup, summarizing the
+    // Renders 8 cards, one per functional IndicatorCluster, summarizing the
     // current directional bias of every enabled, non-gate indicator in that
     // group. Each card shows:
     //

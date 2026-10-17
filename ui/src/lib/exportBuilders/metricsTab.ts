@@ -216,7 +216,7 @@ export interface MetricsPayload {
 
 export const GROUP_ORDER = [
   'Trend', 'Momentum', 'Volume', 'Volatility',
-  'Structure', 'Regime', 'Institutional', 'DerivativesData',
+  'Structure', 'TrendQuality', 'Institutional',
 ] as const;
 
 const SIGNAL_ABBR: Record<string, string> = {

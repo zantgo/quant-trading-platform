@@ -14,12 +14,12 @@ import type {
 } from '../types';
 
 describe('groupMeta', () => {
-    it('GROUP_ORDER contains the canonical 8 groups in display order', () => {
+    it('GROUP_ORDER contains the canonical 7 clusters in display order', () => {
         expect(GROUP_ORDER).toEqual([
             'Trend', 'Momentum', 'Volume', 'Volatility',
-            'Structure', 'Regime', 'Institutional', 'DerivativesData',
+            'Structure', 'TrendQuality', 'Institutional',
         ]);
-        expect(GROUP_ORDER.length).toBe(8);
+        expect(GROUP_ORDER.length).toBe(7);
     });
 
     it('every group has a meta record with label, accent, description', () => {
@@ -34,7 +34,7 @@ describe('groupMeta', () => {
 
     it('orderedGroups returns a defensive copy (mutations do not leak)', () => {
         const a = orderedGroups();
-        // Cast to any to bypass IndicatorGroup union type for the test only.
+        // Cast to any to bypass IndicatorCluster union type for the test only.
         (a as string[]).push('Broken');
         expect(GROUP_ORDER).not.toContain('Broken');
     });

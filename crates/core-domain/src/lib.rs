@@ -7,6 +7,7 @@
 pub mod advisory;
 pub mod alignment;
 pub mod analysis;
+pub mod axes;
 pub mod decision_context;
 pub mod decision_params;
 pub mod indicator_dtos;

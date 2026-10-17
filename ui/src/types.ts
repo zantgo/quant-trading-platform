@@ -709,8 +709,8 @@ export interface MarketHealthDims {
 }
 
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
-export type IndicatorGroup =
-    | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'Regime' | 'Institutional' | 'DerivativesData';
+export type IndicatorCluster =
+    | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'TrendQuality' | 'Institutional';
 export type IndicatorClass = 'Leading' | 'Hybrid' | 'Lagging';
 export type RenderKind = 'Pane' | 'PriceOverlay' | 'PriceLevels' | 'Marker';
 /**
@@ -729,7 +729,7 @@ export type IndicatorNormalizationMode = 'Directional' | 'ContextOnly' | 'EventO
 export interface IndicatorMeta {
     key: string;
     display_name: string;
-    group: IndicatorGroup;
+    group: IndicatorCluster;
     class: IndicatorClass;
     render: RenderKind;
     directional: boolean;

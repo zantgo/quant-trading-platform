@@ -9,7 +9,7 @@
 //! `regime_gate_damp`, `regime_rule`, `volatility_sources`). `None` (or the
 //! default strategy) reproduces the v8.2 output byte-for-byte.
 
-use crate::indicators::registry::{IndicatorGroup, INDICATORS};
+use crate::indicators::registry::{IndicatorCluster, INDICATORS};
 use config_models::L1Params;
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::{ContextDimension, MarketContext};
@@ -55,7 +55,7 @@ fn l1_weight(l1: Option<&L1Params>, key: &str) -> Option<f64> {
 /// weighted-mean signed score + mean confidence.
 fn group_dimension(
     map: &HashMap<String, NormalizedIndicatorValue>,
-    group: IndicatorGroup,
+    group: IndicatorCluster,
     directional_only: bool,
     l1: Option<&L1Params>,
 ) -> ContextDimension {
@@ -137,8 +137,8 @@ pub fn synthesize_market_context(
     map: &HashMap<String, NormalizedIndicatorValue>,
     l1: Option<&L1Params>,
 ) -> MarketContext {
-    let trend = group_dimension(map, IndicatorGroup::Trend, true, l1);
-    let momentum = group_dimension(map, IndicatorGroup::Momentum, true, l1);
+    let trend = group_dimension(map, IndicatorCluster::Trend, true, l1);
+    let momentum = group_dimension(map, IndicatorCluster::Momentum, true, l1);
 
     // Volatility: magnitude from BBWP/HV (expansion vs compression), non-directional.
     // v9: the source blend is the strategy's `l1.context.volatility_sources`

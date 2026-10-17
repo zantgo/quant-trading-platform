@@ -1,14 +1,14 @@
 // Group metadata — single source of truth for ordering, accents and display
-// names of the 8 functional IndicatorGroups used by the redesigned Metrics view.
+// names of the 8 functional IndicatorClusters used by the redesigned Metrics view.
 //
 // Keeping this in one place ensures the Group Confluence Grid (row 2),
 // Indicators facet accordion, and any future per-group chips all stay
 // visually and semantically consistent.
 
-import type { IndicatorGroup } from '../types';
+import type { IndicatorCluster } from '../types';
 
 export interface GroupMeta {
-    key: IndicatorGroup;
+    key: IndicatorCluster;
     label: string;
     shortLabel: string;
     /** Hex accent used for headers, dots, and the grid card border. */
@@ -17,18 +17,17 @@ export interface GroupMeta {
     description: string;
 }
 
-export const GROUP_ORDER: IndicatorGroup[] = [
+export const GROUP_ORDER: IndicatorCluster[] = [
     'Trend',
     'Momentum',
     'Volume',
     'Volatility',
     'Structure',
-    'Regime',
+    'TrendQuality',
     'Institutional',
-    'DerivativesData',
 ];
 
-export const GROUP_META: Record<IndicatorGroup, GroupMeta> = {
+export const GROUP_META: Record<IndicatorCluster, GroupMeta> = {
     Trend: {
         key: 'Trend',
         label: 'Trend',
@@ -64,12 +63,12 @@ export const GROUP_META: Record<IndicatorGroup, GroupMeta> = {
         accent: '#60a5fa',
         description: 'Price levels (pivots, fibs, S/R, patterns).',
     },
-    Regime: {
-        key: 'Regime',
-        label: 'Regime',
-        shortLabel: 'RGM',
+    TrendQuality: {
+        key: 'TrendQuality',
+        label: 'Trend Quality',
+        shortLabel: 'TQ',
         accent: '#facc15',
-        description: 'Trending vs ranging classifier (Aroon, Choppiness, Z-Score).',
+        description: 'Trend age, strength and quality (Aroon, Choppiness, LinReg slope, Z-Score).',
     },
     Institutional: {
         key: 'Institutional',
@@ -78,22 +77,15 @@ export const GROUP_META: Record<IndicatorGroup, GroupMeta> = {
         accent: '#ec4899',
         description: 'Smart-money structure (CHoCH, liquidity, FVG, order blocks).',
     },
-    DerivativesData: {
-        key: 'DerivativesData',
-        label: 'Derivatives',
-        shortLabel: 'DRV',
-        accent: '#34d399',
-        description: 'Perp telemetry (OI, funding, depth, spread, order flow).',
-    },
 };
 
 /** Returns groups ordered for stable rendering. */
-export function orderedGroups(): IndicatorGroup[] {
+export function orderedGroups(): IndicatorCluster[] {
     return GROUP_ORDER.slice();
 }
 
 /** Returns the GroupMeta record for a given group key (fallback to Trend). */
-export function groupMeta(g: IndicatorGroup | string | undefined): GroupMeta {
+export function groupMeta(g: IndicatorCluster | string | undefined): GroupMeta {
     if (!g) return GROUP_META.Trend;
     return (GROUP_META as Record<string, GroupMeta>)[g] ?? GROUP_META.Trend;
 }

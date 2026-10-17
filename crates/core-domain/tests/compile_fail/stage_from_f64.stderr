@@ -1,0 +1,16 @@
+error[E0277]: the trait bound `f64: From<Stage>` is not satisfied
+  --> tests/compile_fail/stage_from_f64.rs:12:27
+   |
+12 |     stages.iter().map(|s| f64::from(*s)).sum::<f64>() / stages.len() as f64
+   |                           ^^^ the trait `From<Stage>` is not implemented for `f64`
+   |
+   = help: `f64` implements trait `From<T>`:
+             From<bool>
+             From<f16>
+             From<f32>
+             From<i16>
+             From<i32>
+             From<i8>
+             From<u16>
+             From<u32>
+             From<u8>

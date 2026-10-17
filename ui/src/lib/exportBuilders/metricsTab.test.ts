@@ -36,9 +36,9 @@ const registry: IndicatorMeta[] = [
     directional: true,
   } as unknown as IndicatorMeta,
   {
-    key: 'derivatives_funding',
-    display_name: 'Derivatives Funding',
-    group: 'DerivativesData',
+    key: 'aroon',
+    display_name: 'Aroon',
+    group: 'TrendQuality',
     class: 'Hybrid',
     value_format: 'decimals2',
     value_source: 'raw',
@@ -140,7 +140,7 @@ describe('buildMetricsTabExport', () => {
     expect('filter_state' in p).toBe(false);
   });
 
-  it('group labels map raw keys to display labels (SMC, Derivatives)', () => {
+  it('group labels map raw keys to display labels (SMC, Trend Quality)', () => {
     const p = JSON.parse(buildMetricsTabExport({
       tf: makeTf(),
       registry,
@@ -153,8 +153,14 @@ describe('buildMetricsTabExport', () => {
     const groups = p.group_confluence;
     const smc = groups.find((g: { group: string }) => g.group === 'Institutional');
     expect(smc.label).toBe('SMC');
-    const drv = groups.find((g: { group: string }) => g.group === 'DerivativesData');
-    expect(drv.label).toBe('Derivatives');
+    // `Regime` is banned (CR-11) and `DerivativesData` is the candle-only purge's
+    // orphan (open interest, funding, depth and order flow are gone). Neither is a
+    // cluster. CR-11 re-filed the five members as `TrendQuality`: trend age,
+    // strength, slope and quality — none classifies the market into a state.
+    const tq = groups.find((g: { group: string }) => g.group === 'TrendQuality');
+    expect(tq.label).toBe('Trend Quality');
+    expect(groups.find((g: { group: string }) => g.group === 'Regime')).toBeUndefined();
+    expect(groups.find((g: { group: string }) => g.group === 'DerivativesData')).toBeUndefined();
   });
 
   it('indicator keys are stripped of period; period is a separate field', () => {
@@ -453,7 +459,7 @@ it('legacy state fallback mirrors the screen (NO SIGNAL / AWAITING DATA / —)',
       ...makeTf().indicators,
       rsi_14: { raw_value: 0, normalized: 0, confidence: 0, state_label: 'WARMING', signals: [], values: {} },
       smc_fvg: { raw_value: 5, normalized: 0.6, confidence: 0.8, state_label: 'WARMING', signals: [], values: {} },
-      derivatives_funding: { raw_value: 0, normalized: 0, confidence: 0, state_label: '--', signals: [], values: {} },
+      aroon: { raw_value: 0, normalized: 0, confidence: 0, state_label: '--', signals: [], values: {} },
     } as unknown as Record<string, IndicatorDto>,
   };
   const p = JSON.parse(buildMetricsTabExport({
@@ -469,8 +475,8 @@ it('legacy state fallback mirrors the screen (NO SIGNAL / AWAITING DATA / —)',
   expect(rsi.state_display).toBe('AWAITING DATA'); // WARMING → AWAITING DATA
   const smc = p.indicators.find((i: { key: string }) => i.key === 'smc_fvg');
   expect(smc.state_display).toBe('AWAITING DATA'); // screen hasRealData short-circuits WARMING
-  const funding = p.indicators.find((i: { key: string }) => i.key === 'derivatives_funding');
-  expect(funding.state_display).toBe('—'); // state_label '--'
+  const aroon = p.indicators.find((i: { key: string }) => i.key === 'aroon');
+  expect(aroon.state_display).toBe('—'); // state_label '--'
 });
 
 it('micro_volume_profile mirrors the anchors strip inputs', () => {

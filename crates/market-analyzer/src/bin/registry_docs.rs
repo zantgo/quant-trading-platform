@@ -29,7 +29,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use market_analyzer::indicators::registry::{IndicatorGroup, IndicatorMeta, INDICATORS};
+use market_analyzer::indicators::registry::{IndicatorCluster, IndicatorMeta, INDICATORS};
 
 const BEGIN: &str = "<!-- BEGIN GENERATED: registry — do not edit by hand -->";
 const END: &str = "<!-- END GENERATED: registry -->";
@@ -47,28 +47,28 @@ fn index_path() -> PathBuf {
     repo_root().join("docs/engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md")
 }
 
-fn group_label(g: IndicatorGroup) -> &'static str {
+fn group_label(g: IndicatorCluster) -> &'static str {
     match g {
-        IndicatorGroup::Trend => "TREND",
-        IndicatorGroup::Momentum => "MOMENTUM",
-        IndicatorGroup::Volume => "VOLUME",
-        IndicatorGroup::Volatility => "VOLATILITY",
-        IndicatorGroup::Structure => "STRUCTURE",
-        IndicatorGroup::Regime => "REGIME",
-        IndicatorGroup::Institutional => "INSTITUTIONAL",
+        IndicatorCluster::Trend => "TREND",
+        IndicatorCluster::Momentum => "MOMENTUM",
+        IndicatorCluster::Volume => "VOLUME",
+        IndicatorCluster::Volatility => "VOLATILITY",
+        IndicatorCluster::Structure => "STRUCTURE",
+        IndicatorCluster::TrendQuality => "REGIME",
+        IndicatorCluster::Institutional => "INSTITUTIONAL",
     }
 }
 
 /// Group order as it appears in the index — the registry is a flat slice, so the
 /// document order is declared here rather than inferred from the slice.
-const GROUP_ORDER: [IndicatorGroup; 7] = [
-    IndicatorGroup::Trend,
-    IndicatorGroup::Momentum,
-    IndicatorGroup::Volume,
-    IndicatorGroup::Volatility,
-    IndicatorGroup::Structure,
-    IndicatorGroup::Regime,
-    IndicatorGroup::Institutional,
+const GROUP_ORDER: [IndicatorCluster; 7] = [
+    IndicatorCluster::Trend,
+    IndicatorCluster::Momentum,
+    IndicatorCluster::Volume,
+    IndicatorCluster::Volatility,
+    IndicatorCluster::Structure,
+    IndicatorCluster::TrendQuality,
+    IndicatorCluster::Institutional,
 ];
 
 fn class_label(m: &IndicatorMeta) -> &'static str {
@@ -181,13 +181,13 @@ fn generate() -> String {
         .map(|g| {
             let n = INDICATORS.iter().filter(|m| m.group == *g).count();
             let label = match g {
-                IndicatorGroup::Institutional => "Institutional",
-                IndicatorGroup::Volatility => "Volatility",
-                IndicatorGroup::Structure => "Structure",
-                IndicatorGroup::Momentum => "Momentum",
-                IndicatorGroup::Trend => "Trend",
-                IndicatorGroup::Volume => "Volume",
-                IndicatorGroup::Regime => "Regime",
+                IndicatorCluster::Institutional => "Institutional",
+                IndicatorCluster::Volatility => "Volatility",
+                IndicatorCluster::Structure => "Structure",
+                IndicatorCluster::Momentum => "Momentum",
+                IndicatorCluster::Trend => "Trend",
+                IndicatorCluster::Volume => "Volume",
+                IndicatorCluster::TrendQuality => "Trend Quality",
             };
             format!("{n} {label}")
         })

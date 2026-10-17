@@ -13,7 +13,7 @@
 //   - top-level signals_by_kind, divergences, levels (cross-TF aggregates)
 //   - meta.timeframes list (removes the timeframe_secs=0 ambiguity)
 
-import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, IndicatorGroup, IndicatorClass, SignalDirection, SignalStatus, VolumeProfileSnapshot, StateBandMatrix, MarketContext } from '../../types';
+import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, IndicatorCluster, IndicatorClass, SignalDirection, SignalStatus, VolumeProfileSnapshot, StateBandMatrix, MarketContext } from '../../types';
 import { DURATIONS, tfLabel } from '../../types';
 import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type StateBandBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
@@ -59,7 +59,7 @@ export interface MtfPerTimeframeIndicator {
   slow_period: number | null;
   signal_period: number | null;
   display_name: string;
-  group: IndicatorGroup;
+  group: IndicatorCluster;
   class: IndicatorClass;
   raw: number | null;
   raw_display: string;
@@ -372,7 +372,7 @@ function buildCrossTfTables(
 
 const GROUP_ORDER = [
   'Trend', 'Momentum', 'Volume', 'Volatility',
-  'Structure', 'Regime', 'Institutional', 'DerivativesData',
+  'Structure', 'TrendQuality', 'Institutional',
 ] as const;
 
 const SIGNAL_ABBR: Record<string, string> = {

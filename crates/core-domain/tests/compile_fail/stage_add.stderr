@@ -1,0 +1,13 @@
+error[E0369]: cannot add `Stage` to `Stage`
+ --> tests/compile_fail/stage_add.rs:7:15
+  |
+7 |     let _ = s + Stage::Late;
+  |             - ^ ----------- Stage
+  |             |
+  |             Stage
+  |
+note: `Stage` does not implement `Add`
+ --> src/axes.rs
+  |
+  | pub enum Stage {
+  | ^^^^^^^^^^^^^^ `Stage` is defined in another crate

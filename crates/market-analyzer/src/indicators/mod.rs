@@ -109,7 +109,7 @@ pub use patterns::{detect_pattern, ChartPattern, PatternResult};
 pub use pivot_points::{PivotLevels, PivotMethod, PivotPoints};
 pub use psar::{ParabolicSar, PsarOutput};
 pub use ratio::{annualization_factor, sharpe_ratio_annualized, SHARPE_WINDOW};
-pub use registry::{IndicatorClass, IndicatorGroup, IndicatorMeta, RenderKind, INDICATORS};
+pub use registry::{IndicatorClass, IndicatorCluster, IndicatorMeta, RenderKind, INDICATORS};
 pub use rma::WilderRma;
 pub use rsi::Rsi;
 pub use sma::Sma;
