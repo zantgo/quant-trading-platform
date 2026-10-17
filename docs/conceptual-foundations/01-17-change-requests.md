@@ -26,6 +26,14 @@ each CR carries a decision, the evidence it was decided on, and the exact spec t
 | **CR-15** | `MarketState` is MME's sole output | **Accepted** | F1, F8 | Strategy leaves MME and the observe surface. CLI ↔ UI parity by construction. |
 | **CR-16** | The measurement-quality audit is unapplied | **Accepted** | F1, [01-19](01-19-measurement-quality.md) | Verdicts resolve **before** implementation (MR-3). Totals become generator-computed, never hand-stated. |
 | **CR-17** | The 44 *present* indicator specs duplicate the registry | **Accepted** | F1, F3 | Present specs are **subsumed** by the registry and the generated index. Only the 78 new specs become new files. |
+| **CR-18** | Charter close: four names, three reductions, one envelope | **Accepted** | F1, F7, F8, CR-14, CR-15 | The model is **three reductions deep plus one envelope**. `market_state` → `timeframe_state`; `ladder` → `cross_tf_state`; the cross-pair layer is **named and named again** (`cross_pair_state`), because `portfolio` belongs to PME. Totals are **157**. |
+
+### CR-18 in one line
+
+Every earlier draft named the cross-duration object `ladder`, never named the cross-pair layer at
+all, and used `market_state` for two different things — the per-duration object *and* "the model's
+output" in general speech. CR-18 gives the model **four distinct names**, each equal to
+`<collapsed-dimension>_state`, and closes the identity question the other CRs left open.
 
 **Ordering constraint.** CR-4 and CR-5 are consumed by test infrastructure and must land before
 the gates that depend on reading identity or its totals. CR-1, CR-2 and CR-13 must land before the
@@ -901,3 +909,133 @@ indicators that do not exist yet and have no other home.
 
 Both trees are organised differently on purpose, and the index states which is which: *present*
 by what the indicator measures, *new* by the axis it will serve.
+
+---
+
+## CR-18 — Charter close: four names, three reductions, one envelope
+
+### The conflict
+
+Three separate ambiguities survived CR-14 and CR-15, each of which had produced a wrong answer
+before:
+
+**1 · `market_state` meant two things.** In `02-16` it is the per-duration object. In conversation
+it is "whatever the model outputs". Asking "is the final state JSON supposed to contain the whole
+thing?" was unanswerable, because the answer depended on which of the two was meant.
+
+**2 · `ladder` is the wrong word, and was already taken.** `ladder` names the **duration set**
+everywhere else in the corpus — `[workspace].timeframes` is "the ACTIVE ladder", `ladder_roles`
+selects from the ladder. Using it for the *reduction across* that set overloads a term that
+already means something else, and it describes the shape (steps) rather than the content
+(`mean_bias`, `agreement_pct`). The single wire key `"ladder"` in the codebase is
+`/api/backtest/coverage`, which names the duration set and is therefore correct where it is.
+
+**3 · The cross-pair layer had no name at all, and the first name proposed for it was wrong.**
+The layer exists (`compute_overview`, `overview.rs:288`) and is a genuine third reduction, but no
+earlier draft acknowledged it. The name proposed for it — `portfolio_view` — is PME's domain.
+
+### The evidence
+
+**On `portfolio`:** `crates/core-domain/src/portfolio.rs` is entirely money and positions —
+`PortfolioOverviewMatrix { current_equity, realized_pnl, unrealized_pnl, gross_exposure,
+net_exposure, margin_usage_ratio, leverage_ratio, daily_pnl, max_daily_drawdown_pct }`, plus
+`PositionMatrix`, `ExposureMatrix`, `CapitalMatrix`, `CorrelationMap`, `SafetyState`. The MME
+cross-pair layer has **none** of those. It measures market breadth across watched pairs. Worse,
+PME *already* owns a `PortfolioOverviewMatrix`, so the name would have produced two different
+"portfolio overview" types in one crate.
+
+**On `ladder` being free to rename:** `grep -rn '"ladder"' crates/ --include='*.rs'` returns exactly
+two hits, both in `/api/backtest/coverage`. No wire key named `ladder` ever carried a market-state
+payload, so the rename costs documentation prose and zero code.
+
+**On the CLI being free to change:** `crates/execution-daemon/src/shell/mod.rs` is a 129-line stub
+handling only `exit`, `help`, `version`. No `mme` or `die` command exists. The command split is
+greenfield.
+
+### The decision
+
+**The model is three reductions deep plus one envelope.** Each level collapses over exactly one
+axis, and every name is `<collapsed-dimension>_state`.
+
+| Level | Type | Wire key | Collapses over | Count |
+|---|---|---|---|---|
+| 1 | `TimeframeState` | `timeframe_state` | — (one pair, one duration) | per (pair, duration) |
+| 2 | `CrossTfState` | `cross_tf_state` | the durations of one pair | per pair |
+| 3 | `CrossPairState` | `cross_pair_state` | the watched pairs | per workspace |
+| — | `ModelState` | `model_state` | the envelope | the deliverable |
+
+**The envelope carries all three.** A point-in-time document must be self-consistent, so
+`model_state` is one payload containing every per-duration state, that pair's cross-duration
+reduction, and the cross-pair reduction. A consumer reads nothing else to render the model.
+
+**The socket splits it into three frame types.** They invalidate at different rates: a 1s tick
+changes `timeframe_state["1"]` and `cross_tf_state`, but not `cross_pair_state` nor the eleven slow
+durations. One payload on the wire would re-broadcast 12× for no new information.
+
+**All three are stored, not recomputed.** The reductions are **not invertible**. `mean_bias` over
+twelve durations cannot be recovered from a count of five bearish pairs, and an ordinal
+`modal_stage` cannot be recovered at all. A consumer holding only the per-duration states could
+re-derive the direction mean but would have to *invent* the momentum breadth, the progression mode
+and the level-convergence verdict — three of four claims, recomputed differently by every
+consumer. Storing all three is what makes the UI and the CLI byte-identical, which is the whole
+parity contract (CR-15).
+
+**The 157 total.** The inventory records 160 readings across ~124 indicator files, on the premise
+that one calculation can serve several axes. Three corpus rows duplicate others under a second
+axis label; removing them gives **157** = Direction 50 · Momentum 48 · Structure 34 · Progression 25.
+The registry is **157 observable keys**, not ~124 calculators: `rsi`, `rsi_slope` and
+`rsi_divergence` are three observables over one calculator, expressed with a `calculator` field.
+
+**The inventory's `PRESENT` column is deleted.** It asserts **76 present** readings while the
+registry holds **44**, and its own section headers disagree with its own summary table
+(Momentum reads 32/16 in the header and 50/24 in the summary; the document contains 85 `**NEW**`
+marks against a stated 84). Per CR-5 the status is **derived from `registry.rs`** by the generator.
+Block 2's real size is therefore **≈113**, not the 84 the hand table claimed and not the 92 an
+earlier draft stated.
+
+**`portfolio` is banned from the model.** `portfolio`, `position`, `exposure`, `capital`, `equity`,
+`pnl`, `margin`, `leverage` and `safety_state` are PME identifiers. None may appear in any model
+payload or field name (V-107).
+
+**One CLI command per scope.** `mme state <instance> --tf <secs>` returns one duration's four axes.
+`mme alignment <instance>` returns the cross-duration reduction. An earlier draft had
+`mme states [--tf]` returning the per-duration view *with* the flag and the cross-duration view
+*without* it — the same ambiguity as the cross-timeframe grid living inside the Metrics tab, where
+a flag silently changed what you got.
+
+### What it supersedes
+
+| Superseded | Now |
+|---|---|
+| `market_state` (per duration) | `timeframe_state` |
+| `ladder` | `cross_tf_state` |
+| — unnamed cross-pair layer | `cross_pair_state` |
+| — no envelope existed | `model_state` |
+| "payload = two blocks" | three levels **plus** the envelope |
+| 160 readings · 76 present / 84 new | **157** · status generator-derived |
+| `mme states [--tf]` | `mme state --tf` and `mme alignment` |
+
+### The invariants it produces
+
+| # | Check |
+|---|---|
+| V-54 | payload is `timeframe_state` + `cross_tf_state` + `cross_pair_state` inside `model_state` |
+| V-106 | the four names are distinct and never reused |
+| V-107 | no PME domain identifier appears anywhere in the model |
+| V-111 | `model_state` contains all three states; none is derived on demand by the consumer |
+| V-112 | the socket emits three frame types; the document is one payload |
+| V-113 | all three reductions are stored — recomputing any of them from a stored value is impossible, so no consumer re-derives one |
+
+### Rejected alternatives
+
+- **Keep `ladder`** — rejected: overloads a term that names the duration set, and describes shape
+  rather than content.
+- **`multi_timeframe`** — rejected in favour of `cross_tf_state` for symmetry with
+  `cross_pair_state`; both are `cross_<dimension>_state`.
+- **`universe_state`** — rejected: "universe" already means `meta.universe` on the venue side and the
+  dex-resolution candidate set.
+- **`market_overview`** — rejected: the vaguest word available, and the corpus already uses
+  "overview" for four different things.
+- **`portfolio_view`** — rejected: PME's domain.
+- **Two blocks, no cross-pair layer** — rejected: `compute_overview` is a live producer consuming
+  `AlignmentMatrix`; pretending it does not exist would leave its four charter violations in place.
