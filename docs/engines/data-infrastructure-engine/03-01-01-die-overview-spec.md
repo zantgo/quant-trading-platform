@@ -118,7 +118,7 @@ Each adapter emits a `NormalizedEvent` enum:
 | `Liquidation` | symbol, side, price, size, timestamp_ms | Liquidation event stream |
 | `Status` | connection lifecycle message | Adapter supervisor |
 
-`Liquidation` events follow a dedicated persistence path: network-adapters receives liquidation WS events → DIE L1 normalizes them into `NormalizedEvent::Liquidation` (full contract in [02-10-raw-data-matrix.md §2](../../matrices/02-10-raw-data-matrix.md)) → the telemetry logger persists them to `liquidation_events` (90-day retention per [02-12-liquidity-matrix.md](../../matrices/02-12-liquidity-matrix.md)).
+`Liquidation` events follow a dedicated persistence path: network-adapters receives liquidation WS events → DIE L1 normalizes them into `NormalizedEvent::Liquidation` (full contract in [02-10-raw-data-matrix.md §2](../../matrices/02-10-raw-data-matrix.md)) → the telemetry logger persists them to `liquidation_events` (90-day retention per [02-12-liquidity-matrix.md](../../matrices/02-16-market-state-matrix.md)).
 
 ---
 

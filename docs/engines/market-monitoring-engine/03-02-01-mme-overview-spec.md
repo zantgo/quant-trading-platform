@@ -23,9 +23,9 @@ The MME **interprets** the market. It consumes the DIE's Market Data Matrix and 
 | Layer | Name | Output Matrix |
 |-------|------|---------------|
 | L1 | [Metrics](03-02-02-mme-layer1-metrics.md) | [Metrics Matrix](../../matrices/02-07-metrics-matrix.md) |
-| L1.5 | [Derivatives Telemetry](03-02-11-mme-liquidity-extension.md) | [LiquidityFlow](../../matrices/02-12-liquidity-matrix.md) |
+| L1.5 | [Derivatives Telemetry](../../matrices/02-16-market-state-matrix.md) | [LiquidityFlow](../../matrices/02-16-market-state-matrix.md) |
 | L2 | [Alignment](03-02-03-mme-layer2-alignment.md) | [Alignment Matrix](../../matrices/02-01-alignment-matrix.md) |
-| L2.5 | [Liquidity Synthesis](03-02-11-mme-liquidity-extension.md) | [LiquidationClusterMatrix](../../matrices/02-13-liquidation-cluster-matrix.md) |
+| L2.5 | [Liquidity Synthesis](../../matrices/02-16-market-state-matrix.md) | [LiquidationClusterMatrix](../../matrices/02-16-market-state-matrix.md) |
 | L3 | [Analysis](03-02-04-mme-layer3-analysis.md) | [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) |
 | L4 | [Opportunity](03-02-05-mme-layer4-opportunity.md) | [Opportunity Matrix](../../matrices/02-08-opportunity-matrix.md) |
 | L5 | [Risk](03-02-06-mme-layer5-risk.md) | [Risk Matrix](../../matrices/02-11-risk-matrix.md) |

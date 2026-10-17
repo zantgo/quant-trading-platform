@@ -830,7 +830,7 @@ The `PerformanceDashboard` Backtesting panel provides the **recorded-decision re
 
 - [UI Overview](07-01-ui-overview-spec.md) — State, runes, CSS contract, inline-shell rationale, hash routing API.
 - [Chart Component Map](07-03-ui-chart-component-map.md) — Per-indicator rendering destinations for the Charts tab.
-- [Liquidity Panel Spec](07-04-ui-liquidity-panel-spec.md) — Phase 4 Liquidity Intelligence tabs (deprecated; retained for history).
+- [Liquidity Panel Spec](../ui-ux/07-11-axis-visual-vocabulary.md) — Phase 4 Liquidity Intelligence tabs (deprecated; retained for history).
 - [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — Data sources for the WS demux.
 - [MME Layer 7 — Overview](../engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md) — OverviewPanel data source.
 - [Decision Matrix](../matrices/02-04-decision-matrix.md) — Decision Matrix panel data.

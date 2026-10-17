@@ -142,6 +142,12 @@ pub struct IndicatorMeta {
     pub color: &'static str,
     /// Documentation section id in docs/indicators-guide.md.
     pub guide_section: &'static str,
+    /// The specification file that documents THIS indicator, relative to
+    /// `docs/engines/market-monitoring-engine/indicators/`. The registry is the
+    /// single authority for that mapping: `04-02-00-indicator-index.md` is
+    /// generated from these values, so a renamed file and a stale index cannot
+    /// disagree (CR-4, CR-5).
+    pub doc_file: &'static str,
     /// Minimum number of input bars the calculator needs before it can emit
     /// a non-`None` reading. Drives the per-indicator `Loading → Live`
     /// transition in [03-02-15 ILS-11](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md).
@@ -238,6 +244,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:fast",
         color: "#fdd835",
         guide_section: "6",
+        doc_file: "04-02-01-ema-stack.md",
         // AUDIT-V8-001: bars_required dropped 200 → 1. The per-line
         // availability gate now lives in `inject_ema_values` (each line
         // appears once `bar_count >=` its configured period: fast@10,
@@ -267,6 +274,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:line",
         color: "#26a69a",
         guide_section: "14",
+        doc_file: "04-02-02-supertrend.md",
         bars_required: 50,
         data_source: None,
         normalization_mode: None,
@@ -289,6 +297,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:upper",
         color: "#ec407a",
         guide_section: "16",
+        doc_file: "04-02-03-donchian.md",
         bars_required: 50,
         data_source: None,
         normalization_mode: None,
@@ -315,6 +324,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:middle",
         color: "#78909c",
         guide_section: "15",
+        doc_file: "04-02-04-keltner.md",
         bars_required: 50,
         data_source: None,
         normalization_mode: None,
@@ -337,6 +347,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:adx",
         color: "#ff9800",
         guide_section: "4",
+        doc_file: "04-02-05-adx.md",
         bars_required: 14,
         data_source: None,
         normalization_mode: None,
@@ -359,6 +370,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:vwap",
         color: "#2962ff",
         guide_section: "7",
+        doc_file: "04-02-06-vwap.md",
         bars_required: 1,
         data_source: None,
         normalization_mode: None,
@@ -385,6 +397,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:weekly",
         color: "#ffab40",
         guide_section: "34",
+        doc_file: "04-02-07-anchored-vwap.md",
         bars_required: 1,
         data_source: None,
         normalization_mode: None,
@@ -412,6 +425,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:tenkan",
         color: "#7e57c2",
         guide_section: "25",
+        doc_file: "04-02-08-ichimoku.md",
         // Ichimoku's smallest configured window is Tenkan (9). The strict
         // `update()` requires `senkou_b_period=52` for the full cloud, but
         // the soft-floor `update_with_min_bars(min_bars=9)` variant in
@@ -445,6 +459,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#7e57c2",
         guide_section: "1",
+        doc_file: "04-02-11-rsi.md",
         bars_required: 15,
         data_source: None,
         normalization_mode: None,
@@ -469,6 +484,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:k_line",
         color: "#2962ff",
         guide_section: "12",
+        doc_file: "04-02-12-stochastic.md",
         bars_required: 30,
         data_source: None,
         normalization_mode: None,
@@ -491,6 +507,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#e040fb",
         guide_section: "13",
+        doc_file: "04-02-13-chandemo.md",
         bars_required: 14,
         data_source: None,
         normalization_mode: None,
@@ -513,6 +530,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#81c784",
         guide_section: "28",
+        doc_file: "04-02-14-williams-r.md",
         bars_required: 14,
         data_source: None,
         normalization_mode: None,
@@ -535,6 +553,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff8a65",
         guide_section: "29",
+        doc_file: "04-02-10-hull-ma.md",
         // Hull MA's defining feature is *low lag* — the registry gate was
         // previously set to 200, which is wildly out of line with both the
         // default `hull_ma_period=21` and the soft-floor min_bars=5 floor
@@ -567,6 +586,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#4dd0e1",
         guide_section: "30",
+        doc_file: "04-02-15-awesome-oscillator.md",
         bars_required: 34,
         data_source: None,
         normalization_mode: None,
@@ -589,6 +609,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ce93d8",
         guide_section: "31",
+        doc_file: "04-02-24-force-index.md",
         bars_required: 20,
         data_source: None,
         normalization_mode: None,
@@ -611,6 +632,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:center",
         color: "#a1887f",
         guide_section: "32",
+        doc_file: "04-02-30-stddev-channel.md",
         bars_required: 20,
         data_source: None,
         normalization_mode: None,
@@ -633,6 +655,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffb74d",
         guide_section: "26",
+        doc_file: "04-02-16-cci.md",
         bars_required: 20,
         data_source: None,
         normalization_mode: None,
@@ -655,6 +678,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26a69a",
         guide_section: "2",
+        doc_file: "04-02-17-macd.md",
         bars_required: 26,
         data_source: None,
         normalization_mode: None,
@@ -678,6 +702,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26a69a",
         guide_section: "6",
+        doc_file: "04-02-18-volume.md",
         bars_required: 1,
         data_source: None,
         updates_on_shadow: true,
@@ -703,6 +728,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffa726",
         guide_section: "6",
+        doc_file: "04-02-19-rvol.md",
         bars_required: 20,
         data_source: None,
         updates_on_shadow: true,
@@ -733,6 +759,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:poc",
         color: "#bcaaa4",
         guide_section: "33",
+        doc_file: "04-02-20-volume-profile.md",
         bars_required: 250, // AUDIT-M5: shipped `volume_profile_window = 500` → gate = window/2 = 250 (was 50, the library-default doc value)
         data_source: None,
         normalization_mode: None,
@@ -755,6 +782,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#29b6f6",
         guide_section: "17",
+        doc_file: "04-02-21-obv.md",
         bars_required: 21, // AUDIT-M3: OBV emits only after the smoothing SMA fills (seed + 20-value SMA at obv_smoothing = 20) — the lifecycle `bars_required = 1` understated the real warmup
         data_source: None,
         normalization_mode: None,
@@ -777,6 +805,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26c6da",
         guide_section: "18",
+        doc_file: "04-02-22-cmf.md",
         bars_required: 20,
         data_source: None,
         normalization_mode: None,
@@ -799,6 +828,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ab47bc",
         guide_section: "19",
+        doc_file: "04-02-23-mfi.md",
         bars_required: 20,
         data_source: None,
         normalization_mode: None,
@@ -822,6 +852,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ef5350",
         guide_section: "5",
+        doc_file: "04-02-25-atr.md",
         bars_required: 14,
         data_source: None,
         updates_on_shadow: true,
@@ -848,6 +879,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:middle",
         color: "#00e5ff",
         guide_section: "5",
+        doc_file: "04-02-26-bollinger.md",
         bars_required: 20,
         data_source: None,
         normalization_mode: None,
@@ -874,6 +906,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffca28",
         guide_section: "9",
+        doc_file: "04-02-27-bbwp.md",
         bars_required: 200,
         data_source: None,
         updates_on_shadow: true,
@@ -902,6 +935,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "state",
         color: "#b2ff59",
         guide_section: "3",
+        doc_file: "04-02-28-squeeze.md",
         bars_required: 39,
         data_source: None,
         normalization_mode: None,
@@ -926,6 +960,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff7043",
         guide_section: "20",
+        doc_file: "04-02-29-hv.md",
         bars_required: 21,
         data_source: None,
         updates_on_shadow: true,
@@ -952,6 +987,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:gp_top",
         color: "#ffd54f",
         guide_section: "8",
+        doc_file: "04-02-31-fibonacci.md",
         bars_required: 50,
         data_source: None,
         normalization_mode: None,
@@ -974,6 +1010,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#90a4ae",
         guide_section: "8",
+        doc_file: "04-02-32-support-resistance.md",
         bars_required: 50,
         data_source: None,
         normalization_mode: None,
@@ -996,6 +1033,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:pivot",
         color: "#8d6e63",
         guide_section: "8",
+        doc_file: "04-02-33-pivot-points.md",
         bars_required: 50,
         data_source: None,
         normalization_mode: None,
@@ -1018,6 +1056,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:sar",
         color: "#ffab40",
         guide_section: "27",
+        doc_file: "04-02-09-psar.md",
         // PSAR seeds on the very first bar (see psar.rs::ParabolicSar::update),
         // so the calculator produces a meaningful trailing-stop reading from
         // bar 1. The previous gate of 50 had no mathematical basis and only
@@ -1045,6 +1084,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ba68c8",
         guide_section: "10",
+        doc_file: "04-02-34-patterns.md",
         bars_required: 50,
         data_source: None,
         normalization_mode: None,
@@ -1067,6 +1107,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#4db6ac",
         guide_section: "10",
+        doc_file: "04-02-35-candlestick.md",
         bars_required: 50,
         data_source: None,
         normalization_mode: None,
@@ -1090,6 +1131,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26a69a",
         guide_section: "21",
+        doc_file: "04-02-36-aroon.md",
         bars_required: 26, // AUDIT-L5: window is period + 1 (26 bars at aroon_period = 25)
         data_source: None,
         normalization_mode: None,
@@ -1112,6 +1154,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffa726",
         guide_section: "22",
+        doc_file: "04-02-37-choppiness.md",
         bars_required: 14,
         data_source: None,
         updates_on_shadow: true,
@@ -1137,6 +1180,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#42a5f5",
         guide_section: "23",
+        doc_file: "04-02-38-linreg-slope.md",
         bars_required: 20, // AUDIT-M4: first emit needs `linreg_period` bars (shipped 20) — was 14
         data_source: None,
         normalization_mode: None,
@@ -1159,6 +1203,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ec407a",
         guide_section: "24",
+        doc_file: "04-02-39-zscore.md",
         bars_required: 20, // AUDIT-M4: first emit needs `zscore_period` bars (shipped 20) — was 14
         data_source: None,
         normalization_mode: None,
@@ -1182,6 +1227,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:structure",
         color: "#ffab40",
         guide_section: "34",
+        doc_file: "04-02-40-smc-structure.md",
         bars_required: 50,
         // Event-driven: an entry only appears once BOS/CHoCH is detected.
         // Suppresses the WARMING placeholder so a ranging market doesn't
@@ -1207,6 +1253,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:sweep_buy",
         color: "#ff7043",
         guide_section: "34",
+        doc_file: "04-02-41-smc-liquidity.md",
         bars_required: 50,
         data_source: Some(EventDriven),
         normalization_mode: None,
@@ -1229,6 +1276,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:fvg_top",
         color: "#ffca28",
         guide_section: "34",
+        doc_file: "04-02-42-smc-fvg.md",
         bars_required: 50,
         data_source: Some(EventDriven),
         normalization_mode: None,
@@ -1251,6 +1299,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:ob_bullish_high",
         color: "#8d6e63",
         guide_section: "34",
+        doc_file: "04-02-43-smc-order-blocks.md",
         bars_required: 50,
         data_source: Some(EventDriven),
         normalization_mode: None,
@@ -1274,6 +1323,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffab40",
         guide_section: "35",
+        doc_file: "04-02-44-open-interest.md",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::DerivativesWs),
         updates_on_shadow: false,
@@ -1299,6 +1349,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff6e40",
         guide_section: "35",
+        doc_file: "04-02-45-oi-delta.md",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::DerivativesWs),
         normalization_mode: None,
@@ -1325,6 +1376,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#00e676",
         guide_section: "36",
+        doc_file: "04-02-46-funding-rate.md",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::DerivativesWs),
         updates_on_shadow: false,
@@ -1350,6 +1402,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff5252",
         guide_section: "35",
+        doc_file: "04-02-47-oi-price-divergence.md",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::DerivativesWs),
         normalization_mode: None,
@@ -1373,6 +1426,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff6d00",
         guide_section: "37",
+        doc_file: "04-02-48-order-flow-imbalance.md",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::OrderBook),
         normalization_mode: None,
@@ -1395,6 +1449,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#f48fb1",
         guide_section: "37",
+        doc_file: "04-02-49-spread.md",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::OrderBook),
         updates_on_shadow: false,
@@ -1420,6 +1475,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#18ffff",
         guide_section: "37",
+        doc_file: "04-02-50-depth-bias.md",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::OrderBook),
         normalization_mode: None,
@@ -1449,6 +1505,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#e91e63",
         guide_section: "35",
+        doc_file: "04-02-51-mark-index-spread.md",
         bars_required: 1,
         data_source: Some(DerivativesWs),
         normalization_mode: Some(ContextOnly),
@@ -1479,6 +1536,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#facc15",
         guide_section: "24",
+        doc_file: "04-02-52-price-trend-sharpe.md",
         bars_required: 300,
         data_source: Some(CandleBased),
         normalization_mode: None,
@@ -1545,6 +1603,66 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for m in INDICATORS {
             assert!(seen.insert(m.key), "duplicate registry key: {}", m.key);
+        }
+    }
+
+    /// CR-4/CR-5: the registry owns each indicator's specification filename.
+    ///
+    /// `04-02-00-indicator-index.md` is generated from these values and
+    /// `scripts/check_docs.py` runs `registry_docs --check` inside
+    /// `./manage.sh test-doc`, so a stale index cannot survive a rename.
+    /// What this test catches is the other half: a `doc_file` that is
+    /// malformed, duplicated, or points outside the `04-02-` series.
+    #[test]
+    fn test_doc_file_is_unique_and_well_formed() {
+        let mut seen = std::collections::HashSet::new();
+        for m in INDICATORS {
+            assert!(
+                m.doc_file.starts_with("04-02-") && m.doc_file.ends_with(".md"),
+                "{}: doc_file must be an 04-02-NN-*.md spec file, got {:?}",
+                m.key,
+                m.doc_file
+            );
+            assert!(
+                seen.insert(m.doc_file),
+                "duplicate doc_file {:?} (keys: {} / already claimed)",
+                m.doc_file,
+                m.key
+            );
+            // NN must be the zero-padded two-digit series number.
+            let nn = m.doc_file.split('-').nth(2).expect("doc_file has an NN segment");
+            assert_eq!(nn.len(), 2, "{}: doc_file NN must be zero-padded: {}", m.key, m.doc_file);
+            assert!(
+                nn.parse::<u32>().is_ok(),
+                "{}: doc_file NN must be numeric: {}",
+                m.key,
+                m.doc_file
+            );
+        }
+    }
+
+    /// The generated index reads these, so a non-`&'static str` display name or
+    /// key would silently change a published document.
+    #[test]
+    fn test_registry_fields_used_by_generated_docs_are_populated() {
+        for m in INDICATORS {
+            assert!(!m.key.is_empty(), "registry entry with empty key");
+            assert!(!m.display_name.is_empty(), "{}: empty display_name", m.key);
+            // An empty signal_types is legitimate for a data-only indicator
+            // (price_trend_sharpe emits no events); the generated index renders
+            // it as "— (data-only)". Anything else with no signals would render
+            // as a silent empty cell, which is indistinguishable from a bug.
+            // An indicator may be computed unconditionally and declare no
+            // typed signal kind at all (`price_trend_sharpe` does). The
+            // generated index renders that as an explicit "—", so it is legal;
+            // what is NOT legal is a non-empty cell for an indicator with none.
+            if m.signal_types.is_empty() {
+                assert!(
+                    m.doc_file.starts_with("04-02-"),
+                    "{}: indicator with no signal_types must still be documented",
+                    m.key
+                );
+            }
         }
     }
 

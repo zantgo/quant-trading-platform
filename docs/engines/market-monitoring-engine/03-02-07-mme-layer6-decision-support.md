@@ -1,6 +1,8 @@
 # MME Layer 6 — Decision Support Layer
 
 **Version:** 11.14 (2026-10-16) — v11: stance bands (constructive 55, neutral 50, cautious 75, avoid 90, aggressive 45), readiness ready_min 20, entry vol gates 80/50/40. See docs/CHANGELOG.md for the canonical version history.
+> **Producer layer: Trade Automation Engine (TAE), not MME.** By CR-15 the strategy layers below are computed in `portfolio-supervisor`, not `market-analyzer`, and they are **not run or surfaced in observe mode**. This document describes code that keeps compiling; its output is strategy and has no place in the model ([01-21](../../conceptual-foundations/01-21-engine-split-and-model-boundary.md) §3).
+
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 6 of 7

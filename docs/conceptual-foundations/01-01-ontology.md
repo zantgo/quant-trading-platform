@@ -177,7 +177,7 @@ The **Analytical Input Universe** is the collective term for everything emitted 
 
 > **Boundary.** "Analytical Input Universe" is a *vocabulary* term. No Rust struct, registry entry, or serialized field is named that — the existing `MarketSnapshot` envelope remains the storage form. It exists so the rest of the corpus (and downstream engines) can refer to "everything L1 carries" in one phrase. The two categories of "first-class analytical entities" keep their exact §3.8 / §3.9 meanings inside the universe; signals + indicators are still distinct concepts. Telemetry data sub-objects are *data carriers*, not entities.
 
-> **Cross-references.** Usage examples: [02-07-metrics-matrix.md §1](../matrices/02-07-metrics-matrix.md), [02-07-metrics-matrix.md §2.1.1](../matrices/02-07-metrics-matrix.md) (single-source-of-truth contract), [03-02-11 liquidity extension](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md), [04-02-00 indicator index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md).
+> **Cross-references.** Usage examples: [02-07-metrics-matrix.md §1](../matrices/02-07-metrics-matrix.md), [02-07-metrics-matrix.md §2.1.1](../matrices/02-07-metrics-matrix.md) (single-source-of-truth contract), [03-02-11 liquidity extension](../matrices/02-16-market-state-matrix.md), [04-02-00 indicator index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md).
 
 ### 3.10 Evaluation Axis
 An Evaluation Axis is a standardized analytical dimension used to contextualize an indicator or signal. Projecting flat telemetry onto multiple axes transforms raw measurements into high-fidelity, multidimensional features, separating the raw value from its strength, direction, environmental context, and reliability.
@@ -536,7 +536,7 @@ The Liquidity Intelligence extension (Phase 0-4) inserts two fractional layers b
 
 **Cascade invariant:** L1.5 and L2.5 feed both L4 (for `LiquiditySqueeze` opportunity precondition — `cascade_state` and `cascade_asymmetry`) and L5 (for `cascade_risk`, the 8th unipolar danger sub-dimension). L2.5 does not read from L1.5's Phase 1 output (LiquidityFlow) for feedback-loop avoidance; it does consume Phase 0 outputs (open interest, funding rate, mark/index prices) from L1.5's production. The unidirectional invariant is preserved: L4 and L5 remain orthogonal, and L5 → L6 remains unidirectional.
 
-See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the full cascade invariant and cross-engine impact.
+See [03-02-11-mme-liquidity-extension.md](../matrices/02-16-market-state-matrix.md) for the full cascade invariant and cross-engine impact.
 
 ---
 
@@ -1115,10 +1115,6 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
   "pipeline_state": "Live",
   "indicator_lifecycle": { "rsi": { "state": "Live", "bars_seen": 500, "bars_required": 15 } },
   "mid_price": 64012.5,
-  "bid_price": 64012.0,
-  "ask_price": 64013.0,
-  "bid_size": 1.5,
-  "ask_size": 0.8,
   "quality_envelope": {
     "quality_score": 100.0,
     "is_valid": true,
@@ -1130,7 +1126,6 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
     "gap_since_last": 180,
     "validated_at": 1752192000000
   },
-  "funding_rate": 0.0001,
   "open": 63890.0,
   "high": 64120.0,
   "low": 63850.0,
@@ -1138,15 +1133,6 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
   "volume": 182.4,
   "volume_profile": null,
   "average_volume": 150.1,
-  "open_interest": 1250000.0,
-  "oi_delta_1h": 5000.0,
-  "prev_day_px": 63500.0,
-  "mark_price": null,
-  "index_price": null,
-  "mark_index_spread_pct": null,
-  "liquidity": null,
-  "cluster": null,
-  "liquidity_signals": [],
   "indicators": {
     "rsi": {
       "raw_value": 68.4,
@@ -1187,7 +1173,6 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
     "momentum": { "score": 0.40, "confidence": 0.55, "label": "BULL" },
     "volatility": { "score": 0.30, "confidence": 0.60, "label": "NORMAL" },
     "volume": { "score": 0.50, "confidence": 0.65, "label": "STRONG" },
-    "liquidity": { "score": 0.45, "confidence": 0.55, "label": "ADEQUATE" },
     "regime": "TRENDING",
     "overall_score": 54,
     "overall_label": "WEAK_BULL"
@@ -1525,7 +1510,7 @@ $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penal
 
 > **Worked example for the JSON above.** `instance_count = 5`, distributed as 1 low-risk (20 %) + 1 moderate-risk (20 %) + 3 high-risk (60 %). `global_market_bias = BULLISH` ⇒ `sync_penalty = 0` regardless of synchronization level. Score = `0.6 × 60.0 + 0.4 × 0 = 36.0`. Note that `60 %` for `high_pct` is `3 / 5` — a valid multiple for a sample size of 5 (the original 3-instance worked example was mathematically impossible since percentages must be multiples of `33.3 %` for `n = 3`).
 
-> The `cascade_risk_index` field is in the canonical schema. It is a placeholder produced by the Phase 3 Liquidity Intelligence extension but is **not yet aggregated into `systemic_risk_score`**; see [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../conceptual-foundations/01-05-liquidity-domain.md) for the canonical status statement and for the rule that downstream docs must link to it rather than restating the status. The field appears in the JSON so downstream consumers (UI, REST, PAE) have a stable contract to read.
+> The `cascade_risk_index` field is in the canonical schema. It is a placeholder produced by the Phase 3 Liquidity Intelligence extension but is **not yet aggregated into `systemic_risk_score`**; see [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../matrices/02-16-market-state-matrix.md) for the canonical status statement and for the rule that downstream docs must link to it rather than restating the status. The field appears in the JSON so downstream consumers (UI, REST, PAE) have a stable contract to read.
 
 ---
 

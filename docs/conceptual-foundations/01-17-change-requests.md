@@ -218,7 +218,7 @@ A configuration violating this is rejected at load, not silently clamped.
 
 **It has no `readings` field.** Verified: `axes`, `owner_axis`, `axis_codes` do not appear in
 `registry.rs` at all; `readings` appears only inside prose comments. The 160-reading inventory in
-[`inventory.md`](../state-axes-update/inventory.md) is therefore **maintained by hand and not machine-checkable**.
+[`inventory.md`](../engines/market-monitoring-engine/indicators/04-04-00-reading-inventory.md) is therefore **maintained by hand and not machine-checkable**.
 
 ### The decision
 
@@ -240,7 +240,7 @@ from count.
 
 | # | Rule |
 |---|---|
-| **I27** | Every reading in [`inventory.md`](../state-axes-update/inventory.md) resolves to a declared producer **or** an explicit `derived_from` list. No orphans. |
+| **I27** | Every reading in [`inventory.md`](../engines/market-monitoring-engine/indicators/04-04-00-reading-inventory.md) resolves to a declared producer **or** an explicit `derived_from` list. No orphans. |
 | **I28** | Reading IDs are **stable and never renumbered**. A retired reading is tombstoned, not reused. |
 | **I29** | Every producer key referenced by a reading exists in `INDICATORS`, or is a declared derived-composite. Dangling references fail. |
 | **I30** | A reading's owner axis is one of its declared axes. Ownership is single; consumption is many (F8). |
@@ -267,7 +267,7 @@ displayed across the documentation, or may a second inventory restate them?
 
 ### The finding
 
-Today it does not. [`inventory.md`](../state-axes-update/inventory.md) holds 160 hand-maintained rows, and the README,
+Today it does not. [`inventory.md`](../engines/market-monitoring-engine/indicators/04-04-00-reading-inventory.md) holds 160 hand-maintained rows, and the README,
 the framework and the plan each restate totals independently. Nothing ties them together — which
 is precisely how the earlier hand-maintained inventory came to disagree with the registry in the
 first place. Making the registry authoritative for *identity* while leaving the *totals*
@@ -280,7 +280,7 @@ hand-maintained fixes the smaller half of the problem.
 | Artifact | Status |
 |---|---|
 | The reading registry | **Authoritative** |
-| [`inventory.md`](../state-axes-update/inventory.md) | **Generated** — never hand-edited |
+| [`inventory.md`](../engines/market-monitoring-engine/indicators/04-04-00-reading-inventory.md) | **Generated** — never hand-edited |
 | README axis counts, totals, present/new splits | **Generated** |
 | Per-axis reading tables in `framework.md` | **Generated** |
 

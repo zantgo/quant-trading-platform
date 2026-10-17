@@ -447,7 +447,7 @@ whether the harness is correct.
 | Item | Content |
 |---|---|
 | **Entry** | **Hard gate.** P5 report green on all three categories. No exceptions, no partial entry. |
-| **W6.1–W6.6** | Admit the 84 readings **by target axis**, in batches. Each batch: spec already exists in [`indicators/`](../state-axes-update/indicators/) |
+| **W6.1–W6.6** | Admit the 84 readings **by target axis**, in batches. Each batch: spec already exists in [`indicators/`](../engines/market-monitoring-engine/indicators) |
 | **Rule** | New readings enter through **normalisation → family aggregation → axis testing**. They may not alter any contract in F1–F10 to accommodate themselves |
 | **RV6** | Reject any batch that requires a contract change. That is a change request, not a feature |
 | **VC gate** | Per batch: existing 13 gates stay green **plus** incremental-information test (§5.8 stage 4) |

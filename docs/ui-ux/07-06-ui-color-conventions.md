@@ -65,7 +65,7 @@ The `ConnectionQualityPanel` color-bands scores and uptime by degree of health u
 
 ### 2.1 Color is never the sole carrier of meaning
 
-Any element whose meaning is expressed through a color must also carry a text label, numeric badge, icon, or border style that communicates the same information. This rule is enforced across all panels (see [07-04 §2](07-04-ui-liquidity-panel-spec.md) line 308). A user who cannot perceive the color must still receive the full semantic signal.
+Any element whose meaning is expressed through a color must also carry a text label, numeric badge, icon, or border style that communicates the same information. This rule is enforced across all panels (see [07-11 Axis Visual Vocabulary §3](07-11-axis-visual-vocabulary.md)). A user who cannot perceive the color must still receive the full semantic signal.
 
 ### 2.2 No emojis as color substitutes
 

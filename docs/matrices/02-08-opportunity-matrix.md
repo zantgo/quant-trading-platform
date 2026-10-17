@@ -1,6 +1,8 @@
 # Opportunity Matrix Specification
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+> **Producer layer: Trade Automation Engine (TAE), not MME.** By CR-15 the strategy layers below are computed in `portfolio-supervisor`, not `market-analyzer`, and they are **not run or surfaced in observe mode**. This document describes code that keeps compiling; its output is strategy and has no place in the model ([01-21](../conceptual-foundations/01-21-engine-split-and-model-boundary.md) §3).
+
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -172,7 +174,7 @@ Both `OpportunitiesPanel` (Market Monitoring → Opportunities) and `Recommendat
 
 ## 3. Opportunity Types & Preconditions
 
-The `OpportunityType` enum is the **canonical home** of the setup selector (in the institutional redesign, this enum was removed from the Analysis Matrix and moved here, where it belongs as a forecast field). **Eight** values — the original six, plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension ([01-05-liquidity-domain.md §Decision integration](../conceptual-foundations/01-05-liquidity-domain.md), [03-02-11-mme-liquidity-extension.md §Decision integration](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md)) and `Scalp` added in the v2.1 institutional completeness sweep to make all four `TimeHorizon` values reachable from the setup selector:
+The `OpportunityType` enum is the **canonical home** of the setup selector (in the institutional redesign, this enum was removed from the Analysis Matrix and moved here, where it belongs as a forecast field). **Eight** values — the original six, plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension ([01-05-liquidity-domain.md §Decision integration](02-16-market-state-matrix.md), [03-02-11-mme-liquidity-extension.md §Decision integration](02-16-market-state-matrix.md)) and `Scalp` added in the v2.1 institutional completeness sweep to make all four `TimeHorizon` values reachable from the setup selector:
 
 | OpportunityType | Precondition Signature | Default `time_horizon` |
 |-----------------|------------------------|------------------------|

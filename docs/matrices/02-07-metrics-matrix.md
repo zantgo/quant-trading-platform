@@ -53,6 +53,11 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 
 ### 2.1 Top-Level Fields
 
+> **Removed by CR-10 (candles-only charter, CH-1).** The following fields are deleted from the wire in phase **P5**:
+> `bid_price`, `ask_price`, `bid_size`, `ask_size`, `funding_rate`, `open_interest`, `oi_delta_1h`, `prev_day_px`, `mark_price`, `index_price`, `mark_index_spread_pct`, `liquidity`, `cluster`, `liquidity_signals`.
+> `mid_price` is **retained**: it is the price, and for sub-minute durations it is the
+> order-book mid that builds the candle — ingestion, not a reading (charter §4).
+
 | Field | Type | Nullable | Description |
 |-------|------|----------|-------------|
 | `exchange` | `Exchange` enum | Yes | Originating venue (`Hyperliquid`, `Bitget`). |
@@ -65,23 +70,11 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `pipeline_state` | `CandlePipelineState` | No | `Initializing`/`Loading`/`Live`/`Stale`/`Failed` (DCP-05: `Stale` = no completed candle for `candle_buffer.stale_threshold_secs`; `Failed` = 2× window). Documented in [03-01-06-die-candle-pipeline-states.md](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md). |
 | `indicator_lifecycle` | `map<string, IndicatorLifecycleStatus>` | No | Per-indicator lifecycle states (ILS-01..ILS-16) — see [03-02-15-mme-indicator-lifecycle-states.md](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md). |
 | `mid_price` | `Decimal` | No | Mid of best bid/ask at snapshot time — the **fresh order-book mid** `(best_bid + best_ask) / 2` when the book was updated within the grace window (AUDIT-V8-002; `grace_period_ms` = candle duration), else the candle close. No longer the candle volume/close blend. |
-| `bid_price` / `ask_price` | `Decimal` | No | Top-of-book quotes. |
-| `bid_size` / `ask_size` | `Decimal` | Yes | Top-of-book **level-1 resting sizes** (`best_bid_size` / `best_ask_size`); JSON `null` when the book is not fresh within the AUDIT-V8-002 grace window (no `skip_serializing_if` on these fields). No longer the candle volume. |
-| `funding_rate` | `Decimal` | Yes | Current perpetual funding rate. |
 | `open` / `high` / `low` / `close` | `Decimal` | Yes | OHLC of the candle. |
 | `volume` | `Decimal` | Yes | Candle volume. |
 | `volume_profile` | `VolumeProfileSnapshot` | Yes | Per-candle volume-profile histogram (POC/VAH/VAL, buy/sell bins) — see [03-02-13-mme-volume-profile-layer.md](../engines/market-monitoring-engine/03-02-13-mme-volume-profile-layer.md). `None` before the warmup gate. |
 | `quality_envelope` | `CandleQualityEnvelope` | Yes | Per-candle data-quality envelope (score, validity, gap/reconstruction provenance, sequence integrity) — canonical source: [02-03-data-quality-matrix.md](02-03-data-quality-matrix.md). |
 | `average_volume` | `Decimal` | Yes | Rolling average volume baseline. |
-| `open_interest` | `Decimal` | Yes | Open interest at snapshot time. |
-| `oi_delta_1h` | `Decimal` | Yes | 1-hour rolling open-interest change. |
-| `prev_day_px` | `Decimal` | Yes | Prior-day reference price (from asset context). |
-| `mark_price` | `Decimal` | Yes | Mark price at snapshot time. In-memory writer live (AUDIT-AIU-091); `null` until the first WS mark push. |
-| `index_price` | `Decimal` | Yes | Index price at snapshot time. `null` until Phase 3. |
-| `mark_index_spread_pct` | `f64` | Yes | Mark/index spread as percentage. Computed live from the in-memory mark/index writers (AUDIT-AIU-091); `null` until both are available. |
-| `liquidity` | `Option<LiquidityFlow>` | Yes | Phase 1 LiquidityFlow (real liquidation events aggregated per candle). `None` when liquidity extension disabled. |
-| `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap; refresh cadence = the TF's candle cadence, `[workspace.liquidity] cluster_refresh_secs = 0` default, operator-overridable; the matrix carries `valid_until_ms` (5-min TTL) and the frontend dims + badges it when stale — AUDIT-AIU-116). `None` when liquidity extension disabled or the refresh task cleared a stale matrix after consecutive skips. |
-| `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). **Omitted entirely when empty** via `skip_serializing_if = "Vec::is_empty"` (liquidity extension disabled or no signals fired this snapshot) — never serialized as a literal `[]`. |
 | `indicators` | `map<string, IndicatorEvaluation>` | No | The unified dual-representation indicator map (see §3). |
 | `context` | `MarketContext` | Yes | Synthesized per-timeframe context (see §5). |
 | `alignment` | `AlignmentMatrix` | Yes | Attached Alignment Matrix (populated on completed snapshots). |
@@ -272,7 +265,6 @@ Implementations must not compare the two enum values directly across layers — 
 | `momentum` | `ContextDimension` | Weighted mean of directional Momentum-group indicators. |
 | `volatility` | `ContextDimension` | Magnitude from BBWP/HV (expansion vs compression). |
 | `volume` | `ContextDimension` | RVOL-derived participation magnitude. |
-| `liquidity` | `ContextDimension` | VWAP proximity + participation proxy. |
 | `regime` | `string` (4-state) | `COMPRESSION` / `EXPANSION` / `TRENDING` / `RANGE` — local 4-state regime (see §5.0 for the cross-layer mapping). |
 | `overall_score` | `i32` | Directional conviction in `[-100, 100]`. |
 | `overall_label` | `string` | `STRONG_BULL` / `WEAK_BULL` / `NEUTRAL` / `WEAK_BEAR` / `STRONG_BEAR`. |

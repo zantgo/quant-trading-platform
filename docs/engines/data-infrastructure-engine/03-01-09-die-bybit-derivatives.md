@@ -1,12 +1,11 @@
-# 03-01-09: Bybit V5 Derivatives Telemetry Wire Format
+# 03-01-09: Bybit V5 Venue and Product Model
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
-**Engine:** Data Infrastructure Engine (DIE) → MME L1.5 Derivatives Telemetry
-**Scope:** Bybit V5 (`category=linear`) WebSocket push payloads + REST endpoints
-**Audience:** Implementers and on-call operators debugging why the OI / funding
+**Engine:** Data Infrastructure Engine (DIE)
+**Scope:** Bybit V5 (`category=linear`) instrument catalogue, REST endpoints, and admission rules
+**Audience:** Implementers and on-call operators resolving a Bybit pair, its candle depth, or its admission
 indicators are stuck in `WAITING FEED ⏳` on a Bybit instance, or why the
-liquidation heatmap's "real" layer renders inverted.
 
 ## 1. Scope and product model
 
@@ -47,169 +46,6 @@ Sector classification for these markets is **not** special-cased: `assign_sector
 HIP-3-dex branch does not apply (Bybit symbols carry no `dex:` prefix), so
 TradFi markets classify as `Other` alongside any unrecognised crypto ticker.
 
-## 2. WebSocket endpoint and topics
-
-Public stream: `wss://stream.bybit.com/v5/public/linear`
-(testnet: `wss://stream-testnet.bybit.com/v5/public/linear`).
-
-All four topics the platform consumes come from that single endpoint:
-
-| topic | push frequency | normalized event | notes |
-|---|---|---|---|
-| `publicTrade.{sym}` | realtime | `Trade` | carries a real unique per-trade id `i` — no synthesized key needed (Bitget V2 has none) |
-| `orderbook.50.{sym}` | 20 ms | `OrderBook` | **full snapshot**, not deltas; the local book is replaced each frame |
-| `tickers.{sym}` | 100 ms | `AssetContext`, `MarkPrice`, `OpenInterest`, `FundingRate` | **snapshot+delta** — see §3 |
-| `allLiquidation.{sym}` | 500 ms | `Liquidation` | **every** forced close — see §5 |
-
-Subscription frame (one frame, four topics):
-
-```json
-{"req_id":"sub-BTC-USDT","op":"subscribe","args":[
-  "publicTrade.BTCUSDT","orderbook.50.BTCUSDT",
-  "tickers.BTCUSDT","allLiquidation.BTCUSDT"]}
-```
-
-Keep-alive: send `{"req_id":"ping","op":"ping"}` every **20 s** (Bybit's own
-recommendation) and expect `{"success":true,"ret_msg":"pong",...}`. Two
-consecutive unanswered pings are treated as a stalled stream so the supervisor's
-backoff takes over — the same policy Bitget uses with literal `ping`/`pong`
-text frames.
-
-Rate limits: HTTP **600 requests / 5 s per IP**; WebSocket **500 connections /
-5 min**, with a **1,000 connection/IP** ceiling for market data counted
-separately per product.
-
-## 3. The delta trap — `tickers` is snapshot + delta
-
-**This is the single most dangerous thing to port from Bitget.**
-
-Bitget's `ticker` channel pushes a **complete** snapshot every time. Bybit's
-`tickers` topic does not. Measured 2026-10 on `BTCUSDT` over a 20-second
-window:
-
-```text
-frames = 132  →  1 snapshot (27 fields)  +  131 deltas (partial)
-```
-
-Each delta carries **only the fields that changed**. Reading any single frame
-in isolation yields `None` for `lastPrice`, `markPrice`, `indexPrice`,
-`prevPrice24h`, `openInterest`, `fundingRate` and most of the rest.
-
-An adapter that treated the frame as complete — i.e. a direct port of the
-Bitget ticker handler — would emit a stream of `MarkPrice` / `OpenInterest` /
-`FundingRate` events with **missing fields**, silently corrupting the
-mark-price, open-interest and funding series that the 52-indicator set, the
-L2.5 cluster estimator and the L5 cascade risk all read. Nothing crashes and no
-error is logged; the numbers are simply wrong.
-
-**The fix** is `network_adapters::adapters::bybit_derivatives::TickerState`: a
-persistent merged snapshot that folds each frame in and reports *which*
-quantities changed, so the adapter emits at most one event per moving field.
-
-Verified by `crates/network-adapters/tests/bybit_ticker_delta_merge.rs`:
-
-- a partial delta never erases a retained value;
-- a byte-identical repeat emits nothing;
-- 100 alternating deltas produce exactly one event per changed mark and **zero**
-  for bid/ask-only frames.
-
-Full field set observed across the snapshot and deltas:
-
-```text
-symbol, tickDirection, price24hPcnt, lastPrice, prevPrice24h, highPrice24h,
-lowPrice24h, prevPrice1h, markPrice, indexPrice, openInterest,
-openInterestValue, singleOpenInterest, singleOpenInterestValue, turnover24h,
-volume24h, fundingIntervalHour, fundingCap, nextFundingTime, fundingRate,
-bid1Price, bid1Size, ask1Price, ask1Size, preOpenPrice, preQty,
-curPreListingPhase
-```
-
-Numeric fields arrive as JSON **strings**, and a blank string means *not
-applicable for this instrument* (dated futures mid-settlement), **not zero**.
-The parser must skip blanks rather than parse them as zero, or a settled
-funding field would zero the series.
-
-### Open interest
-
-`openInterest` is in **base units**; `openInterestValue` is already **USD
-notional**. The adapter prefers `openInterestValue` and therefore needs **no
-mark-price multiplication** — contrast Bitget, whose `holdingAmount` is
-base-denominated and must be multiplied by the cached mark price before the
-cluster estimator will accept it. `TickerState` falls back to
-`openInterest × markPrice` when only the base field is present.
-
-## 4. The funding-interval trap — the period is per-symbol
-
-`fundingRate` is quoted for **the symbol's own** `fundingIntervalHour`, which is
-not always 8. Measured 2026-10 across 904 listed linear instruments:
-
-| `fundingIntervalHour` | symbols |
-|---|---|
-| 8 | 444 |
-| **4** | **419** |
-| 1 | 1 |
-| absent (dated futures / settlements) | 40 |
-
-Every downstream consumer assumes **per-8h** semantics:
-
-- the funding tracker annualizes with ×1095 (`funding.rs`: "365 days × 3
-  periods/day");
-- the L2.5 cluster estimator reads the same series;
-- `FUNDING_EXTREME` is thresholded at `funding_extreme_pct` (default
-  `0.0005`) per 8 h.
-
-A 4 h symbol read raw would **double** the reported rate, double the annualized
-figure, and false-fire the `FUNDING_EXTREME` reversal signal on roughly half of
-Bybit's universe.
-
-**The fix** is `normalize_funding_to_8h(rate, hours)` → `rate × (8 / hours)`,
-skipping the emission entirely when the interval is missing or zero (a default
-of "8" there would be a silent fabrication). This is the same adaptation
-`hyperliquid_rest::derivatives_ctx_to_events` applies in the other direction —
-Hyperliquid publishes an hourly rate and multiplies by 8.
-
-Pinned by `crates/network-adapters/tests/bybit_ticker_delta_merge.rs`:
-4 h → ×2, 1 h → ×8, 8 h → pass-through, missing → dropped.
-
-## 5. Liquidation stream
-
-`allLiquidation.{symbol}` pushes **every** forced close at 500 ms — strictly
-better than Bitget's public channel, which is aggregated to the single
-highest-quantity record per side per second, and unlike Hyperliquid, which has
-no public forced-close feed at all.
-
-<!-- pascal-display-strings -->
-
-The payload is the venue's own wire schema verbatim — `Buy` / `Sell` are
-Bybit's values for the `S` field, not a platform enum, so the PascalCase
-scan is opted out of for this document.
-
-```json
-{"topic":"allLiquidation.BTCUSDT","type":"snapshot","ts":1739502303204,
- "data":[{"T":1739502302929,"s":"BTCUSDT","S":"Sell","v":"20000","p":"0.04499"}]}
-```
-
-| field | meaning |
-|---|---|
-| `T` | event timestamp (ms) |
-| `s` | symbol |
-| `S` | `Buy` ⇒ **a LONG was liquidated**; `Sell` ⇒ a SHORT was liquidated |
-| `v` | executed size (base units) |
-| `p` | bankruptcy price |
-
-### Side semantics — the second inversion trap
-
-`S: "Buy"` means a **long** was liquidated. This is the **opposite** of
-Bitget's `fill` channel (where `buy` = aggressor bought = a short closed) and
-the **same** as Bitget's public `liquidation` channel. Porting either side
-blindly renders the heatmap's "real" layer backwards while still looking
-plausible. Pinned by `crates/network-adapters/tests/bybit_liquidation_schema.rs`.
-
-Because Bybit has a genuine public forced-close stream, the UI's "model only —
-no public liquidation feed" caveat (which gates on
-`exchange === 'Hyperliquid'`, see `07-04-ui-liquidity-panel-spec.md`) must
-**not** appear for Bybit. Locked by
-`ui/src/lib/liquidationHeatmap.test.ts`.
 
 ## 6. REST endpoints
 
@@ -319,6 +155,7 @@ directions, so a future venue re-encoding cannot reintroduce a silent total loss
 of the trade or liquidation stream. Decode failures are reported per topic
 (rate-limited) instead of being swallowed.
 
+
 ## 7. Pagination
 
 Bybit's `HistoricalFetchPolicy` implementation is structurally identical to
@@ -334,6 +171,7 @@ Bitget's, differing in exactly three facts:
 It retains the v11.12.20 partial-warm behaviour (a timeout keeps the pages
 already fetched rather than discarding them) and the 2 page retries with 1 s /
 2 s backoff.
+
 
 ## 8. Instrument admission
 
@@ -352,38 +190,15 @@ the shared `http::PROBE_*` constants, matching `bitget_rest::symbol_exists`. A
 definitive venue answer is never retried, and `retCode 10001` is a definitive
 *not listed* rather than an error.
 
-## 9. Live dispatch
+---
 
-Live trading is implemented but, unlike the observe path, **has not been
-integration-tested against a funded account**. The signing scheme is the one
-place a blind port from Bitget fails *at runtime* rather than at compile time:
+> **Removed by CR-10 (candles-only charter, CH-1).** This document previously also specified the
+> Bybit V5 **derivatives telemetry** wire format — `tickers` snapshot+delta folding, the
+> per-symbol funding interval, and the `allLiquidation` topic. Those feeds no longer reach any
+> reading, axis or layer, so the specification was removed rather than left to rot. The candle
+> path (`publicTrade`, `orderbook.50`, candle REST) is unaffected and is specified in [03-01-01](03-01-01-die-overview-spec.md).
 
-```text
-Bitget:  hex(HMAC-SHA256(timestamp + method + requestPath + body, secret))
-         ACCESS-KEY / ACCESS-SIGN / ACCESS-TIMESTAMP / ACCESS-PASSPHRASE
+## Cross-references
 
-Bybit:   HEX(HMAC-SHA256(timestamp + apiKey + recvWindow + query_or_body, secret))
-         X-BAPI-API-KEY / X-BAPI-SIGN / X-BAPI-TIMESTAMP / X-BAPI-RECV-WINDOW
-```
-
-Bybit's preimage embeds the **API key** and the **recvWindow** — neither appears
-in Bitget's — and carries no method or path. GET requests sign the query
-string, POST requests sign the JSON body. `X-BAPI-SIGN` must be **uppercase**
-hex. Pinned by `bybit_live.rs`'s unit test.
-
-TP/SL is modelled as **position attributes** (`POST /v5/position/trading-stop`)
-rather than as standalone trigger orders, so a `Stop` order packet sets the
-bracket on the position instead of submitting a conditional order — structurally
-different from both the Hyperliquid and Bitget brokers.
-
-`POST /v5/order/create` and `/v5/order/cancel` are capped at **10/s** on linear;
-the client throttles at 10 req/s.
-
-## 10. Cross-references
-
-- [Bitget V2 Derivatives](03-01-08-die-bitget-v2-derivatives.md) — the V2 channel spec and the full Bitget field table.
-- [Historical Fetch Policy](03-01-07-die-historical-fetch-policy.md) — HFP-01…HFP-10, plus HFP-11 (Bybit) below.
-- [DIE Overview §5.1–5.2](03-01-01-die-overview-spec.md) — venue admission contract.
-- [Timeframe Model](../../conceptual-foundations/01-04-timeframe-model.md) — the 14-duration pool.
-- [Liquidity Panel (UI)](../../ui-ux/07-04-ui-liquidity-panel-spec.md) — the HL-only caveat watermark.
-- [TAE Layer 2 Execution](../trade-automation-engine/03-03-03-tae-layer2-execution.md) — the venue matrix / live-broker contract.
+- [03-01-01 DIE Overview Spec](03-01-01-die-overview-spec.md)
+- [03-01-07 Historical Fetch Policy](03-01-07-die-historical-fetch-policy.md)

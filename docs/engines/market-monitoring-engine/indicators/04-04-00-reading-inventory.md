@@ -4,21 +4,34 @@
 
 > ## GENERATED FILE — DO NOT EDIT
 >
-> Every row, every count and every total here is **generated from the reading registry**
-> (`framework.md` §5.7). This file is an **output**, not a source.
+> Every row, every count and every total here will be **generated from the reading registry**
+> ([01-13 §5.7](../../../conceptual-foundations/01-13-state-axes-framework.md)). This file is an
+> **output**, not a source.
 >
 > **To change a reading, change the registry.** Editing this file produces drift, and drift is a
-> **failing check** — `./manage.sh test-doc` regenerates this file and fails on any byte
-> difference. See [`change-requests.md`](../conceptual-foundations/01-17-change-requests.md) CR-5.
+> **failing check**. See [CR-5](../../../conceptual-foundations/01-17-change-requests.md).
 >
-> **Current state:** the generator lands in phase **P1**. Until then this file is still
-> hand-maintained and invariant **I35** is *declared but not enforced*. The count below is
-> therefore a hand-maintained value, not a verified one.
+> **Current state — read this before trusting a number here.** The registry does not yet carry a
+> `readings` field (CR-4, phase **P7**), so this file is **still hand-maintained** and I35 is
+> *declared but not enforced for the reading inventory*. Every count below is a hand-kept value,
+> not a verified one.
+>
+> Two consequences, recorded rather than hidden:
+>
+> 1. If these totals and the registry's eventual totals differ, **the registry wins** and this
+>    file is regenerated.
+> 2. **CR-16** applies the measurement-quality audit *before* any reading is implemented, so the
+>    Progression count below is expected to fall from 22 specs to 11-13 readings. Do not treat any
+>    number here as final.
+>
+> **The sibling index [`04-02-00`](04-02-00-indicator-index.md) is already generated** — the
+> registry declares each indicator's own `doc_file`, and `registry_docs --check` runs inside
+> `./manage.sh test-doc`. That is the shape this file will take in P7.
 >
 > **History.** This total was **162 / 76 / 86** until a duplicate reading was removed.
 > `Directional Persistence Ratio` was listed twice — Momentum #29 and Progression #15 — with a
 > formula byte-identical to `Path Efficiency` (#13). Both rows were **NEW**, so the drop fell
-> entirely on the new count. Record: [`change-requests.md`](../conceptual-foundations/01-17-change-requests.md) **CR-6**.
+> entirely on the new count. Record: [`change-requests.md`](../../../conceptual-foundations/01-17-change-requests.md) **CR-6**.
 
 All 160 readings. **Formula · Signals · Divergence · Levels · Tier · Status.**
 
@@ -243,4 +256,4 @@ backbone.
 **160 readings, 122 indicator files.** Readings exceed files because one indicator can serve
 several axes — RSI alone contributes a Direction reading, a Momentum reading (its slope) and
 a Structure reading (its divergence) from a single calculation. See
-[`indicators/README.md`](indicators/README.md) for the full mapping.
+[`indicators/README.md`](./04-04-00-reading-inventory.md) for the full mapping.

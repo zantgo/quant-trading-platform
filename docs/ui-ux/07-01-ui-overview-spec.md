@@ -368,6 +368,6 @@ The `camelCaseOnly` mode guarantees that `.liquidity-cluster-row` is accessible 
 
 - [UI Dashboard Layout](07-02-ui-dashboard-layout.md) — Wireframes and component placement for the 3 navbars and 2 drawers.
 - [Chart Component Map](07-03-ui-chart-component-map.md) — Per-indicator rendering destinations.
-- [Liquidity Panel Spec](07-04-ui-liquidity-panel-spec.md) — Phase 4 Liquidity Intelligence tabs (historical reference only; 07-04 is deprecated).
+- [Liquidity Panel Spec](../ui-ux/07-11-axis-visual-vocabulary.md) — Phase 4 Liquidity Intelligence tabs (historical reference only; 07-04 is deprecated).
 - [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — WS and REST consumed by the frontend.
 - [AGENTS.md](../../AGENTS.md) — Build instructions and Svelte 5 conventions.

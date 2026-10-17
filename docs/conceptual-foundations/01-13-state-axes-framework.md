@@ -353,7 +353,7 @@ The 160-reading inventory is **machine-checkable, not hand-maintained**. Every r
 its producer; readings with no single producer declare their inputs explicitly.
 
 **There is exactly one authoritative record of a reading, and it lives in the registry.** Every
-other appearance — [`inventory.md`](../state-axes-update/inventory.md), the README totals, the per-axis counts — is
+other appearance — [`inventory.md`](../engines/market-monitoring-engine/indicators/04-04-00-reading-inventory.md), the README totals, the per-axis counts — is
 **generated from it**. A second hand-maintained list is a defect, not documentation.
 
 ##### The reading record
@@ -384,7 +384,7 @@ that case.
 
 | Artifact | Generated from |
 |---|---|
-| [`inventory.md`](../state-axes-update/inventory.md) | the full reading registry |
+| [`inventory.md`](../engines/market-monitoring-engine/indicators/04-04-00-reading-inventory.md) | the full reading registry |
 | README axis counts and totals | the same registry |
 | Per-axis present/new splits | the same registry |
 
@@ -907,7 +907,7 @@ Ordered by dependency, not by size.
 | 5 | **Event lifecycle** — activation, persistence, expiration, invalidation, reactivation | [`event-lifecycle.md`](01-15-event-lifecycle.md) | Structure | 2 |
 | 6 | **Causal replay harness** — assert no field is read before its `available_at` | [`leg.md`](01-14-current-leg-record.md) §3 | all | 3, 5 |
 | 7 | **Derived readings** — rate-of-change, R², efficiency | [`framework.md`](01-13-state-axes-framework.md) §6 | Direction, Structure | 1 |
-| 8 | **New indicators** — the 84 additions | [`indicators/`](../state-axes-update/indicators/) | all | 1–7 |
+| 8 | **New indicators** — the 84 additions | [`indicators/`](../engines/market-monitoring-engine/indicators) | all | 1–7 |
 
 **Steps 1–6 require no new indicator at all.** They are retention, bookkeeping and arithmetic
 over data already held, and they are the part that is expensive to retrofit: an

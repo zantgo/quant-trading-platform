@@ -244,5 +244,5 @@ fields and are consumed by extension layers L1.5/L2.5 (fractional layers of MME)
 - [DIE Layer 4 — Data Distribution](../data-infrastructure-engine/03-01-05-die-layer4-data-distribution.md) — The `NormalizedCandle` broadcast channel.
 - [Indicators Guide](03-02-09-mme-indicators-guide.md) · [Signals Guide](03-02-10-mme-signals-guide.md)
 - [MME Layer 2 — Alignment](03-02-03-mme-layer2-alignment.md) — Direct consumer.
-- [Liquidity Extension](03-02-11-mme-liquidity-extension.md) — Derivatives telemetry.
-- [LiquidityMatrix](../../matrices/02-12-liquidity-matrix.md) · [ClusterMatrix](../../matrices/02-13-liquidation-cluster-matrix.md)
+- [Liquidity Extension](../../matrices/02-16-market-state-matrix.md) — Derivatives telemetry.
+- [LiquidityMatrix](../../matrices/02-16-market-state-matrix.md) · [ClusterMatrix](../../matrices/02-16-market-state-matrix.md)

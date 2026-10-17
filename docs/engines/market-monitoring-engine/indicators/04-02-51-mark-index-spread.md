@@ -64,5 +64,5 @@ bars_required: 1
 ## Cross-References
 
 - [Open Interest](04-02-44-open-interest.md) · [OI Delta](04-02-45-oi-delta.md) · [Funding Rate](04-02-46-funding-rate.md) — Companion derivatives-data indicators.
-- [Liquidity Domain](../../../conceptual-foundations/01-05-liquidity-domain.md) — Layer 1.5 derivatives telemetry.
+- [Liquidity Domain](../../../matrices/02-16-market-state-matrix.md) — Layer 1.5 derivatives telemetry.
 - [Signals Guide — Threshold](../signals/05-02-03-threshold.md)

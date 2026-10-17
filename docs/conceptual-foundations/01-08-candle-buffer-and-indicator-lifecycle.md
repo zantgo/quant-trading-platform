@@ -121,7 +121,7 @@ A single lifecycle could in principle cover both levels, but two separate lifecy
 - [01-06 Crate Layout & Cycles](01-06-crate-layout-and-cycles.md) — which crate owns which lifecycle.
 - [01-07 Target Architecture Roadmap](01-07-target-architecture-roadmap.md) — this refactor is **implemented**, not target.
 - [02-07 Metrics Matrix](../matrices/02-07-metrics-matrix.md) — `NormalizedIndicatorValue` shape (where `IndicatorLifecycleStatus` is now adjacent).
-- [02-12 Liquidity Matrix](../matrices/02-12-liquidity-matrix.md) — `cascade_state` orthogonal axis.
+- [02-12 Liquidity Matrix](../matrices/02-16-market-state-matrix.md) — `cascade_state` orthogonal axis.
 - [08-08 Candle Buffer](../operations-and-compliance/08-08-candle-buffer-spec.md) — see §7.
 - [03-01-06 DIE Candle Pipeline States](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md) — see §3.
 - [03-01-07 DIE Historical Fetch Policy](../engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md) — see §3.

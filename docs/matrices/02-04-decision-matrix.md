@@ -1,6 +1,8 @@
 # Decision Matrix Specification
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+> **Producer layer: Trade Automation Engine (TAE), not MME.** By CR-15 the strategy layers below are computed in `portfolio-supervisor`, not `market-analyzer`, and they are **not run or surfaced in observe mode**. This document describes code that keeps compiling; its output is strategy and has no place in the model ([01-21](../conceptual-foundations/01-21-engine-split-and-model-boundary.md) §3).
+
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer

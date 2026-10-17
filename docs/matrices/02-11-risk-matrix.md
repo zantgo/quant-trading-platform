@@ -1,6 +1,8 @@
 # Risk Matrix Specification
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+> **Producer layer: Trade Automation Engine (TAE), not MME.** By CR-15 the strategy layers below are computed in `portfolio-supervisor`, not `market-analyzer`, and they are **not run or surfaced in observe mode**. This document describes code that keeps compiling; its output is strategy and has no place in the model ([01-21](../conceptual-foundations/01-21-engine-split-and-model-boundary.md) §3).
+
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
@@ -136,7 +138,7 @@ if ATR present: score = mean(score, relative_atr)
 
 ### 4.8 Cascade Risk (baseline 30, Phase 3)
 
-Cascade risk quantifies the danger from forced liquidation cascades. It consumes the [Liquidity Matrix](02-12-liquidity-matrix.md) (`LiquidityFlow`) and the [Liquidation Cluster Matrix](02-13-liquidation-cluster-matrix.md) (`LiquidationClusterMatrix`). The derivation mirrors `crates/core-domain/src/risk.rs::assess_cascade_risk`:
+Cascade risk quantifies the danger from forced liquidation cascades. It consumes the [Liquidity Matrix](02-16-market-state-matrix.md) (`LiquidityFlow`) and the [Liquidation Cluster Matrix](02-16-market-state-matrix.md) (`LiquidationClusterMatrix`). The derivation mirrors `crates/core-domain/src/risk.rs::assess_cascade_risk`:
 
 ```
 score = baseline 30.0

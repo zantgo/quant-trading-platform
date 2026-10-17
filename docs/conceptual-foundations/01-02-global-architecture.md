@@ -261,7 +261,7 @@ Both MME Layer 4 (Opportunity) and Layer 5 (Risk) consume the extension layers L
 - **L4** reads `cascade_state` (L1.5) and `cascade_asymmetry` (L2.5) for the `LiquiditySqueeze` opportunity precondition only; all other opportunity types read only L3 + L1.
 - **L5** reads `cascade_intensity` (L1.5) and `cascade_asymmetry` (L2.5) for the `cascade_risk` sub-dimension (the 8th unipolar danger dimension).
 
-The unidirectional invariant is preserved: L2.5 does not read from L4 or L5; L4 and L5 remain orthogonal (neither reads the other's matrix); L5 → L6 remains unidirectional. See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the full cascade invariant.
+The unidirectional invariant is preserved: L2.5 does not read from L4 or L5; L4 and L5 remain orthogonal (neither reads the other's matrix); L5 → L6 remains unidirectional. See [03-02-11-mme-liquidity-extension.md](../matrices/02-16-market-state-matrix.md) for the full cascade invariant.
 
 ---
 

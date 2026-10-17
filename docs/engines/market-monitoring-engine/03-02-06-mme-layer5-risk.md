@@ -1,6 +1,8 @@
 # MME Layer 5 — Risk Layer
 
 **Version:** 11.14 (2026-10-16) — v11: execution-liquidity baseline 10, rvol_low 1.0, rvol_high 5.0 (micro-TF RVOL is structural, not danger). See docs/CHANGELOG.md for the canonical version history.
+> **Producer layer: Trade Automation Engine (TAE), not MME.** By CR-15 the strategy layers below are computed in `portfolio-supervisor`, not `market-analyzer`, and they are **not run or surfaced in observe mode**. This document describes code that keeps compiling; its output is strategy and has no place in the model ([01-21](../../conceptual-foundations/01-21-engine-split-and-model-boundary.md) §3).
+
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 5 of 7
@@ -108,6 +110,6 @@ Per-dimension scoring rules are documented in [Risk Matrix §4.8](../../matrices
 
 - [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) — Input.
 - [Risk Matrix](../../matrices/02-11-risk-matrix.md) — Output contract.
-- [LiquidityMatrix](../../matrices/02-12-liquidity-matrix.md) · [ClusterMatrix](../../matrices/02-13-liquidation-cluster-matrix.md) — Cascade inputs.
+- [LiquidityMatrix](../../matrices/02-16-market-state-matrix.md) · [ClusterMatrix](../../matrices/02-16-market-state-matrix.md) — Cascade inputs.
 - [MME Layer 6 — Decision Support](03-02-07-mme-layer6-decision-support.md) — Consumer.
 - [PME Layer 4 — Overview](../portfolio-management-engine/03-04-05-pme-layer4-overview.md) — Systemic risk consumer.

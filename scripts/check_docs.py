@@ -28,13 +28,11 @@ FENCE_RE = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
 GOVERNANCE = {"README.md", "CHANGELOG.md", "DOCS-CONSISTENCY-MANIFEST.md"}
 # Nested index documents. A sub-tree that ships its own README is a governance
 # document too, and must be named here rather than counted as a numbered doc.
-# The state-axes staging corpus (docs/state-axes-update) is folded into the
-# numbered corpus by phase P2 and erased by P15; when it is deleted these two
-# entries go with it and G2's expected governance count returns to 3.
-INDEX_FILES = {
-    "state-axes-update/README.md",
-    "state-axes-update/indicators/README.md",
-}
+# The state-axes corpus needed two such entries while it was staged under
+# docs/state-axes-update/; it was folded into this corpus in phase P2 and the
+# folder deleted, so the set is empty again. Kept as a mechanism rather than
+# removed, because the next sub-tree that ships a README will need it.
+INDEX_FILES: set[str] = set()
 EXPECTED_GOVERNANCE = len(GOVERNANCE) + len(INDEX_FILES)
 HISTORY = {"CHANGELOG.md"}
 GATE_SPEC = {"DOCS-CONSISTENCY-MANIFEST.md"}
@@ -1239,54 +1237,36 @@ def check_worked_examples():
     else:
         fail(f"{errors} worked-example errors")
 
-# ── Legacy CHECK 7: Signal Registry Tally ──────────────────────────────
-def check_signal_registry():
-    print("\n=== LEGACY CHECK 7: Signal Registry Tally ===")
-    idx = ROOT / "engines" / "market-monitoring-engine" / "indicators" / "04-02-00-indicator-index.md"
-    if not idx.exists():
-        fail("04-02-00-indicator-index.md not found")
+# ── CHECK 7: Registry-Generated Doc Drift (was: Signal Registry Tally) ───
+def check_registry_generated_docs():
+    """Fail when a registry-generated region differs from freshly generated output.
+
+    This check USED to hard-code a per-SignalKind tally (`Threshold 22`, total
+    101) and re-derive it by counting table rows. CR-6 is the record of why that
+    was insufficient: a hand-maintained count can be WRONG and still
+    arithmetically consistent, so a consistency check cannot catch it. The
+    indicator index is now generated from `IndicatorMeta` — which declares its own
+    `doc_file` — and this check is byte-equality with that generator (CR-4, CR-5).
+    A hand edit inside a generated region is drift, and drift fails the build.
+    """
+    print("\n=== CHECK 7: Registry-Generated Doc Drift ===")
+    import subprocess
+    repo = ROOT.parent
+    cmd = ["cargo", "run", "--quiet", "-p", "market-analyzer", "--bin", "registry_docs", "--", "--check"]
+    try:
+        proc = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.SubprocessError) as exc:
+        fail(f"could not run the registry_docs generator: {exc}")
         return
-    idx_text = idx.read_text()
-
-    # Per-indicator signal kinds from the table
-    # Source of truth per 04-02-00-indicator-index.md "Counts policy":
-    # the index's Signals column mirrors the registry `signal_types`
-    # manifest (crates/market-analyzer/src/indicators/registry.rs).
-    # Total 101 = post-v6.11 (v6.6 added `mark_index_spread` Threshold,
-    # v6.11 added `price_trend_sharpe`; composition re-verified
-    # 2026-08-17: Threshold 22, ZeroLineCross 13, TrendFlip 10,
-    # Crossover 10, LevelTest 14, Breakout 9, Divergence 9, BandTouch 4,
-    # CompressionRelease 4, PatternForming 3, VolumeClimax 2,
-    # StackChange 1). bbwp/squeeze Threshold rows and the aroon Crossover
-    # row are runtime-derived/declared capability — see the spec-file
-    # annotations in 04-02-27/28/36.
-    expected = {
-        "Divergence": 9, "Crossover": 10, "Threshold": 22, "Breakout": 9,
-        "BandTouch": 4, "ZeroLineCross": 13, "CompressionRelease": 4,
-        "LevelTest": 14, "TrendFlip": 10, "VolumeClimax": 2,
-        "StackChange": 1, "PatternForming": 3
-    }
-
-    # Count declarations (indicator rows that mention each SignalKind)
-    per_kind = {k: 0 for k in expected}
-    for k in expected:
-        # Only count rows that are actual indicator entries: start with | followed by a number (index)
-        pattern = rf"^\|\s*\d+\s*\|.*\b{k}\b"
-        matches = re.findall(pattern, idx_text, re.MULTILINE)
-        per_kind[k] = len(matches)
-
-    errors = 0
-    for kind, count in expected.items():
-        actual = per_kind[kind]
-        if actual != count:
-            fail(f"Signal kind {kind}: expected {count}, found {actual}")
-            errors += 1
-
-    total = sum(per_kind.values())
-    if total == 101:
-        ok(f"Signal declarations tally: {total}/101, per-kind counts verify")
-    else:
-        fail(f"Signal declarations tally: {total} (expected 101)")
+    for line in proc.stdout.splitlines():
+        if line.strip().startswith("OK:"):
+            print(f"  {line.strip()}")
+    if proc.returncode != 0:
+        for line in (proc.stderr or "").splitlines():
+            if line.strip():
+                fail(line.strip())
+        fail("registry-generated docs have drifted from the indicator registry "
+             "(run `cargo run -p market-analyzer --bin registry_docs`)")
 
 # ── Legacy CHECK 8: Enum CHECK Cross-Check (Phase 10) ──────────────────
 def check_enum_cross():
@@ -1490,7 +1470,7 @@ def main():
     check_retired_terms()
     check_section_refs()
     check_worked_examples()
-    check_signal_registry()
+    check_registry_generated_docs()
     check_enum_cross()
     check_gate_chain()
     check_endpoint_cross()
