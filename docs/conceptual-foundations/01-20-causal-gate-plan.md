@@ -1,9 +1,11 @@
 # State Axes — Agentic Execution Plan
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Cross-cutting (the model contract)
 **Spec:** revision 1.0 · **Status:** ready to execute · **Date:** 2026-10-15
 **Scope:** migrate the platform's metrics layer to the four-axis descriptive state layer defined
-in [`framework.md`](framework.md), behind a causal-replay gate.
+in [`framework.md`](01-13-state-axes-framework.md), behind a causal-replay gate.
 
 ---
 
@@ -30,15 +32,15 @@ request; it may not quietly adjust.
 
 | # | Frozen item | Where |
 |---|---|---|
-| F1 | Four axes: Direction, Momentum, Structure, Progression | [`framework.md`](framework.md) §3 |
-| F2 | Candle-only OHLCV contract | [`framework.md`](framework.md) §7 |
-| F3 | Retention tiers A/B/C/D, all bounded | [`retention.md`](retention.md) |
-| F4 | Leg record: fields, `structure_level`, `progress` arithmetic, stability transitions | [`leg.md`](leg.md) |
-| F5 | Event lifecycle: five transitions, six states | [`event-lifecycle.md`](event-lifecycle.md) |
-| F6 | Terminality vocabulary, and its separation from completion | [`framework.md`](framework.md) §5.9 |
-| F7 | Reading roles: ACCELERATION / FORCE / DIAGNOSTIC | [`framework.md`](framework.md) §5.2 |
-| F8 | Ownership / consumption / emission | [`framework.md`](framework.md) §5.7 |
-| F9 | Signal vocabulary, incl. `CenterlineCross` | [`vocabulary.md`](vocabulary.md) |
+| F1 | Four axes: Direction, Momentum, Structure, Progression | [`framework.md`](01-13-state-axes-framework.md) §3 |
+| F2 | Candle-only OHLCV contract | [`framework.md`](01-13-state-axes-framework.md) §7 |
+| F3 | Retention tiers A/B/C/D, all bounded | [`retention.md`](01-16-retention-tiers.md) |
+| F4 | Leg record: fields, `structure_level`, `progress` arithmetic, stability transitions | [`leg.md`](01-14-current-leg-record.md) |
+| F5 | Event lifecycle: five transitions, six states | [`event-lifecycle.md`](01-15-event-lifecycle.md) |
+| F6 | Terminality vocabulary, and its separation from completion | [`framework.md`](01-13-state-axes-framework.md) §5.9 |
+| F7 | Reading roles: ACCELERATION / FORCE / DIAGNOSTIC | [`framework.md`](01-13-state-axes-framework.md) §5.2 |
+| F8 | Ownership / consumption / emission | [`framework.md`](01-13-state-axes-framework.md) §5.7 |
+| F9 | Signal vocabulary, incl. `CenterlineCross` | [`vocabulary.md`](../engines/market-monitoring-engine/03-02-18-mme-state-vocabulary.md) |
 | F10 | Invariants I1–I26, L1–L18, E1–E10 | framework / leg / event-lifecycle |
 
 **Integrity check.** A phase-exit commit touches spec files only under an approved change request.
@@ -344,7 +346,7 @@ whether the harness is correct.
 
 | Item | Content |
 |---|---|
-| **MR-P** | **Progression** — ✅ **DONE**. 22 specs audited; 1 duplicate, 7 leg fields, 1 cross-axis misfiling, 1 self-contradiction. 22 → 11–13. See [`measurement-quality.md`](measurement-quality.md) §6. |
+| **MR-P** | **Progression** — ✅ **DONE**. 22 specs audited; 1 duplicate, 7 leg fields, 1 cross-axis misfiling, 1 self-contradiction. 22 → 11–13. See [`measurement-quality.md`](01-19-measurement-quality.md) §6. |
 | **MR-D** | **Direction** — 50 readings, highest density. Audit for smoothing variants of one quantity. |
 | **MR-M** | **Momentum** — enforce the `role` rule: diagnostics must not enter the axis value. |
 | **MR-S** | **Structure** — event *quality* over event *count*; also the next axis at risk of `field`-category error. |
@@ -379,7 +381,7 @@ whether the harness is correct.
 | **W2.7** | Revision log — bounded; `target_version` and `structure_version` **monotonic and disjoint**; `stage`/`progress`/`target_stable` **carry no counter** (L26) |
 | **W2.8** | Stage classification — ordinal, from `progress`; blocked while `target_stable = false`; withheld while `unviable` or `provisional` |
 | **W2.9** | Tier D exclusion from the byte budget — no charge, no eviction path (**T2**, **L24**) |
-| **T2.x** | **G1, G3, G4, G5, G6, G7, G13** written from [`leg.md`](leg.md), before W2 runs |
+| **T2.x** | **G1, G3, G4, G5, G6, G7, G13** written from [`leg.md`](01-14-current-leg-record.md), before W2 runs |
 | **RV2** | Adversarial: any read of an unconfirmed origin? Any fabricated movement? Any forced stability? Is the floor frozen? Is the rank threshold frozen? Does anything publish a stage for an `unviable` or `provisional` leg? Does reclassification leak into `target_version`? Can budget pressure reach a Tier D record? |
 | **VC gate** | **G1, G3, G4, G5, G6, G7, G13 green** + M3 M4 M5 M7 detected |
 | **Exit** | Every L1–L24 invariant observable at runtime; leg behaviour matches all three worked examples (`leg.md` §8.1–8.3); CR-1–CR-4 landed |
@@ -398,7 +400,7 @@ whether the harness is correct.
 | **W3.5** | Reactivation — **new** identity + `supersedes`. No record is ever revived. |
 | **W3.6** | Three-count export — active / retained / emit, never conflated |
 | **W3.7** | Tier C journal bound — count **and** age, independent of validity |
-| **T3.x** | **G8, G9** written from [`event-lifecycle.md`](event-lifecycle.md) |
+| **T3.x** | **G8, G9** written from [`event-lifecycle.md`](01-15-event-lifecycle.md) |
 | **RV3** | Adversarial: can an expired event be counted? Is reactivation reviving anything? Is the bound count-only anywhere? |
 | **VC gate** | **G8 + G9 green** |
 | **Exit** | Only `active` counts. A bounded journal holding 200 expired events reports active count 0 |
@@ -416,7 +418,7 @@ whether the harness is correct.
 | **W4.4** | Terminality — `continuation_supported` / `indeterminate` / `termination_evidence`, from completion criteria only |
 | **W4.5** | Terminality ⟂ completion — separate outputs; `termination_evidence` never closes a leg |
 | **W4.6** | Regime reserved · Confidence reserved — named, scoped, non-axis, non-smuggled |
-| **T4.x** | **G10, G11** written from [`framework.md`](framework.md) §5.7–5.9 |
+| **T4.x** | **G10, G11** written from [`framework.md`](01-13-state-axes-framework.md) §5.7–5.9 |
 | **RV4** | Adversarial: is any indicator double-counted? Does terminality leak into stage? Is Regime leaking onto an axis? |
 | **VC gate** | **G10 + G11 green** |
 | **Exit** | One divergence consumed by three axes counts **once** |
@@ -445,7 +447,7 @@ whether the harness is correct.
 | Item | Content |
 |---|---|
 | **Entry** | **Hard gate.** P5 report green on all three categories. No exceptions, no partial entry. |
-| **W6.1–W6.6** | Admit the 84 readings **by target axis**, in batches. Each batch: spec already exists in [`indicators/`](indicators/) |
+| **W6.1–W6.6** | Admit the 84 readings **by target axis**, in batches. Each batch: spec already exists in [`indicators/`](../state-axes-update/indicators/) |
 | **Rule** | New readings enter through **normalisation → family aggregation → axis testing**. They may not alter any contract in F1–F10 to accommodate themselves |
 | **RV6** | Reject any batch that requires a contract change. That is a change request, not a feature |
 | **VC gate** | Per batch: existing 13 gates stay green **plus** incremental-information test (§5.8 stage 4) |
@@ -475,7 +477,7 @@ One row per gate. This is the table that decides the verdict.
 
 > **Result is filled only by VC, after the gate has actually executed against production logic.**
 > Every row below is currently unchecked because **no implementation exists**. An unchecked row
-> is an unrun test, not a passing one. See [`verification-status.md`](verification-status.md).
+> is an unrun test, not a passing one. See [`verification-status.md`](01-18-verification-status.md).
 
 | Gate | Verifies | Phase | Test artifact | Command | Expected | Result |
 |---|---|---|---|---|---|---|
@@ -590,7 +592,7 @@ build the machinery. It becomes an exit condition for **P5**, alongside G1–G13
 | **V-4** Reproducible evidence | Report bound to a commit, spec, harness, fixtures, mutations | ⬜ not applicable |
 
 **A V-1 result never implies V-2.** Full status and the one declared gap:
-[`verification-status.md`](verification-status.md).
+[`verification-status.md`](01-18-verification-status.md).
 
 ### 8.1 G2's four futures are independent fixtures
 
@@ -818,10 +820,10 @@ permitted in place of these decisions.**
 
 | # | Item | Decision | Recorded in | Lands before |
 |---|---|---|---|---|
-| **R1** | Spec Tier A = 250; registry declares `INDICATORS_MAX_BARS_REQUIRED = 300`. Do both govern the same resource? | **Same resource, different tiers.** Tier A → **300 bars**. The registry is **not** lowered — an existing assertion already locks it to the real maximum. | [CR-1](change-requests.md#cr-1--r1-tier-a-vs-the-indicators-calculation-floor) → `retention.md` **T1** | P2 exit |
-| **R2** | `history_budget.rs` evicts to a 50-entry floor. Which resource, and does it touch Tier D? | The floor is an **eviction floor on Tier B**. **Tier D is never evicted.** Eviction is **lifecycle-neutral** — a storage event may never produce a semantic claim. | [CR-2](change-requests.md#cr-2--r2-history_budget-vs-tier-b-and-tier-d) → `retention.md` **T2 T3**, `leg.md` **L24** | P2 exit |
-| **R3** | `candle_buffer.size` = 500 and Tier B = 500. Same knob? | **Separate settings.** Coincident defaults are permitted; a shared knob is not. A violating config is rejected at load, not clamped. | [CR-3](change-requests.md#cr-3--r3-candle_buffersize-vs-tier-b) → `retention.md` **T4 T5** | P2 exit |
-| **R4** | 76 readings map to 52 shipped indicators. Is the mapping machine-checkable? | **No** — `IndicatorMeta` has no readings field today. The **registry becomes authoritative**; every reading declares a producer or explicit `derived_from`. | [CR-4](change-requests.md#cr-4--r4-76-readings-mapped-to-52-shipped-indicators) → `framework.md` **I27–I32** | **P1** — G11 cannot test double-counting without it |
+| **R1** | Spec Tier A = 250; registry declares `INDICATORS_MAX_BARS_REQUIRED = 300`. Do both govern the same resource? | **Same resource, different tiers.** Tier A → **300 bars**. The registry is **not** lowered — an existing assertion already locks it to the real maximum. | [CR-1](01-17-change-requests.md#cr-1--r1-tier-a-vs-the-indicators-calculation-floor) → `retention.md` **T1** | P2 exit |
+| **R2** | `history_budget.rs` evicts to a 50-entry floor. Which resource, and does it touch Tier D? | The floor is an **eviction floor on Tier B**. **Tier D is never evicted.** Eviction is **lifecycle-neutral** — a storage event may never produce a semantic claim. | [CR-2](01-17-change-requests.md#cr-2--r2-history_budget-vs-tier-b-and-tier-d) → `retention.md` **T2 T3**, `leg.md` **L24** | P2 exit |
+| **R3** | `candle_buffer.size` = 500 and Tier B = 500. Same knob? | **Separate settings.** Coincident defaults are permitted; a shared knob is not. A violating config is rejected at load, not clamped. | [CR-3](01-17-change-requests.md#cr-3--r3-candle_buffersize-vs-tier-b) → `retention.md` **T4 T5** | P2 exit |
+| **R4** | 76 readings map to 52 shipped indicators. Is the mapping machine-checkable? | **No** — `IndicatorMeta` has no readings field today. The **registry becomes authoritative**; every reading declares a producer or explicit `derived_from`. | [CR-4](01-17-change-requests.md#cr-4--r4-76-readings-mapped-to-52-shipped-indicators) → `framework.md` **I27–I32** | **P1** — G11 cannot test double-counting without it |
 
 > **CR-4 is not a P6 item.** It was scheduled for P6 and is now scheduled ahead of the gates that
 > consume reading identity. Ordering note, not a scope change.

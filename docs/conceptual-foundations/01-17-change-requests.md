@@ -1,6 +1,8 @@
 # Change Requests
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Cross-cutting (the model contract)
 
 The formal process for amending a frozen item. Nothing here is an implementation exception —
 each CR carries a decision, the evidence it was decided on, and the exact spec text it produces.
@@ -14,10 +16,22 @@ each CR carries a decision, the evidence it was decided on, and the exact spec t
 | [CR-5](#cr-5--the-registry-is-the-only-source-of-reading-totals) | The registry is the only source of reading totals | **Accepted** | F1, `inventory.md`, `README.md` | **Displayed totals are generated.** Hand-maintained copies are a defect; drift fails the build. |
 | [CR-6](#cr-6--inventory-revision-162--160-record-of-a-removal-that-was-never-recorded) | Inventory revision 162 → 160 | **Accepted — retroactive record** | F1, `inventory.md` | **One duplicate reading removed from two rows.** 162 / 76 / 86 → **160 / 76 / 84**. |
 | [CR-7](#cr-7--direction-persistence-had-no-producer-on-its-own-axis) | Direction's persistence had no producer | **Accepted** | F1, F7, `visual-vocabulary.md`, inventory | **Persistence is an axis-level derived output**, not a reading. The similarly-named Momentum reading is renamed to remove the collision. |
+| **CR-8** | Causal-gate identifier namespace | **Accepted** | `execution-plan.md` §13.1 | Causal gates are **CG1–CG13**. `scripts/check_docs.py` already owns `G1–G20`; §13.1 forbids one prefix naming two things. |
+| **CR-9** | `SignalKind::Threshold` vs the frozen `CenterlineCross` | **Accepted** | F9 | **`Threshold` stays.** The zero-cross-vs-centre-cross rule becomes a usage rule in `03-02-18`, not a 13th variant. |
+| **CR-10** | Candle-only purge scope | **Accepted** | F2, [08-10](../operations-and-compliance/08-10-candles-only-charter.md) | Purge the 8 non-candle readings **and** L2.5 and the order-book *readings*. **Keep** the order-book channel as the sub-minute price source. |
+| **CR-11** | The word *regime* inside the layer | **Accepted** | F1, `I22` | Banned in the model. `IndicatorGroup::Regime` re-filed; `MarketRegime` + `MarketPhase` collapse into `diagnostics`. |
+| **CR-12** | CR-4's "52 shipped indicators" | **Accepted** | F1 | Corrected to **44** — 52 minus the 8 non-candle readings removed by CR-10. |
+| **CR-13** | One history cap | **Accepted — supersedes CR-3** | F3, [01-16](01-16-retention-tiers.md) | **One cap: 500.** Every other bound deleted; `candle_buffer.size` is no longer a setting. CR-3's "separate settings" is withdrawn. |
+| **CR-14** | `AnalysisMatrix` vs `AlignmentMatrix` | **Accepted** | F1, [01-21](01-21-engine-split-and-model-boundary.md) | **`AnalysisMatrix` dissolved.** `AlignmentMatrix` is the only cross-duration view, one row per axis. |
+| **CR-15** | `MarketState` is MME's sole output | **Accepted** | F1, F8 | Strategy leaves MME and the observe surface. CLI ↔ UI parity by construction. |
+| **CR-16** | The measurement-quality audit is unapplied | **Accepted** | F1, [01-19](01-19-measurement-quality.md) | Verdicts resolve **before** implementation (MR-3). Totals become generator-computed, never hand-stated. |
+| **CR-17** | The 44 *present* indicator specs duplicate the registry | **Accepted** | F1, F3 | Present specs are **subsumed** by the registry and the generated index. Only the 78 new specs become new files. |
 
 **Ordering constraint.** CR-4 and CR-5 are consumed by test infrastructure and must land before
-the gates that depend on reading identity or its totals. CR-1–CR-3 must land before **P2** exits.
-CR-6 is a record of an already-applied change and carries no ordering constraint.
+the gates that depend on reading identity or its totals. CR-1, CR-2 and CR-13 must land before the
+leg-record phase exits. CR-9–CR-12 and CR-17 must land before the candle-only purge starts.
+CR-13 supersedes CR-3. CR-6 is a record of an already-applied change and carries no ordering
+constraint. CR-8 must land before any gate test file is written.
 
 ---
 
@@ -30,7 +44,7 @@ Tier A is specified as **250 bars**. The registry declares
 
 ### Evidence
 
-The existing code already answers this, in [`retention.md`](retention.md)'s own territory:
+The existing code already answers this, in [`retention.md`](01-16-retention-tiers.md)'s own territory:
 
 > "The three candle numbers are **independent tiers**: `INDICATORS_MAX_BARS_REQUIRED = 300`
 > (indicator calculation floor), this `size` (default **500**, the internet warmup), and
@@ -125,8 +139,8 @@ This was the substance of the finding. They differ in kind, not merely in size:
 |---|---|---|---|
 | Raw candles | Input | Yes, by the rolling buffer | `candle_buffer.size` |
 | Retained snapshots | Derived output | Yes — Tier B | `history_budget` |
-| Event journal | Derived output | Yes, within count **and** age | `history_budget` + [`event-lifecycle.md`](event-lifecycle.md) |
-| **Current leg records** | **Live state** | **NEVER** | [`leg.md`](leg.md) only |
+| Event journal | Derived output | Yes, within count **and** age | `history_budget` + [`event-lifecycle.md`](01-15-event-lifecycle.md) |
+| **Current leg records** | **Live state** | **NEVER** | [`leg.md`](01-14-current-leg-record.md) only |
 
 ### The decision
 
@@ -204,7 +218,7 @@ A configuration violating this is rejected at load, not silently clamped.
 
 **It has no `readings` field.** Verified: `axes`, `owner_axis`, `axis_codes` do not appear in
 `registry.rs` at all; `readings` appears only inside prose comments. The 160-reading inventory in
-[`inventory.md`](inventory.md) is therefore **maintained by hand and not machine-checkable**.
+[`inventory.md`](../state-axes-update/inventory.md) is therefore **maintained by hand and not machine-checkable**.
 
 ### The decision
 
@@ -226,7 +240,7 @@ from count.
 
 | # | Rule |
 |---|---|
-| **I27** | Every reading in [`inventory.md`](inventory.md) resolves to a declared producer **or** an explicit `derived_from` list. No orphans. |
+| **I27** | Every reading in [`inventory.md`](../state-axes-update/inventory.md) resolves to a declared producer **or** an explicit `derived_from` list. No orphans. |
 | **I28** | Reading IDs are **stable and never renumbered**. A retired reading is tombstoned, not reused. |
 | **I29** | Every producer key referenced by a reading exists in `INDICATORS`, or is a declared derived-composite. Dangling references fail. |
 | **I30** | A reading's owner axis is one of its declared axes. Ownership is single; consumption is many (F8). |
@@ -253,7 +267,7 @@ displayed across the documentation, or may a second inventory restate them?
 
 ### The finding
 
-Today it does not. [`inventory.md`](inventory.md) holds 160 hand-maintained rows, and the README,
+Today it does not. [`inventory.md`](../state-axes-update/inventory.md) holds 160 hand-maintained rows, and the README,
 the framework and the plan each restate totals independently. Nothing ties them together — which
 is precisely how the earlier hand-maintained inventory came to disagree with the registry in the
 first place. Making the registry authoritative for *identity* while leaving the *totals*
@@ -266,7 +280,7 @@ hand-maintained fixes the smaller half of the problem.
 | Artifact | Status |
 |---|---|
 | The reading registry | **Authoritative** |
-| [`inventory.md`](inventory.md) | **Generated** — never hand-edited |
+| [`inventory.md`](../state-axes-update/inventory.md) | **Generated** — never hand-edited |
 | README axis counts, totals, present/new splits | **Generated** |
 | Per-axis reading tables in `framework.md` | **Generated** |
 
@@ -379,7 +393,7 @@ their normative definitions, and no reading is removed here.
 > **The exact normative formulas decide which applies — never a desire to reduce a count.** Only
 > the first pair was identical. The second is a signed/unsigned pair answering different questions.
 
-Recorded in [`framework.md`](framework.md) §5.2, *Known equivalences*.
+Recorded in [`framework.md`](01-13-state-axes-framework.md) §5.2, *Known equivalences*.
 
 ### Why this needed a CR at all
 
@@ -417,7 +431,7 @@ axis claims.
 ### Zero-denominator validity for the efficiency family (CR-6 addendum)
 
 `PE = sign(N) · ER` holds only when `D > 0`. The degenerate case is specified in
-[`leg.md`](leg.md) §4.0 for `progress`; the same rule is adopted for both efficiency readings:
+[`leg.md`](01-14-current-leg-record.md) §4.0 for `progress`; the same rule is adopted for both efficiency readings:
 
 | Condition | Result |
 |---|---|
@@ -598,7 +612,292 @@ implementation it would be a breaking change for no benefit.
 
 | File | Change |
 |---|---|
-| [`retention.md`](retention.md) | Tier A 250 → **300**; tier chain invariant; §byte-budget-governs; §independent settings; invariants **T1–T5** |
-| [`framework.md`](framework.md) | Invariants **I27–I32**; registry authority; family-by-default rule |
-| [`leg.md`](leg.md) | Tier D is never evicted (**T2** cross-reference); scale classification causality; invariants **L19–L22** |
-| [`execution-plan.md`](execution-plan.md) | CR-4 before identity-dependent gates; CR-1–3 before P2 exit |
+| [`retention.md`](01-16-retention-tiers.md) | Tier A 250 → **300**; tier chain invariant; §byte-budget-governs; §independent settings; invariants **T1–T5** |
+| [`framework.md`](01-13-state-axes-framework.md) | Invariants **I27–I32**; registry authority; family-by-default rule |
+| [`leg.md`](01-14-current-leg-record.md) | Tier D is never evicted (**T2** cross-reference); scale classification causality; invariants **L19–L22** |
+| [`execution-plan.md`](01-20-causal-gate-plan.md) | CR-4 before identity-dependent gates; CR-1–3 before P2 exit |
+
+---
+
+## CR-8 — Causal-gate identifier namespace
+
+### The conflict
+
+[01-20](01-20-causal-gate-plan.md) §13.1 fixes `G` as the namespace for **causal replay gates**
+(G1–G13) and states that *no prefix may name more than one kind of thing*. The same prefix is
+already taken, system-wide, by the documentation gate: `scripts/check_docs.py` implements
+G1–G20, and `AGENTS.md` and the CHANGELOG cite them by name ("enforced by `test-doc` gate G18").
+
+Two meanings for `G14` in one repository is precisely the collision §13.1 forbids.
+
+### The decision
+
+**The causal gates are renamed `CG1`–`CG13`** ("causal gate"). The documentation gate keeps
+`G1`–`G20` unchanged: it is referenced from the CHANGELOG, from `AGENTS.md`, and from
+`DOCS-CONSISTENCY-MANIFEST.md`, and rewriting it would invalidate published history to fix a
+forward-looking naming clash.
+
+Renaming an established series is not free, so the corpus §13.1 rule applies in the other
+direction: the **new** identifier yields, not the established one.
+
+### Spec text produced
+
+[01-20](01-20-causal-gate-plan.md) — every gate reference, the mutation table, the milestone
+table, and §13.1's namespace table.
+
+---
+
+## CR-9 — `SignalKind::Threshold` vs the frozen `CenterlineCross`
+
+### The conflict
+
+F9 freezes the signal vocabulary *including* `CenterlineCross`. The shipped code has no such
+variant: `core-domain/src/indicator_dtos.rs:17-30` declares twelve kinds, and the twelfth slot
+is `Threshold`. `grep -rn CenterlineCross crates/ ui/src/` returns nothing.
+
+The distinction the corpus draws is real and worth keeping as guidance — `ZeroLineCross` is
+only meaningful on a genuinely zero-centred series, and firing it on a bounded oscillator
+produces an event that can never fire, or fires at a meaningless level.
+
+### The decision
+
+**`Threshold` keeps its name.** The distinction becomes a **usage rule**, recorded in
+[03-02-18](../engines/market-monitoring-engine/03-02-18-mme-state-vocabulary.md): *never emit `ZeroLineCross` on a bounded
+oscillator; use `Threshold` at its named centre.*
+
+Two reasons the rename is not taken:
+
+1. `SignalKind` is a serialised enum in stored telemetry and in every DS export. Renaming a
+   variant is a data-format change with a migration, for no behavioural gain.
+2. Renaming `Threshold` → `CenterlineCross` would be **semantically wrong** for the majority of
+   its uses: many threshold signals fire at a level, not at a centre (a band width, a
+   magnitude floor, an extreme-volume multiple). The corpus's name fits its own examples, not
+   the field's real contents.
+
+### Spec text produced
+
+[03-02-18](../engines/market-monitoring-engine/03-02-18-mme-state-vocabulary.md) — the usage rule. The twelve kinds are unchanged.
+
+---
+
+## CR-10 — Candle-only purge scope
+
+### The question
+
+Rule **CH-1** requires that no non-OHLCV feed reaches a reading. The question is *how far the
+purge reaches* into a platform that is built on three such feeds.
+
+### The evidence
+
+| Subsystem | Lines | Feed | Reproducible from a candle archive? |
+|---|---|---|---|
+| 8 non-candle indicators | 970 | OI, funding, mark/index, order book | no |
+| `core-domain/liquidity/` (L2.5) | 2,781 | forced closes | no |
+| cluster-refresh + derivatives poller | 861 | OI, funding | no |
+| derivatives WS arms + REST | ~750 | OI, funding, liquidations | no |
+| **order-book channel** | — | bid/ask book | **the live price for sub-minute candles** |
+
+### The decision
+
+1. **The 8 non-candle readings are deleted** — backend, frontend, tests, docs.
+2. **L2.5 Liquidity Intelligence is deleted** in full: the flow accumulator, the cluster
+   estimator, the cascade signals, the heatmap, the DB tables, the UI panel.
+3. **The order-book channel is KEPT**, because it is the *price source* for sub-minute
+   durations, which have no REST fallback (HFP-03). A candle constructed from a live book is
+   still a candle: the construction method is ingestion, not a reading. Removing it would
+   change every sub-minute bar's OHLC — a correctness regression, not a simplification.
+4. `mid_price` stays on the wire for the same reason. The raw book fields
+   (`bid_price`/`ask_price`/`bid_size`/`ask_size`) are dropped once nothing consumes them.
+5. Nothing derived from the book may reach a reading, an axis, or a layer. Enforced by
+   `candle_purity.rs`, which walks every reading's `derived_from` graph to its roots.
+
+### The substitute
+
+[08-10](../operations-and-compliance/08-10-candles-only-charter.md) §4 records the candle
+substitutes for each removed capability. The level geometry the cluster estimator contributed
+becomes **state bands** — volume-profile bins, POC/VAH/VAL, swing extremes — published as
+`levels.state_bands` in `MarketState`, which is a **model** output. The old code published a
+market measurement inside a *strategy* matrix; moving it fixes the layer placement as well as
+the data source.
+
+---
+
+## CR-11 — The word *regime*
+
+### The conflict
+
+`I22` bans *regime* for any axis, reading, or diagnostic, because in the quantitative
+literature it names a **latent, persistent, inferred** state — the opposite of this layer's
+directly-observed one. The shipped code uses the word in four places: `IndicatorGroup::Regime`
+(five members), `AnalysisMatrix.market_regime`, an alignment dimension, and
+`check_docs.py`'s `PASCAL_WIRE` exemption list.
+
+### The decision
+
+1. The ban applies **inside the model**, and is enforced from P3.
+2. `IndicatorGroup::Regime`'s five members (aroon, choppiness, linreg-slope, z-score,
+   price-trend-sharpe) are **re-filed** to the group they actually measure; the corpus files
+   all five under Momentum.
+3. `MarketRegime` (8 states) and `MarketPhase` (5 Wyckoff states) are **dissolved into one
+   four-state diagnostic** — `Chopping` · `Expanding` · `Settling` · `Coiling` — which is
+   `framework.md` §5.5's Volatility × Participation diagnostic. Two enums that disagreed on the
+   meaning of the word *Accumulation* collapse into one that does not use it.
+4. A genuine latent-state layer, if ever built, takes the name and lives downstream.
+
+---
+
+## CR-12 — CR-4's "52 shipped indicators"
+
+CR-4's title counted 52 shipped indicators. After CR-10 removes the 8 non-candle readings the
+count is **44**, and the corpus's `present/` tree already has exactly 44 files. The corrected
+count is **44**, and the registry's cardinality test changes from 52 to 44 in the same commit
+that removes the entries.
+
+---
+
+## CR-13 — One history cap: 500 (supersedes CR-3)
+
+### The question
+
+The workspace carries **four** different retention numbers:
+
+| Quantity | Value | Question it answers |
+|---|---|---|
+| `INDICATORS_MAX_BARS_REQUIRED` | 300 | how many bars must an indicator receive before it may emit |
+| `DEFAULT_BUFFER_SIZE` / `candle_buffer.size` | 500 | how deep is the warmup fetch |
+| `HIST_BUFFER_MAX` | 1000 | the absolute in-memory cap |
+| `SNAPSHOT_HISTORY_MAX` | 1000 | the retained-snapshot ceiling |
+
+Two of them are 1000. CR-3 ruled that `candle_buffer.size` and `Budget.retention` are separate
+settings with coincidentally equal defaults. An operator reading a config that says "500" has
+no way to know that two other ceilings sit at 1000, or which one binds first.
+
+### The decision
+
+**One cap: 500, and only one.**
+
+| Change | Detail |
+|---|---|
+| `HISTORY_CAP: usize = 500` | the single source, in `core-domain`, with **no configuration override** |
+| `HIST_BUFFER_MAX` (1000) | **deleted** |
+| `SNAPSHOT_HISTORY_MAX` (1000) | **deleted** |
+| `candle_buffer.size` | **deleted as a setting** — the cap is not operator-tunable |
+| `Budget.retention` | derives from `HISTORY_CAP` |
+| Tier A (300) | remains, as a **window inside** the 500, not a cap |
+| The 50-entry eviction floor | remains, as an eviction floor on the retained window |
+| Tier D (leg records) | remains, never charged and never evicted |
+
+**Every duration is capped at 500, sub-minute included.** A 1s pipeline retains 500 one-second
+candles; a 4h pipeline retains 500 four-hour candles. When the cap is reached the oldest is
+evicted, and the window is exactly 500.
+
+CR-3 is **withdrawn**: "coincident defaults are not identity" was the right call when two
+settings answered two different questions, but the decision to have no operator-tunable cap at
+all removes the question.
+
+---
+
+## CR-14 — `AnalysisMatrix` dissolved; `AlignmentMatrix` is the only cross-duration view
+
+### The evidence
+
+`AnalysisMatrix` (`core-domain/src/analysis.rs:346`) documents its own five numeric fields as
+*"the exact 0-100 **alignment dimension** scores each qualitative assessment is bucketed from
+… L3-owned, **derived from L2** during `derive_analysis`"* (`analysis.rs:365-370`).
+
+So `AnalysisMatrix.trend_score` **is** `AlignmentMatrix.dimensions[trend].score`, and likewise
+for momentum, structure, volatility and volume. Analysis is Alignment plus labels plus two
+extra classification enums plus prose.
+
+| `AnalysisMatrix` field | Disposition |
+|---|---|
+| `bias`, `market_bias_score` | → the Direction ladder aggregate |
+| the five `*_assessment` enums | → the four axes (they were buckets of the same scores) |
+| the five `*_score` fields | **deleted** — duplicates of Alignment's scores |
+| `market_regime` (8), `market_phase` (5) | → one four-state `diagnostics` block (CR-11) |
+| `market_quality`, `market_quality_score` | **deleted** — a score-of-scores is a confidence claim (`I1`, `I9`) that no gate can falsify |
+| `state_confidence`, `confidence` | **deleted** — replaced by per-axis `readiness` plus State Consensus / State Stability |
+| `market_interpretation`, `rationale` | **deleted** — free prose cannot be verified by any gate |
+| `supporting_signals`, `contradicting_signals` | kept, as **typed canonical event IDs** rather than `Vec<String>` |
+
+### The decision
+
+**`AnalysisMatrix` is dissolved.** It exists in no backend type, no UI panel and no CLI
+document. Its per-duration character becomes the axes; its cross-duration verdict becomes the
+ladder; its two classification enums become the diagnostic.
+
+**`AlignmentMatrix` survives** as the only cross-duration view, with **one row per axis**
+replacing the ten dimensions, so the ladder speaks the same vocabulary as a single duration.
+The Analysis tab is deleted from the frontend; the States tab is a **new** tab, not a rename.
+
+Nothing is lost that was unique: every field either had a home already, was a duplicate, or
+was a claim the framework forbids.
+
+---
+
+## CR-15 — `MarketState` is MME's sole output; strategy leaves the observe surface
+
+### The decision
+
+1. **MME emits exactly one type: `MarketState`**, per `(instance, duration)`, plus one
+   `LadderView` per instance. The nine-block payload envelope becomes two.
+2. **Strategy computation moves out of `market-analyzer`** into `portfolio-supervisor`, which
+   already depends on it — so the move needs no crate inversion. Types stay in `core-domain`.
+3. **Observe mode does not run the TAE loop.** The old "ghost evaluation" produced a verdict
+   with no consumer; it is removed rather than left running.
+4. **The legacy terminal monitor is deleted.** Two presentations of one data set is a parity
+   violation, and it printed strategy fields.
+5. **CLI ↔ UI parity holds by construction**: one `AppState`, one `StatesView`, two renderers.
+6. **The recommendation layer, including `strength_pct`, is deferred** to a future TAE phase.
+   It is strategy, and strategy is not selectable in this release.
+
+The boundary is enforced by four mechanical checks, not by prose — see
+[01-21](01-21-engine-split-and-model-boundary.md) §5.
+
+---
+
+## CR-16 — The measurement-quality audit must be applied before implementation
+
+[01-19](01-19-measurement-quality.md) §6 records a **completed, measured** audit of the 22
+Progression specifications: one confirmed duplicate, **seven leg-record fields presented as
+readings**, one derived-from-another-reading, one wrong-axis filing, and one self-contradiction
+— reducing 22 specs to 11–13. Rule **MR-3** requires `FIELD` and `MOVE` verdicts to be resolved
+**before** a reading is implemented.
+
+Implementing first would build eleven readings that must then be deleted, and would re-introduce
+exactly the defect the audit names: *"the dominant failure mode on a record-based axis is a
+field promoted into a reading."*
+
+### The decision
+
+**CR-16 is applied before the inventory phase opens.** The verdicts are resolved, the affected
+specifications are re-filed or removed, and **the remaining totals are computed by the
+generator rather than hand-stated.** The published 160 / 76 / 84 figures become "whatever the
+registry says", which is the only form that cannot drift.
+
+---
+
+## CR-17 — The 44 *present* indicator specs are subsumed by the registry
+
+### The conflict
+
+The corpus ships 44 *present* indicator specifications, one per candle-only indicator, each
+carrying a header table (status · axis coverage · retention tier · data source) plus formula,
+signals, divergence and notes. The numbered corpus **already carries 52 implementation specs**
+for the same indicators (`04-02-01…52`), under a different convention, with the formula,
+normalisation, signals, scoring and configuration.
+
+Merging them would duplicate the same prose twice with two conventions and two places to drift.
+
+### The decision
+
+**The 44 present specs are not merged.** Their unique content — which axis each reading serves,
+its tier, its role, its family — is exactly what **CR-4** requires the registry to carry, and
+what **CR-5** requires the generated index to render. The axis mapping therefore lives in the
+registry and the index, not in 44 parallel prose files.
+
+**The 78 new specs do become files**, in a new `04-03-` series, because they describe
+indicators that do not exist yet and have no other home.
+
+Both trees are organised differently on purpose, and the index states which is which: *present*
+by what the indicator measures, *new* by the axis it will serve.

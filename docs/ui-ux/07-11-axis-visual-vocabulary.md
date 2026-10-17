@@ -1,6 +1,8 @@
 # Visual Vocabulary
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Cross-cutting (the model contract)
 
 How the four axes are rendered. This document is normative — the rules in §7 are invariants,
 not guidance.
@@ -140,7 +142,7 @@ backwards. That is why its flag is the one most likely to fire.
 > quantities at different granularities - section 9 aggregates Direction across the ladder but
 > renders Momentum per duration, so the two are not even computed at the same level. Full
 > definition, and the name collision this previously had:
-> [`change-requests.md`](change-requests.md) **CR-7**.
+> [`change-requests.md`](../conceptual-foundations/01-17-change-requests.md) **CR-7**.
 
 > **The raw count never drives the radius.** **V3** requires every rendered size to be a
 > percentile against its own history. The raw bar count is the honest *measurement*; the
@@ -291,7 +293,7 @@ be revised backwards, and the reference target ratchets outward as the movement 
 
 **Three axes reduce to a single number across the ladder. One does not** — Progression is ordinal, and averaging them produces a state that does not exist. Their legal
 aggregate is the **distribution**, not a mean. Full rule table in
-[`framework.md`](framework.md) §5.6.
+[`framework.md`](../conceptual-foundations/01-13-state-axes-framework.md) §5.6.
 
 ---
 

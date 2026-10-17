@@ -1,6 +1,8 @@
 # Retention Policy
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Cross-cutting (the model contract)
 
 Every indicator needs history before any rate, percentile, or second-order reading can be
 computed from it. This document defines how much, and — more importantly — the bound on each
@@ -10,7 +12,7 @@ tier.
 
 A bound alone is not sufficient. It answers *how much do we keep* but not *when does a stored
 event stop being true*. That second question is a **lifecycle** and is specified separately in
-[`event-lifecycle.md`](event-lifecycle.md). The two are independent: a journal can sit inside
+[`event-lifecycle.md`](01-15-event-lifecycle.md). The two are independent: a journal can sit inside
 its count and age bounds and still contain nothing but expired events.
 
 ---
@@ -25,7 +27,7 @@ its count and age bounds and still contain nothing but expired events.
 | **D** | Current state only | **O(1) — one record** | Movement origin, leg geometry, reference target |
 
 Tiers A and B are bounded by **storage** only. Tiers C and D are bounded by storage **and** carry
-a **validity lifecycle** — [`event-lifecycle.md`](event-lifecycle.md) and [`leg.md`](leg.md)
+a **validity lifecycle** — [`event-lifecycle.md`](01-15-event-lifecycle.md) and [`leg.md`](01-14-current-leg-record.md)
 respectively.
 
 ### The tier chain
@@ -48,7 +50,7 @@ INDICATORS_MAX_BARS_REQUIRED (300) <= TIER_A (300) <= BUDGET.retention (500)
 | `HIST_BUFFER_MAX` | What is the absolute in-memory **cap**? | 1000 |
 
 > **Tier A was 250 bars and was corrected to 300.** See
-> [`change-requests.md`](change-requests.md) CR-1. Tier A at 250 sat **below** the indicator
+> [`change-requests.md`](01-17-change-requests.md) CR-1. Tier A at 250 sat **below** the indicator
 > calculation floor: an indicator consuming 300 bars could emit, but only 250 survived retention,
 > so its percentile was ranked against a sample shorter than its own input window. The registry
 > requirement was **not** lowered — an existing assertion already locks
@@ -82,7 +84,7 @@ leg, replaced wholesale when a new leg begins. The old record is discarded, not 
 ## Tier D in detail
 
 Tier D is what the entire Progression axis is built on. Its full field contract, version
-discipline, arithmetic and state machine are specified in [`leg.md`](leg.md).
+discipline, arithmetic and state machine are specified in [`leg.md`](01-14-current-leg-record.md).
 
 | Field | Purpose |
 |---|---|
@@ -107,7 +109,7 @@ Roughly **thirteen scalar fields per instrument per duration per structural leve
 bounded revision log for the reference target.
 
 > **Tier D holds one record per structural level.** With the two levels defined in
-> [`leg.md`](leg.md) §2.5 that is **two records per instrument per duration** — stated here
+> [`leg.md`](01-14-current-leg-record.md) §2.5 that is **two records per instrument per duration** — stated here
 > explicitly so the multiplier is never discovered later. The level set is fixed and small, so
 > the O(1) guarantee holds. An open-ended level hierarchy would make Tier D unbounded and break
 > invariant **I10**.
@@ -127,8 +129,8 @@ resource, and the four resources below differ in kind, not merely in size.
 |---|---|---|---|
 | Raw candles | Input | Yes — the rolling buffer | `candle_buffer.size` |
 | Retained snapshots | Derived output | Yes — **Tier B** | the byte budget |
-| Event journal | Derived output | Yes, within count **and** age | byte budget + [`event-lifecycle.md`](event-lifecycle.md) |
-| **Current leg records** | **Live state** | **NEVER** | [`leg.md`](leg.md) only |
+| Event journal | Derived output | Yes, within count **and** age | byte budget + [`event-lifecycle.md`](01-15-event-lifecycle.md) |
+| **Current leg records** | **Live state** | **NEVER** | [`leg.md`](01-14-current-leg-record.md) only |
 
 ### The 50-entry floor is an eviction floor
 
@@ -236,5 +238,5 @@ The age bound keeps both.
 
 **Why a storage bound is not a validity rule.** A journal may hold 200 events, all of them
 expired, and still satisfy its count **and** age bounds perfectly. Retention and validity are
-independent axes — see [`event-lifecycle.md`](event-lifecycle.md), and **T3** for why eviction
+independent axes — see [`event-lifecycle.md`](01-15-event-lifecycle.md), and **T3** for why eviction
 must never be allowed to alter an event's state.

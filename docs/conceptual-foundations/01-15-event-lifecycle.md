@@ -1,6 +1,8 @@
 # Event Lifecycle Policy
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Market Monitoring Engine (MME)
 
 A bound is necessary but not sufficient. Truncating a journal to the last 200 events answers
 *"how much do we keep?"* — it does not answer *"when does a stored event stop being true?"*
@@ -64,7 +66,7 @@ after — and would make the count meaningless.
 > immutable. A reactivation is a new event with a new identity and a `supersedes` pointer to the
 > one it replaced.**
 
-This is the same identity rule as [`vocabulary.md`](vocabulary.md). It is what keeps one
+This is the same identity rule as [`vocabulary.md`](../engines/market-monitoring-engine/03-02-18-mme-state-vocabulary.md). It is what keeps one
 divergence from becoming three pieces of evidence across Structure, Progression and a
 consolidated reading.
 
@@ -130,7 +132,7 @@ happening.
 | **A** — 300 bars | Numeric series | No. A series has no validity state; its bound *is* its retention. |
 | **B** — 500 bars | Numeric series for cross-duration comparison | No. |
 | **C** — 200 events **and** ≤ Tier B age | Event journal | **Yes — the whole policy applies here.** |
-| **D** — current leg record | One leg | **Yes — leg lifecycle, see [`leg.md`](leg.md) §6.** |
+| **D** — current leg record | One leg | **Yes — leg lifecycle, see [`leg.md`](01-14-current-leg-record.md) §6.** |
 
 > **The lifecycle policy does not extend the Tier C bound.** A journal can be within its count
 > and age bounds and still contain only expired events, because expiry is a *semantic* decay and

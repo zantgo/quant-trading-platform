@@ -29,7 +29,16 @@ docs/
 │   ├── 01-09-cli-setup-flow.md                       ← interactive CLI setup flow (v6.10.4)
 │   ├── 01-10-cli-gui-parity.md                       ← CLI ↔ GUI parity contract (v7.2)
 │   ├── 01-11-data-science-layer.md                   ← data-science export layer (v10)
-│   └── 01-12-data-information-learning-ontology.md   ← D/I/L ontology (v10)
+│   ├── 01-12-data-information-learning-ontology.md   ← D/I/L ontology (v10)
+│   ├── 01-13-state-axes-framework.md               ← the four-axis model: principles P1-P10, invariants I1-I51
+│   ├── 01-14-current-leg-record.md                 ← Tier D leg record: L1-L27, progress arithmetic, stability
+│   ├── 01-15-event-lifecycle.md                    ← six states, five transitions, E1-E10
+│   ├── 01-16-retention-tiers.md                    ← the single 500-candle cap, T1-T6
+│   ├── 01-17-change-requests.md                    ← CR-1…CR-17, the frozen-item amendment register
+│   ├── 01-18-verification-status.md                ← V-1…V-4, the status-label vocabulary
+│   ├── 01-19-measurement-quality.md                ← Q1-Q4 per-reading review + the applied Progression audit
+│   ├── 01-20-causal-gate-plan.md                   ← the 13 causal gates, 7 mutations, the gate report format
+│   └── 01-21-engine-split-and-model-boundary.md    ← where the model stops and the strategy begins
 ├── matrices/                                         (02 — 16 files)
 │   ├── 02-00-matrix-field-ownership.md                ← canonical per-field producer-layer mapping
 │   ├── 02-00b-confidence-hierarchy.md                 ← confidence-field rename & flow
@@ -46,7 +55,8 @@ docs/
 │   ├── 02-11-risk-matrix.md                          ← 8 unipolar risk dimensions (pure danger)
 │   ├── 02-12-liquidity-matrix.md                     ← Phase 1 LiquidityFlow matrix
 │   ├── 02-13-liquidation-cluster-matrix.md            ← Phase 2 LiquidationClusterMatrix
-│   └── 02-15-execution-matrix.md                      ← TAE L2: persistent order state log (materialized as `open_orders` table)
+│   ├── 02-15-execution-matrix.md                      ← TAE L2: persistent order state log (materialized as `open_orders` table)
+│   └── 02-16-market-state-matrix.md                   ← **the model's single output** — four typed axes, leg, events, levels
 ├── engines/
 │   ├── data-infrastructure-engine/                     (03-01 — 9 files)
 │   │   ├── 03-01-00-die-end-to-end-flow.md           ← single integrated end-to-end DIE flow narrative
@@ -76,7 +86,8 @@ docs/
 │   │   ├── 03-02-14-mme-sub-min-tf-feasibility.md
 │   │   ├── 03-02-15-mme-indicator-lifecycle-states.md ← per-indicator IndicatorLifecycleState machine (v6.5)
 │   │   ├── 03-02-16-mme-subminute-vs-aboveminute-parity.md ← AIU parity contract sub-minute vs ≥1m (v6.10.7)
-│   └── 03-02-17-mme-strategy-config.md              ← strategy config surface for the MME
+│   ├── 03-02-17-mme-strategy-config.md              ← strategy config surface for the MME
+│   └── 03-02-18-mme-state-vocabulary.md            ← signal kinds, divergence rules, level vocabulary (Threshold stays, CR-9)
 │   │   ├── indicators/                               (04-02 — 52 + 1 master index)
 │   │   │   ├── 04-02-00-indicator-index.md
 │   │   │   ├── 04-02-01-ema-stack.md
@@ -121,7 +132,8 @@ docs/
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
 │   ├── 06-02-database-schema-spec.md                 ← 26-table SQLite schema (target)
 │   ├── 06-03-snapshot-export-schema.md               ← snapshot export JSON schema (v6.10.4)
-│   └── 06-04-ds-export-schema.md                     ← DS export NDJSON schema (v10)
+│   ├── 06-04-ds-export-schema.md                     ← DS export NDJSON schema (v10)
+│   └── 06-05-cli-shell-contract.md                   ← the psql-style observe shell and the CLI ↔ UI parity rule
 ├── ui-ux/                                            (07 — 10 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
@@ -132,7 +144,8 @@ docs/
 │   ├── 07-07-engine-dashboard-vocabulary.md          ← engine dashboard vocabulary (v7.3+)
 │   ├── 07-08-account-profile.md                      ← account & profile management (v9)
 │   ├── 07-09-strategies-builder.md                   ← strategy builder (v9)
-│   └── 07-10-data-science-surfaces.md                ← DS surfaces (v10)
+│   ├── 07-10-data-science-surfaces.md                ← DS surfaces (v10)
+│   └── 07-11-axis-visual-vocabulary.md               ← the dot-on-track primitive, three channels, V1-V10
 └── operations-and-compliance/                        (08 — 10 files)
     ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
     ├── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
@@ -143,10 +156,11 @@ docs/
     ├── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
     ├── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
     ├── 08-09-snapshot-export.md                      ← snapshot export operator manual (v6.10.4)
+    └── 08-10-candles-only-charter.md                 ← CH-1…CH-8: candles only, CPU only, rule-based, no statistics
     └── 03-liq-heatmap-config.md                      ← L2.5 heatmap config reference
 ```
 
-Total: **311 markdown files** at v11.14.2 — 306 numbered docs + 5 governance docs (README, CHANGELOG, MANIFEST, plus the two nested index READMEs of the state-axes staging corpus). See `DOCS-CONSISTENCY-MANIFEST.md` §2 for the canonical per-directory breakdown. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **17 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle + 1 sub-min/above-min parity contract). The v6.10.7 release adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe parity contract: identical post-warmup behavior for all 52 indicators, liquidity payloads, and L1.5–L6 layers on sub-minute and above-minute timeframes (state-replay warmup, uniform live floor, per-TF cadence adaptation, known-deviations register). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines. The v6.10.4 release adds the Snapshot Export scheduler — [01-09-cli-setup-flow.md](conceptual-foundations/01-09-cli-setup-flow.md) (interactive CLI setup), [06-03-snapshot-export-schema.md](integration-and-api/06-03-snapshot-export-schema.md) (on-disk JSON schema), and [08-09-snapshot-export.md](operations-and-compliance/08-09-snapshot-export.md) (operator manual) — periodic per-tab JSON dumps for offline data science. The v6.10.3 release adds the cross-timeframe alignment aggregation pipeline in the Overview Matrix (L7) — three new `OverviewMatrix` aggregate fields (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`), two per-asset `AssetRank` columns (`mtf_score`, `mtf_label`), and a new `MarketAlignmentCard` sub-component in the system-wide Market Overview dashboard. The v6.10.2 release adds [04-02-51-mark-index-spread.md](engines/market-monitoring-engine/indicators/04-02-51-mark-index-spread.md), the spec for the 51st registry entry. The v9/v10 Unreleased work in CHANGELOG adds the Data-Science Layer — [01-11-data-science-layer.md](conceptual-foundations/01-11-data-science-layer.md) (session identity + `./ds/` NDJSON export), [01-12-data-information-learning-ontology.md](conceptual-foundations/01-12-data-information-learning-ontology.md) (D/I/L tiers + invariants), [06-04-ds-export-schema.md](integration-and-api/06-04-ds-export-schema.md) (layout + per-file schemas), [07-10-data-science-surfaces.md](ui-ux/07-10-data-science-surfaces.md) (Chart tab, session chip, Comparison) — plus the TAE lifecycle-hardening dials ([03-03-07](engines/trade-automation-engine/03-03-07-tae-strategy-settings.md)). The v11 release adds [03-03-08-tae-ladder-roles.md](engines/trade-automation-engine/03-03-08-tae-ladder-roles.md) — the TF-role separation spec (decision/entry/stop/target). The v11.1 release rewrote [01-04](conceptual-foundations/01-04-timeframe-model.md) toward the 14-duration timeframe pool (the v11.9 release completed the model: `1s`…`1d`, the full 14-duration pool). The v11.9 release replaces the named-slot ladder with the duration-keyed model: 14 supported durations, `[workspace].timeframes: Vec<u64>` (any subset 1..=14, default the fastest eight), per-instance duration overrides, unified settings surface, and MME-Overview boot landing; [01-04](conceptual-foundations/01-04-timeframe-model.md) is rewritten for the new model.
+Total: **315 markdown files** at v11.14.2 — 310 numbered docs + 5 governance docs (README, CHANGELOG, MANIFEST, plus the two nested index READMEs of the state-axes staging corpus). See `DOCS-CONSISTENCY-MANIFEST.md` §2 for the canonical per-directory breakdown. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **17 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle + 1 sub-min/above-min parity contract). The v6.10.7 release adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe parity contract: identical post-warmup behavior for all 52 indicators, liquidity payloads, and L1.5–L6 layers on sub-minute and above-minute timeframes (state-replay warmup, uniform live floor, per-TF cadence adaptation, known-deviations register). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines. The v6.10.4 release adds the Snapshot Export scheduler — [01-09-cli-setup-flow.md](conceptual-foundations/01-09-cli-setup-flow.md) (interactive CLI setup), [06-03-snapshot-export-schema.md](integration-and-api/06-03-snapshot-export-schema.md) (on-disk JSON schema), and [08-09-snapshot-export.md](operations-and-compliance/08-09-snapshot-export.md) (operator manual) — periodic per-tab JSON dumps for offline data science. The v6.10.3 release adds the cross-timeframe alignment aggregation pipeline in the Overview Matrix (L7) — three new `OverviewMatrix` aggregate fields (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`), two per-asset `AssetRank` columns (`mtf_score`, `mtf_label`), and a new `MarketAlignmentCard` sub-component in the system-wide Market Overview dashboard. The v6.10.2 release adds [04-02-51-mark-index-spread.md](engines/market-monitoring-engine/indicators/04-02-51-mark-index-spread.md), the spec for the 51st registry entry. The v9/v10 Unreleased work in CHANGELOG adds the Data-Science Layer — [01-11-data-science-layer.md](conceptual-foundations/01-11-data-science-layer.md) (session identity + `./ds/` NDJSON export), [01-12-data-information-learning-ontology.md](conceptual-foundations/01-12-data-information-learning-ontology.md) (D/I/L tiers + invariants), [06-04-ds-export-schema.md](integration-and-api/06-04-ds-export-schema.md) (layout + per-file schemas), [07-10-data-science-surfaces.md](ui-ux/07-10-data-science-surfaces.md) (Chart tab, session chip, Comparison) — plus the TAE lifecycle-hardening dials ([03-03-07](engines/trade-automation-engine/03-03-07-tae-strategy-settings.md)). The v11 release adds [03-03-08-tae-ladder-roles.md](engines/trade-automation-engine/03-03-08-tae-ladder-roles.md) — the TF-role separation spec (decision/entry/stop/target). The v11.1 release rewrote [01-04](conceptual-foundations/01-04-timeframe-model.md) toward the 14-duration timeframe pool (the v11.9 release completed the model: `1s`…`1d`, the full 14-duration pool). The v11.9 release replaces the named-slot ladder with the duration-keyed model: 14 supported durations, `[workspace].timeframes: Vec<u64>` (any subset 1..=14, default the fastest eight), per-instance duration overrides, unified settings surface, and MME-Overview boot landing; [01-04](conceptual-foundations/01-04-timeframe-model.md) is rewritten for the new model.
 
 ## The Six Engines
 

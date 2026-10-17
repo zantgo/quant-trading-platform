@@ -1,6 +1,8 @@
 # Verification Status
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Cross-cutting (the model contract)
 
 The current, honest state of verification for this specification.
 
@@ -118,7 +120,7 @@ more than V-1 on the basis of a documentation sweep is overstating what was meas
 
 | Gap | Detail |
 |---|---|
-| **I35 not enforceable** | Generated artifacts cannot be verified byte-identical because the generator lands in **P1**. `inventory.md` and the README totals remain hand-maintained. Recorded in [`change-requests.md`](change-requests.md) CR-5 as declared-not-enforced, with its landing phase named. |
+| **I35 not enforceable** | Generated artifacts cannot be verified byte-identical because the generator lands in **P1**. `inventory.md` and the README totals remain hand-maintained. Recorded in [`change-requests.md`](01-17-change-requests.md) CR-5 as declared-not-enforced, with its landing phase named. |
 
 This is recorded rather than hidden. A drift check that does not yet exist cannot be counted as
 passing.

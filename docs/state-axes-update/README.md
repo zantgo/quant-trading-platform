@@ -20,9 +20,9 @@ percentile ranks.
 
 | Rule | Statement |
 |---|---|
-| **Rule-based and deterministic** | Every reading is a published formula over available candles. Nothing is trained, fitted, sampled at random, or simulated stochastically. Determinism is defined over the **complete input tuple** — candles, availability timestamps, configuration, reference-set definition, spec version and build version — and equality is **bit-for-bit** unless a report explicitly declares per-quantity tolerances. [`framework.md`](framework.md) **§8.1**, **P9**, **I43**, **I44** |
+| **Rule-based and deterministic** | Every reading is a published formula over available candles. Nothing is trained, fitted, sampled at random, or simulated stochastically. Determinism is defined over the **complete input tuple** — candles, availability timestamps, configuration, reference-set definition, spec version and build version — and equality is **bit-for-bit** unless a report explicitly declares per-quantity tolerances. [`framework.md`](../conceptual-foundations/01-13-state-axes-framework.md) **§8.1**, **P9**, **I43**, **I44** |
 | **Descriptive, not probabilistic** | The layer reports deterministic measurements and comparisons against explicitly defined historical reference sets. A percentile rank describes the observation **relative to that reference set**; it does not claim a probability of a future outcome, and it is not independent of how the set was defined. **P1**, **I1**, **I9** |
-| **Backtesting validates strategy, never the model** | A backtest may exercise a strategy built on these readings. It may **not** be used to accept, reject, or tune a reading, an axis, or the model. The model's only permitted test is the **causal replay gate** — by re-executing it, never by trading it. **P10**, **I45**, [`framework.md`](framework.md) §8.2 |
+| **Backtesting validates strategy, never the model** | A backtest may exercise a strategy built on these readings. It may **not** be used to accept, reject, or tune a reading, an axis, or the model. The model's only permitted test is the **causal replay gate** — by re-executing it, never by trading it. **P10**, **I45**, [`framework.md`](../conceptual-foundations/01-13-state-axes-framework.md) §8.2 |
 
 > **The word "stochastic" appears in this package only as the Stochastic Oscillator.** There is no
 > randomness, sampling or simulation anywhere in the framework.
@@ -30,7 +30,7 @@ percentile ranks.
 > **A passing result is evidence for the cases tested — never a proof.** The gates and the
 > semantic validation suite establish what was actually exercised. Untested inputs and
 > unexercised case classes remain unverified, and a gap in coverage is a gap in knowledge rather
-> than proof of absence. [`framework.md`](framework.md) **§8.4**.
+> than proof of absence. [`framework.md`](../conceptual-foundations/01-13-state-axes-framework.md) **§8.4**.
 
 ---
 
@@ -55,7 +55,7 @@ candles ──► MODEL (this package) ──► read-only state ──► STRAT
 > may not say *sell*. That single difference is the whole boundary.
 
 Full definitions, the forbidden-contents list and the naming discipline:
-[`framework.md`](framework.md) **§1.1**.
+[`framework.md`](../conceptual-foundations/01-13-state-axes-framework.md) **§1.1**.
 
 The single organising idea: **one indicator usually serves more than one axis, and which
 axis it feeds depends on which property of it is read.**
@@ -87,7 +87,7 @@ Plus two derived readings — **State Consensus** (% of axes agreeing) and **Sta
 Three further concepts are **named and scoped but are not axes** — Regime (contextual modulator,
 reserved), Terminality (`continuation_supported` / `indeterminate` / `termination_evidence` —
 definable now, and explicitly *not* the completion event), and Confidence (separate meta-measure,
-reserved). See [`framework.md`](framework.md) §5.9.
+reserved). See [`framework.md`](../conceptual-foundations/01-13-state-axes-framework.md) §5.9.
 
 ---
 
@@ -95,16 +95,16 @@ reserved). See [`framework.md`](framework.md) §5.9.
 
 | File | Contents |
 |---|---|
-| [`execution-plan.md`](execution-plan.md) | The agentic build plan — roles, phases, the 13-gate causal replay matrix, mutation programme M1–M7, report format, anti-goals |
-| [`verification-status.md`](verification-status.md) | **What is and is not verified right now** — four layers V-1…V-4 with honest current status |
-| [`measurement-quality.md`](measurement-quality.md) | The per-reading quality review — Q1–Q4, verdicts, and the **completed Progression audit** (22 specs → 11–13) |
-| [`change-requests.md`](change-requests.md) | Formal amendments to frozen items — CR-1 Tier A, CR-2 byte budget, CR-3 independent settings, CR-4 registry authority, CR-5 generated totals |
-| [`framework.md`](framework.md) | The specification proper: purpose, axes, principles, definitions, invariants, anti-patterns, build order |
-| [`leg.md`](leg.md) | The versioned current-leg record — fields, structural scale and its causal classification, `occurred_at` vs `available_at`, the `progress` arithmetic and its undefined case, target revisions and stability transitions, lifecycle, invariants L1–L24 |
-| [`event-lifecycle.md`](event-lifecycle.md) | Retention as a lifecycle — activation, persistence, expiration, invalidation, reactivation; invariants E1–E10 |
-| [`retention.md`](retention.md) | Four bounded retention tiers, the tier chain, what the byte budget governs, independent settings, invariants T1–T6 |
-| [`visual-vocabulary.md`](visual-vocabulary.md) | The dot-on-track primitive, the three channels, per-axis variables, readiness versus confidence, invariants V1–V10 |
-| [`vocabulary.md`](vocabulary.md) | Signal kinds, divergence rules, level vocabulary — the shared language |
+| [`execution-plan.md`](../conceptual-foundations/01-20-causal-gate-plan.md) | The agentic build plan — roles, phases, the 13-gate causal replay matrix, mutation programme M1–M7, report format, anti-goals |
+| [`verification-status.md`](../conceptual-foundations/01-18-verification-status.md) | **What is and is not verified right now** — four layers V-1…V-4 with honest current status |
+| [`measurement-quality.md`](../conceptual-foundations/01-19-measurement-quality.md) | The per-reading quality review — Q1–Q4, verdicts, and the **completed Progression audit** (22 specs → 11–13) |
+| [`change-requests.md`](../conceptual-foundations/01-17-change-requests.md) | Formal amendments to frozen items — CR-1 Tier A, CR-2 byte budget, CR-3 independent settings, CR-4 registry authority, CR-5 generated totals |
+| [`framework.md`](../conceptual-foundations/01-13-state-axes-framework.md) | The specification proper: purpose, axes, principles, definitions, invariants, anti-patterns, build order |
+| [`leg.md`](../conceptual-foundations/01-14-current-leg-record.md) | The versioned current-leg record — fields, structural scale and its causal classification, `occurred_at` vs `available_at`, the `progress` arithmetic and its undefined case, target revisions and stability transitions, lifecycle, invariants L1–L24 |
+| [`event-lifecycle.md`](../conceptual-foundations/01-15-event-lifecycle.md) | Retention as a lifecycle — activation, persistence, expiration, invalidation, reactivation; invariants E1–E10 |
+| [`retention.md`](../conceptual-foundations/01-16-retention-tiers.md) | Four bounded retention tiers, the tier chain, what the byte budget governs, independent settings, invariants T1–T6 |
+| [`visual-vocabulary.md`](../ui-ux/07-11-axis-visual-vocabulary.md) | The dot-on-track primitive, the three channels, per-axis variables, readiness versus confidence, invariants V1–V10 |
+| [`vocabulary.md`](../engines/market-monitoring-engine/03-02-18-mme-state-vocabulary.md) | Signal kinds, divergence rules, level vocabulary — the shared language |
 | [`inventory.md`](inventory.md) | All 160 readings in one table — **generated** from the registry, never hand-edited |
 | [`indicators/`](indicators/) | One full specification file per reading — 122 files |
 
@@ -131,7 +131,7 @@ Both may be added later, in a layer downstream of this one, once outcome data ex
 
 > **Being a well-defined observer and being a useful observer are different properties.** The
 > causal replay gate establishes the first. The second requires **semantic validation** against
-> independently defined reference examples — see [`framework.md`](framework.md) §8.4.
+> independently defined reference examples — see [`framework.md`](../conceptual-foundations/01-13-state-axes-framework.md) §8.4.
 
 > Naming a concept is not the same as deleting the question. **Terminality** — the *ordinal*
 > question "does the evidence support continuation, or a potential end?" — is answerable today

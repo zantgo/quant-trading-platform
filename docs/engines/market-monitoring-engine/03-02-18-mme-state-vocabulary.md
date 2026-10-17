@@ -1,6 +1,8 @@
 # Shared Vocabulary
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Market Monitoring Engine (MME)
 
 The language every indicator spec is written in. Signal kinds, divergence rules, and level
 vocabulary.

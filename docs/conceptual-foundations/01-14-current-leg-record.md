@@ -1,6 +1,8 @@
 # The Current-Leg Record
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Market Monitoring Engine (MME)
 
 The entire Progression axis is computed from a **small fixed set of records** — one per
 instrument per duration per structural level. This document specifies those records: their
@@ -457,7 +459,7 @@ than it is.
 | L21 | The rank threshold and the noise floor are each frozen at leg creation. Neither evolves. |
 | L22 | A `provisional` classification publishes no stage. |
 | L23 | `structure_version` and `target_version` are **disjoint** — a revision of one never increments the other. |
-| L24 | A Tier D record is never evicted by the byte budget, at any memory pressure. [`retention.md`](retention.md) **T2**. |
+| L24 | A Tier D record is never evicted by the byte budget, at any memory pressure. [`retention.md`](01-16-retention-tiers.md) **T2**. |
 | L25 | `structure_version` increments **only** on an origin revision or a level reclassification — never on anything derived. |
 | L26 | `stage`, `progress`, `target_stable` and `lifecycle` are **derived** and carry no version counter. |
 | L27 | `swing_policy_version` is shared by every leg under the same policy. Legs with different values are not comparable. |

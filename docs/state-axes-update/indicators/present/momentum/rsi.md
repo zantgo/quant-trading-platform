@@ -37,7 +37,7 @@ AvgGain = (prevAvgGain * (n-1) + max(Close - prevClose, 0)) / n; AvgLoss = (prev
 
 ## Divergence
 
-**Supported.** See [`../../vocabulary.md`](../../../vocabulary.md) for the four divergence types and the confirmation rule.
+**Supported.** See [`../../vocabulary.md`](../../../../engines/market-monitoring-engine/03-02-18-mme-state-vocabulary.md) for the four divergence types and the confirmation rule.
 
 ## Levels and other outputs
 

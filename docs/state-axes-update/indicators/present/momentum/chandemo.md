@@ -37,7 +37,7 @@ CMO = sum(Close[i] - Close[i-1] where positive) / sum(abs(Close[i] - Close[i-1])
 
 ## Divergence
 
-**Supported.** See [`../../vocabulary.md`](../../../vocabulary.md) for the four divergence types and the confirmation rule.
+**Supported.** See [`../../vocabulary.md`](../../../../engines/market-monitoring-engine/03-02-18-mme-state-vocabulary.md) for the four divergence types and the confirmation rule.
 
 ## Levels and other outputs
 

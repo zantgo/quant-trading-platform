@@ -1,6 +1,8 @@
 # Framework Specification
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Cross-cutting (the model contract)
 
 ## 1. Purpose
 
@@ -106,7 +108,7 @@ Constraints on the whole framework. Any proposal violating one is out of scope.
 | **P4** | **Orthogonal to direction.** Axes 2–4 must not contribute to the directional score and must never be coloured green (bull) or red (bear). | Only Direction carries direction colour. Other axes use neutral, white, and amber. |
 | **P5** | **Discrete over continuous where precision is not real.** When a quantity is estimate-dependent or revision-prone, report an ordinal stage plus a stability flag — never a continuous percentage. | Applies to Progression (§6.4). |
 | **P6** | **Literature-grounded.** Every indicator is a published, documented formula. No invented mathematics. | Each spec cites its family. |
-| **P7** | **All retention bounded.** No stored series, event journal, or state may grow without limit. | See [`retention.md`](retention.md). |
+| **P7** | **All retention bounded.** No stored series, event journal, or state may grow without limit. | See [`retention.md`](01-16-retention-tiers.md). |
 | **P8** | **Candle-only.** Every reading is computed from OHLCV candles — historical or live — and from nothing else. | Derivatives, order-book, and forced-close data are out of scope (§9). |
 | **P9** | **Rule-based and deterministic.** Every reading is a published formula applied to available data. Nothing is trained, fitted, sampled at random, or simulated stochastically. | Same inputs and configuration produce bit-identical outputs. Enforced by **G12**. |
 | **P10** | **Backtesting validates strategy, never the model.** The layer is descriptive; it makes no claim that is settled by being tested for profitability. | A backtest may exercise a **strategy** built on these readings. It may **not** be used to accept, reject or tune a reading, an axis, or the model. See §8.2. |
@@ -198,7 +200,7 @@ of three roles, and **filing a reading under Momentum does not make it an input*
 | **Kaufman Efficiency Ratio** = `abs(N) / D` | **Unsigned** path efficiency. Answers "how direct was the path, **regardless of which way**". Owner: Structure. |
 | **Path Efficiency** = `N / D` | **Signed** path efficiency — same quantity, direction retained. Answers "how direct, **and which way**". Owner: Progression. |
 | The two efficiency readings | `PE = sign(N) · ER` whenever `D > 0`. **They differ in sign on any downward net move and are not duplicates.** Collapsing them would destroy Progression's direction or make Structure directional (**P4**). |
-| `Directional Persistence Ratio` | **Removed** — byte-identical to Path Efficiency (both signed). Recorded in [`change-requests.md`](change-requests.md) **CR-6**. |
+| `Directional Persistence Ratio` | **Removed** — byte-identical to Path Efficiency (both signed). Recorded in [`change-requests.md`](01-17-change-requests.md) **CR-6**. |
 | Stochastic fast %K vs slow %D | **Not** equivalent — the smoothing carries real information |
 | MACD, PPO, ROC, TRIX | Different smoothing and normalisation of related evidence. Useful, but **not independent votes** |
 
@@ -213,7 +215,7 @@ been broken, and what has been invalidated.
 first-class outputs, not derived conveniences.
 
 **Every retained event carries a lifecycle** — activation, persistence, expiration,
-invalidation, reactivation — specified in [`event-lifecycle.md`](event-lifecycle.md). A storage
+invalidation, reactivation — specified in [`event-lifecycle.md`](01-15-event-lifecycle.md). A storage
 bound alone is not enough: a bounded journal can still hold events that are no longer true.
 
 ### 5.4 Progression
@@ -253,13 +255,13 @@ journal. What is distinct about Progression is that it tracks **a specific leg**
 observations, preserving that leg's origin, direction, reference target and lifecycle.
 
 It is therefore computed from **one current-leg record per
-`(instrument, timeframe_secs, structure_level)`** (Tier D, [`retention.md`](retention.md))
+`(instrument, timeframe_secs, structure_level)`** (Tier D, [`retention.md`](01-16-retention-tiers.md))
 plus a short scalar window (Tier A) for velocity. Historical events and revisions follow their own
-retention policies (§7, [`event-lifecycle.md`](event-lifecycle.md)). A movement older than the
+retention policies (§7, [`event-lifecycle.md`](01-15-event-lifecycle.md)). A movement older than the
 Tier B window is no longer a *current* movement — the record is replaced when a new leg begins,
 and the old one discarded.
 
-**The record is fully specified in [`leg.md`](leg.md)** — field contract, versioning, the
+**The record is fully specified in [`leg.md`](01-14-current-leg-record.md)** — field contract, versioning, the
 `progress` arithmetic `(P - O) / (T - O)`, target revision handling, and the lifecycle state
 machine. Its two defining properties:
 
@@ -351,7 +353,7 @@ The 160-reading inventory is **machine-checkable, not hand-maintained**. Every r
 its producer; readings with no single producer declare their inputs explicitly.
 
 **There is exactly one authoritative record of a reading, and it lives in the registry.** Every
-other appearance — [`inventory.md`](inventory.md), the README totals, the per-axis counts — is
+other appearance — [`inventory.md`](../state-axes-update/inventory.md), the README totals, the per-axis counts — is
 **generated from it**. A second hand-maintained list is a defect, not documentation.
 
 ##### The reading record
@@ -375,14 +377,14 @@ other appearance — [`inventory.md`](inventory.md), the README totals, the per-
 | `status` | `present`\|`new` | Shipped today, or to be added. |
 
 A reading **derived from a leg or structure field is a category error, not a weak reading** — see
-[`measurement-quality.md`](measurement-quality.md) §6.2. The `field` verdict exists for exactly
+[`measurement-quality.md`](01-19-measurement-quality.md) §6.2. The `field` verdict exists for exactly
 that case.
 
 ##### Generated documents
 
 | Artifact | Generated from |
 |---|---|
-| [`inventory.md`](inventory.md) | the full reading registry |
+| [`inventory.md`](../state-axes-update/inventory.md) | the full reading registry |
 | README axis counts and totals | the same registry |
 | Per-axis present/new splits | the same registry |
 
@@ -423,8 +425,8 @@ inventory came to disagree with the registry in the first place.
 | I50 | A reading may not be marked verified on causal evidence alone. Semantic validation is required. |
 | I51 | A percentile rank is conditional on its **reference set**. No rank asserts a probability of a future event, and none is independent of how its reference set was defined. |
 
-Decided in [`change-requests.md`](change-requests.md) CR-4 and extended in
-[CR-5](change-requests.md#cr-5--the-registry-is-the-only-source-of-reading-totals). **CR-4 must
+Decided in [`change-requests.md`](01-17-change-requests.md) CR-4 and extended in
+[CR-5](01-17-change-requests.md#cr-5--the-registry-is-the-only-source-of-reading-totals). **CR-4 must
 land before any gate that consumes reading identity** — cross-axis double-counting cannot be
 tested without it.
 
@@ -529,7 +531,7 @@ collapsed into one:
 | Question | What does the evidence currently support? | Has the leg ended? |
 
 A leg reaching `termination_evidence` is **not** complete. The leg completes when a named
-criterion actually fires and a `close_reason` is recorded — see [`leg.md`](leg.md) §6. Conflating
+criterion actually fires and a `close_reason` is recorded — see [`leg.md`](01-14-current-leg-record.md) §6. Conflating
 the two would let a leg be reported as ended while it is still running, which is precisely the
 failure mode a descriptive layer must not have.
 
@@ -695,7 +697,7 @@ This deserves its own statement because it is the easiest boundary to erode by a
 > a category error — it swaps a descriptive claim for a profitability claim this framework
 > explicitly refuses to make.
 
-**Corollary.** The causal replay gate ([`execution-plan.md`](execution-plan.md)) validates the
+**Corollary.** The causal replay gate ([`execution-plan.md`](01-20-causal-gate-plan.md)) validates the
 **model** — by re-executing it, never by trading it. That is the only permitted way to admit a
 reading into the architecture.
 
@@ -860,7 +862,7 @@ answers.
 | I25 | A degenerate reference (`T == O`, or `abs(T - O)` below the leg's own noise floor) yields `UNDEFINED`, never a number. |
 | I26 | Target stability is never forced, widened, or bypassed to make a progression reading available. |
 | I27–I36 | *(defined in §5.7, not here)* — reading identity is registry-declared, machine-checked, and the sole source of every displayed total |
-| I37–I42 | *(defined in [`measurement-quality.md`](measurement-quality.md))* — measurement-quality review obligations |
+| I37–I42 | *(defined in [`measurement-quality.md`](01-19-measurement-quality.md))* — measurement-quality review obligations |
 
 ---
 
@@ -877,7 +879,7 @@ answers.
 | A continuous progression percentage | Implies precision the estimate cannot deliver. |
 | Unbounded retention | A tier that grows without limit is a memory leak with a justification. |
 | An event journal bounded only by count | A slow-moving leg would grow the journal indefinitely. Bound by age as well. |
-| An event journal bounded but **not** expired | A stored bound keeps history; it does not keep events *true*. An event that has stopped meaning anything still counts. See [`event-lifecycle.md`](event-lifecycle.md). |
+| An event journal bounded but **not** expired | A stored bound keeps history; it does not keep events *true*. An event that has stopped meaning anything still counts. See [`event-lifecycle.md`](01-15-event-lifecycle.md). |
 | Directional colour as a status colour | Amber signals caution on any axis; green and red never do. |
 | Clamping `progress` to `[0, 1]` | Destroys both readings that matter: price moved backwards, and the target was overrun. |
 | Treating a target revision as movement | A change in `progress` with a change in `target_version` is not evidence that price travelled. |
@@ -898,14 +900,14 @@ Ordered by dependency, not by size.
 
 | # | Work | Spec | Axis | Blocked by |
 |---|---|---|---|---|
-| 1 | **Retention** — Tier A series on every indicator | [`retention.md`](retention.md) | all | nothing |
-| 2 | **Swing retention** — keep the pivots already computed | [`retention.md`](retention.md) | Structure, Progression | 1 |
-| 3 | **Current-leg record** — Tier D, versioned, with `occurred_at` / `available_at` | [`leg.md`](leg.md) | Progression | 2 |
-| 4 | **Progression arithmetic** — `progress`, `target_version`, `target_stable`, stage classification | [`leg.md`](leg.md) | Progression | 3 |
-| 5 | **Event lifecycle** — activation, persistence, expiration, invalidation, reactivation | [`event-lifecycle.md`](event-lifecycle.md) | Structure | 2 |
-| 6 | **Causal replay harness** — assert no field is read before its `available_at` | [`leg.md`](leg.md) §3 | all | 3, 5 |
-| 7 | **Derived readings** — rate-of-change, R², efficiency | [`framework.md`](framework.md) §6 | Direction, Structure | 1 |
-| 8 | **New indicators** — the 84 additions | [`indicators/`](indicators/) | all | 1–7 |
+| 1 | **Retention** — Tier A series on every indicator | [`retention.md`](01-16-retention-tiers.md) | all | nothing |
+| 2 | **Swing retention** — keep the pivots already computed | [`retention.md`](01-16-retention-tiers.md) | Structure, Progression | 1 |
+| 3 | **Current-leg record** — Tier D, versioned, with `occurred_at` / `available_at` | [`leg.md`](01-14-current-leg-record.md) | Progression | 2 |
+| 4 | **Progression arithmetic** — `progress`, `target_version`, `target_stable`, stage classification | [`leg.md`](01-14-current-leg-record.md) | Progression | 3 |
+| 5 | **Event lifecycle** — activation, persistence, expiration, invalidation, reactivation | [`event-lifecycle.md`](01-15-event-lifecycle.md) | Structure | 2 |
+| 6 | **Causal replay harness** — assert no field is read before its `available_at` | [`leg.md`](01-14-current-leg-record.md) §3 | all | 3, 5 |
+| 7 | **Derived readings** — rate-of-change, R², efficiency | [`framework.md`](01-13-state-axes-framework.md) §6 | Direction, Structure | 1 |
+| 8 | **New indicators** — the 84 additions | [`indicators/`](../state-axes-update/indicators/) | all | 1–7 |
 
 **Steps 1–6 require no new indicator at all.** They are retention, bookkeeping and arithmetic
 over data already held, and they are the part that is expensive to retrofit: an

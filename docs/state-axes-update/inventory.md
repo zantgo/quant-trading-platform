@@ -9,7 +9,7 @@
 >
 > **To change a reading, change the registry.** Editing this file produces drift, and drift is a
 > **failing check** — `./manage.sh test-doc` regenerates this file and fails on any byte
-> difference. See [`change-requests.md`](change-requests.md) CR-5.
+> difference. See [`change-requests.md`](../conceptual-foundations/01-17-change-requests.md) CR-5.
 >
 > **Current state:** the generator lands in phase **P1**. Until then this file is still
 > hand-maintained and invariant **I35** is *declared but not enforced*. The count below is
@@ -18,7 +18,7 @@
 > **History.** This total was **162 / 76 / 86** until a duplicate reading was removed.
 > `Directional Persistence Ratio` was listed twice — Momentum #29 and Progression #15 — with a
 > formula byte-identical to `Path Efficiency` (#13). Both rows were **NEW**, so the drop fell
-> entirely on the new count. Record: [`change-requests.md`](change-requests.md) **CR-6**.
+> entirely on the new count. Record: [`change-requests.md`](../conceptual-foundations/01-17-change-requests.md) **CR-6**.
 
 All 160 readings. **Formula · Signals · Divergence · Levels · Tier · Status.**
 

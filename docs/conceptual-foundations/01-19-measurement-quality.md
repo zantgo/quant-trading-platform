@@ -1,6 +1,8 @@
 # Measurement-Quality Review
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
+**Owner:** Cross-cutting (the model contract)
 
 A per-reading review that decides whether a reading earns its place, with a stated verdict and a
 stated basis. It is **additive to the causal gate, not a substitute for it.**
@@ -143,7 +145,7 @@ measure that satisfies the rank-based principle."
 
 ### 6.2 Leg-record fields, not readings
 
-These restate a quantity [`leg.md`](leg.md) already holds. Under Q2 they are **FIELD**.
+These restate a quantity [`leg.md`](01-14-current-leg-record.md) already holds. Under Q2 they are **FIELD**.
 
 | Spec | Already a leg field or derived from it |
 |---|---|
