@@ -33,10 +33,9 @@
     import { activeDurations } from '../lib/terms';
     import { getBadgeTrail, badgeHistoryVersion, l1Key, layerKey } from '../lib/badgeHistory.svelte';
     import BadgeTrail from './BadgeTrail.svelte';
-    import ProbabilityRings from './ProbabilityRings.svelte';
     import SignalSquares from './SignalSquares.svelte';
-    import { computeDecisionRank, type DecisionRank } from '../lib/decisionRank';
-    import { buildL6DecisionHeader, metricsBadgeFor, type BadgeSpec } from '../lib/layerHeader';
+    import { emptyBadge, hexToRgba, metricsBadgeFor, type BadgeSpec } from '../lib/layerHeader';
+    import { biasColor } from '../lib/dashboardColors';
     import styles from './InstanceStatusTable.module.css';
     import headerStyles from './LayerHeader.module.css';
 
@@ -99,27 +98,29 @@
         expanded = nextMap;
     }
 
-    /// The decision verdict — single-sourced with the Recommendation view.
-    function decisionRank(inst: InstanceState): DecisionRank {
-        return computeDecisionRank({
-            advisory: inst.advisory,
-            decisionContext: inst.decisionContext,
-            opportunity: inst.opportunity,
-            analysis: inst.analysis,
-        });
-    }
-
-    /// The badge — `buildL6DecisionHeader` owns the STAND ASIDE override
-    /// (HOLD + readiness STAND_ASIDE) and the exact palette (direction
-    /// colors on `hexToRgba(…, 0.08)`; HOLD neutral). With neither an
-    /// advisory nor a decision context it returns `emptyBadge()` — the
-    /// grey `—` required for data-less instances.
-    function decisionBadge(inst: InstanceState): BadgeSpec {
-        return buildL6DecisionHeader({
-            rank: decisionRank(inst),
-            decisionContext: inst.decisionContext,
-            advisory: inst.advisory,
-        }).badge;
+    /// The model's bias badge.
+    ///
+    /// CR-15: this returned an L6 decision badge — a LONG / SHORT / HOLD
+    /// verdict carrying `rank.top_prob` — and the next column rendered three
+    /// ring gauges for the LONG / HOLD / SHORT probabilities from
+    /// `computeDecisionRank`. Both were statements about what to do, computed
+    /// from `trade_readiness` and `directional_guidance`.
+    ///
+    /// What replaces them is the model's own reading, with no invented
+    /// probability: the bias the analysis resolved, and whether the durations
+    /// agree behind it. There is no "top probability" to show, and a row that
+    /// printed one would be fabricating a confidence the model never computed —
+    /// so the cell shows the bias and the MTF label instead of a ring.
+    function biasBadge(inst: InstanceState): BadgeSpec {
+        const analysis = inst.analysis;
+        if (!analysis || !analysis.bias) return emptyBadge();
+        const color = biasColor(analysis.bias);
+        return {
+            label: analysis.bias,
+            color,
+            background: hexToRgba(color, 0.08),
+            state: 'valid',
+        };
     }
 
     function slotLabel(slot: number): string {
@@ -153,8 +154,8 @@
             </thead>
             <tbody>
                 {#each rows as { pairKey, inst } (pairKey)}
-                    {@const badge = decisionBadge(inst)}
-                    {@const rank = decisionRank(inst)}
+                    {@const badge = biasBadge(inst)}
+                    {@const mtfLabel = inst.alignment?.mtf_overall_label ?? ''}
                     {@const hasData = badge.state !== 'empty'}
                     {@const decisionTrail = (() => { void trailVersion; return getBadgeTrail(layerKey('l6', pairKey)); })()}
                     <!-- v11.12.16: the bold label is ALWAYS the base symbol
@@ -191,28 +192,31 @@
                             <div
                                 class="{headerStyles.badge} {styles.decisionBadgeLg} {badgeCls[badge.state]}"
                                 style="border-color: {badge.color}; color: {badge.color}; background-color: {badge.background};"
-                                aria-label="Decision badge: {badge.label}"
+                                aria-label="Model bias: {badge.label}"
                             >
                                 {#if badge.state === 'error'}
                                     <span class={headerStyles.errorIcon} aria-hidden="true">⚠</span>
                                 {/if}
                                 <span>{badge.label}</span>
-                                {#if hasData}
+                                {#if hasData && mtfLabel}
                                     <span class={headerStyles.badgeDivider} aria-hidden="true">•</span>
-                                    <span>{Math.round(rank.top_prob)}%</span>
+                                    <span>{mtfLabel}</span>
                                 {/if}
                             </div>
                             <BadgeTrail entries={decisionTrail} flat flatSize={11} />
                         </td>
                         <td class={styles.probsCell}>
                             {#if hasData}
-                                <!-- v11.11: three ring gauges (biggest LEFT,
-                                     dynamic re-sort) replace the text chips. -->
-                                <ProbabilityRings
-                                    short={rank.short.probability}
-                                    hold={rank.hold.probability}
-                                    long={rank.long.probability}
-                                />
+                                <!-- CR-15: the three LONG / HOLD / SHORT ring
+                                     gauges are gone. There is no probability
+                                     the model computes, and rendering a ring
+                                     at 0% or a default would be a fabricated
+                                     confidence. -->
+                                <span class={styles.mtfCell}>
+                                    {inst.alignment?.mtf_overall_score != null
+                                        ? inst.alignment.mtf_overall_score.toFixed(0)
+                                        : '—'}
+                                </span>
                             {/if}
                         </td>
                     </tr>

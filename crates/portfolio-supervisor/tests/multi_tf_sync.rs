@@ -147,7 +147,6 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
                     None,
                     1,
                     300,
-                    Arc::new(RwLock::new(None)),
                     Arc::new(RwLock::new(
                         core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
                     )),

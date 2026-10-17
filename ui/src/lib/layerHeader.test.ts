@@ -16,7 +16,9 @@
 // component consumes.
 
 import { describe, it, expect } from 'vitest';
-import { buildL1MetricsHeader, buildL1MtfHeader, metricsBadgeFor, buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader, buildL5RiskHeader, buildL6DecisionHeader, buildL7OverviewHeader, chip, emptyBadge, hexToRgba, type LayerHeaderSpec } from './layerHeader';
+// CR-15: `buildL4OpportunityHeader` / `buildL5RiskHeader` /
+// `buildL6DecisionHeader` are gone with the strategy matrices they rendered.
+import { buildL1MetricsHeader, buildL1MtfHeader, metricsBadgeFor, buildL2AlignmentHeader, buildL3AnalysisHeader, buildL7OverviewHeader, chip, emptyBadge, hexToRgba, type LayerHeaderSpec } from './layerHeader';
 import { DASHBOARD_COLORS, biasColor, riskDangerColor, scoreColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
 import type {
@@ -101,35 +103,6 @@ function analysisStub(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
     } as AnalysisMatrix;
 }
 
-function opportunityStub(overrides: Partial<OpportunityMatrix> = {}): OpportunityMatrix {
-    return {
-        symbol: 'BTC-USDT',
-        primary_opportunity: 'Pullback',
-        opportunity_score: 60,
-        setup_quality: 'Moderate',
-        profiles: [],
-        forecast_confidence: 0,
-        contributing_signals: [],
-        invalidation_note: '',
-        entry_zone: { low: 0, high: 0 },
-        target_zone: { low: 0, high: 0 },
-        invalidation_level: 0,
-        long_entry_zone: { low: 0, high: 0 },
-        long_target_zone: { low: 0, high: 0 },
-        long_invalidation_level: 0,
-        short_entry_zone: { low: 0, high: 0 },
-        short_target_zone: { low: 0, high: 0 },
-        short_invalidation_level: 0,
-        long_expected_rr_internal: 1.5,
-        short_expected_rr_internal: 1.0,
-        time_horizon: 'SWING',
-        confluent_entry_levels: [],
-        confluent_target_levels: [],
-        confluent_invalidation_levels: [],
-        ...overrides,
-    } as OpportunityMatrix;
-}
-
 function riskStub(overrides: Partial<RiskDimension> = {}): RiskDimension {
     return {
         score: 35,
@@ -139,55 +112,6 @@ function riskStub(overrides: Partial<RiskDimension> = {}): RiskDimension {
         evidence: [],
         ...overrides,
     };
-}
-
-function riskMatrixStub(overall: RiskDimension): RiskMatrix {
-    return {
-        symbol: 'BTC-USDT',
-        market_risk: riskStub({ score: 30 }),
-        volatility_risk: riskStub({ score: 35 }),
-        execution_liquidity_risk: riskStub({ score: 25 }),
-        structure_risk: riskStub({ score: 40 }),
-        momentum_risk: riskStub({ score: 30 }),
-        signal_risk: riskStub({ score: 20 }),
-        execution_risk: riskStub({ score: 25 }),
-        cascade_risk: riskStub({ score: 30 }),
-        overall_risk: overall,
-    };
-}
-
-function decisionCtxStub(overrides: Partial<DecisionContext> = {}): DecisionContext {
-    return {
-        score: 30,
-        bias: 'Bullish',
-        confidence: 0.7,
-        score_confidence: 0.7,
-        entry_danger: riskStub({ score: 30 }),
-        expected_reward_risk_ratio: 1.8,
-        trade_readiness: 'READY',
-        contributing_indicators: [],
-        ...overrides,
-    } as DecisionContext;
-}
-
-function advisoryStub(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
-    return {
-        symbol: 'BTC-USDT',
-        directional_guidance: 'Long',
-        market_stance: 'Constructive',
-        opportunity_classification: 'Pullback',
-        strategy_environment: 'TrendFollowing',
-        entry_guidance: 'WaitForConfirmation',
-        exit_guidance: 'NoWarning',
-        protection_strategy: 'ATRBased',
-        target_strategy: 'ResistanceBased',
-        confidence_assessment: 60,
-        stop_loss_distance_pct: 0.015,
-        cascade_risk_score: 30,
-        environment_favorability: riskStub({ score: 25 }),
-        final_recommendation: '',
-        ...overrides,
-    } as AdvisoryMatrix;
 }
 
 function overviewStub(overrides: Partial<OverviewMatrix> = {}): OverviewMatrix {
@@ -449,239 +373,6 @@ describe('buildL3AnalysisHeader (L3)', () => {
     });
 });
 
-// ── L4 — Opportunity ───────────────────────────────────────────────────
-
-describe('buildL4OpportunityHeader (L4)', () => {
-    it('NO CLEAR SETUP is rendered neutral amber (zero opportunity is NOT good)', () => {
-        const spec = buildL4OpportunityHeader(opportunityStub({ primary_opportunity: 'NoClearOpportunity', opportunity_score: 0 }));
-        expect(spec.badge.label).toBe('NO CLEAR SETUP');
-        expect(spec.badge.state).toBe('neutral');
-        expect(spec.badge.color).toBe(COLORS.neutral);
-    });
-
-    it('badge colour = direction: LONG is green, SHORT is red', () => {
-        const long = buildL4OpportunityHeader(opportunityStub({ primary_opportunity: 'Pullback', long_expected_rr_internal: 2.0, short_expected_rr_internal: 1.0 }), 'Bullish');
-        const short = buildL4OpportunityHeader(opportunityStub({ primary_opportunity: 'MeanReversion', long_expected_rr_internal: 1.0, short_expected_rr_internal: 2.5 }), 'Bearish');
-        expect(long.badge.color).toBe(DASHBOARD_COLORS.bullish);
-        expect(short.badge.color).toBe(DASHBOARD_COLORS.bearish);
-    });
-
-    it('L3 bias override: even if LONG RR < SHORT RR, a Bullish bias forces LONG direction', () => {
-        const spec = buildL4OpportunityHeader(opportunityStub({
-            primary_opportunity: 'Breakout',
-            long_expected_rr_internal: 1.0,
-            short_expected_rr_internal: 2.5,
-        }), 'Bullish');
-        // The resolved direction rides the badge (green = bullish); the
-        // R:R chip itself was removed in v7.3 (TRADE SETUPS owns it).
-        expect(spec.badge.color).toBe(DASHBOARD_COLORS.bullish);
-    });
-
-    it('FIX-2: Neutral bias renders a NEUTRAL-tone badge (no argmax directionality)', () => {
-        // The user's capture: a directionally-neutral panel (Pullback
-        // DirectionalNeutral, N/A R:R) must NOT render a bear/bull tone
-        // just because one per-side R:R happens to be larger.
-        const spec = buildL4OpportunityHeader(opportunityStub({
-            primary_opportunity: 'Pullback',
-            long_expected_rr_internal: 1.0,
-            short_expected_rr_internal: 2.5,
-        }), 'Neutral');
-        expect(spec.badge.label).toBe('Pullback');
-        expect(spec.badge.color).toBe(COLORS.neutral);
-        // No R:R chip under a neutral bias (v7.3: chip removed entirely).
-        expect(spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')).toBeUndefined();
-    });
-
-    it('v7.3: the chip rail is grouped Score / Confidence / Horizon / Timeframes with no R:R chip', () => {
-        const spec = buildL4OpportunityHeader(
-            opportunityStub({ primary_opportunity: 'Breakout', opportunity_score: 58.87, time_horizon: 'INTRADAY' }),
-            'Bullish',
-            analysisStub({ timeframes_considered: 4, confidence: 0.26 }),
-        );
-        // v11.12.4: the Timeframes chip was erased from Opportunities.
-        expect(spec.meta.map((m) => m.label)).toEqual([
-            'Score',
-            'Confidence',
-            'Horizon',
-        ]);
-        expect(spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')).toBeUndefined();
-    });
-
-    it('Score chip renders neutral amber when opportunity_score=0 but a type IS set', () => {
-        const spec = buildL4OpportunityHeader(opportunityStub({ primary_opportunity: 'Pullback', opportunity_score: 0 }));
-        const score = spec.meta.find((m) => m.label === 'Score')!;
-        expect(score.state).toBe('neutral');
-        expect(score.value).toBe('0');
-    });
-
-    it('environment cluster: the Confidence chip rides the meta rail (Timeframes erased v11.12.4)', () => {
-        const spec = buildL4OpportunityHeader(
-            opportunityStub({ primary_opportunity: 'Pullback', opportunity_score: 58.87, time_horizon: 'INTRADAY' }),
-            'Bullish',
-            analysisStub({ timeframes_considered: 4, confidence: 0.26 }),
-        );
-        expect(spec.meta.find((m) => m.label === 'Timeframes')).toBeUndefined();
-        const conf = spec.meta.find((m) => m.label === 'Confidence')!;
-        expect(conf.value).toBe('26%');
-        // The pre-existing bracket chips stay side-by-side in the same rail.
-        const score = spec.meta.find((m) => m.label === 'Score')!;
-        expect(score.value).toBe('58.87');
-        const horizon = spec.meta.find((m) => m.label === 'Horizon')!;
-        expect(horizon.value).toBe('INTRADAY');
-    });
-
-    it('environment cluster renders even in the NO CLEAR SETUP branch (always meaningful)', () => {
-        const spec = buildL4OpportunityHeader(
-            opportunityStub({ primary_opportunity: 'NoClearOpportunity', opportunity_score: 0 }),
-            'Neutral',
-            analysisStub({ timeframes_considered: 3, confidence: 0.4 }),
-        );
-        expect(spec.badge.label).toBe('NO CLEAR SETUP');
-        expect(spec.meta.find((m) => m.label === 'Timeframes')).toBeUndefined();
-        expect(spec.meta.find((m) => m.label === 'Confidence')!.value).toBe('40%');
-        // No bracket-derived chips in the no-clear branch.
-        expect(spec.meta.find((m) => m.label === 'Score')).toBeUndefined();
-        expect(spec.meta.find((m) => m.label === 'Horizon')).toBeUndefined();
-    });
-
-    it('environment chips degrade to em-dashes without an analysis payload', () => {
-        const spec = buildL4OpportunityHeader(opportunityStub(), 'Bullish', null);
-        expect(spec.meta.find((m) => m.label === 'Timeframes')).toBeUndefined();
-        const conf = spec.meta.find((m) => m.label === 'Confidence')!;
-        expect(conf.value).toBe('—');
-    });
-});
-
-// ── L5 — Risk ───────────────────────────────────────────────────────────
-
-describe('buildL5RiskHeader (L5)', () => {
-    it('badge label = prettified overall.level, sublabel = state', () => {
-        const r = riskMatrixStub(riskStub({ score: 42, level: 'Moderate', state: 'Increasing' }));
-        const spec = buildL5RiskHeader(r);
-        expect(spec.badge.label).toBe('Moderate');
-        expect(spec.badge.sublabel).toBe('Increasing');
-    });
-
-    it('risk-score 0 — SCORE chip green (low risk = calm) but HEADLINE badge is BLUE', () => {
-        // v7.0-prod: green is reserved for bullish setups; risk has no
-        // direction. Low risk gets a BLUE badge (calm / ok). The
-        // numeric Score chip keeps its severity palette.
-        const r = riskMatrixStub(riskStub({ score: 0, level: 'VeryLow' }));
-        const spec = buildL5RiskHeader(r);
-        const score = spec.meta.find((m) => m.label === 'Score')!;
-        expect(score.state).toBe('valid');
-        expect(score.color).toBe('#22c55e');
-        expect(spec.badge.color).toBe('#22d3ee');
-    });
-
-    it('risk-score 80 (high danger) — HEADLINE badge is AMBER (never red)', () => {
-        const r = riskMatrixStub(riskStub({ score: 80, level: 'High' }));
-        const spec = buildL5RiskHeader(r);
-        // Red is reserved for short/bearish setups; L5 is a magnitude
-        // measure — high risk is "indeterminate / be cautious", not
-        // "bearish", so amber is the correct semantics.
-        expect(spec.badge.color).toBe('#f59e0b');
-        expect(spec.badge.color).not.toBe('#ef4444');
-        expect(spec.badge.color).not.toBe('#22d3ee');
-    });
-
-    it('risk-score boundary: 39 → BLUE, 40 → AMBER (threshold at the Moderate band, v6.10.9)', () => {
-        const blue = buildL5RiskHeader(riskMatrixStub(riskStub({ score: 39, level: 'Low' })));
-        const amber = buildL5RiskHeader(riskMatrixStub(riskStub({ score: 40, level: 'Moderate' })));
-        expect(blue.badge.color).toBe('#22d3ee');
-        expect(amber.badge.color).toBe('#f59e0b');
-    });
-
-    it('Dimensions chip reports n/8 active', () => {
-        const r = riskMatrixStub(riskStub({ score: 30 }));
-        const spec = buildL5RiskHeader(r);
-        const dims = spec.meta.find((m) => m.label === 'Dimensions')!;
-        expect(dims.value).toBe('8/8');
-    });
-
-    it('Confidence chip sits between Score and Dimensions, styled as a meta chip', () => {
-        const r = riskMatrixStub(riskStub({ score: 42, confidence: 78 }));
-        const spec = buildL5RiskHeader(r);
-        expect(spec.meta.map((m) => m.label)).toEqual(['Score', 'Confidence', 'Dimensions']);
-        const conf = spec.meta[1];
-        expect(conf.value).toBe('78%');
-        expect(conf.state).toBe('valid');
-        // v11.12.3: confidence VALUES are white (values white, labels grey).
-        expect(conf.color).toBe('rgba(255,255,255,0.85)');
-    });
-});
-
-// ── L6 — Decision (HIGH-priority regression guard) ──────────────────────
-
-describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
-    it('LONG verdict renders LONG badge in green', () => {
-        const decision = decisionCtxStub({ score: 75, bias: 'Bullish', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
-        const advisory = advisoryStub({ directional_guidance: 'Long', market_stance: 'Constructive' });
-        const rank = { top: 'LONG' as const, headline: { state: 'READY' as const, confidence_pct: 80 } };
-        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        expect(spec.badge.label).toBe('LONG');
-        expect(spec.badge.color).toBe(DASHBOARD_COLORS.bullish);
-    });
-
-    it('directional verdict gated by STAND_ASIDE keeps its direction (v6.10.17)', () => {
-        // v6.10.17 decoupling: a LONG verdict gated by STAND ASIDE shows
-        // the direction as the badge (with the readiness as sublabel) —
-        // only a HOLD top under STAND_ASIDE collapses to "STAND ASIDE".
-        const decision = decisionCtxStub({ trade_readiness: 'STAND_ASIDE', score: 0 });
-        const advisory = advisoryStub({ directional_guidance: 'Long' });
-        const rank = { top: 'LONG' as const, headline: { state: 'STAND_ASIDE' as const, confidence_pct: 0 } };
-        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        expect(spec.badge.label).toBe('LONG');
-        expect(spec.badge.color).toBe(DASHBOARD_COLORS.bullish);
-        expect(spec.badge.sublabel).toBe('STAND ASIDE');
-    });
-
-    it('flat HOLD under the STAND_ASIDE gate renders STAND ASIDE in amber', () => {
-        const decision = decisionCtxStub({ trade_readiness: 'STAND_ASIDE', score: 0, bias: 'Neutral' });
-        const advisory = advisoryStub({ directional_guidance: 'Neutral' });
-        const rank = { top: 'HOLD' as const, headline: { state: 'STAND_ASIDE' as const, confidence_pct: 0 } };
-        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        expect(spec.badge.label).toBe('STAND ASIDE');
-        expect(spec.badge.color).toBe(COLORS.neutral);
-    });
-
-    it('L3 AnalysisPanel.bias is NOT consumed (regression: L3 leak fix)', () => {
-        // Seed rank resolves to HOLD. Even if analysis.bias = Bullish,
-        // the L6 badge never reads the L3 input.
-        const decision = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'FORMING', expected_reward_risk_ratio: 0 });
-        const advisory = advisoryStub({ directional_guidance: 'Neutral', market_stance: 'Neutral' });
-        const rank = { top: 'HOLD' as const, headline: { state: 'FORMING' as const, confidence_pct: 0 } };
-        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        expect(spec.badge.label).toBe('HOLD');
-        // sublabel = readiness (not L3 bias)
-        expect(spec.badge.sublabel).toBe('FORMING');
-        // The header definition does not take an analysis arg at all —
-        // this is structural proof that L3 cannot leak.
-        expect(spec.badge.color).toBe(COLORS.neutral);
-    });
-
-    it('v6.10.19d (D) + v6.10.28: Risk-Adj R:R and Confidence header chips are removed — the Safety Flags KPI row owns both', () => {
-        // The N/A sentinel case: no chip at all now.
-        const decisionNA = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'WATCH', expected_reward_risk_ratio: 0 });
-        const advisoryNA = advisoryStub({ directional_guidance: 'Neutral' });
-        const rankNA = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
-        const specNA = buildL6DecisionHeader({ rank: rankNA, decisionContext: decisionNA, advisory: advisoryNA });
-        expect(specNA.meta.find((m) => m.label === 'Risk-Adj R:R')).toBeUndefined();
-        expect(specNA.meta.find((m) => m.label === 'Confidence')).toBeUndefined();
-
-        // The non-zero case: also gone from the header — the Safety
-        // Flags KPI is the single Risk-Adj R:R surface.
-        const decision = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'WATCH', expected_reward_risk_ratio: 1.2 });
-        const advisory = advisoryStub({ directional_guidance: 'Neutral' });
-        const rank = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
-        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        expect(spec.meta.find((m) => m.label === 'Risk-Adj R:R')).toBeUndefined();
-        expect(spec.meta.find((m) => m.label === 'Confidence')).toBeUndefined();
-    });
-});
-
-// ── L7 — Overview ──────────────────────────────────────────────────────
-
 describe('buildL7OverviewHeader (L7)', () => {
     const fetchState = { lastSuccessMs: 1_000_000, lastErrorMs: null, now: 1_000_500, pollIntervalMs: 3000 };
 
@@ -725,43 +416,11 @@ describe('buildL7OverviewHeader (L7)', () => {
 });
 
 // ── Lint-y invariants across all seven builders ────────────────────────
-
-describe('cross-layer invariants', () => {
-    it('every builder returns a LayerHeaderSpec with one primary badge and zero secondary badges', () => {
-        const specs: LayerHeaderSpec[] = [
-            buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL', regime: 'TRENDING', overall_score: 60 }))),
-            buildL1MtfHeader(alignmentStub({ timeframes_present: 4 }), 'Synchronized'),
-            buildL2AlignmentHeader(alignmentStub({ mtf_overall_label: 'WEAK_BULL', mtf_overall_score: 10 })),
-            buildL3AnalysisHeader(analysisStub({ bias: 'Bullish', market_regime: 'TrendingBull' })),
-            buildL4OpportunityHeader(opportunityStub({ primary_opportunity: 'Pullback' }), 'Bullish'),
-            buildL5RiskHeader(riskMatrixStub(riskStub({ score: 40, level: 'Moderate' }))),
-            buildL7OverviewHeader(overviewStub({ global_market_bias: 'BULLISH' }), { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 }),
-        ];
-        for (const s of specs) {
-            expect(s.badge).toBeDefined();
-            expect(typeof s.badge.label).toBe('string');
-            expect(['valid', 'neutral', 'empty', 'error']).toContain(s.badge.state);
-        }
-    });
-
-    it('layerNumber is monotonic 1..7', () => {
-        const l1 = buildL1MetricsHeader(tfStub(ctx())).layerNumber;
-        const l2 = buildL2AlignmentHeader(alignmentStub()).layerNumber;
-        const l3 = buildL3AnalysisHeader(analysisStub()).layerNumber;
-        const l4 = buildL4OpportunityHeader(opportunityStub()).layerNumber;
-        const l5 = buildL5RiskHeader(riskMatrixStub(riskStub())).layerNumber;
-        const l7 = buildL7OverviewHeader(overviewStub(), { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 }).layerNumber;
-        expect([l1, l2, l3, l4, l5, l7]).toEqual([1, 2, 3, 4, 5, 7]);
-    });
-});
-
-// ── v7.0-prod direction-vocabulary invariant ───────────────────────────
-//
-// Every LayerHeader builder's headline badge must fall into the 4-colour
-// direction vocabulary: green (long) / red (short) / amber (sideways)
-// / gray (no-data).  No other colour is allowed on a tab chrome.
-
-describe('v7.0-prod — direction-vocabulary colour invariant (L1..L7)', () => {
+// CR-15: the L4/L5/L6 cases are gone from this invariant — those badges
+// rendered an opportunity, a risk level and a verdict, and the colour that
+// carried a direction was doing the work of a trading signal. What remains is
+// the model's own vocabulary: green bullish, red bearish, amber neutral.
+describe('v7.0-prod — direction-vocabulary colour invariant (L1..L3, L7)', () => {
     const ALLOWED = new Set([
         '#22c55e',           // green · long / StrongBullish
         '#4ade80',           // green · bullish (Lighter Bullish)
@@ -769,7 +428,6 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L7)', () => {
         '#dc2626',           // red   · StrongBearish (darker)
         '#f87171',           // red   · bearish / SHORT (default bearish token)
         '#f59e0b',           // amber · sideways / neutral / hold / wait
-        '#22d3ee',           // blue  · L5 low-risk (calm / ok — v7.0-prod)
         'rgba(255,255,255,0.30)', // gray · nodata (foreground)
     ]);
 
@@ -810,71 +468,6 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L7)', () => {
     it('L3 (bullish → green)', () => {
         const spec = buildL3AnalysisHeader(analysisStub({ bias: 'Bullish', market_regime: 'TrendingBull' }));
         assertVocabulary(spec);
-    });
-
-    it('L4 (LONG → green)', () => {
-        const spec = buildL4OpportunityHeader(
-            opportunityStub({ primary_opportunity: 'Pullback', long_expected_rr_internal: 2.0, short_expected_rr_internal: 1.0 }),
-            'Bullish',
-        );
-        assertVocabulary(spec);
-    });
-
-    it('L4 (SHORT → red)', () => {
-        const spec = buildL4OpportunityHeader(
-            opportunityStub({ primary_opportunity: 'MeanReversion', long_expected_rr_internal: 1.0, short_expected_rr_internal: 2.5 }),
-            'Bearish',
-        );
-        assertVocabulary(spec);
-    });
-
-    it('L4 (NO CLEAR SETUP → amber)', () => {
-        const spec = buildL4OpportunityHeader(
-            opportunityStub({ primary_opportunity: 'NoClearOpportunity', opportunity_score: 0 }),
-            'Neutral',
-        );
-        assertVocabulary(spec);
-    });
-
-    it('L5 (score < 50 → blue, score >= 50 → amber)', () => {
-        const low = buildL5RiskHeader(riskMatrixStub(riskStub({ score: 30, level: 'Low' })));
-        assertVocabulary(low);
-        expect(low.badge.color).toBe('#22d3ee');
-        const high = buildL5RiskHeader(riskMatrixStub(riskStub({ score: 70, level: 'High' })));
-        assertVocabulary(high);
-        expect(high.badge.color).toBe('#f59e0b');
-    });
-
-    it('L6 (LONG → green)', () => {
-        const decision = decisionCtxStub({ score: 75, bias: 'Bullish', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
-        const advisory = advisoryStub({ directional_guidance: 'Long', market_stance: 'Constructive' });
-        const rank = { top: 'LONG' as const, headline: { state: 'READY' as const, confidence_pct: 80 } };
-        assertVocabulary(buildL6DecisionHeader({ rank, decisionContext: decision, advisory }));
-    });
-
-    it('L6 (SHORT → red)', () => {
-        const decision = decisionCtxStub({ score: -75, bias: 'Bearish', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
-        const advisory = advisoryStub({ directional_guidance: 'Short', market_stance: 'Cautious' });
-        const rank = { top: 'SHORT' as const, headline: { state: 'READY' as const, confidence_pct: 80 } };
-        assertVocabulary(buildL6DecisionHeader({ rank, decisionContext: decision, advisory }));
-    });
-
-    it('L6 (directional-gated LONG → green; flat HOLD/STAND_ASIDE → amber)', () => {
-        // v6.10.17: a directional verdict gated by STAND ASIDE keeps its
-        // direction colour — red/green, never amber. Amber is reserved for
-        // the genuinely flat no-directional-call state.
-        const decision = decisionCtxStub({ trade_readiness: 'STAND_ASIDE', score: 0 });
-        const advisory = advisoryStub({ directional_guidance: 'Long', market_stance: 'Neutral' });
-        const rank = { top: 'LONG' as const, headline: { state: 'STAND_ASIDE' as const, confidence_pct: 0 } };
-        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        expect(spec.badge.color).toBe(DASHBOARD_COLORS.bullish);
-        assertVocabulary(spec);
-
-        const flatDecision = decisionCtxStub({ trade_readiness: 'STAND_ASIDE', score: 0, bias: 'Neutral' });
-        const flatRank = { top: 'HOLD' as const, headline: { state: 'STAND_ASIDE' as const, confidence_pct: 0 } };
-        const flatSpec = buildL6DecisionHeader({ rank: flatRank, decisionContext: flatDecision, advisory });
-        expect(flatSpec.badge.color).toBe('#f59e0b');
-        assertVocabulary(flatSpec);
     });
 
     it('L7 (low coverage → STRONG demoted + pair count) (v6.10.18 I-10)', () => {

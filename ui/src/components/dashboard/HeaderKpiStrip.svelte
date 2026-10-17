@@ -1,31 +1,30 @@
 <script lang="ts">
-    // HeaderKpiStrip — six top-row KPIs answering the operator's
-    // top-of-screen needs:
-    //   Valid Trades, Best Opportunity, Risk to Reward Ratio, Market Bias,
-    //   Avg Risk, Coverage.
+    // HeaderKpiStrip — the three model KPIs across the top of the Overview:
+    //   Market Bias, Cross-TF Consensus, Active Pairs.
+    //
+    // CR-15: this was six tiles, and five of them were strategy (valid trades,
+    // best opportunity, R:R, avg risk, and a coverage ratio measured as "pairs
+    // with opportunity data"). A coverage ratio that asks "how many pairs have
+    // an opinion about what to do" is not coverage of anything the model
+    // measures, so it went with the rest.
     import { useAppStore } from '../../state.svelte';
-    import { aggregateRR, aggregateConfidence, aggregateRisk, collectActiveSetups, pickBestOpportunity } from '../../lib/tradeAggregates';
-    import { biasColor, rrColor, scoreColor, formatRewardRatio } from '../../lib/dashboardColors';
+    import { biasColor, scoreColor } from '../../lib/dashboardColors';
     import { demoteBiasForCoverage } from '../../lib/layerHeader';
     import styles from './HeaderKpiStrip.module.css';
 
     const app = useAppStore();
 
+    // CR-15: this strip showed six KPIs — valid trades, best opportunity, avg
+    // R:R, avg risk and coverage — and five of the six were strategy. Only the
+    // market bias is a market state, so the strip now shows three: the bias,
+    // how strongly the instances agree across durations, and how much of the
+    // workspace is actually reporting.
     const kpis = $derived.by(() => {
         const instances = Object.values(app.instancesMap);
-        const setups = collectActiveSetups(instances);
-        const actionable = setups.filter(
-            (s) => s.viability === 'Actionable' && s.readiness === 'READY',
-        );
-        const best = pickBestOpportunity(instances);
-        const rr = aggregateRR(instances);
-        const conf = aggregateConfidence(instances);
-        const risk = aggregateRisk(instances);
         const overview = app.overviewMatrix;
 
         const totalCount = instances.length;
-        const withOpportunity = instances.filter((i) => i.opportunity).length;
-        const coverage = totalCount > 0 ? (withOpportunity / totalCount) * 100 : 0;
+        const connected = instances.filter((i) => i.isConnected).length;
 
         // I-10 parity with the L7 header badge: under low coverage (≤2
         // pairs) the STRONG_* token demotes one tier AND its color demotes
@@ -38,24 +37,6 @@
         const demotedBias = demoteBiasForCoverage(rawBias, lowCoverage, overview?.instance_count ?? null);
 
         return {
-            validTrades: {
-                label: 'VALID TRADES',
-                value: actionable.length.toString(),
-                sub: `of ${setups.length} candidates`,
-                color: actionable.length > 0 ? '#22c55e' : 'rgba(255,255,255,0.55)',
-            },
-            bestOpportunity: {
-                label: 'BEST OPPORTUNITY',
-                value: best?.symbol ?? '—',
-                sub: best ? `score ${best.opportunityScore.toFixed(0)} · ${best.direction}` : 'no qualifying setup',
-                color: best ? scoreColor(best.opportunityScore) : 'rgba(255,255,255,0.35)',
-            },
-            avgRr: {
-                label: 'RISK TO REWARD RATIO',
-                value: formatRewardRatio(rr.avg),
-                sub: rr.count > 0 ? `best ${formatRewardRatio(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}` : 'no ratio data',
-                color: rrColor(rr.avg),
-            },
             marketBias: {
                 label: 'MARKET BIAS',
                 value: demotedBias.displayBias ?? rawBias,
@@ -64,17 +45,19 @@
                     : 'local aggregation',
                 color: biasColor(demotedBias.displayBias ?? rawBias),
             },
-            avgRisk: {
-                label: 'AVG RISK',
-                value: risk.count > 0 ? risk.avg.toFixed(0) : '—',
-                sub: risk.count > 0 ? `across ${risk.count} pair${risk.count === 1 ? '' : 's'}` : 'no risk data',
-                color: risk.avg >= 60 ? '#ef4444' : risk.avg >= 40 ? '#f59e0b' : '#22c55e',
+            crossTfConsensus: {
+                label: 'CROSS-TF CONSENSUS',
+                value: overview?.alignment_consensus_index != null
+                    ? overview.alignment_consensus_index.toFixed(0)
+                    : '—',
+                sub: 'mean cross-duration agreement',
+                color: scoreColor(overview?.alignment_consensus_index ?? null),
             },
-            coverage: {
-                label: 'COVERAGE',
-                value: `${coverage.toFixed(0)}%`,
-                sub: `${withOpportunity}/${totalCount} pairs have opportunity data`,
-                color: coverage >= 80 ? '#22c55e' : coverage >= 50 ? '#f59e0b' : '#ef4444',
+            activePairs: {
+                label: 'ACTIVE PAIRS',
+                value: `${connected}/${totalCount}`,
+                sub: totalCount === 0 ? 'no instances' : `${totalCount - connected} not reporting`,
+                color: totalCount === 0 || connected === totalCount ? '#22c55e' : '#f59e0b',
             },
         };
     });

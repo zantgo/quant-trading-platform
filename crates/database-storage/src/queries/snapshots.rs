@@ -223,15 +223,13 @@ pub async fn insert_snapshot_with_session(
                     .map(|a| format!("{:?}", a.market_regime))
             }),
     )
-    .bind(snapshot.opportunity.as_ref().and_then(|o| serde_json::to_string(o).ok()))
-    .bind(
-        snapshot
-            .decision_context
-            .as_ref()
-            .and_then(|d| serde_json::to_string(d).ok()),
-    )
+    // CR-15: the strategy matrices are no longer produced, so they are no longer
+    // persisted. The columns remain in the schema until the P5 forward migration
+    // drops them with the non-candle columns.
+    .bind(None::<String>)
+    .bind(None::<String>)
     .bind(snapshot.analysis.as_ref().and_then(|a| serde_json::to_string(a).ok()))
-    .bind(snapshot.advisory.as_ref().and_then(|a| serde_json::to_string(a).ok()))
+    .bind(None::<String>)
     .bind(session_id)
     .execute(pool)
     .await
@@ -598,10 +596,7 @@ pub async fn query_latest_snapshot(
             indicator_lifecycle: Default::default(),
             context: None,
             alignment: None,
-            risk: None,
             analysis: None,
-            advisory: None,
-            decision_context: None,
             statistical_context: None,
             indicators,
             risk_profile: None,
@@ -610,7 +605,6 @@ pub async fn query_latest_snapshot(
             volume_profile: None,
             liquidity_signals: vec![],
             metrics_config: None,
-            opportunity: None,
             quality_envelope: None,
         }
     })
@@ -715,10 +709,14 @@ pub async fn query_backtest_snapshots(
     .unwrap_or_default()
 }
 
-/// Data coverage for the backtest replay source — per (symbol, timeframe):
-/// how many recorded snapshots exist and over which time window. The PAE
-/// Overview (observe mode) renders this so the operator knows whether a
-/// requested backtest window is coverable before running it.
+/// Data coverage for the replay source — per (symbol, timeframe): how many
+/// recorded snapshots exist and over which window.
+///
+/// CR-15: the predicate used to be `opportunity_json IS NOT NULL OR
+/// decision_context_json IS NOT NULL`, i.e. "has recorded decision history".
+/// Those columns are never written now, so that predicate would report zero
+/// coverage for every symbol. It is replaced by `close IS NOT NULL` — a
+/// completed candle — which is what a replay can actually consume.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct BacktestCoverageRow {
     pub symbol: String,
@@ -737,7 +735,7 @@ pub async fn query_backtest_coverage(pool: &SqlitePool) -> Vec<BacktestCoverageR
                 MIN(timestamp) as earliest_secs,
                 MAX(timestamp) as latest_secs
          FROM market_snapshots
-         WHERE opportunity_json IS NOT NULL OR decision_context_json IS NOT NULL
+         WHERE close IS NOT NULL
          GROUP BY symbol, timeframe_secs
          ORDER BY symbol, timeframe_secs",
     )

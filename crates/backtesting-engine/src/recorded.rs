@@ -138,20 +138,13 @@ fn snap_to_market(symbol: &str, rec: &RecordedSnapshot) -> core_domain::models::
         close: rec.close.and_then(Decimal::from_f64_retain),
         ..core_domain::models::MarketSnapshot::default()
     };
-    snap.opportunity = rec
-        .opportunity_json
-        .as_deref()
-        .and_then(|j| serde_json::from_str(j).ok());
-    snap.decision_context = rec
-        .decision_context_json
-        .as_deref()
-        .and_then(|j| serde_json::from_str(j).ok());
+    // CR-15: only the analysis (model) column is restored. The opportunity /
+    // decision / advisory columns are still present in the schema — they are
+    // dropped by the P5 forward migration — but they hold NULL for every row
+    // written since this phase, and reading them would reintroduce the very
+    // strategy surface the boundary removes.
     snap.analysis = rec
         .analysis_json
-        .as_deref()
-        .and_then(|j| serde_json::from_str(j).ok());
-    snap.advisory = rec
-        .advisory_json
         .as_deref()
         .and_then(|j| serde_json::from_str(j).ok());
     snap
@@ -353,54 +346,9 @@ pub async fn capture_tick_ds(
     portfolio: &mut Vec<database_storage::queries::backtest_ds::DsPortfolioPoint>,
     peak_equity: &mut f64,
 ) {
-    if let Some(dec) = snap.decision_context.as_ref() {
-        signals.push(database_storage::queries::backtest_ds::DsSignal {
-            ts_secs,
-            timeframe_secs,
-            label: "decision".to_string(),
-            kind: "bias".to_string(),
-            value: dec.bias.clone(),
-        });
-        signals.push(database_storage::queries::backtest_ds::DsSignal {
-            ts_secs,
-            timeframe_secs,
-            label: "decision".to_string(),
-            kind: "trade_readiness".to_string(),
-            value: dec.trade_readiness.clone(),
-        });
-    }
-    if let Some(opp) = snap.opportunity.as_ref() {
-        signals.push(database_storage::queries::backtest_ds::DsSignal {
-            ts_secs,
-            timeframe_secs,
-            label: "opportunity".to_string(),
-            kind: "score".to_string(),
-            value: format!("{:.2}", opp.opportunity_score),
-        });
-        signals.push(database_storage::queries::backtest_ds::DsSignal {
-            ts_secs,
-            timeframe_secs,
-            label: "opportunity".to_string(),
-            kind: "primary".to_string(),
-            value: format!("{:?}", opp.primary_opportunity),
-        });
-    }
-    if let Some(adv) = snap.advisory.as_ref() {
-        signals.push(database_storage::queries::backtest_ds::DsSignal {
-            ts_secs,
-            timeframe_secs,
-            label: "decision".to_string(),
-            kind: "market_stance".to_string(),
-            value: format!("{:?}", adv.market_stance),
-        });
-        signals.push(database_storage::queries::backtest_ds::DsSignal {
-            ts_secs,
-            timeframe_secs,
-            label: "decision".to_string(),
-            kind: "confidence_assessment".to_string(),
-            value: format!("{:.2}", adv.confidence_assessment),
-        });
-    }
+    // CR-15: the decision / opportunity / advisory signal rows are gone with
+    // the layers themselves. What remains below is the MODEL's own record —
+    // bias and regime — which is still what a replay can honestly capture.
     if let Some(analysis) = snap.analysis.as_ref() {
         signals.push(database_storage::queries::backtest_ds::DsSignal {
             ts_secs,
@@ -580,35 +528,9 @@ mod tests {
         AnalysisMatrix, MarketBias, OpportunityProfile, OpportunityType, PriceRange, SetupQuality,
         TradeViability,
     };
-    use core_domain::decision_context::DecisionContext;
     use core_domain::models::MarketSnapshot;
-    use core_domain::opportunity::OpportunityMatrix;
     use core_domain::risk::{RiskDimension, RiskLevel, RiskState};
     use rust_decimal_macros::dec;
-
-    fn decision(rr: f64) -> DecisionContext {
-        DecisionContext {
-            score: 60.0,
-            bias: "Bullish".to_string(),
-            score_confidence: 0.6,
-            entry_danger: RiskDimension {
-                score: 20.0,
-                level: RiskLevel::Low,
-                state: RiskState::Stable,
-                confidence: 80.0,
-                evidence: vec![],
-                volatility_to_spread_ratio: None,
-            },
-            expected_reward_risk_ratio: rr,
-            trade_readiness: "READY".to_string(),
-            contributing_indicators: vec![],
-            long_probability: 60.0,
-            short_probability: 30.0,
-            hold_probability: 10.0,
-            net_bias_pct: 30.0,
-            lean_floor_applied: false,
-        }
-    }
 
     fn long_snapshot(ts: u64, mid: f64) -> MarketSnapshot {
         let mut snap = MarketSnapshot::default();
@@ -624,82 +546,6 @@ mod tests {
         let mut a = AnalysisMatrix::empty("BTC-USDC");
         a.bias = MarketBias::Bullish;
         snap.analysis = Some(a);
-        snap.decision_context = Some(decision(2.0));
-        snap.opportunity = Some(OpportunityMatrix {
-            symbol: "BTC-USDC".to_string(),
-            primary_opportunity: OpportunityType::TrendContinuation,
-            opportunity_score: 60.0,
-            setup_quality: SetupQuality::Strong,
-            profiles: vec![OpportunityProfile {
-                opportunity_type: OpportunityType::TrendContinuation,
-                score: 80.0,
-                preconditions_met: 4,
-                preconditions_total: 4,
-                notes: String::new(),
-                direction_family: None,
-                long_entry_zone: Some(PriceRange {
-                    low: 90.0,
-                    high: 100.0,
-                }),
-                long_target_zone: Some(PriceRange {
-                    low: 120.0,
-                    high: 130.0,
-                }),
-                long_invalidation_level: Some(85.0),
-                short_entry_zone: None,
-                short_target_zone: None,
-                short_invalidation_level: None,
-                long_expected_rr_internal: 2.0,
-                short_expected_rr_internal: 0.0,
-                trade_viability: Some(TradeViability::Actionable),
-                long_geometry_consistent: true,
-                short_geometry_consistent: false,
-                scoring_factors: None,
-                display_score: Some(80.0),
-            }],
-            forecast_confidence: 0.7,
-            contributing_signals: vec![],
-            invalidation_note: String::new(),
-            entry_zone: PriceRange {
-                low: 90.0,
-                high: 100.0,
-            },
-            target_zone: PriceRange {
-                low: 120.0,
-                high: 130.0,
-            },
-            time_horizon: "SWING".to_string(),
-            long_entry_zone: PriceRange {
-                low: 90.0,
-                high: 100.0,
-            },
-            long_target_zone: PriceRange {
-                low: 120.0,
-                high: 130.0,
-            },
-            long_invalidation_level: 85.0,
-            short_entry_zone: PriceRange {
-                low: 0.0,
-                high: 0.0,
-            },
-            short_target_zone: PriceRange {
-                low: 0.0,
-                high: 0.0,
-            },
-            short_invalidation_level: 0.0,
-            long_expected_rr_internal: 2.0,
-            short_expected_rr_internal: 0.0,
-            long_gross_rr_internal: 2.0,
-            short_gross_rr_internal: 0.0,
-            invalidation_level: 85.0,
-            direction_family: None,
-            long_geometry_consistent: true,
-            short_geometry_consistent: false,
-            neutral_reference_bracket: None,
-            confluent_entry_levels: vec![],
-            confluent_target_levels: vec![],
-            confluent_invalidation_levels: vec![],
-        });
         snap
     }
 
@@ -813,9 +659,6 @@ mod tests {
         // Neutral candle: the actionable setup disappears.
         let mut neutral = long_snapshot(1002, 94.0);
         neutral.analysis.as_mut().unwrap().bias = MarketBias::Neutral;
-        neutral.opportunity.as_mut().unwrap().profiles = vec![];
-        neutral.opportunity.as_mut().unwrap().primary_opportunity =
-            OpportunityType::NoClearOpportunity;
         database_storage::insert_snapshot_internal(&pool, &neutral).await;
 
         let params = BacktestParams {

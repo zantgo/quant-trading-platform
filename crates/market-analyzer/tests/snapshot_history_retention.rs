@@ -136,37 +136,6 @@ fn full_snapshot(timestamp: u64) -> MarketSnapshot {
     });
     snap.alignment = Some(core_domain::alignment::AlignmentMatrix::empty("BTC-USDT"));
     snap.analysis = Some(core_domain::analysis::AnalysisMatrix::empty("BTC-USDT"));
-    snap.risk = Some(core_domain::risk::RiskMatrix::empty("BTC-USDT"));
-    snap.advisory = Some(core_domain::advisory::AdvisoryMatrix::empty("BTC-USDT"));
-    snap.opportunity = Some(core_domain::opportunity::OpportunityMatrix {
-        symbol: "BTC-USDT".into(),
-        opportunity_score: 60.0,
-        long_entry_zone: core_domain::analysis::PriceRange {
-            low: 90.0,
-            high: 100.0,
-        },
-        long_target_zone: core_domain::analysis::PriceRange {
-            low: 120.0,
-            high: 130.0,
-        },
-        long_invalidation_level: 85.0,
-        long_expected_rr_internal: 2.0,
-        ..Default::default()
-    });
-    snap.decision_context = Some(core_domain::decision_context::DecisionContext {
-        score: 45.0,
-        bias: "Bullish".into(),
-        score_confidence: 0.68,
-        entry_danger: core_domain::risk::RiskDimension::from_score(35.0),
-        expected_reward_risk_ratio: 2.1,
-        trade_readiness: "WATCH".into(),
-        contributing_indicators: vec!["rsi".into(), "adx".into()],
-        long_probability: 0.0,
-        short_probability: 0.0,
-        hold_probability: 0.0,
-        net_bias_pct: 0.0,
-        lean_floor_applied: false,
-    });
     snap.statistical_context = Some(core_domain::models::StatisticalContext {
         close_z: Some(0.4),
         rsi_z: Some(-0.2),
@@ -286,10 +255,8 @@ fn projection_drops_every_unread_field() {
 
     assert!(p.alignment.is_none());
     assert!(p.analysis.is_none());
-    assert!(p.risk.is_none());
-    assert!(p.advisory.is_none());
-    assert!(p.opportunity.is_none());
-    assert!(p.decision_context.is_none());
+    // CR-15: risk/advisory/opportunity/decision_context no longer exist on the
+    // snapshot at all, so they need no projection assertion any more.
     assert!(p.context.is_none());
     assert!(p.statistical_context.is_none());
     assert!(p.cluster.is_none());
@@ -312,7 +279,10 @@ fn projection_drops_every_unread_field() {
     }
 
     // The full snapshot still carries them — the LIVE surface is untouched.
-    assert!(full.advisory.is_some());
+    assert!(
+        full.liquidity.is_some(),
+        "the LIVE surface keeps its full payload"
+    );
     assert!(full.liquidity.is_some());
     assert!(!full.indicators.values().next().unwrap().signals.is_empty());
 }
@@ -391,7 +361,7 @@ fn push_retained_stores_the_projection_not_the_full_frame() {
     let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
     hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000));
     let stored = deque.back().unwrap();
-    assert!(stored.advisory.is_none(), "matrices must not be retained");
+    assert!(stored.liquidity.is_none(), "matrices must not be retained");
     assert!(
         stored.liquidity.is_none(),
         "bucket map must not be retained"
@@ -794,7 +764,7 @@ async fn eviction_never_touches_the_live_snapshot() {
          bootstrap, the CLI monitor and every panel"
     );
     assert!(
-        live_guard.as_ref().unwrap().advisory.is_some(),
+        live_guard.as_ref().unwrap().liquidity.is_some(),
         "the live snapshot keeps its FULL payload (no projection, no shed)"
     );
 }

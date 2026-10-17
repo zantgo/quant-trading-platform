@@ -800,14 +800,14 @@ def check_g13_appendix_a_fields():
 # come from the ```json fences in 07-05; code-side keys come from the
 # TypeScript interfaces in ui/src/lib/exportBuilders/*.ts (7 MME tabs +
 # shared) and ui/src/types.ts.
+# CR-15: `opportunityTab.ts`, `riskTab.ts` and `recommendationTab.ts` were
+# deleted along with the matrices they exported. The remaining builders are the
+# model's own views.
 G17_MME_BUILDERS = [
     "metricsTab.ts",
     "mtfTab.ts",
     "alignmentTab.ts",
-    "opportunityTab.ts",
-    "riskTab.ts",
     "analysisTab.ts",
-    "recommendationTab.ts",
     "shared.ts",
 ]
 # Literal-built payload keys that never appear as interface members
@@ -1023,15 +1023,32 @@ def check_cli_gui_parity():
         fail(f"01-10 parity checklist incomplete — missing rows: {', '.join(missing)}")
     else:
         ok("01-10 carries all 13 parity checks (C1–C13)")
-    renderer = ROOT.parent / "crates/execution-daemon/src/cli_renderer.rs"
-    if renderer.exists():
-        rt = renderer.read_text()
-        if "frame_covers_every_gui_panel_field" in rt:
-            ok("cli_renderer.rs carries the field-coverage parity test")
-        else:
-            fail("cli_renderer.rs lost the field-coverage parity test")
+    # CR-15: the legacy `cli_renderer.rs` terminal monitor is deleted. It was a
+    # second presentation of the dashboard's data with its own formatting, and
+    # it printed L6 verdicts and per-setup risk/reward — strategy. The parity
+    # contract now belongs to the observe shell, which reads the SAME `AppState`
+    # the WebSocket handler serves, so parity holds by construction rather than
+    # by discipline: there is no second query path to keep in step.
+    #
+    # The automated half of the contract — a field-coverage test asserting the
+    # render surfaces every field the GUI panel exposes — moves to the shell
+    # alongside the `die *` / `mme *` commands in P6. Until then the gate checks
+    # that the shell exists and says so, rather than passing on a missing file.
+    shell = ROOT.parent / "crates/execution-daemon/src/shell/mod.rs"
+    legacy = ROOT.parent / "crates/execution-daemon/src/cli_renderer.rs"
+    if legacy.exists():
+        fail(
+            "cli_renderer.rs is back — the legacy monitor was a second rendering of "
+            "the dashboard's data with its own formatting, which is the parity "
+            "violation CR-15 removed"
+        )
+    elif shell.exists():
+        ok(
+            "cli_renderer.rs is gone and the observe shell is the only CLI renderer "
+            "(field-coverage parity test lands with the shell's commands in P6)"
+        )
     else:
-        fail("cli_renderer.rs not found")
+        fail("neither cli_renderer.rs nor the observe shell exists")
 
 # ═══════════════════════════════════════════════════════════════════════
 # LEGACY REGRESSION CHECKS (retained from the v6.2 gate)

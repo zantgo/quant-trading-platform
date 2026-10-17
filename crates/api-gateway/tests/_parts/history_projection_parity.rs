@@ -108,7 +108,6 @@ fn make_snapshot(timestamp: u64) -> MarketSnapshot {
             overall_score: 52,
             overall_label: "BULLISH".into(),
         }),
-        decision_context: None,
         statistical_context: Some(core_domain::models::StatisticalContext {
             close_z: Some(0.4),
             rsi_z: Some(-0.2),
@@ -117,14 +116,7 @@ fn make_snapshot(timestamp: u64) -> MarketSnapshot {
             monte_carlo_stdev: Some(0.03),
         }),
         alignment: Some(core_domain::alignment::AlignmentMatrix::empty(PAIR_KEY)),
-        risk: Some(core_domain::risk::RiskMatrix::empty(PAIR_KEY)),
         analysis: Some(core_domain::analysis::AnalysisMatrix::empty(PAIR_KEY)),
-        advisory: Some(core_domain::advisory::AdvisoryMatrix::empty(PAIR_KEY)),
-        opportunity: Some(core_domain::opportunity::OpportunityMatrix {
-            symbol: PAIR_KEY.into(),
-            opportunity_score: 60.0,
-            ..Default::default()
-        }),
         risk_profile: Some(1),
         liquidity: None,
         cluster: None,
@@ -249,7 +241,6 @@ async fn build_router(seeded: Vec<MarketSnapshot>) -> Arc<AppState> {
         )),
         pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        advisory: Arc::new(RwLock::new(None)),
         tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
         buffer_size: 500,
         stale_threshold_secs: 300,
@@ -361,7 +352,9 @@ async fn projected_history_is_byte_identical_to_unprojected() {
 
         // Sanity: the fixture really does exercise the stripped fields.
         assert!(raw[0].alignment.is_some() && projected[0].alignment.is_none());
-        assert!(raw[0].advisory.is_some() && projected[0].advisory.is_none());
+        // CR-15: `advisory` no longer exists — `statistical_context` is the
+        // surviving unread field this pin can assert on.
+        assert!(raw[0].statistical_context.is_some() && projected[0].statistical_context.is_none());
         assert!(!raw[0].indicators["rsi"].signals.is_empty());
         assert!(projected[0].indicators["rsi"].signals.is_empty());
 

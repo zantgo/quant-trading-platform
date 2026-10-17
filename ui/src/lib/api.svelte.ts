@@ -287,42 +287,44 @@ export async function deleteInstanceByPair(pairKey: string): Promise<boolean> {
     }
 }
 
-/** Poll a single pair's slots until a **recommendation to any side**
- *  appears (the scanner's `decide()` rule: `trade_readiness === 'READY'`
- *  AND a directional bias — Long / Short of any strength) or the wait
- *  window elapses.
+/** Poll a single pair's slots until the MODEL has resolved a reading for it
+ *  — a bias plus a cross-duration alignment that is not `NO_DATA` — or the
+ *  wait window elapses.
  *
- *  Used by the Watchlist Scanner as the per-pair wait window (default
- *  5 minutes): the pair is *not* judged on its first frame — it gets the
- *  whole window to produce a recommendation (e.g. the setup forms on the
- *  next completed candle). The moment a qualifying state is observed the
- *  promise resolves `READY` so the scanner keeps the instance immediately;
- *  a window with no recommendation resolves `TIMEOUT` and the scanner
- *  deletes the instance.
+ *  Used by the Watchlist Scanner as the per-pair wait window: the pair is not
+ *  judged on its first frame, it gets the whole window to produce a market
+ *  state (e.g. the analysis lands on the next completed candle).
+ *
+ *  CR-15: this was `waitForAdvisory`, and it polled for an L6 `trade_readiness`
+ *  of READY plus a real directional bias. Those are strategy inputs that no
+ *  longer cross the wire, so the old rule resolved DELETE for every pair and the
+ *  scanner removed everything it added.
+ *
+ *  **The caller must not delete on TIMEOUT.** A timeout now means "the model had
+ *  not spoken within the window", which is a note on a pair that stays in the
+ *  workspace — not grounds for removing an instance. Pairs are removed only for
+ *  input-level problems (duplicate, invalid ticker, venue does not list it).
  *
  *  The poll is a plain non-reactive read — we deliberately don't put it
  *  in a `$effect` because the modal owns the loop and the polling timer is
  *  the single source of truth for timeouts.
  *
- *  Resolves with `{ status: 'READY', decisionContext, advisory }` on the
- *  first qualifying pair, or `{ status: 'TIMEOUT' }` after `timeoutMs`
- *  elapses. We return both the `decisionContext` (for the modal's
- *  trade_readiness read) and the `advisory` (for the directional bias
- *  read) so the scanner can derive a verdict from one await. `waitedMs`
- *  reports the elapsed window on both paths.
+ *  Resolves with `{ status: 'READY', analysis, alignment }` on the first
+ *  resolved pair, or `{ status: 'TIMEOUT' }` after `timeoutMs` elapses.
+ *  `waitedMs` reports the elapsed window on both paths.
  *
  *  Returns TIMEOUT early if the pair was removed from `app.instancesMap`
  *  (the user cancelled the run mid-flight and the scanner deleted the
  *  instance). */
-export async function waitForAdvisory(
+export async function waitForModelState(
     app: AppStore,
     pairKey: string,
     timeoutMs: number,
 ): Promise<
     | {
         status: 'READY';
-        decisionContext: NonNullable<InstanceState['decisionContext']>;
-        advisory: InstanceState['advisory'];
+        analysis: NonNullable<InstanceState['analysis']>;
+        alignment: NonNullable<InstanceState['alignment']>;
         waitedMs: number;
     }
     | { status: 'TIMEOUT'; waitedMs: number }
@@ -340,13 +342,11 @@ export async function waitForAdvisory(
         if (!pair) {
             return { status: 'TIMEOUT', waitedMs: Date.now() - start };
         }
-        const dc = pair.decisionContext;
-        const advisory = pair.advisory;
-        if (decide(dc, advisory) === 'KEEP') {
+        if (decide(pair.analysis, pair.alignment) === 'KEEP') {
             return {
                 status: 'READY',
-                decisionContext: dc as NonNullable<InstanceState['decisionContext']>,
-                advisory,
+                analysis: pair.analysis as NonNullable<InstanceState['analysis']>,
+                alignment: pair.alignment as NonNullable<InstanceState['alignment']>,
                 waitedMs: Date.now() - start,
             };
         }

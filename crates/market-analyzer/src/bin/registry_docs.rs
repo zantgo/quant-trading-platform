@@ -44,8 +44,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn index_path() -> PathBuf {
-    repo_root()
-        .join("docs/engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md")
+    repo_root().join("docs/engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md")
 }
 
 fn group_label(g: IndicatorGroup) -> &'static str {
@@ -134,13 +133,23 @@ fn generate() -> String {
         }
         members.sort_by_key(|m| doc_index(m));
 
-        writeln!(out, "## {} ({} indicators)\n", group_label(group), members.len()).unwrap();
+        writeln!(
+            out,
+            "## {} ({} indicators)\n",
+            group_label(group),
+            members.len()
+        )
+        .unwrap();
         writeln!(
             out,
             "| # | Filename | Key | Display Name | Class | Dir | Div | Signals | Doc File |"
         )
         .unwrap();
-        writeln!(out, "|---|---|-----|-------------|-------|-----|-----|---------|----------|").unwrap();
+        writeln!(
+            out,
+            "|---|---|-----|-------------|-------|-----|-----|---------|----------|"
+        )
+        .unwrap();
         for m in &members {
             let div = if m.supports_divergence { "Y" } else { "—" };
             // An empty cell is indistinguishable from a bug in a generated
@@ -230,8 +239,18 @@ fn generate() -> String {
         INDICATORS.len()
     )
     .unwrap();
-    writeln!(out, "| Directional (scoring contributors) | {directional} |").unwrap();
-    writeln!(out, "| Non-Directional Gates | {} ({}) |", gates.len(), gates.join(", ")).unwrap();
+    writeln!(
+        out,
+        "| Directional (scoring contributors) | {directional} |"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "| Non-Directional Gates | {} ({}) |",
+        gates.len(),
+        gates.join(", ")
+    )
+    .unwrap();
     writeln!(
         out,
         "| Divergence-Bearing Indicators (`supports_divergence: true`) | {} ({}) |",
@@ -258,8 +277,12 @@ fn generate() -> String {
 }
 
 fn apply_region(text: &str, generated: &str) -> String {
-    let begin = text.find(BEGIN).expect("generated region: missing BEGIN marker");
-    let end = text.find(END).expect("generated region: missing END marker");
+    let begin = text
+        .find(BEGIN)
+        .expect("generated region: missing BEGIN marker");
+    let end = text
+        .find(END)
+        .expect("generated region: missing END marker");
     if end < begin {
         panic!("generated region: END precedes BEGIN");
     }
@@ -291,7 +314,10 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         eprintln!("  FAIL: registry-generated docs differ from the registry.");
-        eprintln!("        {} — run `cargo run -p market-analyzer --bin registry_docs` to regenerate.", path.display());
+        eprintln!(
+            "        {} — run `cargo run -p market-analyzer --bin registry_docs` to regenerate.",
+            path.display()
+        );
         eprintln!("        Editing a generated region by hand produces drift, and drift is a failing check (CR-5),");
         eprintln!("        not a merge conflict to resolve manually.");
         return ExitCode::FAILURE;

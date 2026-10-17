@@ -6,8 +6,11 @@ import { activeDurations, socketDurations } from './terms';
 import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
 import { emitCandleDebug } from './candleDebug';
 import { pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY, getBadgeHistory } from './badgeHistory.svelte';
-import { buildL1MtfHeader, buildL2AlignmentHeader, buildL3AnalysisHeader, buildL4OpportunityHeader, buildL5RiskHeader, buildL6DecisionHeader, metricsBadgeFor, prettifyEnum } from './layerHeader';
-import { computeDecisionRank } from './decisionRank';
+// CR-15: `buildL4OpportunityHeader` / `buildL5RiskHeader` /
+// `buildL6DecisionHeader` are gone — each rendered a strategy verdict. The
+// header trails the model's layers (L2 alignment, L3 analysis) only until P10
+// returns these slots as axis badges.
+import { buildL1MtfHeader, buildL2AlignmentHeader, buildL3AnalysisHeader, metricsBadgeFor, prettifyEnum } from './layerHeader';
 import type { Time } from 'lightweight-charts';
 
 const WS_INITIAL_DELAY_MS = 1000;
@@ -281,17 +284,17 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     // Update latestSnapshot on every inbound frame so chart $effect
     // blocks always re-fire. Shadow ticks (broadcast_live_snapshot in
     // crates/market-analyzer) carry live price data but zero out the
-    // matrix payload (alignment/analysis/risk/advisory/opportunity/
-    // decision_context) for throughput. On shadow frames we carry
-    // forward the matrix fields from the previous snapshot so consumers
-    // (TradePlanStrip, RecommendationPanel, etc.) never see nulled-out
-    // matrix data. On completed-candles frames the full matrix payload
-    // overwrites everything. Without this, shadow ticks set the
-    // reference once then all subsequent shadow frames are blocked —
-    // the chart effect never re-fires and the chart freezes.
-    const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis ||
-        snapshot.risk || snapshot.advisory || snapshot.opportunity ||
-        snapshot.decision_context);
+    // matrix payload (alignment/analysis) for throughput. On shadow frames
+    // we carry forward the matrix fields from the previous snapshot so
+    // consumers never see nulled-out matrix data. On completed-candles
+    // frames the full matrix payload overwrites everything. Without this,
+    // shadow ticks set the reference once then all subsequent shadow frames
+    // are blocked — the chart effect never re-fires and the chart freezes.
+    //
+    // CR-15: this predicate used to test six matrices (alignment, analysis,
+    // risk, advisory, opportunity, decision_context). The four strategy ones
+    // are always absent now, so they could only ever read `undefined`.
+    const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis);
     if (!tf.latestSnapshot || hasMatrixPayload) {
         tf.latestSnapshot = snapshot;
     } else {
@@ -305,10 +308,6 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // `series.update({ time })`.
         snapshot.alignment = tf.latestSnapshot.alignment;
         snapshot.analysis = tf.latestSnapshot.analysis;
-        snapshot.risk = tf.latestSnapshot.risk;
-        snapshot.advisory = tf.latestSnapshot.advisory;
-        snapshot.opportunity = tf.latestSnapshot.opportunity;
-        snapshot.decision_context = tf.latestSnapshot.decision_context;
         tf.latestSnapshot = snapshot;
     }
     tf.isCompleted = snapshot.is_completed === true;
@@ -455,9 +454,8 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // independently timed completed-candle frames. Each stream
         // carries forward its own last-completed matrices onto every
         // shadow tick, so without this guard every slot races to
-        // overwrite `pair.alignment` / `pair.analysis` / `pair.risk` /
-        // `pair.advisory` / `pair.decisionContext` / `pair.opportunity`
-        // at up to 4 Hz per stream, causing panel flicker at the
+        // overwrite `pair.alignment` / `pair.analysis` at up to 4 Hz per
+        // stream, causing panel flicker at the
         // micro-candle cadence.
         //
         // The guard accepts a frame only when:
@@ -487,9 +485,9 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // cross-slot race the single-timestamp guard could not express).
         const frameTs = num((snapshot as Record<string, unknown>).timestamp);
         const isCompleted = (snapshot as Record<string, unknown>).is_completed === true;
-        const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis ||
-            snapshot.risk || snapshot.advisory || snapshot.decision_context ||
-            snapshot.opportunity);
+        // CR-15: the four strategy matrices are gone from the wire, so this
+        // predicate is now just the model's two.
+        const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis);
         const lastSlotTs = pair.lastMatrixTimestampBySlot[tf.slot] ?? -Infinity;
         const acceptMatrixFrame =
             isCompleted &&
@@ -510,40 +508,9 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             if (snapshot.analysis && typeof snapshot.analysis === 'object') {
                 pair.analysis = snapshot.analysis;
             }
-            if (snapshot.risk && typeof snapshot.risk === 'object') {
-                pair.risk = snapshot.risk;
-            }
-            if (snapshot.advisory && typeof snapshot.advisory === 'object') {
-                pair.advisory = snapshot.advisory;
-            }
-            // Decision-context (L6) carries `trade_readiness`, the L4.75 gate
-            // the Watchlist Scanner polls for. Mirror the existing
-            // alignment/analysis/risk/advisory extraction so downstream
-            // consumers (including the scanner's `waitForAdvisory`) can read
-            // it from the pair-level store rather than trawling every TF's
-            // `latestSnapshot`. The scanner polls regardless of TF — once
-            // the macro context has settled, the value is identical across
-            // the 4 WS streams, so the monotonicity guard above is the
-            // correct arbiter (no longer "first arrival wins").
-            if (snapshot.decision_context && typeof snapshot.decision_context === 'object') {
-                pair.decisionContext = snapshot.decision_context;
-            }
-            // Opportunity matrix (L4) — entry/target/invalidation zones for
-            // both sides, R:R, time horizon, confluent levels, evaluated
-            // profiles. Only completed-candle frames carry this payload;
-            // shadow ticks hard-code it to `None` for performance. Mirroring
-            // here means `OpportunitiesPanel`, `TradePlanStrip` and
-            // `RecommendationPanel` can read from `pair.opportunity` directly
-            // instead of trawling `terms[1].latestSnapshot.opportunity`
-            // (which the unconditional assignment above used to wipe).
-            if (snapshot.opportunity && typeof snapshot.opportunity === 'object') {
-                pair.opportunity = snapshot.opportunity;
-            }
 
-            // Track the last completed-candle close so opportunity/recommendation
-            // geometry can use a stable markPrice instead of the micro shadow
-            // tick's flickering priceText. This keeps setup geometry in sync
-            // with the matrices, both updating only on completed candles.
+            // Track the last completed-candle close so panels can use a stable
+            // markPrice instead of the micro shadow tick's flickering priceText.
             const completedClose = num(snapshot.close);
             if (completedClose != null) {
                 pair.lastCompletedClose = completedClose.toString();
@@ -576,39 +543,11 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
                     const b = buildL3AnalysisHeader(pair.analysis).badge;
                     return { label: b.label, color: b.color, ts: now };
                 })());
-                pushBadge(layerKey('l4', symbol), (() => {
-                    const b = buildL4OpportunityHeader(pair.opportunity).badge;
-                    return { label: b.label, color: b.color, ts: now };
-                })());
-                pushBadge(layerKey('l5', symbol), (() => {
-                    const b = buildL5RiskHeader(pair.risk).badge;
-                    return { label: b.label, color: b.color, ts: now };
-                })());
-                const rank = computeDecisionRank({
-                    advisory: pair.advisory,
-                    decisionContext: pair.decisionContext,
-                    opportunity: pair.opportunity,
-                    analysis: pair.analysis,
-                });
-                const l6Badge = buildL6DecisionHeader({
-                    rank,
-                    decisionContext: pair.decisionContext,
-                    advisory: pair.advisory,
-                }).badge;
-                // v11.8 flip-capture: verdict flips between candle
-                // completions must not be missed — any matrix frame whose
-                // rank.top differs from the last sampled top records the
-                // transition immediately (in addition to the candle
-                // heartbeat below, which keeps timestamps fresh).
-                const lastL6 = getBadgeHistory(layerKey('l6', symbol))[0];
-                if (!lastL6 || lastL6.label !== l6Badge.label) {
-                    pushBadge(layerKey('l6', symbol), {
-                        label: l6Badge.label,
-                        color: l6Badge.color,
-                        ts: now,
-                    });
-                    notifyBadgeChanged();
-                }
+                // CR-15: the L4 opportunity, L5 risk and L6 decision badge
+                // trail is gone. Each badge rendered a verdict — an
+                // opportunity, a risk level, a go/no-go — and the header now
+                // trails the model's own layers (L2 alignment, L3 analysis)
+                // only. P10 returns these slots as the axis badges.
             }
         }
     }

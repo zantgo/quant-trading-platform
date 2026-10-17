@@ -5,21 +5,30 @@
 // modal component stays a thin orchestration layer over the existing
 // `createInstance` / `deleteInstanceById` / `waitForAdvisory` helpers.
 //
-// The scanner is wired up against the platform's Decision Matrix:
+// CR-15: the scanner is now wired against the MODEL, not the Decision Matrix.
 //
-//   - `decisionContext.trade_readiness` ∈ { READY, FORMING, WATCH,
-//     STAND_ASIDE } (trade_readiness lives on the Decision Context, not
-//     the Advisory Matrix — corrected 2026-08-17)
-//   - `advisory.directional_guidance` ∈ { StrongLong, Long, Neutral,
-//                                          Short, StrongShort,
-//                                          AvoidDirectionalExposure }
+// It used to keep only pairs where `decisionContext.trade_readiness` was READY
+// AND `advisory.directional_guidance` was a real bias, and DELETE every other
+// pair from the workspace. Both inputs were L5/L6 strategy: a statement about
+// what to do. They no longer cross the wire, and an observe build has no
+// business deleting an instance because the market has not yet produced a
+// trade call — that is an execution decision, and the charter stops at the
+// model.
 //
-// The "clear decision" filter keeps only pairs where trade_readiness is
-// READY AND the directional guidance is a real bias (anything other than
-// Neutral / AvoidDirectionalExposure). All other pairs are DELETE-removed
-// from the workspace after evaluation.
+// The scanner's rule is therefore inverted: a pair is kept once the model has
+// actually said something about it, and it is NEVER removed for having said
+// too little. The wait window still has meaning — it waits for the model to
+// resolve — but a timeout is a note, not a deletion.
+//
+//   - `analysis.bias` ∈ MarketBias — the model's resolved direction (or Neutral)
+//   - `alignment.mtf_overall_score` / `mtf_overall_label` — whether the
+//     durations agree, and whether an alignment exists at all
+//
+// The DELETE outcomes that remain are the operator's own doing: a duplicate
+// pair, an invalid ticker, or a venue that does not list it. Those are input
+// errors, not judgements about the market.
 
-import type { AdvisoryMatrix, DecisionContext, DirectionalGuidance } from '../types';
+import type { AlignmentMatrix, AnalysisMatrix, MarketBias } from '../types';
 
 // v11.12.26: the scanner used to drop any token over 10 CHARACTERS silently
 // (no error at all), which was the worst failure mode for a non-ASCII ticker —
@@ -40,14 +49,14 @@ export const WAIT_WINDOW_MIN = 1;
 export const WAIT_WINDOW_MAX = 60;
 export const WAIT_WINDOW_DEFAULT = 5;
 
-export type DecisionVerdict = 'KEEP' | 'DELETE';
+// CR-15: `DELETE` is gone from this union. The scanner no longer removes a
+// pair for what the model said; only the caller's input-level checks do.
+export type DecisionVerdict = 'KEEP' | 'WAIT';
 
 export type PairOutcomeReason =
     | 'KEEP'
-    | 'NO_DECISION'
-    | 'NOT_READY'
-    | 'DIRECTION_NEUTRAL'
-    | 'AVOID_DIRECTIONAL'
+    | 'NO_MODEL_STATE'
+    | 'NO_CROSS_TF'
     | 'TIMEOUT'
     | 'UNAVAILABLE'
     | 'DUPLICATE'
@@ -60,10 +69,10 @@ export interface PairOutcome {
     status: 'pending' | 'adding' | 'waiting' | 'evaluating' | 'done';
     /** Set when status === 'done'. */
     reason?: PairOutcomeReason;
-    /** Final directional guidance observed (when KEEP). */
-    guidance?: DirectionalGuidance;
-    /** Final trade_readiness observed (when KEEP). */
-    tradeReadiness?: string;
+    /** The model's resolved bias (when KEEP). */
+    guidance?: string | null;
+    /** The cross-duration agreement label (when KEEP). */
+    mtfLabel?: string | null;
     /** Raw error message from the backend (when UNAVAILABLE / NETWORK_ERROR). */
     error?: string;
     /** Milliseconds elapsed from `add` start to done. */
@@ -142,50 +151,57 @@ export function watchlistIsClean(text: string): boolean {
     return parseSymbolsWithReasons(text).rejected.length === 0;
 }
 
-/** Apply the strict "clear decision" rule: keep only when the platform
- *  L6 `decisionContext` says `trade_readiness === 'READY'` AND the L4.75
- *  `advisory` matrix carries a real directional bias (Long / Short of
- *  any strength; Neutral and AvoidDirectionalExposure are excluded).
+/** Has the model resolved a reading for this pair?
  *
- *  The two inputs are sourced from different WS frames: `decisionContext`
- *  rides the macro snapshot and `advisory` is the most recent rendering
- *  from the decision-support pipeline. Both are required: a READY gate
- *  without a directional bias is "form a position but don't take it" and
- *  a directional bias without READY is "we see a setup but the confluence
- *  isn't there yet" — neither is a "clear decision" in the scanner's
- *  sense. */
+ *  CR-15: this replaces a rule that required a READY trade gate AND a real
+ *  directional bias, and DELETEd every pair that fell short. Both inputs were
+ *  strategy, so the rule now asks only whether the model has spoken: a resolved
+ *  bias (Neutral counts — a flat read is a reading) and at least one duration
+ *  with a cross-duration alignment other than `NO_DATA`.
+ *
+ *  Note what this deliberately does NOT do: it never returns a verdict that
+ *  removes a pair. Not Neutral, not a missing alignment, not a timeout. */
 export function decide(
-    decisionContext: DecisionContext | null | undefined,
-    advisory: AdvisoryMatrix | null | undefined,
+    analysis: AnalysisMatrix | null | undefined,
+    alignment: AlignmentMatrix | null | undefined,
 ): DecisionVerdict {
-    if (!decisionContext || typeof decisionContext !== 'object') return 'DELETE';
-    if (decisionContext.trade_readiness !== 'READY') return 'DELETE';
-    if (!advisory || typeof advisory !== 'object') return 'DELETE';
-    const directionalBiases: DirectionalGuidance[] = [
-        'StrongLong', 'Long', 'Short', 'StrongShort',
-    ];
-    if (!directionalBiases.includes(advisory.directional_guidance)) return 'DELETE';
+    // CR-15: "resolved" means the model has produced a reading for this pair.
+    // A pair is kept once that happens, and the verdict is never DELETE on the
+    // strength of what the model said — only the caller removes pairs, and only
+    // for input-level problems.
+    if (!analysis || typeof analysis !== 'object') return 'WAIT';
+    if (!hasResolvedBias(analysis.bias)) return 'WAIT';
+    if (!alignment || typeof alignment !== 'object') return 'WAIT';
+    if (alignment.mtf_overall_label === 'NO_DATA') return 'WAIT';
     return 'KEEP';
 }
 
-/** Map a `DecisionVerdict` to the user-facing reason string we surface in
- *  the summary card. `KEEP` is its own category; for `DELETE` we distinguish
- *  between the three near-miss reasons so the summary tells the user *why*
- *  a pair was removed. The decisionContext source is checked first so
- *  missing-decision reads as `NO_DECISION` and a STAND_ASIDE readiness
- *  reads as `NOT_READY` regardless of the advisory direction. */
+/** A bias the model has actually resolved.
+ *
+ *  `Neutral` is a resolution, not an absence — a market the model reads as flat
+ *  is still a reading, so it keeps the pair. What would NOT be a resolution is
+ *  `undefined` / `null`, which is what a pair that has not yet produced a
+ *  completed-candle analysis carries. */
+function hasResolvedBias(bias: MarketBias | null | undefined): boolean {
+    return bias != null;
+}
+
+/** Map a `DecisionVerdict` to the user-facing reason string on the summary
+ *  card. These say what the model had NOT yet said when the wait window closed
+ *  — they are notes on a pair that was kept, not reasons for a removal. */
 export function reasonFor(
     verdict: DecisionVerdict,
-    decisionContext: DecisionContext | null | undefined,
-    advisory: AdvisoryMatrix | null | undefined,
+    analysis: AnalysisMatrix | null | undefined,
+    alignment: AlignmentMatrix | null | undefined,
 ): PairOutcomeReason {
     if (verdict === 'KEEP') return 'KEEP';
-    if (!decisionContext || typeof decisionContext !== 'object') return 'NO_DECISION';
-    if (decisionContext.trade_readiness !== 'READY') return 'NOT_READY';
-    if (!advisory || typeof advisory !== 'object') return 'NO_DECISION';
-    if (advisory.directional_guidance === 'Neutral') return 'DIRECTION_NEUTRAL';
-    if (advisory.directional_guidance === 'AvoidDirectionalExposure') return 'AVOID_DIRECTIONAL';
-    return 'NO_DECISION';
+    // CR-15: the four strategy near-misses (no decision / not ready / direction
+    // neutral / avoid directional) all said the same thing in different words —
+    // "the model has not produced a trade call yet". There is one reason now.
+    if (!analysis || typeof analysis !== 'object') return 'NO_MODEL_STATE';
+    if (!hasResolvedBias(analysis.bias)) return 'NO_MODEL_STATE';
+    if (!alignment || typeof alignment !== 'object') return 'NO_CROSS_TF';
+    return 'NO_CROSS_TF';
 }
 
 /** Aggregate a list of `PairOutcome`s into the summary card shown in the
@@ -200,22 +216,27 @@ export interface ScanSummary {
 }
 
 export function summarize(results: PairOutcome[]): ScanSummary {
+    // CR-15: `removed` is now ALWAYS empty. Every outcome the scanner records
+    // after a successful add is a pair that stayed in the workspace; the only
+    // pairs that never made it in are the input-level skips (a duplicate pair, an
+    // invalid ticker, a venue that does not list it). The field is kept because
+    // the summary card renders three groups and an absent group would reflow the
+    // card — but nothing populates it, and `added` counts the kept pairs only.
     const kept: PairOutcome[] = [];
     const removed: PairOutcome[] = [];
     const skipped: PairOutcome[] = [];
     let totalMs = 0;
     for (const r of results) {
         if (r.elapsedMs) totalMs += r.elapsedMs;
-        if (r.reason === 'KEEP') kept.push(r);
-        else if (
+        if (
             r.reason === 'DUPLICATE'
             || r.reason === 'INVALID'
             || r.reason === 'UNAVAILABLE'
         ) skipped.push(r);
-        else removed.push(r);
+        else kept.push(r);
     }
     return {
-        added: kept.length + removed.length,
+        added: kept.length,
         kept,
         removed,
         skipped,
@@ -227,10 +248,8 @@ export function summarize(results: PairOutcome[]): ScanSummary {
 export function reasonLabel(reason: PairOutcomeReason | undefined): string {
     switch (reason) {
         case 'KEEP': return 'Kept';
-        case 'NO_DECISION': return 'No decision';
-        case 'NOT_READY': return 'Not ready';
-        case 'DIRECTION_NEUTRAL': return 'Neutral bias';
-        case 'AVOID_DIRECTIONAL': return 'Avoid direction';
+        case 'NO_MODEL_STATE': return 'Model state pending';
+        case 'NO_CROSS_TF': return 'Awaiting cross-duration agreement';
         case 'TIMEOUT': return 'Timeout';
         case 'UNAVAILABLE': return 'Unavailable';
         case 'DUPLICATE': return 'Already in workspace';

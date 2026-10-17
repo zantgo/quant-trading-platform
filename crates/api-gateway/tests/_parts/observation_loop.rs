@@ -180,7 +180,6 @@ async fn observation_loop_latency_p95_below_threshold() {
             None,
             1,
             300,
-            Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(
                 core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
             )),

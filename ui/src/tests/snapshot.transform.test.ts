@@ -822,10 +822,6 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // pair-level mirrors.
         const alignment = { mtf_trend_alignment: 0.6, mtf_overall_score: 72.0 } as never;
         const analysis = { market_regime: 'TRENDING', market_quality_score: 65.0 } as never;
-        const risk = { overall_risk: { score: 30 } } as never;
-        const advisory = { directional_guidance: 'LONG' } as never;
-        const decisionContext = { trade_readiness: 'READY' } as never;
-        const opportunity = { opportunity_score: 61.0 } as never;
         applySnapshotToTimeframe(app, fast, wsEvent({
             symbol: 'BTC',
             timeframe_label: '5s',
@@ -836,17 +832,9 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             indicators: { rsi: { raw_value: 45.0, normalized: 0.0, state_label: 'RSI_NEUTRAL' } },
             alignment,
             analysis,
-            risk,
-            advisory,
-            decision_context: decisionContext,
-            opportunity,
         }), 'BTC-USDT');
         expect(pair.alignment).toEqual(alignment);
         expect(pair.analysis).toEqual(analysis);
-        expect(pair.risk).toEqual(risk);
-        expect(pair.advisory).toEqual(advisory);
-        expect(pair.decisionContext).toEqual(decisionContext);
-        expect(pair.opportunity).toEqual(opportunity);
 
         // Step 3: interleaved matrix-less micro completes must NOT wipe the
         // mirrors (they carry no payload and don't advance the guard).

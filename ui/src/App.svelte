@@ -55,16 +55,19 @@
         panelDeleteErrorTimer = setTimeout(() => { panelDeleteError = null; }, 6000);
     }
 
-    // v7.3: MME workspace sub-views ordered by layer (L1 → L6) — Analysis
-    // (L3) now precedes Opportunities (L4), matching the pipeline order.
+    // MME workspace sub-views. CR-15 removed Opportunity (L4), Risk (L5) and
+    // Recommendation (L6): each rendered a verdict from a strategy matrix the
+    // wire no longer carries. What remains is the model's own read — the
+    // per-duration layers (L1–L3).
+    //
+    // `analysis` is still here and still dissolved-pending: it goes when the
+    // separate States tab replaces it (P13), so that change is one swap rather
+    // than a deletion followed by an insertion.
     const SUB_TABS: { view: CurrentView; label: string }[] = [
         { view: 'terminal',    label: 'Charts' },
         { view: 'monitor',     label: 'Metrics' },
         { view: 'alignment',   label: 'Alignment' },
         { view: 'analysis',    label: 'Analysis' },
-        { view: 'opportunity', label: 'Opportunity' },
-        { view: 'risk',        label: 'Risk' },
-        { view: 'recommendation', label: 'Recommendation' },
     ];
 
     const activePair = $derived.by(() => {

@@ -11,15 +11,12 @@
 
 use std::collections::HashMap;
 
-use core_domain::advisory::AdvisoryMatrix;
 use core_domain::alignment::AlignmentMatrix;
 use core_domain::analysis::AnalysisMatrix;
-use core_domain::decision_context::DecisionContext;
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::{ContextDimension, MarketContext};
 use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity};
 use core_domain::normalized::Exchange;
-use core_domain::risk::RiskMatrix;
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
 
@@ -54,21 +51,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         overall_label: "BULLISH".into(),
     };
 
-    let decision = DecisionContext {
-        score: 45.0,
-        bias: "Bullish".into(),
-        score_confidence: 0.68,
-        entry_danger: core_domain::risk::RiskDimension::from_score(35.0),
-        expected_reward_risk_ratio: 2.1,
-        trade_readiness: "WATCH".into(),
-        contributing_indicators: vec!["rsi".into(), "adx".into()],
-        long_probability: 0.0,
-        short_probability: 0.0,
-        hold_probability: 0.0,
-        net_bias_pct: 0.0,
-        lean_floor_applied: false,
-    };
-
     MarketSnapshot {
         timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
@@ -92,8 +74,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         context: Some(context),
         alignment: Some(AlignmentMatrix::empty("BTC-USDT")),
         analysis: Some(AnalysisMatrix::empty("BTC-USDT")),
-        risk: Some(RiskMatrix::empty("BTC-USDT")),
-        advisory: Some(AdvisoryMatrix::empty("BTC-USDT")),
         open_interest: Some(dec!(15000000.0)),
         oi_delta_pct: Some(dec!(500000.0)),
         oi_delta_window_secs: None,
@@ -102,8 +82,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         mark_index_spread_pct: Some(0.004),
         prev_day_px: Some(dec!(49500.0)),
         statistical_context: None,
-        decision_context: Some(decision),
-        opportunity: None,
         liquidity_signals: vec![],
         metrics_config: None,
         risk_profile: Some(1),
@@ -205,84 +183,8 @@ fn analysis_matrix_keys_match_frontend_contract() {
 }
 
 #[test]
-fn risk_matrix_keys_match_frontend_contract() {
-    let snap = build_realistic_snapshot();
-    let v = serde_json::to_value(snap.risk.as_ref().unwrap()).unwrap();
-    // `ui/src/types.ts` `RiskMatrix` — includes the Phase-3 rename
-    // `execution_liquidity_risk` and `cascade_risk`.
-    assert_keys_eq(
-        &v,
-        &[
-            "symbol",
-            "market_risk",
-            "volatility_risk",
-            "execution_liquidity_risk",
-            "structure_risk",
-            "momentum_risk",
-            "signal_risk",
-            "execution_risk",
-            "cascade_risk",
-            "overall_risk",
-        ],
-        "RiskMatrix",
-    );
-}
-
 #[test]
-fn advisory_matrix_keys_match_frontend_contract() {
-    let snap = build_realistic_snapshot();
-    let v = serde_json::to_value(snap.advisory.as_ref().unwrap()).unwrap();
-    // `ui/src/types.ts` `AdvisoryMatrix` — 14 required fields (incl.
-    // `cascade_risk_score` and the `environment_favorability` band)
-    // + the v9 `risk_blocked` ceiling stamp.
-    assert_keys_eq(
-        &v,
-        &[
-            "symbol",
-            "directional_guidance",
-            "market_stance",
-            "opportunity_classification",
-            "strategy_environment",
-            "entry_guidance",
-            "exit_guidance",
-            "protection_strategy",
-            "target_strategy",
-            "confidence_assessment",
-            "stop_loss_distance_pct",
-            "cascade_risk_score",
-            "environment_favorability",
-            "risk_blocked",
-            "final_recommendation",
-        ],
-        "AdvisoryMatrix",
-    );
-}
-
 #[test]
-fn decision_context_keys_match_frontend_contract() {
-    let snap = build_realistic_snapshot();
-    let v = serde_json::to_value(snap.decision_context.as_ref().unwrap()).unwrap();
-    // `ui/src/types.ts` `DecisionContext`.
-    assert_keys_eq(
-        &v,
-        &[
-            "score",
-            "bias",
-            "score_confidence",
-            "entry_danger",
-            "expected_reward_risk_ratio",
-            "trade_readiness",
-            "contributing_indicators",
-            "long_probability",
-            "short_probability",
-            "hold_probability",
-            "net_bias_pct",
-            "lean_floor_applied",
-        ],
-        "DecisionContext",
-    );
-}
-
 #[test]
 fn market_context_keys_match_frontend_contract() {
     let snap = build_realistic_snapshot();
@@ -330,9 +232,6 @@ fn snapshot_top_level_keys_match_frontend_contract() {
         "context",
         "alignment",
         "analysis",
-        "risk",
-        "advisory",
-        "decision_context",
         "open_interest",
         "oi_delta_pct",
         "mark_price",
@@ -346,6 +245,16 @@ fn snapshot_top_level_keys_match_frontend_contract() {
         assert!(
             keys.contains(&required.to_string()),
             "MarketSnapshot must carry `{required}` on the wire"
+        );
+    }
+    // CR-15: the four strategy keys must be GONE from the wire, not merely
+    // unused. A field left in place but always null is worse than an absent
+    // one: every consumer has to decide what "null strategy" means, and the
+    // dashboard would render it as a real reading of "no opportunity".
+    for removed in ["risk", "advisory", "opportunity", "decision_context"] {
+        assert!(
+            !keys.contains(&removed.to_string()),
+            "CR-15: `{removed}` must not appear on the MarketSnapshot wire"
         );
     }
     // `liquidity_signals` is skipped when empty
@@ -374,121 +283,6 @@ fn snapshot_top_level_keys_match_frontend_contract() {
 // (`ui/src/types.ts`) consumes.
 
 #[test]
-fn opportunity_matrix_keys_match_frontend_contract() {
-    let m = core_domain::opportunity::OpportunityMatrix {
-        symbol: "BTC-USDT".into(),
-        primary_opportunity: core_domain::analysis::OpportunityType::TrendContinuation,
-        opportunity_score: 78.0,
-        setup_quality: core_domain::analysis::SetupQuality::Strong,
-        profiles: vec![],
-        forecast_confidence: 0.72,
-        contributing_signals: vec!["BULLISH_CROSSOVER".into()],
-        invalidation_note: "".into(),
-        entry_zone: core_domain::analysis::PriceRange {
-            low: 63100.0,
-            high: 63400.0,
-        },
-        target_zone: core_domain::analysis::PriceRange {
-            low: 66000.0,
-            high: 67000.0,
-        },
-        invalidation_level: 62800.0,
-        long_entry_zone: core_domain::analysis::PriceRange {
-            low: 63100.0,
-            high: 63400.0,
-        },
-        long_target_zone: core_domain::analysis::PriceRange {
-            low: 66000.0,
-            high: 67000.0,
-        },
-        long_invalidation_level: 62800.0,
-        short_entry_zone: core_domain::analysis::PriceRange::default(),
-        short_target_zone: core_domain::analysis::PriceRange::default(),
-        short_invalidation_level: 0.0,
-        long_expected_rr_internal: 2.5,
-        short_expected_rr_internal: 0.0,
-        long_gross_rr_internal: 2.5,
-        short_gross_rr_internal: 0.0,
-        time_horizon: "SWING".into(),
-        // Populate the skip_serializing_if fields so the wire keys are
-        // pinned (a serde rename would otherwise go unnoticed).
-        confluent_entry_levels: vec![core_domain::opportunity::ConfluentLevel {
-            price: 63300.0,
-            confluence_count: 3,
-            sources: vec![core_domain::opportunity::LevelSource::Fibonacci],
-            strength: 1.0,
-            side: Some("LONG".into()),
-        }],
-        confluent_target_levels: vec![core_domain::opportunity::ConfluentLevel {
-            price: 66000.0,
-            confluence_count: 2,
-            sources: vec![core_domain::opportunity::LevelSource::PivotPoints],
-            strength: 0.8,
-            side: Some("LONG".into()),
-        }],
-        confluent_invalidation_levels: vec![core_domain::opportunity::ConfluentLevel {
-            price: 62800.0,
-            confluence_count: 2,
-            sources: vec![core_domain::opportunity::LevelSource::SupportResistance],
-            strength: 0.9,
-            side: Some("LONG".into()),
-        }],
-        neutral_reference_bracket: Some(core_domain::opportunity::NeutralBracket {
-            entry_zone: core_domain::analysis::PriceRange {
-                low: 63100.0,
-                high: 63400.0,
-            },
-            target_zone: core_domain::analysis::PriceRange {
-                low: 66000.0,
-                high: 67000.0,
-            },
-            invalidation_level: 62800.0,
-            expected_rr_internal: 2.5,
-            geometry_consistent: true,
-            rationale: "range reference".into(),
-        }),
-        direction_family: Some(core_domain::analysis::DirectionFamily::TrendRiding),
-        long_geometry_consistent: true,
-        short_geometry_consistent: false,
-    };
-    let v = serde_json::to_value(&m).unwrap();
-    assert_keys_eq(
-        &v,
-        &[
-            "symbol",
-            "primary_opportunity",
-            "opportunity_score",
-            "setup_quality",
-            "profiles",
-            "forecast_confidence",
-            "contributing_signals",
-            "invalidation_note",
-            "entry_zone",
-            "target_zone",
-            "invalidation_level",
-            "long_entry_zone",
-            "long_target_zone",
-            "long_invalidation_level",
-            "short_entry_zone",
-            "short_target_zone",
-            "short_invalidation_level",
-            "long_expected_rr_internal",
-            "short_expected_rr_internal",
-            "long_gross_rr_internal",
-            "short_gross_rr_internal",
-            "time_horizon",
-            "confluent_entry_levels",
-            "confluent_target_levels",
-            "confluent_invalidation_levels",
-            "direction_family",
-            "long_geometry_consistent",
-            "short_geometry_consistent",
-            "neutral_reference_bracket",
-        ],
-        "OpportunityMatrix",
-    );
-}
-
 #[test]
 fn liquidity_flow_keys_match_frontend_contract() {
     let mut flow = core_domain::liquidity::LiquidityFlow::default();

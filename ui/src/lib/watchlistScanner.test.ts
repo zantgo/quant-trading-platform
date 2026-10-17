@@ -5,39 +5,20 @@
 // that drives the modal's done-phase cards.
 
 import { describe, it, expect } from 'vitest';
-import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, parseSymbolsWithReasons, reasonFor, reasonLabel, summarize, watchlistIsClean, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from './watchlistScanner';
+import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, parseSymbolsWithReasons, reasonFor, reasonLabel, summarize, watchlistIsClean, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome, type PairOutcomeReason } from './watchlistScanner';
 import { MAX_SYMBOL_CHARS as MAX_SYMBOL_LEN } from './symbol';
-import type { AdvisoryMatrix, DecisionContext } from '../types';
+import type { AlignmentMatrix, AnalysisMatrix } from '../types';
 
-function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
-    return {
-        symbol: 'BTC-USDT',
-        directional_guidance: 'Long',
-        market_stance: 'Neutral',
-        opportunity_classification: 'TrendContinuation',
-        strategy_environment: 'TrendFollowing',
-        entry_guidance: 'WaitForConfirmation',
-        exit_guidance: 'NoWarning',
-        protection_strategy: 'ATRBased',
-        target_strategy: 'ResistanceBased',
-        confidence_assessment: 31,
-        final_recommendation: 'Long bias, neutral stance.',
-        ...overrides,
-    } as AdvisoryMatrix;
+function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
+    return { bias: 'Bullish', ...overrides } as AnalysisMatrix;
 }
 
-function makeDecisionContext(overrides: Partial<DecisionContext> = {}): DecisionContext {
+function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatrix {
     return {
-        score: 75,
-        bias: 'Bullish',
-        confidence: 0.7,
-        score_confidence: 0.7,
-        entry_danger: 25,
-        expected_reward_risk_ratio: 2.0,
-        trade_readiness: 'READY',
-        contributing_indicators: [],
+        mtf_overall_score: 42,
+        mtf_overall_label: 'WEAK_BULL_MTF',
         ...overrides,
-    } as DecisionContext;
+    } as AlignmentMatrix;
 }
 
 describe('parseSymbols', () => {
@@ -126,113 +107,82 @@ describe('parseSymbols', () => {
 });
 
 describe('decide', () => {
-    it('KEEP when READY + Long bias', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'READY' }),
-            makeAdvisory({ directional_guidance: 'Long' }),
-        )).toBe('KEEP');
+    it('KEEP once the model has a bias and a cross-duration alignment', () => {
+        expect(decide(makeAnalysis(), makeAlignment())).toBe('KEEP');
     });
 
-    it('KEEP when READY + StrongLong', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'READY' }),
-            makeAdvisory({ directional_guidance: 'StrongLong' }),
-        )).toBe('KEEP');
+    it('KEEP on a StrongBullish bias', () => {
+        expect(decide(makeAnalysis({ bias: 'StrongBullish' }), makeAlignment())).toBe('KEEP');
     });
 
-    it('KEEP when READY + Short', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'READY' }),
-            makeAdvisory({ directional_guidance: 'Short' }),
-        )).toBe('KEEP');
+    it('KEEP on a StrongBearish bias', () => {
+        expect(decide(makeAnalysis({ bias: 'StrongBearish' }), makeAlignment())).toBe('KEEP');
     });
 
-    it('KEEP when READY + StrongShort', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'READY' }),
-            makeAdvisory({ directional_guidance: 'StrongShort' }),
-        )).toBe('KEEP');
+    it('CR-15: KEEP on a Neutral bias — a flat read is still a reading', () => {
+        // This is the case the old rule DELETEd: "direction neutral" was read as
+        // "no trade call, remove it". The model reading a market as flat is a
+        // statement about the market, not a reason to delete an instance.
+        expect(decide(makeAnalysis({ bias: 'Neutral' }), makeAlignment())).toBe('KEEP');
     });
 
-    it('DELETE when READY + Neutral', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'READY' }),
-            makeAdvisory({ directional_guidance: 'Neutral' }),
-        )).toBe('DELETE');
+    it('WAIT when the analysis has not landed yet', () => {
+        expect(decide(null, makeAlignment())).toBe('WAIT');
+        expect(decide(undefined, makeAlignment())).toBe('WAIT');
     });
 
-    it('DELETE when READY + AvoidDirectionalExposure', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'READY' }),
-            makeAdvisory({ directional_guidance: 'AvoidDirectionalExposure' }),
-        )).toBe('DELETE');
+    it('WAIT when there is no alignment yet', () => {
+        expect(decide(makeAnalysis(), null)).toBe('WAIT');
+        expect(decide(makeAnalysis(), undefined)).toBe('WAIT');
     });
 
-    it('DELETE when FORMING (any bias)', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'FORMING' }),
-            makeAdvisory({ directional_guidance: 'Long' }),
-        )).toBe('DELETE');
+    it('WAIT while the cross-duration alignment is still NO_DATA', () => {
+        expect(decide(makeAnalysis(), makeAlignment({ mtf_overall_label: 'NO_DATA' }))).toBe('WAIT');
     });
 
-    it('DELETE when WATCH', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'WATCH' }),
-            makeAdvisory({ directional_guidance: 'StrongLong' }),
-        )).toBe('DELETE');
-    });
-
-    it('DELETE when STAND_ASIDE', () => {
-        expect(decide(
-            makeDecisionContext({ trade_readiness: 'STAND_ASIDE' }),
-            makeAdvisory({ directional_guidance: 'StrongLong' }),
-        )).toBe('DELETE');
-    });
-
-    it('DELETE when decisionContext is null', () => {
-        expect(decide(null, makeAdvisory())).toBe('DELETE');
-    });
-
-    it('DELETE when decisionContext is undefined', () => {
-        expect(decide(undefined, makeAdvisory())).toBe('DELETE');
-    });
-
-    it('DELETE when advisory is null but decisionContext is READY', () => {
-        expect(decide(makeDecisionContext({ trade_readiness: 'READY' }), null)).toBe('DELETE');
-    });
-
-    it('DELETE when advisory is undefined but decisionContext is READY', () => {
-        expect(decide(makeDecisionContext({ trade_readiness: 'READY' }), undefined)).toBe('DELETE');
+    it('CR-15: never returns DELETE — no input can remove a pair', () => {
+        // The regression this pins. Every input shape below resolved DELETE
+        // under the old rule, which made the scanner remove every pair it had
+        // just added once the matrices went off the wire.
+        const shapes: Array<[unknown, unknown]> = [
+            [null, null],
+            [undefined, undefined],
+            [makeAnalysis({ bias: 'Neutral' }), makeAlignment()],
+            [makeAnalysis({ bias: 'Bearish' }), makeAlignment({ mtf_overall_label: 'NO_DATA' })],
+        ];
+        for (const [a, al] of shapes) {
+            expect(decide(a as AnalysisMatrix | null, al as AlignmentMatrix | null))
+                .not.toBe('DELETE');
+        }
     });
 });
 
 describe('reasonFor', () => {
     it('returns KEEP when verdict is KEEP', () => {
-        expect(reasonFor('KEEP', makeDecisionContext(), makeAdvisory())).toBe('KEEP');
+        expect(reasonFor('KEEP', makeAnalysis(), makeAlignment())).toBe('KEEP');
     });
 
-    it('returns NO_DECISION when decisionContext is null', () => {
-        expect(reasonFor('DELETE', null, makeAdvisory())).toBe('NO_DECISION');
+    it('returns NO_MODEL_STATE when the analysis has not landed', () => {
+        expect(reasonFor('WAIT', null, makeAlignment())).toBe('NO_MODEL_STATE');
+        expect(reasonFor('WAIT', undefined, makeAlignment())).toBe('NO_MODEL_STATE');
     });
 
-    it('returns NOT_READY when trade_readiness is not READY', () => {
-        expect(reasonFor('DELETE', makeDecisionContext({ trade_readiness: 'STAND_ASIDE' }), makeAdvisory())).toBe('NOT_READY');
-        expect(reasonFor('DELETE', makeDecisionContext({ trade_readiness: 'WATCH' }), makeAdvisory())).toBe('NOT_READY');
-        expect(reasonFor('DELETE', makeDecisionContext({ trade_readiness: 'FORMING' }), makeAdvisory())).toBe('NOT_READY');
+    it('returns NO_CROSS_TF when there is no alignment yet', () => {
+        expect(reasonFor('WAIT', makeAnalysis(), null)).toBe('NO_CROSS_TF');
     });
 
-    it('returns NO_DECISION when decisionContext is READY but advisory is null', () => {
-        expect(reasonFor('DELETE', makeDecisionContext({ trade_readiness: 'READY' }), null)).toBe('NO_DECISION');
+    it('returns NO_CROSS_TF when the alignment is NO_DATA', () => {
+        expect(reasonFor('WAIT', makeAnalysis(), makeAlignment({ mtf_overall_label: 'NO_DATA' })))
+            .toBe('NO_CROSS_TF');
     });
 
-    it('returns DIRECTION_NEUTRAL when READY + Neutral', () => {
-        expect(reasonFor('DELETE', makeDecisionContext({ trade_readiness: 'READY' }), makeAdvisory({ directional_guidance: 'Neutral' }))).toBe('DIRECTION_NEUTRAL');
-    });
-
-    it('returns AVOID_DIRECTIONAL when READY + AvoidDirectionalExposure', () => {
-        expect(reasonFor('DELETE', makeDecisionContext({ trade_readiness: 'READY' }), makeAdvisory({ directional_guidance: 'AvoidDirectionalExposure' }))).toBe('AVOID_DIRECTIONAL');
+    it('CR-15: never reports a strategy removal reason', () => {
+        expect(reasonFor('WAIT', null, null)).not.toBe('NO_DECISION');
+        expect(reasonFor('WAIT', makeAnalysis({ bias: 'Neutral' }), makeAlignment()))
+            .not.toBe('DIRECTION_NEUTRAL');
     });
 });
+
 
 describe('summarize', () => {
     function outcome(overrides: Partial<PairOutcome>): PairOutcome {
@@ -245,18 +195,32 @@ describe('summarize', () => {
         };
     }
 
-    it('partitions kept, removed, skipped in input order', () => {
+    it('keeps every added pair and skips only the input-level failures', () => {
+        // CR-15: `ETH` (awaiting the model) and `AVAX` (timeout) used to land in
+        // `removed`. They are kept now — a model that has not spoken within the
+        // window is not grounds for deleting an instance the operator added.
         const results = [
             outcome({ base: 'BTC', pairKey: 'BTC-USDT', reason: 'KEEP' }),
-            outcome({ base: 'ETH', pairKey: 'ETH-USDT', reason: 'NOT_READY' }),
+            outcome({ base: 'ETH', pairKey: 'ETH-USDT', reason: 'NO_MODEL_STATE' }),
             outcome({ base: 'SOL', pairKey: 'SOL-USDT', reason: 'DUPLICATE' }),
             outcome({ base: 'AVAX', pairKey: 'AVAX-USDT', reason: 'TIMEOUT' }),
         ];
         const s = summarize(results);
         expect(s.added).toBe(3);
-        expect(s.kept.map((r) => r.base)).toEqual(['BTC']);
-        expect(s.removed.map((r) => r.base)).toEqual(['ETH', 'AVAX']);
+        expect(s.kept.map((r) => r.base)).toEqual(['BTC', 'ETH', 'AVAX']);
+        expect(s.removed).toEqual([]);
         expect(s.skipped.map((r) => r.base)).toEqual(['SOL']);
+    });
+
+    it('CR-15: no outcome reason can land in removed', () => {
+        const every: PairOutcomeReason[] = [
+            'KEEP', 'NO_MODEL_STATE', 'NO_CROSS_TF', 'TIMEOUT',
+            'DUPLICATE', 'INVALID', 'UNAVAILABLE', 'NETWORK_ERROR',
+        ];
+        const s = summarize(every.map((reason, i) =>
+            outcome({ base: `S${i}`, pairKey: `S${i}-USDT`, reason })));
+        expect(s.removed).toEqual([]);
+        expect(s.added).toBe(s.kept.length);
     });
 
     it('sums elapsedMs across all pairs', () => {
@@ -280,15 +244,13 @@ describe('summarize', () => {
 describe('reasonLabel', () => {
     it('returns human text for each reason', () => {
         expect(reasonLabel('KEEP')).toBe('Kept');
-        expect(reasonLabel('NOT_READY')).toBe('Not ready');
-        expect(reasonLabel('DIRECTION_NEUTRAL')).toBe('Neutral bias');
-        expect(reasonLabel('AVOID_DIRECTIONAL')).toBe('Avoid direction');
+        expect(reasonLabel('NO_MODEL_STATE')).toBe('Model state pending');
+        expect(reasonLabel('NO_CROSS_TF')).toBe('Awaiting cross-duration agreement');
         expect(reasonLabel('TIMEOUT')).toBe('Timeout');
         expect(reasonLabel('UNAVAILABLE')).toBe('Unavailable');
         expect(reasonLabel('DUPLICATE')).toBe('Already in workspace');
         expect(reasonLabel('INVALID')).toBe('Invalid');
         expect(reasonLabel('NETWORK_ERROR')).toBe('Network error');
-        expect(reasonLabel('NO_DECISION')).toBe('No decision');
         expect(reasonLabel(undefined)).toBe('Pending');
     });
 });

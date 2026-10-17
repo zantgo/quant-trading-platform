@@ -39,9 +39,8 @@
 // functions below are preserved unchanged for backward compatibility
 // with the existing test suite and any external consumers.
 
-import type { AdvisoryMatrix, AnalysisMatrix, ConfluentLevel, DecisionContext, IndicatorDto, IndicatorLifecycleStatus, IndicatorMeta, IndicatorSignal, LiquidationCluster, LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal, OpportunityMatrix, RiskDimension, RiskMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../types';
+import type { AnalysisMatrix, IndicatorDto, IndicatorLifecycleStatus, IndicatorMeta, IndicatorSignal, LiquidationCluster, LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal, TimeframeTelemetry, VolumeProfileSnapshot } from '../types';
 import { DURATIONS, tfLabel } from '../types';
-import { computeDecisionRank } from './decisionRank';
 
 interface ExportPayload {
     exported_at: string;
@@ -60,13 +59,10 @@ interface ExportPayload {
     signals_total: number;
     context: Record<string, unknown> | null;
     /** L4 OpportunityMatrix (entry zone, target zone, invalidation, RR, time horizon, confluent levels). */
-    opportunity: OpportunityExport | null;
     /** L6 AdvisoryMatrix (directional guidance, entry/exit/protection/target strategies, confidence). */
-    advisory: AdvisoryExport | null;
     /** L3 AnalysisMatrix (full — same as analysis). */
     analysis: AnalysisExport | null;
     /** L5 RiskMatrix. */
-    risk: RiskExport | null;
     /** L2 AlignmentMatrix. */
     alignment: Record<string, unknown> | null;
     /** Per-TF Volume Profile snapshot. */
@@ -81,20 +77,12 @@ interface ExportPayload {
     pipeline_state: string | null;
     /** Whether the current snapshot is a completed candle (true) or a shadow/live tick (false). */
     is_completed: boolean;
-    /**
-     * Recommendation-tab hero block — Top Call (LONG/SHORT/HOLD with
-     * probability), Runner-ups, headline state, confidence, and the Why
-     * bullets. Mirrors `RecommendationPanel.svelte::computeDecisionRank`.
-     * Always emitted so any panel export carries the operator's verdict
-     * view, not just the Recommendation tab.
-     */
-    decision_rank: DecisionRankExport | null;
-    /**
-     * Trade Recommendation cards (qualifying opportunity profiles ranked
-     * by score, direction decoded from the L4 type string). Mirrors
-     * `RecommendationPanel.svelte::profileCards`.
-     */
-    recommendation_profiles: RecommendationProfileExport[];
+    // CR-15: `decision_rank` and `recommendation_profiles` are gone, along with
+    // the `opportunity` / `advisory` / `risk` sections and the `decisionContext`
+    // input that fed all four. Each exported a verdict — a top call with a
+    // probability, a ranked setup card, a risk breakdown — computed from the
+    // L4/L5/L6 matrices. What the model measures (analysis, alignment, the
+    // indicator set, the volume profile) is untouched.
 }
 
 // ── Subtypes ────────────────────────────────────────────────
@@ -131,50 +119,6 @@ interface ExportSignal {
     strength_label: string | undefined;
 }
 
-interface OpportunityExport {
-    primary_opportunity: string;
-    opportunity_score: number;
-    setup_quality: string;
-    forecast_confidence: number;
-    time_horizon: string;
-    entry_zone: { low: number; high: number } | null;
-    target_zone: { low: number; high: number } | null;
-    invalidation_level: number | null;
-    invalidation_note: string;
-    contributing_signals: string[];
-    profiles: OpportunityMatrix['profiles'];
-    confluent_entry_levels: ConfluentLevel[];
-    confluent_target_levels: ConfluentLevel[];
-    confluent_invalidation_levels: ConfluentLevel[];
-    /**
-     * Direction-specific zones surfaced on the wire (L4 OpportunityMatrix
-     * carries explicit `long_*` / `short_*` mirrors). The Opportunities
-     * panel renders the symmetric Long/Short trade-setup cards derived
-     * from these via `computeSymmetricSetups`; emitting them lets the AI
-     * consumer reproduce the panel geometry without re-running the
-     * mirroring.
-     */
-    long_entry_zone: { low: number; high: number } | null;
-    long_target_zone: { low: number; high: number } | null;
-    long_invalidation_level: number | null;
-    short_entry_zone: { low: number; high: number } | null;
-    short_target_zone: { low: number; high: number } | null;
-    short_invalidation_level: number | null;
-}
-
-/**
- * Reduced-form copy of a `RiskDimension` that round-trips through the
- * clipboard JSON. Captures every field the RiskPanel renders per dim
- * card (score, level, state, confidence, evidence chips).
- */
-export interface RiskDimensionExport {
-    score: number;
-    level: string;
-    state: string;
-    confidence: number;
-    evidence: string[];
-}
-
 /** Per-dim record on the Risk page — also carries the dimension weight
  *  used by the bar mark on the panel. */
 interface RiskDimensionRecord {
@@ -195,73 +139,6 @@ interface CascadeTelemetryExport {
     cascade_state: string;
     cascade_intensity: number;
     cascade_asymmetry: number | null;
-}
-
-interface RiskExport {
-    symbol: string;
-    overall: RiskDimensionExport;
-    by_dimension: RiskDimensionRecord[];
-    cascade_risk_score: number;
-    overall_risk_score: number;
-    cascade_telemetry: CascadeTelemetryExport | null;
-}
-
-/** Reduced copy of an AdvisoryMatrix that survives JSON.stringify. The
- *  Recommendation panel also derives a `decision_rank` block via
- *  `computeDecisionRank` (LONG/SHORT/HOLD probabilities + headline + Why
- *  rationale) which lives alongside this struct in the exported payload. */
-interface AdvisoryExport {
-    directional_guidance: string;
-    market_stance: string;
-    /** Mirrors `AdvisoryMatrix.opportunity_classification` (on the wire
-     *  per `types.ts:457`) — surfaced by the Recommendation panel's
-     *  "Opportunity classification" badge. */
-    opportunity_classification: string;
-    strategy_environment: string;
-    entry_guidance: string;
-    exit_guidance: string;
-    protection_strategy: string;
-    target_strategy: string;
-    stop_loss_distance_pct: number | null;
-    trade_readiness: string;
-    confidence_assessment: number;
-    entry_danger: { score: number; level: string; state: string; confidence: number } | null;
-    expected_reward_risk_ratio: number;
-    final_recommendation: string;
-    contributing_indicators: string[];
-    /** Per-symbol cascade risk score lifted from the L5 Risk Matrix. */
-    cascade_risk_score: number;
-    /** RiskDimension-shaped favorability copied through as-is. */
-    environment_favorability: RiskDimensionExport | null;
-}
-
-/** Output of `computeDecisionRank` — the hero block on the
- *  Recommendation panel (Top Call + Runner-ups + Why bullets). */
-export interface DecisionRankExport {
-    top: 'LONG' | 'SHORT' | 'HOLD';
-    top_prob: number;
-    headline: {
-        action: 'LONG' | 'SHORT' | 'HOLD' | 'STAND_ASIDE';
-        label: string;
-        state: 'READY' | 'FORMING' | 'WATCH' | 'STAND_ASIDE';
-        confidence_pct: number;
-    };
-    long_probability: number;
-    short_probability: number;
-    hold_probability: number;
-    rationale: string[];
-}
-
-/** Single Trade Recommendation card row (qualifying profile) — mirrors
- *  the per-card layout on the Recommendation panel. */
-export interface RecommendationProfileExport {
-    opportunity_type: string;
-    direction: 'long' | 'short' | 'neutral';
-    direction_label: 'LONG' | 'SHORT' | 'NEUTRAL';
-    score: number;
-    preconditions_met: number;
-    preconditions_total: number;
-    notes: string;
 }
 
 interface AnalysisExport {
@@ -538,83 +415,6 @@ function extractFibSummary(inds: Record<string, IndicatorDto>): {
     };
 }
 
-/**
- * Hard-coded dimension weights used by the Risk page bar-mark and
- * ranking. Mirrored here so the export carries the same numbers the
- * operator sees on screen instead of forcing the consumer to know the
- * internal weighting scheme.
- */
-const RISK_DIMENSION_WEIGHTS: ReadonlyArray<{ name: string; key: keyof RiskMatrix; weight: number }> = [
-    { name: 'Market Risk',              key: 'market_risk',              weight: 0.14 },
-    { name: 'Volatility Risk',          key: 'volatility_risk',          weight: 0.14 },
-    { name: 'Execution Liquidity Risk', key: 'execution_liquidity_risk', weight: 0.14 },
-    { name: 'Structure Risk',           key: 'structure_risk',           weight: 0.10 },
-    { name: 'Momentum Risk',            key: 'momentum_risk',            weight: 0.14 },
-    { name: 'Signal Risk',              key: 'signal_risk',              weight: 0.10 },
-    { name: 'Execution Risk',           key: 'execution_risk',           weight: 0.10 },
-    { name: 'Cascade Risk',             key: 'cascade_risk',             weight: 0.14 },
-];
-
-/** Copy a `RiskDimension` into a clipboard-friendly struct. Defensive
- *  against partially-shaped wire objects (legacy sends missing state). */
-function copyRiskDimension(d: RiskDimension | undefined | null): RiskDimensionExport {
-    return {
-        score: d?.score ?? 0,
-        level: d?.level ?? 'UNKNOWN',
-        state: d?.state ?? 'UNKNOWN',
-        confidence: d?.confidence ?? 0,
-        evidence: d?.evidence ?? [],
-    };
-}
-
-/**
- * Direction derivation matching `RecommendationPanel.svelte::deriveDirection`.
- * Kept in lockstep so the export mirrors the panel's coloured card stack.
- */
-function deriveRecommendationDirection(typeName: string): 'long' | 'short' | 'neutral' {
-    const t = (typeName || '').toLowerCase();
-    if (t.includes('short')) return 'short';
-    if (t.includes('long') || t.includes('continuation') || t.includes('pullback')
-        || t.includes('breakout') || t.includes('scalp')) return 'long';
-    if (t.includes('meanreversion') || t.includes('reversal')) return 'short';
-    return 'neutral';
-}
-
-/**
- * Mirror of `RecommendationPanel.svelte::profileCards` — the qualifying
- * subset (preconditions_met > 0, not NoClearOpportunity), top-5 by score,
- * with the geometrically-derived direction label.
- */
-function deriveRecommendationProfiles(
-    opportunity: OpportunityMatrix | null,
-): RecommendationProfileExport[] {
-    if (!opportunity?.profiles) return [];
-    const qualifying = opportunity.profiles
-        .filter((p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity')
-        .slice()
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
-    return qualifying.map((p) => {
-        const dir = deriveRecommendationDirection(p.opportunity_type);
-        return {
-            opportunity_type: p.opportunity_type,
-            direction: dir,
-            direction_label: dir === 'long' ? 'LONG' : dir === 'short' ? 'SHORT' : 'NEUTRAL',
-            score: p.score,
-            preconditions_met: p.preconditions_met,
-            preconditions_total: p.preconditions_total,
-            notes: p.notes,
-        };
-    });
-}
-
-/** Cast a free-form decision_context payload into the typed `DecisionContext`
- *  shape used by `computeDecisionRank`. Defensive against partial payloads. */
-function asDecisionContext(value: Record<string, unknown> | null | undefined): DecisionContext | null {
-    if (!value) return null;
-    return value as unknown as DecisionContext;
-}
-
 export interface ExportArgs {
     /** UI tab that triggered the export (e.g. 'metrics', 'alignment', ...). */
     sourceTab?: string;
@@ -627,22 +427,18 @@ export interface ExportArgs {
     tf: TimeframeTelemetry;
     filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean; hideOverlays: boolean };
     analysis: AnalysisMatrix | null;
-    risk: RiskMatrix | null;
     alignment: Record<string, unknown> | null;
-    opportunity: OpportunityMatrix | null;
-    advisory: AdvisoryMatrix | null;
     volumeProfile: VolumeProfileSnapshot | null;
     liquidity: LiquidityFlow | null;
     cluster: LiquidationClusterMatrix | null;
     liquiditySignals: LiquiditySignal[];
-    decisionContext: Record<string, unknown> | null;
 }
 
 export function buildMetricsExportJson(args: ExportArgs): string {
     const {
         sourceTab = '', symbol, tfLabel, tfSecs, timestamp, markPrice, registry, tf, filters,
-        analysis, risk, alignment, opportunity, advisory, volumeProfile,
-        liquidity, cluster, liquiditySignals, decisionContext,
+        analysis, alignment, volumeProfile,
+        liquidity, cluster, liquiditySignals,
     } = args;
     const inds = (tf?.indicators ?? {}) as Record<string, IndicatorDto>;
     const fibExtracted = extractFibSummary(inds);
@@ -665,10 +461,7 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         pipeline_state: (tf?.pipelineState ?? null) as string | null,
         is_completed: tf?.isCompleted ?? false,
         context: (tf?.context ?? null) as unknown as Record<string, unknown> | null,
-        opportunity: exportOpportunity(opportunity, inds),
-        advisory: exportAdvisory(advisory, decisionContext, opportunity, analysis),
         analysis: exportAnalysis(analysis),
-        risk: exportRisk(risk, liquidity, cluster),
         alignment: alignment ?? null,
         volume_profile: exportVolumeProfile(volumeProfile, markPrice),
         liquidity_flow: exportLiquidityFlow(liquidity),
@@ -680,11 +473,6 @@ export function buildMetricsExportJson(args: ExportArgs): string {
             confidence: s.confidence,
             evidence: s.evidence,
         })),
-        // Recommendation-page hero / cards — present on every panel export
-        // so the AI consumer does not have to click into the Recommendation
-        // tab to harvest the operator's verdict view.
-        decision_rank: buildDecisionRankExport(advisory, decisionContext, opportunity, analysis),
-        recommendation_profiles: deriveRecommendationProfiles(opportunity),
     };
 
     out.indicators = indicators;
@@ -709,118 +497,6 @@ export function buildMetricsExportJson(args: ExportArgs): string {
 }
 
 // ── Per-block exporters ──────────────────────────────────────
-
-function exportOpportunity(opp: OpportunityMatrix | null, indicators: Record<string, IndicatorDto>): OpportunityExport | null {
-    if (!opp) return null;
-    const fibVals = (indicators['fibonacci']?.values ?? {}) as Record<string, number | undefined>;
-    return {
-        primary_opportunity: opp.primary_opportunity,
-        opportunity_score: opp.opportunity_score,
-        setup_quality: opp.setup_quality,
-        forecast_confidence: opp.forecast_confidence,
-        time_horizon: opp.time_horizon,
-        entry_zone: opp.entry_zone ? { low: opp.entry_zone.low, high: opp.entry_zone.high } : null,
-        target_zone: opp.target_zone ? { low: opp.target_zone.low, high: opp.target_zone.high } : null,
-        invalidation_level: opp.invalidation_level ?? null,
-        invalidation_note: opp.invalidation_note,
-        contributing_signals: opp.contributing_signals,
-        profiles: opp.profiles,
-        confluent_entry_levels: opp.confluent_entry_levels ?? [],
-        confluent_target_levels: opp.confluent_target_levels ?? [],
-        confluent_invalidation_levels: opp.confluent_invalidation_levels ?? [],
-        // Long-side geometry — surfaced on the Opportunities panel via
-        // `computeSymmetricSetups`. Captures the canonical long trade
-        // (entry → target → invalidation) before the mirror around markPrice.
-        long_entry_zone: opp.long_entry_zone ? { low: opp.long_entry_zone.low, high: opp.long_entry_zone.high } : null,
-        long_target_zone: opp.long_target_zone ? { low: opp.long_target_zone.low, high: opp.long_target_zone.high } : null,
-        long_invalidation_level: opp.long_invalidation_level ?? null,
-        // Short-side geometry — mirrored by the panel around markPrice
-        // (see `decisionRank.ts::computeSymmetricSetups`).
-        short_entry_zone: opp.short_entry_zone ? { low: opp.short_entry_zone.low, high: opp.short_entry_zone.high } : null,
-        short_target_zone: opp.short_target_zone ? { low: opp.short_target_zone.low, high: opp.short_target_zone.high } : null,
-        short_invalidation_level: opp.short_invalidation_level ?? null,
-        ...fibVals, // also include fib values inline here for redundancy
-        __fib_inline__: true,
-    } as OpportunityExport;
-}
-
-function exportAdvisory(
-    adv: AdvisoryMatrix | null,
-    decisionContext: Record<string, unknown> | null,
-    opportunity: OpportunityMatrix | null,
-    analysis: AnalysisMatrix | null,
-): AdvisoryExport | null {
-    if (!adv) return null;
-    const ed = (decisionContext as { entry_danger?: { score?: number; level?: string; state?: string; confidence?: number } })?.entry_danger;
-    return {
-        directional_guidance: adv.directional_guidance,
-        market_stance: adv.market_stance,
-        opportunity_classification: (adv as unknown as { opportunity_classification?: string }).opportunity_classification ?? '',
-        strategy_environment: adv.strategy_environment,
-        entry_guidance: adv.entry_guidance,
-        exit_guidance: adv.exit_guidance,
-        protection_strategy: adv.protection_strategy,
-        target_strategy: adv.target_strategy,
-        stop_loss_distance_pct: (adv as unknown as { stop_loss_distance_pct?: number }).stop_loss_distance_pct ?? null,
-        trade_readiness: String((decisionContext as { trade_readiness?: string })?.trade_readiness ?? 'UNKNOWN'),
-        confidence_assessment: adv.confidence_assessment,
-        expected_reward_risk_ratio: (decisionContext as { expected_reward_risk_ratio?: number })?.expected_reward_risk_ratio ?? 0,
-        final_recommendation: adv.final_recommendation,
-        contributing_indicators: (decisionContext as { contributing_indicators?: string[] })?.contributing_indicators ?? [],
-        entry_danger: ed ? {
-            score: ed.score ?? 0,
-            level: ed.level ?? 'UNKNOWN',
-            state: ed.state ?? 'UNKNOWN',
-            confidence: ed.confidence ?? 0,
-        } : null,
-        cascade_risk_score: (adv as unknown as { cascade_risk_score?: number }).cascade_risk_score ?? 0,
-        environment_favorability: copyRiskDimension(
-            (adv as unknown as { environment_favorability?: RiskDimension }).environment_favorability,
-        ),
-    };
-}
-
-/**
- * Build the decision_rank payload surfaced on the Recommendation page
- * (Top Call, Runner-ups, Why bullets). Returns `null` when no advisory
- * matrix is loaded — the button can still copy the rest of the payload
- * and the consumer will read the absence as "rank not yet computed".
- *
- * Mirrors `RecommendationPanel.svelte::computeDecisionRank(...)` exactly
- * (same input fields, same output shape). The output is reshaped into a
- * flat struct that survives JSON.stringify — DecisionRank internally
- * holds `RankSide.reasons` arrays that the panel never renders, so we
- * drop them to keep the export tight.
- */
-function buildDecisionRankExport(
-    advisory: AdvisoryMatrix | null,
-    decisionContext: Record<string, unknown> | null,
-    opportunity: OpportunityMatrix | null,
-    analysis: AnalysisMatrix | null,
-): DecisionRankExport | null {
-    if (!advisory) return null;
-    const ctx = asDecisionContext(decisionContext);
-    const rank = computeDecisionRank({
-        advisory,
-        decisionContext: ctx,
-        opportunity,
-        analysis,
-    });
-    return {
-        top: rank.top,
-        top_prob: rank.top_prob,
-        headline: {
-            action: rank.headline.action,
-            label: rank.headline.label,
-            state: rank.headline.state,
-            confidence_pct: rank.headline.confidence_pct,
-        },
-        long_probability: rank.long.probability,
-        short_probability: rank.short.probability,
-        hold_probability: rank.hold.probability,
-        rationale: rank.rationale,
-    };
-}
 
 function exportAnalysis(a: AnalysisMatrix | null): AnalysisExport | null {
     if (!a) return null;
@@ -849,59 +525,6 @@ function exportAnalysis(a: AnalysisMatrix | null): AnalysisExport | null {
         timeframes_considered: a.timeframes_considered,
         supporting_signals: a.supporting_signals ?? [],
         contradicting_signals: a.contradicting_signals ?? [],
-    };
-}
-
-function exportRisk(
-    r: RiskMatrix | null,
-    liquidity: LiquidityFlow | null,
-    cluster: LiquidationClusterMatrix | null,
-): RiskExport | null {
-    if (!r) return null;
-
-    // Hard-coded dimension table mirrors `RiskPanel.svelte::namedDims` and
-    // the panel's bar-mark weights. Surfacing the weights in the export
-    // means the AI consumer sees the same number the operator sees on
-    // the bar-mark — not a guessed-from-level reconstruction.
-    const by_dimension: RiskDimensionRecord[] = RISK_DIMENSION_WEIGHTS.map((d) => {
-        // `execution_liquidity_risk` is optional on the wire (legacy
-        // snapshots may carry `liquidity_risk` instead, or nothing) —
-        // fall back to a stub so the consumer still gets the full 8-dim
-        // list with correct weighting.
-        const dim = (r as unknown as Record<string, RiskDimension | undefined>)[d.key];
-        const copied = copyRiskDimension(dim);
-        return {
-            name: d.name,
-            weight: d.weight,
-            score: copied.score,
-            level: copied.level,
-            state: copied.state,
-            confidence: copied.confidence,
-            evidence: copied.evidence,
-        };
-    });
-
-    // Cascade telemetry is rendered under the cascade_risk dim card on
-    // the Risk page (state / intensity / asymmetry chip row). The same
-    // numbers also live under `liquidity_flow` / `cluster_matrix`; this
-    // block groups them for the AI consumer so it can read the Risk
-    // section without traversing the entire payload.
-    let cascade_telemetry: CascadeTelemetryExport | null = null;
-    if (liquidity || cluster) {
-        cascade_telemetry = {
-            cascade_state: liquidity?.cascade_state ?? 'None',
-            cascade_intensity: liquidity?.cascade_intensity ?? 0,
-            cascade_asymmetry: cluster?.cascade_asymmetry ?? null,
-        };
-    }
-
-    return {
-        symbol: r.symbol,
-        overall: copyRiskDimension(r.overall_risk),
-        by_dimension,
-        cascade_risk_score: r.cascade_risk?.score ?? 0,
-        overall_risk_score: r.overall_risk.score,
-        cascade_telemetry,
     };
 }
 
@@ -1067,15 +690,11 @@ export function buildPanelExportJson(args: PanelExportArgs): string | null {
         tf: r.tf,
         filters: r.filters,
         analysis: r.analysis,
-        risk: r.risk,
         alignment: r.alignment,
-        opportunity: r.opportunity,
-        advisory: r.advisory,
         volumeProfile: r.volumeProfile,
         liquidity: r.liquidity,
         cluster: r.cluster,
         liquiditySignals: r.liquiditySignals,
-        decisionContext: r.decisionContext,
     });
 }
 

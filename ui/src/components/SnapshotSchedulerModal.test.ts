@@ -51,14 +51,18 @@ describe('SnapshotSchedulerModal — empty state', () => {
     it('renders the title + form with all 9 tabs when no status loaded', () => {
         renderModal();
         expect(screen.getByText('SCHEDULE SNAPSHOTS', { selector: 'h3' })).toBeTruthy();
-        // All 9 tabs should be present as chips. Labels are honest about
+        // Every tab should be present as a chip. Labels are honest about
         // the payload type: scheduled exports are server-side raw serde
         // dumps, NOT the per-tab GUI builder shapes (audit C3).
+        //
+        // CR-15: there are four tabs, not nine. The five strategy dumps
+        // (opportunity / risk / advisory / decision / recommendation) mirror the
+        // Rust `ALL_TABS`, which no longer lists them.
         expect(screen.getByText(/Alignment matrix \(raw\)/)).toBeTruthy();
-        expect(screen.getByText(/Opportunity matrix \(raw\)/)).toBeTruthy();
-        expect(screen.getByText(/Risk matrix \(raw\)/)).toBeTruthy();
         expect(screen.getByText(/Analysis matrix \(raw\)/)).toBeTruthy();
-        expect(screen.getByText(/Advisory matrix \(raw\)/)).toBeTruthy();
+        for (const gone of [/Opportunity matrix/, /Risk matrix/, /Advisory matrix/, /Decision context/]) {
+            expect(screen.queryByText(gone), `${gone} must not be an export tab`).toBeNull();
+        }
     });
 });
 

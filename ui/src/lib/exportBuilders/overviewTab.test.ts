@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildOverviewTabExport } from './overviewTab';
 import type { LayerHeaderSpec } from '../layerHeader';
-import type { InstanceState, OpportunityMatrix, AnalysisMatrix, DecisionContext, AdvisoryMatrix, RiskMatrix } from '../../types';
+import type { AlignmentMatrix, AnalysisMatrix, InstanceState } from '../../types';
 import { DURATIONS } from '../../types';
 import { makeTerms } from '../../tests/makeTerms';
 
@@ -43,47 +43,13 @@ function makeRisk(score: number): RiskMatrix {
   return { overall_risk: { score, level: 'Moderate', state: 'Stable', confidence: 44, evidence: [] } } as unknown as RiskMatrix;
 }
 
-function makeDecisionContext(overrides: Partial<DecisionContext> = {}): DecisionContext {
-  return {
-    score: 0,
-    bias: 'Neutral',
-    score_confidence: 0,
-    expected_reward_risk_ratio: 0,
-    trade_readiness: 'WATCH',
-    long_probability: 21,
-    short_probability: 2,
-    hold_probability: 77,
-    net_bias_pct: 19,
-    entry_danger: { score: 44.9, level: 'Moderate', state: 'Stable', confidence: 44, evidence: [] },
-    contributing_indicators: [],
-    ...overrides,
-  } as unknown as DecisionContext;
-}
-
-function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): OpportunityMatrix {
+function makeAlignment(overrides: Record<string, unknown> = {}): AlignmentMatrix {
   return {
     symbol: 'BTC-USDC',
-    primary_opportunity: 'Pullback',
-    opportunity_score: 60.24,
-    setup_quality: 'Moderate',
-    profiles: [
-      {
-        opportunity_type: 'Pullback',
-        score: 60.24,
-        preconditions_met: 2,
-        preconditions_total: 2,
-        notes: 'Pullback',
-        direction_family: 'NEUTRAL',
-        trade_viability: 'DIRECTIONAL_NEUTRAL',
-        long_expected_rr_internal: 0,
-        short_expected_rr_internal: 0,
-      } as never,
-    ],
-    long_expected_rr_internal: 0,
-    short_expected_rr_internal: 0,
-    forecast_confidence: 0.44,
+    mtf_overall_score: 42,
+    mtf_overall_label: 'WEAK_BULL_MTF',
     ...overrides,
-  } as unknown as OpportunityMatrix;
+  } as unknown as AlignmentMatrix;
 }
 
 function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
@@ -97,149 +63,9 @@ function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
     currentView: { timeframe: 'micro60', symbol: 'BTC-USDC', layer: 'overview' } as never,
     alignment: null,
     analysis: makeAnalysis(),
-    risk: makeRisk(43),
-    advisory: makeAdvisory(),
-    decisionContext: makeDecisionContext(),
-    opportunity: makeOpportunity(),
     ...overrides,
   } as unknown as InstanceState;
 }
-
-describe('buildOverviewTabExport — FIX-O1 signal/validity gate', () => {
-  it('a directional guidance WITHOUT an Actionable+READY setup renders WAIT (never BUY under "no READY trade")', () => {
-    const inst = makeInstance({
-      advisory: makeAdvisory({ directional_guidance: 'Long' }),
-      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'WATCH' }),
-    });
-    const p = JSON.parse(buildOverviewTabExport({
-      overviewMatrix: null,
-      instances: [inst],
-      headerSpec,
-      nowMs: 1786752300000,
-    }));
-    // Hero gate: zero READY trades.
-    expect(p.hero.state).toBe('WAIT');
-    expect(p.cards.trade_opportunities.actionable_count).toBe(0);
-    // Row gate: the LONG guidance must NOT surface as BUY.
-    const row = p.asset_rankings.rows[0];
-    expect(row.signal).toBe('WAIT');
-    expect(row.direction).toBe('LONG');
-  });
-
-  it('an Actionable+READY setup renders BUY and the hero agrees (TRADE)', () => {
-    const inst = makeInstance({
-      advisory: makeAdvisory({ directional_guidance: 'Long' }),
-      analysis: makeAnalysis('Bullish'),
-      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'READY', long_probability: 62, short_probability: 2, hold_probability: 36, net_bias_pct: 60 }),
-      opportunity: makeOpportunity({
-        profiles: [{
-          opportunity_type: 'Breakout',
-          score: 65.72,
-          preconditions_met: 2,
-          preconditions_total: 2,
-          notes: 'Breakout',
-          direction_family: 'TREND_RIDING',
-          trade_viability: 'ACTIONABLE',
-          long_expected_rr_internal: 2.54,
-        } as never],
-      }),
-    });
-    const p = JSON.parse(buildOverviewTabExport({
-      overviewMatrix: null,
-      instances: [inst],
-      headerSpec,
-      nowMs: 1786752300000,
-    }));
-    expect(p.hero.state).toBe('TRADE');
-    expect(p.cards.trade_opportunities.valid_setups).toBe(1);
-    const row = p.asset_rankings.rows[0];
-    expect(row.signal).toBe('BUY');
-  });
-
-  it('FIX-O1: row R:R comes from the shared resolver — neutral bias renders "—", never a legacy scalar', () => {
-    const inst = makeInstance({
-      advisory: makeAdvisory({ directional_guidance: 'Neutral' }),
-      decisionContext: makeDecisionContext({ trade_readiness: 'WATCH' }),
-    });
-    const p = JSON.parse(buildOverviewTabExport({
-      overviewMatrix: null,
-      instances: [inst],
-      headerSpec,
-      nowMs: 1786752300000,
-    }));
-    const row = p.asset_rankings.rows[0];
-    // No directional bias → the resolver reports N/A, exactly like the
-    // L4/L6 panels — the row cannot invent an R:R from the legacy scalar.
-    expect(row.rr).toBeNull();
-    expect(row.rr_display).toBe('—');
-  });
-});
-
-describe('buildOverviewTabExport — risk rows (FIX-O3)', () => {
-  it('row risk mirrors L5 overall_risk', () => {
-    const inst = makeInstance({ risk: makeRisk(43) });
-    const p = JSON.parse(buildOverviewTabExport({
-      overviewMatrix: null,
-      instances: [inst],
-      headerSpec,
-      nowMs: 1786752300000,
-    }));
-    expect(p.asset_rankings.rows[0].risk).toBe(43);
-    expect(p.asset_rankings.rows[0].risk_display).toBe('43');
-  });
-});
-
-describe('buildOverviewTabExport — asset rankings top-setup columns', () => {
-  it('row carries the top-setup entry / target / stop levels', () => {
-    const inst = makeInstance({
-      analysis: makeAnalysis('Bullish'),
-      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'READY' }),
-      opportunity: makeOpportunity({
-        profiles: [{
-          opportunity_type: 'Pullback',
-          score: 60,
-          preconditions_met: 2,
-          preconditions_total: 2,
-          notes: 'Pullback',
-          direction_family: 'TREND_RIDING',
-          trade_viability: 'ACTIONABLE',
-          long_entry_zone: { low: 60000, high: 62000 },
-          long_target_zone: { low: 65000, high: 68000 },
-          long_invalidation_level: 59000,
-          long_expected_rr_internal: 2.5,
-        } as never],
-      }),
-    });
-    const p = JSON.parse(buildOverviewTabExport({
-      overviewMatrix: null,
-      instances: [inst],
-      headerSpec,
-      nowMs: 1786752300000,
-    }));
-    const row = p.asset_rankings.rows[0];
-    expect(row.entry_low).toBe(60000);
-    expect(row.entry_display).toBe('60,000–62,000');
-    expect(row.target_low).toBe(65000);
-    expect(row.target_display).toBe('65,000–68,000');
-    expect(row.stop_level).toBe(59000);
-    expect(row.stop_display).toBe('59,000');
-  });
-
-  it('row setup columns render "—" when no bracket exists', () => {
-    const inst = makeInstance(); // NEUTRAL profile, no zones
-    const p = JSON.parse(buildOverviewTabExport({
-      overviewMatrix: null,
-      instances: [inst],
-      headerSpec,
-      nowMs: 1786752300000,
-    }));
-    const row = p.asset_rankings.rows[0];
-    expect(row.entry_low).toBe(0);
-    expect(row.entry_display).toBe('—');
-    expect(row.target_display).toBe('—');
-    expect(row.stop_display).toBe('—');
-  });
-});
 
 describe('buildOverviewTabExport — I-10 KPI demotion parity', () => {
   it('demotes the KPI bias token + suffix under low coverage (parity with header)', () => {
@@ -247,16 +73,7 @@ describe('buildOverviewTabExport — I-10 KPI demotion parity', () => {
       symbol: 'BTC-USDC',
       instanceId: 'inst_btc',
       microTerm: tf,
-      advisory: makeAdvisory({ directional_guidance: 'Long', confidence_assessment: 78 }),
       analysis: makeAnalysis('StrongBullish'),
-      risk: makeRisk(20),
-      opportunity: {
-        profiles: [{ score: 82 }],
-        opportunity_score: 82,
-        long_expected_rr_internal: 2.5,
-        short_expected_rr_internal: 0,
-      } as unknown as OpportunityMatrix,
-      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'READY' }),
     } as unknown as InstanceState;
 
     const p = JSON.parse(buildOverviewTabExport({
@@ -288,11 +105,7 @@ describe('buildOverviewTabExport — I-10 KPI demotion parity', () => {
       symbol: 'BTC-USDC',
       instanceId: 'inst_btc',
       microTerm: tf,
-      advisory: makeAdvisory({ directional_guidance: 'Long', confidence_assessment: 78 }),
       analysis: makeAnalysis('StrongBullish'),
-      risk: makeRisk(20),
-      opportunity: { profiles: [{ score: 82 }], opportunity_score: 82 } as unknown as OpportunityMatrix,
-      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'READY' }),
     } as unknown as InstanceState;
 
     const p = JSON.parse(buildOverviewTabExport({
@@ -315,4 +128,79 @@ describe('buildOverviewTabExport — I-10 KPI demotion parity', () => {
 
     expect(p.kpis.market_bias.value).toBe('STRONG_BULLISH');
   });
+});
+
+// CR-15: the three suites above are gone, and so are the columns they tested.
+//
+//   - "FIX-O1 signal/validity gate" pinned a per-row BUY / SELL / WAIT token
+//     gated on an "Actionable + READY" setup. The gate was a correctness feature
+//     protecting a claim the model is not allowed to make, so the claim and the
+//     gate went together.
+//   - "risk rows (FIX-O3)" pinned the row's L5 risk mirror.
+//   - "asset rankings top-setup columns" pinned the entry / target / stop
+//     bracket, which was the top setup of the Opportunity Layer.
+//
+// What replaces them is a single pin on the row's surviving model fields —
+// score, bias and cross-duration agreement — plus the absence of every strategy
+// key. A strategy column creeping back is the failure this must catch.
+describe('buildOverviewTabExport — asset ranking row is model-only', () => {
+    function rowsOf(payload: string): any[] {
+        return JSON.parse(payload).asset_rankings.rows;
+    }
+
+    it('carries price, bias, score and cross-duration agreement', () => {
+        const out = buildOverviewTabExport({
+            overviewMatrix: null,
+            instances: [makeInstance({ alignment: makeAlignment(), analysis: makeAnalysis('Bullish') })],
+            headerSpec,
+            nowMs: 1_700_000_000_000,
+        });
+        const row = rowsOf(out)[0];
+        expect(row.bias).toBe('Bullish');
+        expect(row.mtf_label).toBe('WEAK_BULL_MTF');
+        expect(typeof row.score).toBe('number');
+        expect(typeof row.price_display).toBe('string');
+    });
+
+    it('CR-15: carries no strategy key at all', () => {
+        const out = buildOverviewTabExport({
+            overviewMatrix: null,
+            instances: [makeInstance({ alignment: makeAlignment(), analysis: makeAnalysis('Bullish') })],
+            headerSpec,
+            nowMs: 1_700_000_000_000,
+        });
+        const row = rowsOf(out)[0];
+        for (const gone of [
+            'signal', 'direction', 'rr', 'rr_display',
+            'confidence_pct', 'confidence_display', 'risk', 'risk_display',
+            'entry_low', 'entry_display', 'target_low', 'target_display',
+            'stop_level', 'stop_display',
+        ]) {
+            expect(row[gone], `strategy key ${gone} must not be exported`).toBeUndefined();
+        }
+    });
+
+    it('CR-15: the payload carries no hero / KPI / card verdict', () => {
+        const out = buildOverviewTabExport({
+            overviewMatrix: null,
+            instances: [makeInstance({ alignment: makeAlignment(), analysis: makeAnalysis('Bullish') })],
+            headerSpec,
+            nowMs: 1_700_000_000_000,
+        });
+        const payload = JSON.parse(out);
+        expect(payload.hero).toBeUndefined();
+        expect(payload.kpis.valid_trades).toBeUndefined();
+        expect(payload.kpis.best_opportunity).toBeUndefined();
+        expect(payload.kpis.avg_rr).toBeUndefined();
+        expect(payload.kpis.avg_risk).toBeUndefined();
+        expect(payload.cards.trade_opportunities).toBeUndefined();
+        expect(payload.cards.risk_distribution).toBeUndefined();
+        expect(payload.cards.signal_quality).toBeUndefined();
+        expect(payload.cards.direction).toBeUndefined();
+        // The three that remain are model readings.
+        expect(payload.kpis.market_bias).toBeDefined();
+        expect(payload.kpis.cross_tf_consensus).toBeDefined();
+        expect(payload.kpis.active_pairs).toBeDefined();
+        expect(payload.cards.market_alignment).toBeDefined();
+    });
 });

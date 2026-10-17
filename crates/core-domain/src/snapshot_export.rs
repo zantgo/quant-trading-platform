@@ -19,17 +19,12 @@ use serde::{Deserialize, Serialize};
 /// export-builder `SourceTab` enum (minus the legacy
 /// `positions`/`orders`/`history`/`plan` which are per-account, not
 /// per-instance).
-pub const ALL_TABS: &[&str] = &[
-    "metrics",
-    "mtf",
-    "alignment",
-    "opportunity",
-    "risk",
-    "analysis",
-    "advisory",
-    "decision",
-    "recommendation",
-];
+/// CR-15: `opportunity`, `risk`, `advisory`, `decision` and `recommendation`
+/// are removed. Those tabs carried the strategy layers, which the model does not
+/// produce and observe mode does not surface. What remains is the model: the
+/// per-duration metrics, the multi-duration grid, the cross-duration alignment,
+/// and the analysis.
+pub const ALL_TABS: &[&str] = &["metrics", "mtf", "alignment", "analysis"];
 
 /// Snapshot of the live runtime state — returned by
 /// `GET /api/snapshot-export/status` and the CLI `--status` command.

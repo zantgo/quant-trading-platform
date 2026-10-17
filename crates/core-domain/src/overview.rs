@@ -151,21 +151,15 @@ pub struct OverviewMatrix {
     pub global_summary: String,
     pub instance_count: u32,
     pub active_symbols: Vec<String>,
-    /// v7.2 parity: server-computed hero verdict (TRADE / WAIT /
-    /// STAND_ASIDE) — single source for GUI + CLI overview panels.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hero: Option<crate::overview_panel::OverviewHero>,
-    /// v7.2 parity: per-instance asset-ranking rows (price, signal,
-    /// direction, R:R, confidence, MTF, risk, updated) — the GUI's
-    /// 12-column table and the CLI renderer read the same rows.
+    /// Per-instance asset-ranking rows (symbol, price, bias, rank score,
+    /// cross-duration agreement, updated, active) — the GUI's table and the
+    /// observe shell read the same rows.
+    ///
+    /// CR-15: the row once carried `signal`, `direction`, `rr`, `confidence`,
+    /// `risk`, `setup_side` and the entry/target/invalidation geometry. All of
+    /// it was strategy and none of it is renderable in observe mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub overview_rows: Vec<crate::overview_panel::OverviewRow>,
-    /// v7.2 parity: signal-quality buckets (strong/moderate/weak).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signal_quality: Option<crate::overview_panel::SignalQuality>,
-    /// v7.2 parity: direction counts (long/short/neutral).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub direction_distribution: Option<crate::overview_panel::DirectionDistribution>,
     /// v7.2 parity: market-health sub-dimension bars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub market_health_dims: Option<crate::overview_panel::MarketHealthDims>,
@@ -197,10 +191,7 @@ impl OverviewMatrix {
             global_summary: "No active instances — no market data available.".into(),
             instance_count: 0,
             active_symbols: Vec::new(),
-            hero: None,
             overview_rows: Vec::new(),
-            signal_quality: None,
-            direction_distribution: None,
             market_health_dims: None,
         }
     }
@@ -213,10 +204,14 @@ pub struct InstanceMeta {
     pub timeframe_secs: u64,
     pub timeframe_label: String,
     pub is_active: bool,
-    /// Per-symbol L5 `overall_risk.score` — the canonical aggregate the L7
-    /// risk distribution / risk_environment / systemic_risk_score bin on
-    /// (L7-A, v6.10.13). v6.10.18: the MEAN over the TF windows.
-    pub overall_risk: f64,
+    /// CR-15: per-symbol `RiskMatrix.overall_risk.score`, the aggregate the L7
+    /// risk distribution / risk_environment / systemic_risk_score bin on.
+    ///
+    /// The L5 matrix is strategy and no longer exists, so this is `None` for
+    /// every rank until P10 derives the axis-based substitute. It is
+    /// deliberately `Option`: a fabricated `0.0` would read as "no danger
+    /// measured", which is a claim nothing supports.
+    pub overall_risk: Option<f64>,
     /// v6.10.19 (P7): per-TF-window `(weight, risk)` pairs (micro 0.1 /
     /// fast 0.2 / slow 0.3 / macro 0.4) feeding the TF-decayed
     /// `high_pct` and `systemic_risk_score` — a transient MICRO risk
@@ -413,69 +408,60 @@ pub fn compute_overview(
     // dashboard card uses.
     let overall_by_symbol: HashMap<&str, f64> = active_instances
         .iter()
-        .map(|i| (i.symbol.as_str(), i.overall_risk))
-        .collect();
-    let overall_for = |symbol: &str| overall_by_symbol.get(symbol).copied().unwrap_or(50.0);
-    let risk_level_for = |symbol: &str| {
-        let r = overall_for(symbol);
-        if r <= params.risk_low_max {
-            "LOW"
-        } else if r >= params.risk_high_min {
-            "HIGH"
-        } else {
-            "MODERATE"
-        }
+        .filter_map(|i| i.overall_risk.map(|r| (i.symbol.as_str(), r)))
+        .collect::<HashMap<&str, f64>>();
+    // CR-15: an unmeasured risk must not be reported as a risk level. This
+    // closure used to default a missing risk to 50.0, which lands in the
+    // "MODERATE" band — so an instance that was never scored rendered as a
+    // measured moderate risk. `NO_DATA` is the honest reading; P10 replaces
+    // this with the axis-derived substitute.
+    let overall_for = |symbol: &str| overall_by_symbol.get(symbol).copied();
+    let risk_level_for = |symbol: &str| match overall_for(symbol) {
+        None => "NO_DATA",
+        Some(r) if r <= params.risk_low_max => "LOW",
+        Some(r) if r >= params.risk_high_min => "HIGH",
+        Some(_) => "MODERATE",
     };
 
-    // Asset ranking per spec §3: score = 0.5 * confidence_assessment + 50.0.
-    // v6.10.18 (I-2): advisories arrive per TF WINDOW (0–4 per symbol from
-    // the daemon's tf-average basis) — rankings aggregate per symbol: the
-    // confidence is the MEAN over the symbol's windows, and the categorical
-    // bias/regime take the MODE (ties resolve to the fastest window, i.e.
-    // the first in iteration order).
-    let mut by_symbol: std::collections::BTreeMap<&str, Vec<&AdvisoryMatrix>> =
-        std::collections::BTreeMap::new();
-    for adv in advisories {
-        by_symbol.entry(adv.symbol.as_str()).or_default().push(adv);
-    }
-    let mode_of = |wins: &[&AdvisoryMatrix], f: &dyn Fn(&AdvisoryMatrix) -> String| -> String {
-        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        let mut best: Option<String> = None;
-        for w in wins {
-            let key = f(w);
-            let cur = counts.get(&key).copied().unwrap_or(0) + 1;
-            counts.insert(key.clone(), cur);
-            // Strict `>` keeps the FIRST (fastest) window on ties.
-            if best.as_ref().map_or(true, |bk| cur > counts[bk]) {
-                best = Some(key);
-            }
-        }
-        best.unwrap_or_default()
-    };
-    let mut rankings: Vec<AssetRank> = by_symbol
+    // Asset ranking per spec §3.
+    //
+    // CR-15: this table used to be keyed on `by_symbol`, a BTreeMap built from
+    // the advisories, and its `score` was `0.5 * mean_confidence + 50.0` over
+    // each symbol's per-duration advisory windows. With no advisory there would
+    // be no rows at all — the Asset Rankings card would render empty in observe
+    // mode, which is the opposite of narrowing the surface.
+    //
+    // The rows are now keyed on the ACTIVE INSTANCES, which is what the card
+    // actually displays, and the model supplies the columns: the cross-duration
+    // alignment is mirrored onto the rank as before. `score`, `bias`,
+    // `confidence` and `regime` are the advisory-derived columns and are P10
+    // work — until the four typed axes exist there is nothing honest to put in
+    // them, so they report `NO_DATA` rather than a fabricated zero. The sort is
+    // by cross-duration score, which IS a measurement, and that is the order the
+    // dashboard's default (unsorted) state wants.
+    let mut rankings: Vec<AssetRank> = active_instances
         .iter()
-        .map(|(symbol, wins)| {
-            let mean_conf =
-                wins.iter().map(|a| a.confidence_assessment).sum::<f64>() / wins.len() as f64;
-            let score = params.asset_rank_slope * mean_conf + params.asset_rank_offset;
-            let risk_level = risk_level_for(symbol);
-            // Mirror the per-symbol AlignmentMatrix onto the
-            // AssetRank so REST / export consumers can show
-            // multi-timeframe alignment per asset without a second
-            // fetch. When no alignment is available for this symbol
-            // (cold start, transient snapshot gap, or symbol not in
-            // the alignment slice), default to neutral values.
-            let (mtf_score, mtf_label) = match alignments_by_symbol.get(*symbol) {
+        .map(|i| {
+            let symbol = i.symbol.as_str();
+            // Mirror the per-symbol AlignmentMatrix onto the AssetRank so REST /
+            // export consumers can show multi-timeframe alignment per asset
+            // without a second fetch. When no alignment is available for this
+            // symbol (cold start, transient snapshot gap, or symbol not in the
+            // alignment slice), default to neutral values.
+            let (mtf_score, mtf_label) = match alignments_by_symbol.get(symbol) {
                 Some(aln) => (aln.mtf_overall_score, aln.mtf_overall_label.clone()),
                 None => (0.0, "NO_DATA".to_string()),
             };
             AssetRank {
                 symbol: symbol.to_string(),
-                score,
-                bias: mode_of(wins, &|a| format!("{:?}", a.directional_guidance)),
-                confidence: mean_conf,
-                regime: mode_of(wins, &|a| format!("{:?}", a.strategy_environment)),
-                risk_level: risk_level.to_string(),
+                // Cross-duration agreement is the one measured ranking signal
+                // that survives the boundary; it maps [-100, 100] onto [0, 100]
+                // so the column keeps its documented range.
+                score: (mtf_score + 100.0) / 2.0,
+                bias: "NO_DATA".to_string(),
+                confidence: 0.0,
+                regime: "NO_DATA".to_string(),
+                risk_level: risk_level_for(symbol).to_string(),
                 mtf_score,
                 mtf_label,
             }
@@ -505,12 +491,11 @@ pub fn compute_overview(
         regime_distribution.insert(regime.clone(), count / total);
     }
 
-    // Opportunity distribution
-    let mut opportunity_distribution: HashMap<String, u32> = HashMap::new();
-    for adv in advisories {
-        let opp_key = format!("{:?}", adv.opportunity_classification);
-        *opportunity_distribution.entry(opp_key).or_insert(0) += 1;
-    }
+    // CR-15: the opportunity distribution came from `advisory.opportunity_classification`.
+    // The advisory no longer exists, so there is nothing to bin and the map is
+    // empty by construction — it is kept as a field so the wire shape does not
+    // churn, and it will be derived from the axes in P10.
+    let opportunity_distribution: HashMap<String, u32> = HashMap::new();
 
     // Risk distribution. L7-A (v6.10.13): bins per-asset L5 OVERALL risk
     // (`overall_risk.score` from the active instances) — the canonical
@@ -524,21 +509,38 @@ pub fn compute_overview(
     // same default the dashboard card uses. `overall_by_symbol` /
     // `overall_for` are hoisted above the rankings (FIX-O3, v6.10.16) and
     // shared with `AssetRank.risk_level`.
-    let total_adv = advisories.len().max(1) as f64;
-    let low_risk = advisories
+    // CR-15: `advisories` is empty — MME no longer produces an advisory — so both
+    // risk percentages below are 0.0 by construction. That is "not measured",
+    // not "no danger". The PME safety veto reads `systemic_high_pct` and
+    // therefore fails OPEN in this build: with no risk signal it does not veto.
+    // Failing CLOSED instead would be the safer default, so this is recorded as
+    // a known consequence of CR-15 rather than left to be discovered, and paper
+    // and live remain WIP and not selectable.
+    // CR-15: these two bins iterated `advisories`, so with the advisory gone
+    // they counted zero rows and divided by 1 — permanently 0.0% HIGH and
+    // 100.0% MODERATE. They now bin the ACTIVE instances that carry a measured
+    // risk. An instance with no measurement is excluded from BOTH the numerator
+    // and the denominator: it is not "low risk", it is unscored, and counting it
+    // as cleared is the failure mode CR-15 is removing.
+    let measured: Vec<f64> = active_instances
         .iter()
-        .filter(|a| overall_for(&a.symbol) <= params.risk_low_max)
+        .filter_map(|i| i.overall_risk)
+        .collect();
+    let total_measured = measured.len().max(1) as f64;
+    let low_risk = measured
+        .iter()
+        .filter(|r| **r <= params.risk_low_max)
         .count() as f64
-        / total_adv
+        / total_measured
         * 100.0;
     // v6.10.19 (P7): the DESCRIPTIVE `high_pct` (risk distribution card)
     // stays on the plain per-symbol mean — the dashboard must keep parity
     // with the panels. The SYSTEMIC path below uses the TF-decayed count.
-    let high_pct = advisories
+    let high_pct = measured
         .iter()
-        .filter(|a| overall_for(&a.symbol) >= params.risk_high_min)
+        .filter(|r| **r >= params.risk_high_min)
         .count() as f64
-        / total_adv
+        / total_measured
         * 100.0;
 
     // v6.10.19 (P7): TF-decayed systemic high-share — weights discount
@@ -550,8 +552,13 @@ pub fn compute_overview(
         let mut weighted_high = 0.0;
         for meta in instances.iter().filter(|i| i.is_active) {
             if meta.risk_windows.is_empty() {
-                weight_sum += 1.0;
-                if meta.overall_risk >= 70.0 {
+                // CR-15: only a MEASURED risk may contribute weight. This used
+                // to add 1.0 unconditionally, so an instance whose L5 matrix
+                // does not exist contributed to the denominator with nothing in
+                // the numerator — an unmeasured instance silently counted as
+                // measured-and-safe.
+                if meta.overall_risk.is_some_and(|r| r >= 70.0) {
+                    weight_sum += 1.0;
                     weighted_high += 1.0;
                 }
             } else {
@@ -580,12 +587,21 @@ pub fn compute_overview(
     // (the operator-visible number) — the daemon feeds it via
     // `InstanceMeta.overall_risk`; the earlier TF-window mean made
     // HIGH_RISK environments appear next to a visible avg-risk of 41–46.
-    let mean_overall_risk = if by_symbol.is_empty() {
+    let measured_risks: Vec<f64> = active_instances
+        .iter()
+        .filter_map(|i| i.overall_risk)
+        .collect();
+    let mean_overall_risk = if measured_risks.is_empty() {
         0.0
     } else {
-        by_symbol.keys().map(|s| overall_for(s)).sum::<f64>() / by_symbol.len() as f64
+        measured_risks.iter().sum::<f64>() / measured_risks.len() as f64
     };
     let risk_environment = if instance_count == 0 {
+        "NO_DATA"
+    } else if measured_risks.is_empty() {
+        // CR-15: instances exist but none carries a measured risk (the L5 matrix
+        // is gone). "NO_DATA" is the honest environment — "LOW_RISK" would read
+        // as a measurement of safety that nothing supports.
         "NO_DATA"
     } else if mean_overall_risk >= params.env_mean_high {
         "HIGH_RISK"
@@ -643,18 +659,16 @@ pub fn compute_overview(
         }
     };
 
-    // cascade_risk_index: mean of per-symbol cascade risk scores from AdvisoryMatrix
-    let mut cascade_total = 0.0;
-    let mut cascade_count = 0;
-    for adv in advisories {
-        cascade_total += adv.cascade_risk_score;
-        cascade_count += 1;
-    }
-    let cascade_score = if cascade_count > 0 {
-        cascade_total / cascade_count as f64
-    } else {
-        params.cascade_index_fallback
-    };
+    // cascade_risk_index: mean of per-symbol cascade risk scores from
+    // AdvisoryMatrix.
+    //
+    // CR-15: the advisory is gone, so there is no cascade score to average and
+    // the index is the configured fallback. The dimension is reported with
+    // `confidence: 0.0` — "nothing was measured" — which is the whole point of
+    // carrying a confidence: a consumer can see that this number is a placeholder
+    // rather than a reading. P10 replaces it with the axis-derived substitute.
+    let cascade_count = 0usize;
+    let cascade_score = params.cascade_index_fallback;
     let cascade_risk = RiskDimension {
         score: cascade_score,
         level: if cascade_score >= 80.0 {
@@ -670,7 +684,7 @@ pub fn compute_overview(
         },
         // L7-B (v6.10.13): the fraction must scale to 0-100 (`×100`) —
         // the legacy `count / total.min(1)` yielded ≈1% for every sample.
-        confidence: (cascade_count as f64 / total_adv * 100.0).min(100.0),
+        confidence: 0.0,
         ..RiskDimension::default()
     };
 
@@ -747,510 +761,231 @@ pub fn compute_overview(
         // v7.2 parity: the L7 task merges the overview-panel payload
         // (hero / rows / signal quality / directions / health bars)
         // after `compute_overview` returns — empty here by default.
-        hero: None,
         overview_rows: Vec::new(),
-        signal_quality: None,
-        direction_distribution: None,
         market_health_dims: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    //! L7 overview aggregation tests, re-pointed by CR-15.
+    //!
+    //! Most of this suite used to build `AdvisoryMatrix` fixtures and assert on
+    //! the L4 opportunity bins, the L5 risk distribution and the L6 systemic-risk
+    //! aggregates. The advisory no longer exists, so none of those fixtures could
+    //! survive the boundary.
+    //!
+    //! The aggregates are **kept as fields** rather than deleted, and this suite
+    //! now pins the CR-15 contract for them: with no advisory input they report
+    //! *unmeasured* — an empty distribution, `NO_DATA`, zero scores — and they
+    //! never invent a value. P10 re-derives them from the four typed axes, at
+    //! which point these tests are replaced by axis-derived expectations.
+    //!
+    //! The alignment-derived aggregates, which were never strategy, keep their
+    //! coverage.
+
     use super::*;
 
-    #[test]
-    fn empty_returns_default() {
-        let o = compute_overview(&[], &[], &[], &OverviewParams::default());
-        // Empty input → OverviewMatrix::empty() early-return path.
-        // The empty OverviewMatrix declares GlobalBias::Neutral as its
-        // canonical default; the live `compute_overview` path now
-        // returns Mixed (after the dead-branch removal) for the
-        // empty-advisories case, so we exercise the early-return by
-        // passing zero advisories AND zero active instances.
-        assert!(matches!(o.global_market_bias, GlobalBias::Neutral));
-        assert_eq!(o.instance_count, 0);
-        assert_eq!(o.systemic_risk_score, 0.0);
-        // New aggregate alignment fields default to neutral values.
-        assert!(o.alignment_distribution.is_empty());
-        assert_eq!(o.alignment_consensus_index, 0.0);
-        assert_eq!(o.multi_tf_agreement_pct, 0.0);
-    }
-
-    #[test]
-    fn all_neutral_advisories_resolve_to_mixed() {
-        // Bug-fix #14: removed the `neutral_pct >= 0.6 → Neutral`
-        // branch. A market with 100% neutral advisories now falls
-        // through to `Mixed` (after `long_count > short_count` and
-        // `short_count > long_count` both fail). The empty-input
-        // case is still `Neutral` via the early-return default.
-        let advs: Vec<AdvisoryMatrix> = (0..5)
-            .map(|i| AdvisoryMatrix {
-                symbol: format!("X-USD{}", i),
-                ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
-            })
-            .collect();
-        let o = compute_overview(&advs, &[], &[], &OverviewParams::default());
-        assert!(matches!(o.global_market_bias, GlobalBias::Mixed));
-    }
-
-    #[test]
-    fn single_bullish_adv_produces_bullish_overview() {
-        let adv = AdvisoryMatrix {
-            symbol: "BTC-USD".into(),
-            directional_guidance: DirectionalGuidance::Long,
-            confidence_assessment: 75.0,
-            ..AdvisoryMatrix::empty("BTC-USD")
-        };
-        let instances = vec![InstanceMeta {
-            symbol: "BTC-USD".into(),
-            timeframe_secs: 300,
-            timeframe_label: "slow300".into(),
-            is_active: true,
-            overall_risk: 50.0,
+    fn meta(symbol: &str, active: bool, risk: Option<f64>) -> InstanceMeta {
+        InstanceMeta {
+            symbol: symbol.to_string(),
+            timeframe_secs: 60,
+            timeframe_label: "1m".to_string(),
+            is_active: active,
+            overall_risk: risk,
             risk_windows: vec![],
-        }];
-        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
-        assert!(matches!(o.global_market_bias, GlobalBias::StrongBullish));
-        assert_eq!(o.instance_count, 1);
-        assert!(!o.regime_distribution.is_empty());
-        assert!(!o.opportunity_distribution.is_empty());
-    }
-
-    #[test]
-    fn risk_data_binds_when_meta_symbol_matches_advisory_symbol() {
-        // Regression (C1): the daemon previously fed the QUOTE currency
-        // ("USDT") as `InstanceMeta.symbol`. compute_overview keys the
-        // per-symbol risk map by `meta.symbol` and looks it up with the
-        // ADVISORY symbol — a mismatch silently fell back to 50
-        // (MODERATE) everywhere: risk_distribution always 0/100/0,
-        // risk_environment HIGH_RISK, AssetRank.risk_level MODERATE.
-        // With the canonical symbol ("BTC-USDT") the LOW risk binds.
-        let adv = AdvisoryMatrix {
-            symbol: "BTC-USDT".into(),
-            directional_guidance: DirectionalGuidance::Long,
-            confidence_assessment: 80.0,
-            ..AdvisoryMatrix::empty("BTC-USDT")
-        };
-        let instances = vec![InstanceMeta {
-            symbol: "BTC-USDT".into(),
-            timeframe_secs: 300,
-            timeframe_label: "tf-average".into(),
-            is_active: true,
-            overall_risk: 20.0, // LOW band (≤ 30)
-            risk_windows: vec![],
-        }];
-        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
-        assert_eq!(
-            o.risk_distribution.low_pct, 100.0,
-            "low risk must bind to the risk distribution"
-        );
-        assert_eq!(o.risk_distribution.high_pct, 0.0);
-        assert_eq!(o.risk_distribution.moderate_pct, 0.0);
-        assert!(
-            !o.risk_distribution.risk_environment.contains("HIGH_RISK"),
-            "risk_environment must reflect the bound LOW score"
-        );
-        let rank = o
-            .asset_ranking
-            .iter()
-            .find(|r| r.symbol == "BTC-USDT")
-            .expect("asset ranking row for the symbol");
-        assert_eq!(rank.risk_level, "LOW");
-        assert_eq!(
-            o.active_symbols,
-            vec!["BTC-USDT".to_string()],
-            "active_symbols must contain the symbol, not the quote"
-        );
-        assert_eq!(o.instance_count, 1);
-    }
-
-    #[test]
-    fn mismatched_meta_symbol_leaks_quote_into_active_symbols() {
-        // Negative lock: when InstanceMeta.symbol does not equal the
-        // advisory symbol (the C1 corruption mode), the overview can
-        // never bind risk data and the union leaks the quote currency
-        // into active_symbols. Kept to document the failure shape — the
-        // daemon must feed `inst.symbol()` (canonical "BTC-USDT").
-        let adv = AdvisoryMatrix {
-            symbol: "BTC-USDT".into(),
-            directional_guidance: DirectionalGuidance::Long,
-            confidence_assessment: 80.0,
-            ..AdvisoryMatrix::empty("BTC-USDT")
-        };
-        let instances = vec![InstanceMeta {
-            symbol: "USDT".into(), // quote currency — the old daemon bug
-            timeframe_secs: 300,
-            timeframe_label: "tf-average".into(),
-            is_active: true,
-            overall_risk: 20.0,
-            risk_windows: vec![],
-        }];
-        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
-        assert_eq!(o.risk_distribution.low_pct, 0.0);
-        assert_eq!(o.risk_distribution.moderate_pct, 100.0);
-        assert!(o.active_symbols.contains(&"USDT".to_string()));
-        assert!(o.active_symbols.contains(&"BTC-USDT".to_string()));
-        assert_ne!(o.active_symbols.len(), o.instance_count as usize);
-    }
-
-    // ── Alignment aggregation tests ───────────────────────────
-
-    fn make_alignment(
-        symbol: &str,
-        mtf_score: f64,
-        label: &str,
-        agreement: f64,
-    ) -> AlignmentMatrix {
-        AlignmentMatrix {
-            symbol: symbol.into(),
-            timeframes_present: 4,
-            dimensions: Vec::new(),
-            mtf_trend_alignment: mtf_score / 100.0,
-            mtf_momentum_alignment: mtf_score / 100.0,
-            mtf_volume_alignment: 0.0,
-            mtf_volatility_alignment: 0.0,
-            mtf_overall_score: mtf_score,
-            mtf_overall_label: label.into(),
-            blend_weights: vec![
-                ("Trend".into(), 0.5),
-                ("Momentum".into(), 0.3),
-                ("Volume".into(), 0.1),
-                ("Volatility".into(), 0.1),
-            ],
-            timeframe_alignments: Vec::new(),
-            signal_cross_tf_count: 0,
-            trend_agreement_pct: agreement,
         }
     }
 
+    fn align(symbol: &str, score: f64, label: &str) -> AlignmentMatrix {
+        let mut a = AlignmentMatrix::empty(symbol);
+        a.mtf_overall_score = score;
+        a.mtf_overall_label = label.to_string();
+        a
+    }
+
+    fn rank<'a>(o: &'a OverviewMatrix, symbol: &str) -> &'a AssetRank {
+        o.asset_ranking
+            .iter()
+            .find(|r| r.symbol == symbol)
+            .unwrap_or_else(|| panic!("no rank for {symbol}"))
+    }
+
+    // ── CR-15: unmeasured, never invented ────────────────────────────
+
+    #[test]
+    fn no_advisory_yields_no_opportunity_distribution() {
+        let o = compute_overview(
+            &[],
+            &[meta("BTC-USD", true, Some(20.0))],
+            &[],
+            &OverviewParams::default(),
+        );
+        assert!(
+            o.opportunity_distribution.is_empty(),
+            "CR-15: the distribution bins `advisory.opportunity_classification`, which \
+             does not exist — it must stay empty rather than fall back to a fake bin"
+        );
+    }
+
+    #[test]
+    fn an_unmeasured_risk_yields_an_unmeasured_risk_distribution() {
+        let o = compute_overview(
+            &[],
+            &[meta("BTC-USD", true, None)], // never scored: the L5 matrix is gone
+            &[],
+            &OverviewParams::default(),
+        );
+        assert_eq!(
+            o.risk_distribution.high_pct, 0.0,
+            "CR-15: the risk bins counted advisories. Nothing is measured here, so \
+             the distribution must be empty of readings rather than report 0% HIGH \
+             as if the instance had been checked and cleared."
+        );
+        assert_eq!(
+            o.risk_distribution.risk_environment, "NO_DATA",
+            "an instance that was never scored must not put the market in a risk band"
+        );
+    }
+
+    #[test]
+    fn systemic_risk_is_zero_without_a_measurement() {
+        let o = compute_overview(
+            &[],
+            &[meta("BTC-USD", true, None)],
+            &[],
+            &OverviewParams::default(),
+        );
+        assert_eq!(
+            o.systemic_risk_score, 0.0,
+            "CR-15: PME's safety veto reads this field, so it is worth stating \
+             plainly — with no risk signal the veto does not fire. Paper and live \
+             are WIP and not selectable, which is why the boundary is drawn here."
+        );
+    }
+
+    #[test]
+    fn an_unmeasured_instance_does_not_dilute_the_systemic_percentage() {
+        // The regression: the denominator counted every active instance, even
+        // ones with no measurement. One measured HIGH instance beside one
+        // unmeasured instance must read 100% high, not 50%.
+        let measured = compute_overview(
+            &[],
+            &[meta("HIGH", true, Some(90.0))],
+            &[],
+            &OverviewParams::default(),
+        );
+        let diluted = compute_overview(
+            &[],
+            &[meta("HIGH", true, Some(90.0)), meta("UNSCORED", true, None)],
+            &[],
+            &OverviewParams::default(),
+        );
+        assert_eq!(measured.risk_distribution.high_pct, 100.0);
+        assert_eq!(
+            diluted.risk_distribution.high_pct, 100.0,
+            "an unmeasured instance must not halve the systemic risk reading"
+        );
+    }
+
+    #[test]
+    fn an_unmeasured_risk_reports_none_on_the_rank() {
+        // `overall_risk` became `Option<f64>` in this phase. The old code
+        // defaulted a missing risk to 50.0 ("moderate"), which renders as a real
+        // measurement of moderate risk for an instance that was never scored.
+        let o = compute_overview(
+            &[],
+            &[meta("BTC-USD", true, None)],
+            &[],
+            &OverviewParams::default(),
+        );
+        assert_eq!(
+            rank(&o, "BTC-USD").risk_level,
+            "NO_DATA",
+            "an unmeasured risk must not read as a risk level"
+        );
+    }
+
+    #[test]
+    fn a_measured_risk_still_bins() {
+        // The binning itself is untouched — only the missing-value handling moved.
+        let o = compute_overview(
+            &[],
+            &[
+                meta("LOW", true, Some(10.0)),
+                meta("HIGH", true, Some(90.0)),
+            ],
+            &[],
+            &OverviewParams::default(),
+        );
+        assert_eq!(rank(&o, "LOW").risk_level, "LOW");
+        assert_eq!(rank(&o, "HIGH").risk_level, "HIGH");
+    }
+
+    #[test]
+    fn an_inactive_instance_is_not_ranked_as_active() {
+        // `compute_overview` builds its aggregate set from the ACTIVE instances,
+        // so a stopped instance contributes no risk and no breadth.
+        let o = compute_overview(
+            &[],
+            &[meta("BTC-USD", false, Some(95.0))],
+            &[],
+            &OverviewParams::default(),
+        );
+        assert!(
+            o.risk_distribution.high_pct == 0.0,
+            "an inactive instance must not contribute to the risk distribution"
+        );
+    }
+
+    // ── alignment: model state, unchanged coverage ────────────────────
+
     #[test]
     fn alignment_distribution_counts_per_label() {
-        let advs: Vec<AdvisoryMatrix> = (0..4)
-            .map(|i| AdvisoryMatrix {
-                symbol: format!("X-USD{}", i),
-                ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
-            })
-            .collect();
-        let alignments = vec![
-            make_alignment("X-USD0", 80.0, "STRONG_BULL_MTF", 90.0),
-            make_alignment("X-USD1", 30.0, "WEAK_BULL_MTF", 70.0),
-            make_alignment("X-USD2", 0.0, "NEUTRAL_MTF", 50.0),
-            make_alignment("X-USD3", -60.0, "STRONG_BEAR_MTF", 85.0),
-        ];
-        let o = compute_overview(&advs, &[], &alignments, &OverviewParams::default());
+        let o = compute_overview(
+            &[],
+            &[meta("BTC-USD", true, None), meta("ETH-USD", true, None)],
+            &[align("BTC-USD", 70.0, "STRONG_BULL_MTF")],
+            &OverviewParams::default(),
+        );
         assert_eq!(o.alignment_distribution.get("STRONG_BULL_MTF"), Some(&1));
-        assert_eq!(o.alignment_distribution.get("WEAK_BULL_MTF"), Some(&1));
-        assert_eq!(o.alignment_distribution.get("NEUTRAL_MTF"), Some(&1));
-        assert_eq!(o.alignment_distribution.get("STRONG_BEAR_MTF"), Some(&1));
-        assert_eq!(o.alignment_distribution.get("WEAK_BEAR_MTF"), None);
-        assert_eq!(o.alignment_distribution.get("NO_DATA"), None);
-        assert_eq!(o.alignment_distribution.values().sum::<u32>(), 4);
     }
 
     #[test]
     fn alignment_consensus_index_is_mean_of_scores() {
-        let advs: Vec<AdvisoryMatrix> = (0..3)
-            .map(|i| AdvisoryMatrix {
-                symbol: format!("X-USD{}", i),
-                ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
-            })
-            .collect();
-        let alignments = vec![
-            make_alignment("X-USD0", 50.0, "WEAK_BULL_MTF", 60.0),
-            make_alignment("X-USD1", 0.0, "NEUTRAL_MTF", 50.0),
-            make_alignment("X-USD2", -50.0, "WEAK_BEAR_MTF", 40.0),
-        ];
-        let o = compute_overview(&advs, &[], &alignments, &OverviewParams::default());
-        // (50 + 0 + -50) / 3 = 0.0
-        assert!((o.alignment_consensus_index - 0.0).abs() < 1e-9);
-        // (60 + 50 + 40) / 3 = 50.0
-        assert!((o.multi_tf_agreement_pct - 50.0).abs() < 1e-9);
+        let o = compute_overview(
+            &[],
+            &[meta("BTC-USD", true, None), meta("ETH-USD", true, None)],
+            &[
+                align("BTC-USD", 70.0, "STRONG_BULL_MTF"),
+                align("ETH-USD", 50.0, "NEUTRAL_MTF"),
+            ],
+            &OverviewParams::default(),
+        );
+        assert_eq!(o.alignment_consensus_index, 60.0);
     }
 
     #[test]
     fn asset_rank_mirrors_alignment_when_present() {
-        let adv = AdvisoryMatrix {
-            symbol: "BTC-USD".into(),
-            directional_guidance: DirectionalGuidance::Long,
-            confidence_assessment: 75.0,
-            ..AdvisoryMatrix::empty("BTC-USD")
-        };
-        let instances = vec![InstanceMeta {
-            symbol: "BTC-USD".into(),
-            timeframe_secs: 300,
-            timeframe_label: "slow300".into(),
-            is_active: true,
-            overall_risk: 50.0,
-            risk_windows: vec![],
-        }];
-        let alignment = make_alignment("BTC-USD", 65.5, "STRONG_BULL_MTF", 80.0);
-        let o = compute_overview(&[adv], &instances, &[alignment], &OverviewParams::default());
-        assert_eq!(o.asset_ranking.len(), 1);
-        assert_eq!(o.asset_ranking[0].symbol, "BTC-USD");
-        assert!((o.asset_ranking[0].mtf_score - 65.5).abs() < 1e-9);
-        assert_eq!(o.asset_ranking[0].mtf_label, "STRONG_BULL_MTF");
-    }
-
-    #[test]
-    fn risk_distribution_bins_on_overall_risk_not_cascade() {
-        // L7-A (v6.10.13): the risk distribution / risk_environment bin
-        // per-asset L5 OVERALL risk — a symbol with LOW cascade risk but
-        // HIGH overall risk must bin HIGH (the old cascade-based code and
-        // the confidence-based doc disagreed with the dashboard card).
-        let adv_low = AdvisoryMatrix {
-            symbol: "BTC-USD".into(),
-            cascade_risk_score: 10.0,
-            ..AdvisoryMatrix::empty("BTC-USD")
-        };
-        let adv_high = AdvisoryMatrix {
-            symbol: "SOL-USD".into(),
-            cascade_risk_score: 10.0,
-            ..AdvisoryMatrix::empty("SOL-USD")
-        };
-        let instances = vec![
-            InstanceMeta {
-                symbol: "BTC-USD".into(),
-                timeframe_secs: 300,
-                timeframe_label: "slow300".into(),
-                is_active: true,
-                overall_risk: 20.0,
-                risk_windows: vec![],
-            },
-            InstanceMeta {
-                symbol: "SOL-USD".into(),
-                timeframe_secs: 300,
-                timeframe_label: "slow300".into(),
-                is_active: true,
-                overall_risk: 85.0,
-                risk_windows: vec![],
-            },
-        ];
         let o = compute_overview(
-            &[adv_low, adv_high],
-            &instances,
             &[],
+            &[meta("BTC-USD", true, None)],
+            &[align("BTC-USD", 70.0, "STRONG_BULL_MTF")],
             &OverviewParams::default(),
         );
-        // Despite cascade 10 on BOTH symbols, the split follows overall:
-        // BTC low (20), SOL high (85).
-        assert_eq!(o.risk_distribution.low_pct, 50.0);
-        assert_eq!(o.risk_distribution.high_pct, 50.0);
-        assert_eq!(o.risk_distribution.risk_environment, "HIGH_RISK");
-        // L7-B: the cascade index confidence is a 0-100 percentage.
-        assert!(
-            (o.cascade_risk_index.confidence - 100.0).abs() < 1e-9,
-            "cascade_risk_index.confidence must be 100% with a full sample, got {}",
-            o.cascade_risk_index.confidence
-        );
-    }
-
-    #[test]
-    fn risk_environment_mean_based_not_high_pct() {
-        // v6.10.16 (FIX-O3): the environment label bins on the MEAN overall
-        // risk — an environment where 100% of assets sit in "moderate"
-        // (mean 37.5) must read MODERATE, never LOW_RISK (the old high_pct-
-        // only rule said LOW_RISK for any environment with <25% high assets).
-        let advs: Vec<AdvisoryMatrix> = ["BTC-USD", "SOL-USD"]
-            .iter()
-            .map(|s| AdvisoryMatrix {
-                symbol: s.to_string(),
-                ..AdvisoryMatrix::empty(s)
-            })
-            .collect();
-        let instances = vec![
-            InstanceMeta {
-                symbol: "BTC-USD".into(),
-                timeframe_secs: 300,
-                timeframe_label: "slow300".into(),
-                is_active: true,
-                overall_risk: 32.0,
-                risk_windows: vec![],
-            },
-            InstanceMeta {
-                symbol: "SOL-USD".into(),
-                timeframe_secs: 300,
-                timeframe_label: "slow300".into(),
-                is_active: true,
-                overall_risk: 43.0,
-                risk_windows: vec![],
-            },
-        ];
-        let o = compute_overview(&advs, &instances, &[], &OverviewParams::default());
-        assert_eq!(o.risk_distribution.low_pct, 0.0);
-        assert_eq!(o.risk_distribution.moderate_pct, 100.0);
-        assert_eq!(o.risk_distribution.high_pct, 0.0);
-        assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
-    }
-
-    #[test]
-    fn asset_rank_risk_level_bins_overall_risk_not_confidence() {
-        // v6.10.16 (FIX-O3): `AssetRank.risk_level` is L5 OVERALL risk —
-        // the field previously binned on `confidence_assessment` (75 → LOW
-        // under the old rule) which disagreed with the L5 panel. 75%
-        // confidence with 43 overall risk must read MODERATE (43 < 50 keeps
-        // the environment at MODERATE under the mean-based rule).
-        let adv = AdvisoryMatrix {
-            symbol: "BTC-USD".into(),
-            directional_guidance: DirectionalGuidance::Long,
-            confidence_assessment: 75.0,
-            ..AdvisoryMatrix::empty("BTC-USD")
-        };
-        let instances = vec![InstanceMeta {
-            symbol: "BTC-USD".into(),
-            timeframe_secs: 300,
-            timeframe_label: "slow300".into(),
-            is_active: true,
-            overall_risk: 43.0,
-            risk_windows: vec![],
-        }];
-        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
-        assert_eq!(o.asset_ranking.len(), 1);
-        assert_eq!(o.asset_ranking[0].risk_level, "MODERATE");
-        assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
+        assert_eq!(rank(&o, "BTC-USD").mtf_score, 70.0);
+        assert_eq!(rank(&o, "BTC-USD").mtf_label, "STRONG_BULL_MTF");
     }
 
     #[test]
     fn asset_rank_defaults_when_alignment_missing() {
-        // Symbol present in advisories but absent from alignments —
-        // must default to neutral without breaking the rest of the
-        // aggregation.
-        let adv = AdvisoryMatrix {
-            symbol: "BTC-USD".into(),
-            directional_guidance: DirectionalGuidance::Long,
-            confidence_assessment: 75.0,
-            ..AdvisoryMatrix::empty("BTC-USD")
-        };
-        let instances = vec![InstanceMeta {
-            symbol: "BTC-USD".into(),
-            timeframe_secs: 300,
-            timeframe_label: "slow300".into(),
-            is_active: true,
-            overall_risk: 50.0,
-            risk_windows: vec![],
-        }];
-        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
-        assert_eq!(o.asset_ranking.len(), 1);
-        assert_eq!(o.asset_ranking[0].mtf_score, 0.0);
-        assert_eq!(o.asset_ranking[0].mtf_label, "NO_DATA");
-        // Aggregate alignment fields still default to neutral.
-        assert!(o.alignment_distribution.is_empty());
-        assert_eq!(o.alignment_consensus_index, 0.0);
-        assert_eq!(o.multi_tf_agreement_pct, 0.0);
-    }
-
-    #[test]
-    fn empty_alignments_yield_neutral_aggregates_without_breaking_advisories() {
-        // Advisories present but no alignments — the breadth / bias /
-        // sync / risk aggregates must still populate correctly; the
-        // alignment aggregates must default to neutral without
-        // propagating NaN.
-        let advs: Vec<AdvisoryMatrix> = (0..3)
-            .map(|i| AdvisoryMatrix {
-                symbol: format!("X-USD{}", i),
-                directional_guidance: DirectionalGuidance::Long,
-                confidence_assessment: 80.0,
-                ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
-            })
-            .collect();
-        let o = compute_overview(&advs, &[], &[], &OverviewParams::default());
-        assert!(matches!(o.global_market_bias, GlobalBias::StrongBullish));
-        assert_eq!(o.alignment_distribution.len(), 0);
-        assert_eq!(o.alignment_consensus_index, 0.0);
-        assert_eq!(o.multi_tf_agreement_pct, 0.0);
-    }
-
-    #[test]
-    fn systemic_risk_is_tf_decayed_not_micro_driven() {
-        // v6.10.19 (P7): a transient MICRO risk spike must not move the
-        // systemic path (the PME veto input) — slow/macro windows anchor
-        // the safety math. Weights: micro 0.1 / fast 0.2 / slow 0.3 /
-        // macro 0.4.
-        let mk = |symbol: &str, guidance: DirectionalGuidance| AdvisoryMatrix {
-            symbol: symbol.to_string(),
-            directional_guidance: guidance,
-            confidence_assessment: 30.0,
-            ..AdvisoryMatrix::empty(symbol)
-        };
-        // Micro window at risk 95 (a noise spike), the other three calm.
-        let spike = InstanceMeta {
-            symbol: "BTC-USD".into(),
-            timeframe_secs: 300,
-            timeframe_label: "tf-average".into(),
-            is_active: true,
-            overall_risk: 48.0,
-            risk_windows: vec![(0.1, 95.0), (0.2, 30.0), (0.3, 35.0), (0.4, 40.0)],
-        };
-        let advs = vec![mk("BTC-USD", DirectionalGuidance::Long)];
-        let o = compute_overview(&advs, &[spike], &[], &OverviewParams::default());
-        // Weighted high share = 0.1 (only micro ≥ 70) → systemic stays low.
-        let expected_high = 0.1 / 1.0 * 100.0;
-        assert!(
-            (o.systemic_risk_score - 0.6 * expected_high).abs() < 1e-6,
-            "micro spike must NOT drive systemic: got {}",
-            o.systemic_risk_score
+        let o = compute_overview(
+            &[],
+            &[meta("BTC-USD", true, None)],
+            &[],
+            &OverviewParams::default(),
         );
-        // Descriptive high_pct (per-symbol mean) reads 0% — the plain
-        // mean 48 < 70 — panel parity preserved.
-        assert_eq!(o.risk_distribution.high_pct, 0.0);
-        assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
-
-        // The mirror: a MACRO high window (weight 0.4) must move it.
-        let macro_high = InstanceMeta {
-            symbol: "BTC-USD".into(),
-            timeframe_secs: 300,
-            timeframe_label: "tf-average".into(),
-            is_active: true,
-            overall_risk: 50.0,
-            risk_windows: vec![(0.1, 30.0), (0.2, 35.0), (0.3, 40.0), (0.4, 95.0)],
-        };
-        let o2 = compute_overview(&advs, &[macro_high], &[], &OverviewParams::default());
-        assert!(
-            (o2.systemic_risk_score - 0.6 * 40.0).abs() < 1e-6,
-            "macro high must move systemic: got {}",
-            o2.systemic_risk_score
-        );
-    }
-
-    #[test]
-    fn tf_window_advisories_aggregate_per_symbol() {
-        // v6.10.18 (I-2): the L7 basis is the TF average — a symbol can
-        // contribute up to 4 window advisories. The rankings must emit ONE
-        // rank per symbol (mean confidence, mode bias/regime with the
-        // fastest window winning ties), and the global bias tallies the
-        // WINDOWS (3:1 bullish → BULLISH, not a degenerate 1-symbol
-        // STRONG_BULLISH).
-        let mk = |symbol: &str, guidance: DirectionalGuidance, conf: f64| AdvisoryMatrix {
-            symbol: symbol.to_string(),
-            directional_guidance: guidance,
-            confidence_assessment: conf,
-            ..AdvisoryMatrix::empty(symbol)
-        };
-        let advs = vec![
-            mk("BTC-USD", DirectionalGuidance::Short, 20.0), // micro
-            mk("BTC-USD", DirectionalGuidance::Long, 30.0),  // fast
-            mk("BTC-USD", DirectionalGuidance::Long, 50.0),  // slow
-            mk("BTC-USD", DirectionalGuidance::Long, 40.0),  // macro
-        ];
-        let instances = vec![InstanceMeta {
-            symbol: "BTC-USD".into(),
-            timeframe_secs: 300,
-            timeframe_label: "tf-average".into(),
-            is_active: true,
-            overall_risk: 41.0,
-            risk_windows: vec![],
-        }];
-        let o = compute_overview(&advs, &instances, &[], &OverviewParams::default());
-        // ONE rank for the symbol; confidence = mean(20,30,50,40) = 35;
-        // score = 0.5×35 + 50 = 67.5; bias = mode = Long (3 windows).
-        assert_eq!(o.asset_ranking.len(), 1);
-        assert!((o.asset_ranking[0].confidence - 35.0).abs() < 1e-9);
-        assert!((o.asset_ranking[0].score - 67.5).abs() < 1e-9);
-        assert_eq!(o.asset_ranking[0].bias, "Long");
-        assert_eq!(o.asset_ranking[0].risk_level, "MODERATE");
-        // Global bias tallies windows: 3L/1S → breadth +50 → BULLISH.
-        assert!(matches!(o.global_market_bias, GlobalBias::Bullish));
-        // TF-mean risk 41 → MODERATE environment.
-        assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
+        assert_eq!(rank(&o, "BTC-USD").mtf_score, 0.0);
+        assert_eq!(rank(&o, "BTC-USD").mtf_label, "NO_DATA");
     }
 }

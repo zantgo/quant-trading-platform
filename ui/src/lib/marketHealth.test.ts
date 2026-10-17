@@ -95,21 +95,6 @@ describe('collectHealthBarInputs', () => {
             currentView: 'terminal',
             alignment: null,
             analysis: null,
-            risk: withRisk ? {
-                symbol: 'BTC-USDT',
-                market_risk: { score: 50 } as any,
-                volatility_risk: { score: 40, confidence: 80 } as any,
-                execution_liquidity_risk: { score: 30, confidence: 60 } as any,
-                structure_risk: { score: 20, confidence: 80 } as any,
-                momentum_risk: { score: 50 } as any,
-                signal_risk: { score: 30, confidence: 80 } as any,
-                execution_risk: { score: 50 } as any,
-                cascade_risk: { score: 50 } as any,
-                overall_risk: { score: 50 } as any,
-            } : null,
-            advisory: null,
-            decisionContext: null,
-            opportunity: null,
             lastMatrixTimestampBySlot: {},
             lastCompletedClose: null,
             automationEnabled: false,
@@ -133,14 +118,15 @@ describe('collectHealthBarInputs', () => {
         expect(result.liqConfidence).toEqual([]);
     });
 
-    it('extracts risk scores when present', () => {
-        const result = collectHealthBarInputs([makeInstance(true)]);
-        expect(result.inputs).toHaveLength(1);
-        expect(result.inputs[0].structureRisk).toBe(20);
-        expect(result.inputs[0].executionLiquidityRisk).toBe(30);
-        expect(result.inputs[0].volatilityRisk).toBe(40);
-        expect(result.inputs[0].signalRisk).toBe(30);
-        expect(result.liqConfidence[0]).toBe(60);
+    // CR-15: this used to assert the four L5 risk dimensions were extracted
+    // from `inst.risk`. That matrix no longer crosses the wire, so the function
+    // has no input to read — and the invariant worth pinning is that it returns
+    // NOTHING rather than four zero-scored bars, which the card would render as
+    // "measured, and calm".
+    it('yields no bar inputs — the L5 risk matrix is gone', () => {
+        const result = collectHealthBarInputs([makeInstance(true), makeInstance(false)]);
+        expect(result.inputs).toEqual([]);
+        expect(result.liqConfidence).toEqual([]);
     });
 });
 
@@ -155,21 +141,6 @@ describe('computeMarketHealth', () => {
             currentView: 'terminal',
             alignment: null,
             analysis: null,
-            risk: withRisk ? {
-                symbol: 'BTC-USDT',
-                market_risk: { score: 50 } as any,
-                volatility_risk: { score: 40, confidence: 80 } as any,
-                execution_liquidity_risk: { score: 30, confidence: 60 } as any,
-                structure_risk: { score: 20, confidence: 80 } as any,
-                momentum_risk: { score: 50 } as any,
-                signal_risk: { score: 30, confidence: 80 } as any,
-                execution_risk: { score: 50 } as any,
-                cascade_risk: { score: 50 } as any,
-                overall_risk: { score: 50 } as any,
-            } : null,
-            advisory: null,
-            decisionContext: null,
-            opportunity: null,
             lastMatrixTimestampBySlot: {},
             lastCompletedClose: null,
             automationEnabled: false,
@@ -215,8 +186,11 @@ describe('computeMarketHealth', () => {
         expect(result.sync).toBe('SYNCHRONIZED');
     });
 
-    it('reports activeInstanceCount = contributing instances', () => {
+    // CR-15: `activeInstanceCount` counted instances that contributed a risk
+    // bar. With no bars, it is 0 — and the card says "no data" rather than
+    // claiming an instance contributed.
+    it('reports no contributing instances once the risk bars are gone', () => {
         const result = computeMarketHealth([makeInstance(true), makeInstance(false)], null);
-        expect(result.activeInstanceCount).toBe(1);
+        expect(result.activeInstanceCount).toBe(0);
     });
 });

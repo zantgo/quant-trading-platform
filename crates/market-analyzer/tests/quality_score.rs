@@ -151,7 +151,6 @@ async fn pristine_candle_scores_100() {
             None,
             5,
             300,
-            Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(
                 core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
             )),

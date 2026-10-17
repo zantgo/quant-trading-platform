@@ -360,7 +360,6 @@ pub async fn build_pipelines(
             cluster_status: cluster_statuses[i].clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            advisory: Arc::new(RwLock::new(None)),
             tf_leverage_config: Arc::new(ctx.ladder_cfgs[i].leverage.clone()),
             buffer_size: ctx.buffer_size,
             stale_threshold_secs: ctx.stale_threshold_secs,
@@ -718,9 +717,6 @@ async fn spawn_tasks(
         let a_buffer_size = buffer_size;
         // AUDIT-M3: this pipeline's own receiver on the shared start gate.
         let a_start_gate = start_gate.clone();
-        // v6.10 (Phase 2 / B3): per-TF advisory handle for write-through.
-        let a_advisory: Arc<RwLock<Option<core_domain::advisory::AdvisoryMatrix>>> =
-            pair_pipes[i].advisory.clone();
         // v6.10 (Phase 3 / C1 + C3): per-TF indicator_lifecycle handle
         // used as prev-state input AND as write-through target on every
         // completed candle emit.
@@ -804,8 +800,6 @@ async fn spawn_tasks(
                 // AUDIT-H7: thread the configured CB-04/ILS-07 stale
                 // threshold (was hardcoded 300 inside the analyzer).
                 stale_threshold_secs,
-                // v6.10 (Phase 2 / B3): per-TF advisory handle.
-                a_advisory,
                 // v6.10 (Phase 3 / C1 + C3): per-TF indicator_lifecycle
                 // and pipeline_state handles for write-through.
                 a_indicator_lifecycle,

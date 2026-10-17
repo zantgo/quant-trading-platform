@@ -1630,8 +1630,18 @@ mod tests {
                 m.key
             );
             // NN must be the zero-padded two-digit series number.
-            let nn = m.doc_file.split('-').nth(2).expect("doc_file has an NN segment");
-            assert_eq!(nn.len(), 2, "{}: doc_file NN must be zero-padded: {}", m.key, m.doc_file);
+            let nn = m
+                .doc_file
+                .split('-')
+                .nth(2)
+                .expect("doc_file has an NN segment");
+            assert_eq!(
+                nn.len(),
+                2,
+                "{}: doc_file NN must be zero-padded: {}",
+                m.key,
+                m.doc_file
+            );
             assert!(
                 nn.parse::<u32>().is_ok(),
                 "{}: doc_file NN must be numeric: {}",

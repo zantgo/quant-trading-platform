@@ -291,7 +291,10 @@ function makeTf() {
     }
 
 describe('metricsExport — covers all Metrics tab surfaces', () => {
-    it('includes all 7 top-level sections visible in the Metrics view', () => {
+    // CR-15: the seven top-level sections were `indicators`, `opportunity`,
+    // `advisory`, `analysis`, `risk`, `alignment` and `decision_rank`. Four are
+    // gone with their matrices; what remains is what the Metrics view renders.
+    it('includes every model section visible in the Metrics view', () => {
         const json = buildMetricsExportJson({
             sourceTab: 'metrics',
             symbol: 'BTC-USDT',
@@ -330,23 +333,13 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         expect(obj.indicators.find((i: any) => i.key === 'rsi')).toBeDefined();
         expect(obj.indicators.find((i: any) => i.key === '__fibonacci_summary__')).toBeDefined();
 
-        // Phase 2 — new sections
-        expect(obj.opportunity.primary_opportunity).toBe('TrendContinuation');
-        expect(obj.opportunity.entry_zone).toEqual({ low: 64800, high: 65200 });
-        expect(obj.opportunity.target_zone).toEqual({ low: 66000, high: 66500 });
-        expect(obj.opportunity.invalidation_level).toBe(64200);
-        expect(obj.opportunity.confluent_entry_levels.length).toBe(1);
-
-        expect(obj.advisory.directional_guidance).toBe('Long');
-        expect(obj.advisory.protection_strategy).toBe('StructureBased');
-        expect(obj.advisory.trade_readiness).toBe('READY');
-        expect(obj.advisory.entry_danger.level).toBe('LOW');
 
         expect(obj.analysis.bias).toBe('Bullish');
         expect(obj.analysis.market_quality_score).toBe(90);
-
-        expect(obj.risk.overall.score).toBe(28);
-        expect(obj.risk.by_dimension.length).toBe(8);
+        // CR-15: the strategy sections must be GONE, not merely unused.
+        for (const gone of ['opportunity', 'advisory', 'risk', 'decision_rank', 'recommendation_profiles']) {
+            expect(obj[gone], `${gone} must not be exported`).toBeUndefined();
+        }
 
         expect(obj.volume_profile.poc_price).toBe(64650);
         expect(obj.volume_profile.top_hvn.length).toBeGreaterThan(0);
@@ -362,7 +355,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         expect(obj.liquidity_signals[0].kind).toBe('CASCADE_DETECTED');
     });
 
-    it('omits new sections gracefully when data is null', () => {
+    it('omits the data-gated model sections gracefully when data is null', () => {
         const json = buildMetricsExportJson({
             symbol: 'BTC-USDT',
             tfLabel: 'Micro',
@@ -384,9 +377,11 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             decisionContext: null,
         });
         const obj = JSON.parse(json);
-        expect(obj.opportunity).toBeNull();
-        expect(obj.advisory).toBeNull();
-        expect(obj.risk).toBeNull();
+        // CR-15: `opportunity` / `advisory` / `risk` are absent from the payload
+        // rather than null — there is no key to null out.
+        for (const gone of ['opportunity', 'advisory', 'risk']) {
+            expect(obj[gone], `${gone} key must be absent`).toBeUndefined();
+        }
         expect(obj.volume_profile).toBeNull();
         expect(obj.liquidity_flow).toBeNull();
         expect(obj.cluster_matrix).toBeNull();
@@ -471,7 +466,7 @@ describe('metricsExport — per-tab EXPORT DATA wiring', () => {
         }
     });
 
-    it('includes the full payload (analysis, risk, alignment, advisory, opportunity, decision)', () => {
+    it('includes the full model payload (analysis, alignment) and no strategy payload', () => {
         const json = buildPanelExportJson({
             sourceTab: 'decision',
             pairKey: 'BTC-USDT',
@@ -489,14 +484,12 @@ describe('metricsExport — per-tab EXPORT DATA wiring', () => {
         });
         const obj = JSON.parse(json as string);
         expect(obj.analysis.bias).toBe('Bullish');
-        expect(obj.risk.overall.score).toBe(28);
         expect(obj.alignment.mtf_overall_score).toBe(12);
-        expect(obj.advisory.directional_guidance).toBe('Long');
-        expect(obj.opportunity.primary_opportunity).toBe('TrendContinuation');
-        // decision_context is folded into the advisory export — its trade_readiness
-        // and entry_danger fields surface from the DecisionContext input.
-        expect(obj.advisory.trade_readiness).toBe('READY');
-        expect(obj.advisory.entry_danger).toEqual({ score: 30, level: 'LOW', state: 'STABLE', confidence: 80 });
+        // CR-15: `trade_readiness` and `entry_danger` were folded into the
+        // advisory export from the DecisionContext input. Both are gone, so
+        // there is no trade-readiness read in the export at all.
+        expect(obj.advisory).toBeUndefined();
+        expect(obj.decision_context).toBeUndefined();
     });
 
     it('returns null when there is no pair symbol (button should short-circuit)', () => {
@@ -733,104 +726,6 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
         return makeTf();
     }
 
-    it('Opportunity panel export carries long_* and short_* zones', () => {
-        const json = buildMetricsExportJson({
-            sourceTab: 'opportunity',
-            symbol: 'BTC-USDT',
-            tfLabel: 'Micro',
-            tfSecs: 60,
-            timestamp: 1700000000,
-            markPrice: 65000,
-            registry: makeRegistry(),
-            tf: fullTf(),
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-            analysis: makeAnalysis(),
-            risk: makeRisk(),
-            alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: makeAdvisory(),
-            volumeProfile: fullTf().volumeProfile,
-            liquidity: fullTf().liquidity,
-            cluster: fullTf().cluster,
-            liquiditySignals: fullTf().liquiditySignals,
-            decisionContext: { trade_readiness: 'READY', expected_reward_risk_ratio: 1.79, contributing_indicators: [], entry_danger: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80 } },
-        });
-        const obj = JSON.parse(json);
-        // Long-side geometry mirrored from the wire.
-        expect(obj.opportunity.long_entry_zone).toEqual({ low: 64800, high: 65200 });
-        expect(obj.opportunity.long_target_zone).toEqual({ low: 66000, high: 66500 });
-        expect(obj.opportunity.long_invalidation_level).toBe(64200);
-        // Short-side geometry mirrored from the wire.
-        expect(obj.opportunity.short_entry_zone).toEqual({ low: 65200, high: 65600 });
-        expect(obj.opportunity.short_target_zone).toEqual({ low: 64000, high: 64500 });
-        expect(obj.opportunity.short_invalidation_level).toBe(65800);
-    });
-
-    it('Risk panel export carries state + evidence + weight per dim, plus cascade_telemetry', () => {
-        const json = buildMetricsExportJson({
-            sourceTab: 'risk',
-            symbol: 'BTC-USDT',
-            tfLabel: 'Micro',
-            tfSecs: 60,
-            timestamp: 1700000000,
-            markPrice: 65000,
-            registry: makeRegistry(),
-            tf: fullTf(),
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-            analysis: makeAnalysis(),
-            risk: makeRisk(),
-            alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: makeAdvisory(),
-            volumeProfile: fullTf().volumeProfile,
-            liquidity: fullTf().liquidity,
-            cluster: fullTf().cluster,
-            liquiditySignals: fullTf().liquiditySignals,
-            decisionContext: null,
-        });
-        const obj = JSON.parse(json);
-        // Per-dimension record has the full UI-facing shape.
-        expect(obj.risk.by_dimension).toHaveLength(8);
-        const market = obj.risk.by_dimension.find((d: any) => d.name === 'Market Risk');
-        expect(market.state).toBe('STABLE');
-        expect(market.evidence).toEqual(['low vol regime']);
-        expect(market.weight).toBe(0.14);
-        const vol = obj.risk.by_dimension.find((d: any) => d.name === 'Volatility Risk');
-        expect(vol.state).toBe('INCREASING');
-        expect(vol.evidence).toEqual(['vol expanding', 'range compress']);
-        // Cascade telemetry block groups the per-TF liquidity/cluster
-        // numbers — surfaced under the cascade_risk dim card.
-        expect(obj.risk.cascade_telemetry.cascade_state).toBe('SUSTAINED');
-        expect(obj.risk.cascade_telemetry.cascade_intensity).toBe(82);
-        expect(obj.risk.cascade_telemetry.cascade_asymmetry).toBe(0.3);
-    });
-
-    it('Risk panel export cascade_telemetry is null when no liquidity data is loaded', () => {
-        const json = buildMetricsExportJson({
-            sourceTab: 'risk',
-            symbol: 'BTC-USDT',
-            tfLabel: 'Micro',
-            tfSecs: 60,
-            timestamp: 1700000000,
-            markPrice: 65000,
-            registry: makeRegistry(),
-            tf: fullTf(),
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-            analysis: makeAnalysis(),
-            risk: makeRisk(),
-            alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: makeAdvisory(),
-            volumeProfile: null,
-            liquidity: null,
-            cluster: null,
-            liquiditySignals: [],
-            decisionContext: null,
-        });
-        const obj = JSON.parse(json);
-        expect(obj.risk.cascade_telemetry).toBeNull();
-    });
-
     it('Analysis panel export carries market_phase + market_interpretation + rationale', () => {
         const json = buildMetricsExportJson({
             sourceTab: 'analysis',
@@ -857,156 +752,6 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
         expect(obj.analysis.market_phase).toBe('Markup');
         expect(obj.analysis.market_interpretation).toBe('Trending up');
         expect(obj.analysis.rationale).toBe('Strong trend');
-    });
-
-    it('Advisory export carries opportunity_classification + cascade_risk_score + environment_favorability', () => {
-        const adv = {
-            ...makeAdvisory(),
-            opportunity_classification: 'TrendContinuation',
-            cascade_risk_score: 25,
-            environment_favorability: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80, evidence: ['favorable'] },
-        };
-        const json = buildMetricsExportJson({
-            sourceTab: 'recommendation',
-            symbol: 'BTC-USDT',
-            tfLabel: 'Micro',
-            tfSecs: 60,
-            timestamp: 1700000000,
-            markPrice: 65000,
-            registry: makeRegistry(),
-            tf: fullTf(),
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-            analysis: makeAnalysis(),
-            risk: makeRisk(),
-            alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: adv,
-            volumeProfile: fullTf().volumeProfile,
-            liquidity: fullTf().liquidity,
-            cluster: fullTf().cluster,
-            liquiditySignals: fullTf().liquiditySignals,
-            decisionContext: null,
-        });
-        const obj = JSON.parse(json);
-        expect(obj.advisory.opportunity_classification).toBe('TrendContinuation');
-        expect(obj.advisory.cascade_risk_score).toBe(25);
-        expect(obj.advisory.environment_favorability).toEqual({
-            score: 30,
-            level: 'LOW',
-            state: 'STABLE',
-            confidence: 80,
-            evidence: ['favorable'],
-        });
-    });
-
-    it('decision_rank block mirrors the Recommendation panel hero', () => {
-        // Bullish inputs → rank.top should be LONG with a positive probability.
-        const json = buildMetricsExportJson({
-            sourceTab: 'recommendation',
-            symbol: 'BTC-USDT',
-            tfLabel: 'Micro',
-            tfSecs: 60,
-            timestamp: 1700000000,
-            markPrice: 65000,
-            registry: makeRegistry(),
-            tf: fullTf(),
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-            analysis: makeAnalysis(),
-            risk: makeRisk(),
-            alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: makeAdvisory(),
-            volumeProfile: fullTf().volumeProfile,
-            liquidity: fullTf().liquidity,
-            cluster: fullTf().cluster,
-            liquiditySignals: fullTf().liquiditySignals,
-            decisionContext: {
-                score: 75.2,
-                bias: 'Bullish',
-                confidence: 0.7,
-                score_confidence: 0.8,
-                trade_readiness: 'READY',
-                expected_reward_risk_ratio: 1.79,
-                contributing_indicators: ['rsi', 'macd'],
-                entry_danger: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80 },
-            },
-        });
-        const obj = JSON.parse(json);
-        // Long/Short/Hold probabilities sum to 100 (integer math).
-        const { decision_rank: dr } = obj;
-        expect(dr.long_probability + dr.short_probability + dr.hold_probability).toBe(100);
-        // Hero matches the bullish inputs.
-        expect(['LONG', 'SHORT', 'HOLD']).toContain(dr.top);
-        expect(dr.top_prob).toBeGreaterThan(0);
-        expect(dr.headline.state).toBe('READY');
-        expect(dr.headline.confidence_pct).toBe(73);
-        // Why-bullets list is non-empty.
-        expect(Array.isArray(dr.rationale)).toBe(true);
-        expect(dr.rationale.length).toBeGreaterThan(0);
-    });
-
-    it('decision_rank is null when no advisory is loaded', () => {
-        const json = buildMetricsExportJson({
-            sourceTab: 'recommendation',
-            symbol: 'BTC-USDT',
-            tfLabel: 'Micro',
-            tfSecs: 60,
-            timestamp: 1700000000,
-            markPrice: 65000,
-            registry: makeRegistry(),
-            tf: fullTf(),
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-            analysis: makeAnalysis(),
-            risk: makeRisk(),
-            alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: null,
-            volumeProfile: null,
-            liquidity: null,
-            cluster: null,
-            liquiditySignals: [],
-            decisionContext: null,
-        });
-        const obj = JSON.parse(json);
-        expect(obj.decision_rank).toBeNull();
-    });
-
-    it('recommendation_profiles block lists qualifying profiles with derived direction labels', () => {
-        const json = buildMetricsExportJson({
-            sourceTab: 'recommendation',
-            symbol: 'BTC-USDT',
-            tfLabel: 'Micro',
-            tfSecs: 60,
-            timestamp: 1700000000,
-            markPrice: 65000,
-            registry: makeRegistry(),
-            tf: fullTf(),
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-            analysis: makeAnalysis(),
-            risk: makeRisk(),
-            alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: makeAdvisory(),
-            volumeProfile: null,
-            liquidity: null,
-            cluster: null,
-            liquiditySignals: [],
-            decisionContext: null,
-        });
-        const obj = JSON.parse(json);
-        // 4 profiles seeded in makeOpportunity, of which 3 are qualifying
-        // (TrendContinuation, MeanReversion, Breakout). NoClearOpportunity
-        // is filtered out by the same rule the panel uses.
-        expect(obj.recommendation_profiles).toHaveLength(3);
-        // Sorted by score descending: TrendContinuation (88) → Breakout (75) → MeanReversion (64).
-        expect(obj.recommendation_profiles[0].opportunity_type).toBe('TrendContinuation');
-        expect(obj.recommendation_profiles[0].direction_label).toBe('LONG');
-        expect(obj.recommendation_profiles[1].opportunity_type).toBe('Breakout');
-        expect(obj.recommendation_profiles[1].direction_label).toBe('LONG');
-        expect(obj.recommendation_profiles[2].opportunity_type).toBe('MeanReversion');
-        expect(obj.recommendation_profiles[2].direction_label).toBe('SHORT');
-        // NoClearOpportunity must be excluded.
-        expect(obj.recommendation_profiles.find((p: any) => p.opportunity_type === 'NoClearOpportunity')).toBeUndefined();
     });
 
     it('MTF export carries per-TF indicator detail with raw/signals/sub_values/lifecycle', () => {
@@ -1120,45 +865,4 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
         expect(out.signals_total).toBe(0);
     });
 
-    it('every panel export (Metrics / Alignment / Opportunities / Risk / Analysis / Decision) carries the decision_rank block', () => {
-        // The decision_rank block is rendered by the Recommendation panel
-        // but the wire inputs (advisory + decision_context + opportunity +
-        // analysis) are available to every tab — so the export makes it
-        // available everywhere. This guarantees the AI consumer can read
-        // the operator's verdict view from any export without having to
-        // first switch tabs.
-        const tabs = ['metrics', 'alignment', 'opportunity', 'risk', 'analysis', 'decision'] as const;
-        for (const tab of tabs) {
-            const json = buildPanelExportJson({
-                sourceTab: tab,
-                pairKey: 'BTC-USDT',
-                resolvers: {
-                    symbol: 'BTC-USDT',
-                    tfLabel: 'Micro',
-                    tfSecs: 60,
-                    timestamp: 1700000000,
-                    markPrice: 65000,
-                    registry: makeRegistry(),
-                    tf: fullTf(),
-                    filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-                    analysis: makeAnalysis(),
-                    risk: makeRisk(),
-                    alignment: null,
-                    opportunity: makeOpportunity(),
-                    advisory: makeAdvisory(),
-                    volumeProfile: fullTf().volumeProfile,
-                    liquidity: fullTf().liquidity,
-                    cluster: fullTf().cluster,
-                    liquiditySignals: fullTf().liquiditySignals,
-                    decisionContext: { trade_readiness: 'READY', expected_reward_risk_ratio: 1.79, contributing_indicators: [], entry_danger: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80 } },
-                },
-            });
-            expect(json).not.toBeNull();
-            const obj = JSON.parse(json as string);
-            expect(obj.source_tab).toBe(tab);
-            expect(obj.decision_rank).not.toBeNull();
-            expect(typeof obj.decision_rank.top).toBe('string');
-            expect(Array.isArray(obj.recommendation_profiles)).toBe(true);
-        }
-    });
 });

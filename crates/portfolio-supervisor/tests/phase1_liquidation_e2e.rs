@@ -149,7 +149,6 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             None,
             1,
             300,
-            Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(
                 core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
             )),

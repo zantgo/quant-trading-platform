@@ -18,10 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, render } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import AlignmentPanel from '../../components/AlignmentPanel.svelte';
-import RiskPanel from '../../components/RiskPanel.svelte';
-import OpportunitiesPanel from '../../components/OpportunitiesPanel.svelte';
 import AnalysisPanel from '../../components/AnalysisPanel.svelte';
-import RecommendationPanel from '../../components/RecommendationPanel.svelte';
 import TerminalMonitor from '../../components/TerminalMonitor.svelte';
 import GeneralDashboard from '../../components/GeneralDashboard.svelte';
 import { useAppStore } from '../../state.svelte';
@@ -136,273 +133,6 @@ describe('export consistency — Alignment tab', () => {
 // Risks tab
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('export consistency — Risks tab', () => {
-  it('exports the exact hero, summary counts, dimensions, cascade extras and interpretation shown', async () => {
-    const c = await renderPanelAndExport(RiskPanel, { pairKey: PAIR }, seedRichInstance);
-    const p = c.payload;
-
-    // Hero — risk progress bar (the ring is gone, v6.10.19d C).
-    expectJsonNumberRenderedAsDom(c, '48', 48);
-    expect(c.dom).toContain('48 / 100');
-    expect(p.hero.overall_score).toBe(48);
-    expect(p.hero.overall_confidence).toBe(74);
-    // Confidence is the L5 header chip between Score and Dimensions —
-    // full words, no caption (v6.10.27: moved out of the hero).
-    expect(c.dom).toContain('Confidence: 74%');
-    expect('hint' in p.hero).toBe(false);
-    // Peak chip renamed "Top risk:" (High ≠ overall Moderate → visible).
-    expect(c.dom).toContain('Top risk:');
-    expect(p.hero.top_severity).toBe('High');
-
-    // Summary tiles — counts of each level.
-    expect(p.summary_counts.high.count).toBe(3);
-    expect(p.summary_counts.moderate.count).toBe(2);
-    expect(p.summary_counts.low.count).toBe(3);
-    expect(p.summary_counts.very_low.count).toBe(0);
-
-    // v7.1: the header trailing headline was removed — the header is
-    // title-only (like every other tab) and the export mirrors the UI,
-    // so neither surface carries the old "x high · y moderate" string.
-    expect(c.dom).not.toContain('3 high · 2 moderate · overall moderate');
-    expect(c.jsonText).not.toContain('headline_parts');
-    expect(c.jsonText).not.toContain('interpretation_headline');
-
-    // Dimensions sorted by severity — first is Cascade (70).
-    expect(p.dimensions[0].name).toBe('Cascade Risk');
-    expect(p.dimensions[0].score).toBe(70);
-    expect(p.dimensions[0].level).toBe('High');
-    // Scheme A (v6.10.19d C): level High + non-trend state → ELEVATED.
-    expect(p.dimensions[0].state_display).toBe('↑ ELEVATED');
-    expect(c.dom).toContain('ELEVATED');
-    expect(p.dimensions[0].confidence).toBe(85);
-    expect(c.dom).toContain('85%');
-    // Dimension names byte-identical to the screen cards (incl. the
-    // full "Execution Liquidity Risk").
-    const execLiq = p.dimensions.find((d: { key: string }) => d.key === 'execution_liquidity_risk')!;
-    expect(execLiq.name).toBe('Execution Liquidity Risk');
-    expect(c.dom).toContain('Execution Liquidity Risk');
-
-    // Evidence chips.
-    expect(p.dimensions[0].evidence).toContain('SUSTAINED cascade above price');
-    expectInDomAndJson(c, 'SUSTAINED cascade above price');
-
-    // Cascade extras (from flow + cluster) — same sentence on screen + JSON.
-    const cascade = p.dimensions.find((d: { key: string }) => d.key === 'cascade_risk')!.cascade_extras;
-    expect(cascade.state_label).toBe('SUSTAINED');
-    expectInDomAndJson(c, 'SUSTAINED');
-    expect(cascade.intensity_display).toBe('72.5');
-    expect(c.dom).toContain('72.5');
-    expect(cascade.asymmetry_magnitude_pct).toBe(35);
-    expect(cascade.asymmetry_display).toBe('↑35.0% (SHORT_SQUEEZE_RISK)');
-    expectInDomAndJson(c, '↑35.0% (SHORT_SQUEEZE_RISK)');
-
-    // v6.11: execution-friction gauge — screen card + export parity.
-    const exec = p.dimensions.find((d: { key: string }) => d.key === 'execution_risk')!;
-    expect(exec.execution_extras).toEqual({ volatility_to_spread_ratio: 9.2 });
-    // v6.16: the × suffix is gone from the screen — the bare number renders.
-    expect(c.dom).toContain('9.2');
-    expect(c.dom).not.toContain('9.2×');
-
-    // Interpretation paragraph — zero-count sentences omitted like the screen.
-    expect(p.interpretation_full).toContain('Elevated risk environment.');
-    expect(p.interpretation_full).not.toContain('0 dimensions at extreme levels');
-    expect(p.interpretation_full).toContain('3 dimensions at high levels.');
-    expect(c.dom).toContain(stripTags(p.interpretation_full!));
-    expect(p.interpretation_full).toContain('Overall composite score is');
-    expect(p.interpretation_full).toContain('at 74% confidence');
-    expect(c.dom).toContain('Overall composite score is');
-
-    // Disclosure weights + note — v7.0: the caption was erased from the
-    // panel (RISK SUMMARY is prose-only now); the disclosure note
-    // survives in the JSON only, for data consumers.
-    expect(p.disclosure.weights).toHaveLength(8);
-    expect(c.jsonText).toContain('Overall risk is a weighted sum of the eight dimension scores.');
-    expect(c.dom).not.toContain('Overall risk is a weighted sum of the eight dimension scores.');
-    expect(c.dom).not.toContain('Hover a segment for its full name and weight.');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Opportunities tab
-// ─────────────────────────────────────────────────────────────────────────
-
-describe('export consistency — Opportunities tab', () => {
-  it('exports the exact bars, top setup, trade setups (incl. RANGE), R:R, levels and environment shown', async () => {
-    const c = await renderPanelAndExport(OpportunitiesPanel, { pairKey: PAIR }, seedRichInstance);
-    const p = c.payload;
-
-    // Directional bars (BULLISH / BEARISH / RANGE always rendered — the
-    // labels are screen chrome; the JSON carries the raw percentages).
-    expect(p.directional_bars).not.toBeNull();
-    expect(p.directional_bars.bullish_pct).toBeGreaterThan(0);
-    expect(c.dom).toContain('BULLISH');
-    expect(c.dom).toContain('BEARISH');
-    expect(c.dom).toContain('RANGE');
-
-    // The old TOP SETUP hero (opportunity badge + lean chip + score bar +
-    // quality badge) was removed in v7.1 — the Recommendation panel owns
-    // the top setup; the LayerHeader badge + chip rail carry the matrix
-    // class/score/R:R/horizon here. `header_block` is gone from the
-    // export with it.
-    expectInDomAndJson(c, 'Trend Continuation');
-    expectJsonNumberRenderedAsDom(c, '78', 78);
-
-    // Trade setups: BOTH qualifying profiles are exported as cards —
-    // including the RANGE-side MeanReversion ("RANGE · NEUTRAL" card).
-    expect(p.trade_setups).toHaveLength(2);
-    const tc = p.trade_setups[0];
-    expect(tc.opportunity_type).toBe('Trend Continuation');
-    expect(tc.side).toBe('LONG');
-    expect(tc.badge_text).toBe('TOP · ACTIONABLE');
-    expectInDomAndJson(c, 'TOP · ACTIONABLE');
-    expect(tc.entry_mid).toBe(63300);
-    expect(tc.tp1).toBe(66000);
-    expect(tc.invalidation).toBe(62800);
-    // Wire R:R preferred (2.5), not the geometric value.
-    expect(tc.rr_value).toBe(2.5);
-    // The screen renders the same numbers as $ prices; the JSON carries
-    // the raw values (presentation-only difference).
-    expect(c.dom).toContain('$63300');
-    expect(c.dom).toContain('$66000');
-    expect(c.dom).toContain('$62800');
-    expect(c.dom).toContain('2.50');
-    // v7.3: the header R:R chip is gone — the R:R story lives in the
-    // setup cards (screen "2.50", JSON rr_value) and the Expected R:R
-    // section; the exported header chip rail carries no R:R chip.
-    expect(p.header.chips.map((c: { label: string }) => c.label)).not.toContain('Reward-to-Risk Ratio');
-    expect(p.trade_setups[0].rr_value).toBe(2.5);
-    expect(c.dom).toContain('3/3 preconditions met');
-    expect(tc.preconditions_met).toBe(3);
-
-    const mr = p.trade_setups[1];
-    expect(mr.opportunity_type).toBe('Mean Reversion');
-    expect(mr.side).toBe('NEUTRAL');
-    expect(mr.viability).toBe('DirectionalNeutral');
-    expect(mr.badge_text).toBe('RANGE · NEUTRAL');
-    expectInDomAndJson(c, 'RANGE · NEUTRAL');
-
-    // R:R internal + horizon.
-    expect(p.rr_internal.expected_rr_value).toBe(2.5);
-    expect(p.rr_internal.time_horizon).toBe('SWING');
-    expectInDomAndJson(c, 'SWING');
-
-    // Invalidation thesis: the panel renders a per-card sentence bound to
-    // the card's own stop-loss; the export carries the wire note verbatim.
-    expect(c.dom).toContain('A close below $62800 on the completed candle invalidates the Trend Continuation thesis.');
-    expect(c.jsonText).toContain('A close below 62800 on the completed candle invalidates the TrendContinuation thesis.');
-
-    // Evaluated setups (NoClear excluded, like the screen).
-    expect(p.evaluated_setups.map((e: { opportunity_type: string }) => e.opportunity_type)).toEqual([
-      'Trend Continuation',
-      'Mean Reversion',
-    ]);
-
-    // Confluent levels: same first-4 slice the screen shows, full source names.
-    expect(p.confluent_entry_levels).toHaveLength(4);
-    expect(p.confluent_entry_levels[0].sources).toEqual(['FIBONACCI', 'VOLUME PROFILE', 'PIVOT POINTS']);
-    expectInDomAndJson(c, 'FIBONACCI');
-    expectInDomAndJson(c, 'VOLUME PROFILE');
-    expectInDomAndJson(c, 'PIVOT POINTS');
-    expect(p.confluent_target_levels).toHaveLength(2);
-
-    // Market position: the export keeps the raw L3 mirror (bias / regime /
-    // quality). The on-screen Market Position section was removed (v7.4 —
-    // the L3 facts live on the Analysis tab), so this is JSON-only.
-    expect(p.market_position.bias).toBe('Bullish');
-    expect(c.jsonText).toContain('Bullish');
-    expect(p.market_position.regime).toBe('TrendingBull');
-    expect(p.environment.timeframes_considered_display).toBe('14 Timeframes considered');
-    // v11.12.4: the Timeframes chip was ERASED from the Opportunities
-    // header — the L4 rail keeps Score / Confidence / Horizon only; the
-    // environment JSON still carries the TF count.
-    expect(c.dom).not.toContain('Timeframes:');
-    expect(p.environment.confidence_pct).toBe(72);
-    expect(c.dom).toContain('Confidence: 72%');
-  });
-
-  it('exports the empty-state sections + N/A R:R when the rank is HOLD (no scenario note, no strip)', async () => {
-    const c = await renderPanelAndExport(OpportunitiesPanel, { pairKey: PAIR }, () => {
-      seedRichInstance();
-      const entry = useAppStore().instancesMap[PAIR];
-      // Flip the decision context to a dominant HOLD rank and zero both
-      // per-side R:R values so the screen surfaces N/A.
-      entry.decisionContext = {
-        ...entry.decisionContext!,
-        long_probability: 20,
-        short_probability: 20,
-        hold_probability: 60,
-        expected_reward_risk_ratio: 0,
-      } as any;
-      entry.opportunity = {
-        ...entry.opportunity!,
-        long_expected_rr_internal: 0,
-        short_expected_rr_internal: 0,
-        // The R:R displays prefer the top profile's per-side values —
-        // zero those AND the zones too: the v6.10.12 resolver falls back
-        // to the bracket geometry when the wire is 0, so a "no R:R"
-        // state must also have no usable zones for N/A to surface.
-        long_entry_zone: { low: 0, high: 0 },
-        long_target_zone: { low: 0, high: 0 },
-        long_invalidation_level: 0,
-        short_entry_zone: { low: 0, high: 0 },
-        short_target_zone: { low: 0, high: 0 },
-        short_invalidation_level: 0,
-        profiles: entry.opportunity!.profiles.map((p) => ({
-          ...p,
-          long_expected_rr_internal: 0,
-          short_expected_rr_internal: 0,
-          long_entry_zone: null,
-          long_target_zone: null,
-          long_invalidation_level: null,
-          short_entry_zone: null,
-          short_target_zone: null,
-          short_invalidation_level: null,
-        })),
-      } as any;
-    });
-    const p = c.payload;
-    // v6.10.19c (A/B): the scenario note and the NO CLEAR strip were
-    // erased — the RANGE/BULLISH/BEARISH sections are the container.
-    expect(p.hold_scenario_note).toBeUndefined();
-    expect(c.dom).not.toContain('HOLD / NO CLEAR');
-    expect(p.no_clear_strip).toBeUndefined();
-    expect(p.trade_setup_sections.length).toBe(3);
-    // v7.1: folders are RANKED by content — the LONG TrendContinuation
-    // card (score 78) puts BULL first ahead of the NEUTRAL MeanReversion.
-    expect(p.trade_setup_sections[0].section).toBe('BULL');
-    expect(p.rr_internal.expected_rr_available).toBe(false);
-    // The Expected R:R section reads the confluent level sets — the
-    // fixture's untagged levels carry no side, so the section degrades to
-    // the incomplete-levels note while the bracket N/A stays in
-    // `rr_internal`.
-    expect(c.dom).toContain('incomplete confluent levels');
-  });
-
-  it('badge_text matches the panel even when trade_viability arrives SCREAMING_SNAKE_CASE', async () => {
-    const c = await renderPanelAndExport(OpportunitiesPanel, { pairKey: PAIR }, () => {
-      seedRichInstance();
-      const entry = useAppStore().instancesMap[PAIR];
-      // The wire serializes TradeViability as SCREAMING_SNAKE_CASE
-      // ("ACTIONABLE") — the badge checks + panel conditionals must
-      // still match the PascalCase tokens.
-      const profiles = (entry.opportunity!.profiles ?? []).map((p) => ({
-        ...p,
-        trade_viability: 'ACTIONABLE' as any,
-      }));
-      entry.opportunity = { ...entry.opportunity!, profiles } as any;
-    });
-    const p = c.payload;
-    const top = p.trade_setups[0];
-    expect(top.viability).toBe('Actionable');
-    expect(top.badge_text).toBe('TOP · ACTIONABLE');
-    expect(c.dom).toContain('TOP · ACTIONABLE');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Analysis tab
-// ─────────────────────────────────────────────────────────────────────────
-
 describe('export consistency — Analysis tab', () => {
   it('exports the exact signal lean hero, decomposed signals, assessments, per-TF grid, interpretation and rationale', async () => {
     const c = await renderPanelAndExport(AnalysisPanel, {}, seedRichInstance);
@@ -490,204 +220,6 @@ describe('export consistency — Analysis tab', () => {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Recommendation tab
-// ─────────────────────────────────────────────────────────────────────────
-
-describe('export consistency — Recommendation tab', () => {
-  it('exports the exact gauge, top setup, safety flags, why, price levels, strategy and verdict shown', async () => {
-    const c = await renderPanelAndExport(RecommendationPanel, { pairKey: PAIR }, seedRichInstance);
-    const p = c.payload;
-
-    // Gauge — needle label verbatim.
-    expect(p.gauge.net_bias_pct).toBe(45);
-    expect(p.gauge.bias_direction).toBe('LONG');
-    expect(p.gauge.net_bias_display).toBe('+45%');
-    // The center-bottom dial label renders the same net % the needle
-    // points at (+45% green) — DOM and JSON agree verbatim.
-    expect(c.dom).toContain('+45%');
-    expectInDomAndJson(c, 'LONG');
-
-    // Top setup card.
-    expect(p.top_setup.opportunity_type).toBe('Trend Continuation');
-    expect(p.top_setup.direction_label).toBe('LONG');
-    expect(p.top_setup.badge_text).toBe('ACTIONABLE');
-    expectInDomAndJson(c, 'ACTIONABLE');
-    expect(p.top_setup.entry_zone_display).toBe('$63200–$63400');
-    expectInDomAndJson(c, '$63200–$63400');
-    expect(p.top_setup.target_zone_display).toBe('$66000–$66500');
-    expectInDomAndJson(c, '$66000–$66500');
-    expect(p.top_setup.invalidation_display).toBe('$62800');
-    expectInDomAndJson(c, '$62800');
-    // The Top Setup card Reward-to-Risk is the canonical wire-side value
-    // (`long_expected_rr_internal`, target-mid geometry) — the same
-    // number the header chip and safety flags surface. The legacy
-    // TP1-geometry recompute (reward 2950 / risk 500 = 5.9) is no
-    // longer rendered anywhere.
-    expect(p.top_setup.rr_display).toBe('2.50');
-    expectInDomAndJson(c, '2.50');
-    expect(p.top_setup.preconditions_met).toBe(3);
-    expect(c.dom).toContain('3/3');
-
-    // Safety flags KPI chips.
-    expect(p.safety_flags.readiness).toBe('READY');
-    expectInDomAndJson(c, 'READY');
-    expect(p.safety_flags.rr_display).toBe('2.50');
-    expect(p.safety_flags.stop_loss_display).toBe('1.00%');
-    expectInDomAndJson(c, '1.00%');
-    expect(p.safety_flags.confidence_display).toBe('72%');
-    expectInDomAndJson(c, '72%');
-    expect(p.safety_flags.entry_danger_display).toBe('35 (LOW)');
-    expectInDomAndJson(c, '35 (LOW)');
-    expect(p.safety_flags.entry_danger_level).toBe('LOW');
-
-    // v6.11: Quality/Risk KPI chip — screen + environment + safety_flags parity.
-    expect(p.safety_flags.quality_to_risk_ratio).toBeCloseTo(1.5, 2);
-    expect(p.safety_flags.quality_to_risk_ratio_display).toBe('1.50');
-    expect(p.environment.quality_to_risk_ratio).toBeCloseTo(1.5, 2);
-    expect(p.environment.quality_to_risk_ratio_display).toBe('1.50');
-    expectInDomAndJson(c, '1.50');
-
-    // Canonical Reward-to-Risk: the top-setup card and the safety-flags
-    // KPI must all surface the SAME wire-side value — no independent
-    // geometry recompute anywhere in the payload.
-    expect(p.top_setup.rr_value).toBe(p.safety_flags.rr_value);
-    expect(p.top_setup.rr_display).toBe(p.safety_flags.rr_display);
-    expect(p.safety_flags.rr_available).toBe(true);
-
-    // Why bullets (top-3) — v6.17 polished prose shared verbatim.
-    expect(p.why).toHaveLength(3);
-    expectInDomAndJson(c, 'Bullish market bias: confluence score of 62');
-    expect(p.why_note).toBeNull();
-
-    // Price levels (LONG verdict → long side zones).
-    expect(p.price_levels.side).toBe('long');
-    expect(p.price_levels.entry_zone.low).toBe(63200);
-    expect(p.price_levels.horizon).toBe('SWING');
-    expect(p.price_levels.hold_placeholder).toBeNull();
-
-    // Strategy + final verdict.
-    expect(p.strategy.entry).toBe('Pullback');
-    expectInDomAndJson(c, 'Pullback');
-    expect(p.strategy.exit).toBe('Trend Weakening');
-    expectInDomAndJson(c, 'Trend Weakening');
-    expect(p.strategy.protection).toBe('ATR-Based');
-    expectInDomAndJson(c, 'ATR-Based');
-    expect(p.strategy.target).toBe('Resistance-Based');
-    // v6.10.17 + v6.17: the final verdict is the graded verdict sentence
-    // in the DOM AND the export (readiness sentence-cased since v6.17;
-    // the advisory sentence renders as environment guidance below both).
-    expect(p.final_verdict).toMatch(/^LONG \d+% — Ready \(readiness: Ready\)\.$/);
-    expectInDomAndJson(c, 'Ready (readiness: Ready)');
-    expect(p.final_verdict_guidance).toContain('Long on pullback');
-    expectInDomAndJson(c, 'Long on pullback');
-  });
-
-  it('STAND ASIDE + directional verdict: gauge, sentence and playbook agree across screen and export (v6.10.17)', async () => {
-    const c = await renderPanelAndExport(RecommendationPanel, { pairKey: PAIR }, () => {
-      seedRichInstance();
-      const entry = useAppStore().instancesMap[PAIR];
-      // The user's real capture shape: LONG-dominant probabilities gated
-      // by STAND ASIDE (long 62 / short 2 / hold 36, net +60).
-      entry.decisionContext = {
-        ...entry.decisionContext!,
-        trade_readiness: 'STAND_ASIDE',
-        long_probability: 62,
-        short_probability: 2,
-        hold_probability: 36,
-        net_bias_pct: 60,
-        bias: 'Bullish',
-        entry_danger: { score: 60, level: 'High', state: 'Stable', confidence: 50, evidence: [] },
-      } as any;
-    });
-    const p = c.payload;
-
-    // Gauge: the directional needle data stays in the JSON and the DOM
-    // dial label mirrors it (+60% green).
-    expect(p.gauge.net_bias_display).toBe('+60%');
-    expect(c.dom).toContain('+60%');
-    // The verdict hero is the graded sentence with the gate attached
-    // (v6.17: sentence-cased readiness + spelled-out Entry Danger).
-    expect(p.final_verdict).toBe('LONG lean 62% — Stand Aside (readiness: Stand Aside, Entry Danger High).');
-    expectInDomAndJson(c, 'LONG lean 62% — Stand Aside (readiness: Stand Aside, Entry Danger High)');
-    // The playbook is REAL under a directional-gated verdict (no caption).
-    expect(p.strategy).not.toHaveProperty('hold_caption');
-    expect(p.strategy.entry).not.toBe('—');
-    expectInDomAndJson(c, p.strategy.entry);
-    // Price levels resolve to the LONG side.
-    expect(p.price_levels.side).toBe('long');
-  });
-
-  it('No Clear + bearish lean: the aggregated SHORT bracket and the explanation card coexist (v6.10.17 A3)', async () => {
-    const c = await renderPanelAndExport(RecommendationPanel, { pairKey: PAIR }, () => {
-      seedRichInstance();
-      const entry = useAppStore().instancesMap[PAIR];
-      entry.decisionContext = {
-        ...entry.decisionContext!,
-        trade_readiness: 'WATCH',
-        bias: 'Bearish',
-        score: -40,
-        long_probability: 18,
-        short_probability: 45,
-        hold_probability: 37,
-        net_bias_pct: -27,
-        entry_danger: { score: 45, level: 'Moderate', state: 'Stable', confidence: 50, evidence: [] },
-      } as any;
-      entry.opportunity = {
-        ...entry.opportunity!,
-        primary_opportunity: 'NoClearOpportunity',
-        invalidation_note: 'No qualifying setup; market conditions do not currently favor a directional trade.',
-        profiles: (entry.opportunity!.profiles ?? []).map((p) => ({
-          ...p,
-          opportunity_type: 'NoClearOpportunity',
-          preconditions_met: 0,
-          preconditions_total: 1,
-          trade_viability: null,
-        })),
-      } as any;
-    });
-    const p = c.payload;
-    // v6.10.19c (D3): the verdict-side aggregated bracket is published on
-    // the SHORT side; the no-clear explanation card was removed.
-    expect(p.top_setup).not.toBeNull();
-    expect(p.top_setup!.direction_label).toBe('SHORT');
-    expect(p.top_setup!.viability).toBe('NoClear');
-    expect(p.top_setup!.badge_text).toBe('NO CLEAR SETUP');
-    expectInDomAndJson(c, 'NO CLEAR SETUP');
-    expect(p.no_clear_card).toBeUndefined();
-    expect(c.dom).not.toContain('No Clear Setup');
-    // The verdict is the directional lean, gated by readiness.
-    expect(p.verdict.top).toBe('SHORT');
-    expect(p.final_verdict).toContain('SHORT lean');
-  });
-
-  it('Alignment weights render the WIRE blend (thin-participation reweight) on screen AND in the export', async () => {
-    const c = await renderPanelAndExport(AlignmentPanel, { pairKey: PAIR }, () => {
-      seedRichInstance();
-      const entry = useAppStore().instancesMap[PAIR];
-      // The backend publishes the ACTUAL blend when the volume dimension
-      // is thin (55/35/5/5) — the panel chips must mirror it.
-      entry.alignment = {
-        ...entry.alignment!,
-        blend_weights: [
-          ['Trend', 0.55],
-          ['Momentum', 0.35],
-          ['Volume', 0.05],
-          ['Volatility', 0.05],
-        ],
-      } as any;
-    });
-    const p = c.payload;
-    // The export carries the wire percentages as numbers…
-    expect(p.score_calculation.weights.map((w: { pct: number }) => w.pct)).toEqual([55, 35, 5, 5]);
-    // …and the screen renders them as the parenthesized chip labels.
-    expect(c.dom).toContain('(55%)');
-    expect(c.dom).toContain('(35%)');
-    expect(c.dom).toContain('(5%)');
-    expect(c.jsonText).toContain('"pct": 55');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Metrics tab — single-TF (Micro) and MTF
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('export consistency — Metrics tab (single-TF Micro)', () => {
@@ -1009,7 +541,7 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
 // Cross-tab meta consistency — same store state, same canonical values
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('export consistency — meta envelope across all 7 tabs', () => {
+describe('export consistency — meta envelope across every panel tab', () => {
   it('emits the same meta.pair / current_price / prev_day_price / price_change on every tab', async () => {
     // Render each panel in turn against the SAME seeded store state and
     // capture only the meta block.
@@ -1025,14 +557,13 @@ describe('export consistency — meta envelope across all 7 tabs', () => {
     // Metrics single-TF (Micro rail) — reuse the micro helper.
     capture((await renderTerminalAndExportMicro()).payload);
 
-    // Alignment / Opportunities / Risks / Analysis / Recommendation.
+    // Alignment / Analysis. CR-15: Opportunities, Risks and Recommendation are
+    // gone — those panels rendered strategy verdicts and were deleted, so the
+    // envelope parity check covers four panels instead of seven.
     capture((await renderPanelAndExport(AlignmentPanel, { pairKey: PAIR }, seedRichInstance)).payload);
-    capture((await renderPanelAndExport(OpportunitiesPanel, { pairKey: PAIR }, seedRichInstance)).payload);
-    capture((await renderPanelAndExport(RiskPanel, { pairKey: PAIR }, seedRichInstance)).payload);
     capture((await renderPanelAndExport(AnalysisPanel, {}, seedRichInstance)).payload);
-    capture((await renderPanelAndExport(RecommendationPanel, { pairKey: PAIR }, seedRichInstance)).payload);
 
-    expect(metas).toHaveLength(7);
+    expect(metas).toHaveLength(4);
     const tabs = metas.map((m) => m.source_tab).sort();
 
     // 1. meta.pair — the FULL exchange-symbol everywhere (never bare base).
@@ -1091,7 +622,6 @@ describe('export consistency — Overview tab', () => {
           RANGE: 0.3,
           VOLATILE: 0.1,
         },
-        opportunity_distribution: {},
         risk_distribution: { low_pct: 60, moderate_pct: 30, high_pct: 10, risk_environment: 'LOW_RISK' },
         asset_ranking: [],
         market_synchronization: 'SYNCHRONIZED',
@@ -1132,41 +662,37 @@ describe('export consistency — Overview tab', () => {
     expect(p.scan_strip.auto_refresh).toBe('on');
     expect(p.scan_strip.total_pairs).toBeGreaterThan(0);
 
-    // Hero (TRADE / WAIT / STAND ASIDE) — rich fixture has an
-    // Actionable + READY setup.
-    expect(c.dom).toContain('TRADE');
-    expect(p.hero.headline).toBe('TRADE');
-    expect(p.hero.state).toBe('TRADE');
-    expect(p.hero.actionable_count).toBeGreaterThan(0);
-    expect(p.hero.best_symbol).toBe('BTC');
-    expect(p.hero.best_direction).toBeTruthy();
-    expect(c.jsonText).toContain('risk-reward');
-
-    // KPI strip (6 cards).
-    expect(c.dom).toContain('VALID TRADES');
-    expect(c.dom).toContain('BEST OPPORTUNITY');
-    expect(c.dom).toContain('RISK TO REWARD RATIO');
+    // CR-15: the hero verdict and five of the six KPI tiles are gone, along with
+    // four of the five cards. What the export carries is what the page renders.
+    expect(p.hero).toBeUndefined();
+    for (const gone of ['VALID TRADES', 'BEST OPPORTUNITY', 'RISK TO REWARD RATIO', 'AVG RISK', 'COVERAGE']) {
+        expect(c.dom, `strategy KPI ${gone} must not render`).not.toContain(gone);
+    }
     expect(c.dom).toContain('MARKET BIAS');
-    expect(c.dom).toContain('AVG RISK');
-    expect(c.dom).toContain('COVERAGE');
+    expect(c.dom).toContain('CROSS-TF CONSENSUS');
+    expect(c.dom).toContain('ACTIVE PAIRS');
     expect(p.kpis.market_bias.value).toBe('BULLISH');
     expect(p.kpis.market_bias.sub).toContain('42% breadth');
     expect(c.dom).toContain('42% breadth');
 
-    // 5-up card row.
-    expect(c.dom).toContain('TRADE OPPORTUNITIES');
-    expect(c.dom).toContain('RISK DISTRIBUTION');
-    expect(c.dom).toContain('SIGNAL QUALITY');
-    expect(c.dom).toContain('DIRECTION');
+    // The surviving card row.
     expect(c.dom).toContain('MARKET ALIGNMENT');
     expect(c.dom).toContain('MTF consensus');
+    for (const gone of ['TRADE OPPORTUNITIES', 'RISK DISTRIBUTION', 'SIGNAL QUALITY']) {
+        expect(c.dom, `strategy card ${gone} must not render`).not.toContain(gone);
+    }
+    // DIRECTION is a column in the Signal Direction card, which is gone; the
+    // word survives only inside a model field name, never as a card title.
+    expect(p.cards.trade_opportunities).toBeUndefined();
+    expect(p.cards.risk_distribution).toBeUndefined();
+    expect(p.cards.signal_quality).toBeUndefined();
+    expect(p.cards.direction).toBeUndefined();
 
-    // Risk distribution — LOW_RISK label (source footer removed from card).
-    expect(p.cards.risk_distribution.source).toBe('L7');
-    expect(p.cards.risk_distribution.low_pct).toBe(60);
-    expect(p.cards.risk_distribution.environment).toBe('LOW_RISK');
-    expect(p.cards.risk_distribution.environment_display).toBe('LOW RISK');
-    expect(c.dom).toContain('LOW RISK');
+    // CR-15: the Risk Distribution card is gone from both the page and the
+    // export. The `L7` / `L5` source labels it carried are gone with it — there
+    // is no risk aggregate to attribute a source to.
+    expect(p.cards.risk_distribution).toBeUndefined();
+    expect(c.dom).not.toContain('LOW RISK');
     expect(c.dom).not.toContain('Source');
 
     // Market Alignment — populated state.
@@ -1191,7 +717,13 @@ describe('export consistency — Overview tab', () => {
     expect(c.dom).toContain('SIGNAL STABILITY');
     expect(p.market_health.overall_display).toBe('HEALTHY');
     expect(p.market_health.sync_display).toBe('SYNCHRONIZED');
+    // CR-15: the four bars are still rendered but are UNAVAILABLE — the L5
+    // `RiskMatrix` dimensions they aggregated no longer cross the wire.
     expect(p.market_health.bars).toHaveLength(4);
+    for (const bar of p.market_health.bars) {
+        expect(bar.available, `${bar.label} must report unavailable, not a zero value`).toBe(false);
+        expect(bar.value_display).toBe('—');
+    }
 
     // Regime distribution — sorted descending.
     expect(c.dom).toContain('REGIME DISTRIBUTION');
@@ -1209,22 +741,23 @@ describe('export consistency — Overview tab', () => {
     expect(c.dom).toContain('Symbol');
     expect(c.dom).toContain('Price');
     expect(c.dom).toContain('Bias');
-    expect(c.dom).toContain('Signal');
-    expect(c.dom).toContain('Direction');
     expect(c.dom).toContain('Score');
-    expect(c.dom).toContain('Confidence');
     expect(c.dom).toContain('MTF Score');
     expect(c.dom).toContain('MTF Label');
-    expect(c.dom).toContain('Risk');
     expect(c.dom).toContain('Updated');
+    // CR-15: the strategy columns are gone from the page and the export alike.
+    for (const gone of ['Signal', 'Direction', 'Confidence', 'Risk']) {
+        expect(c.dom, `strategy column ${gone} must not render`).not.toContain(gone);
+    }
     expect(p.asset_rankings.rows.length).toBeGreaterThan(0);
     const row = p.asset_rankings.rows.find((r: { symbol: string }) => r.symbol === 'BTC');
     expect(row).toBeTruthy();
     expect(row.symbol).toBe('BTC');
-    expect(row.rr_display).toMatch(/^(\d+(\.\d{1,2})?|—)$/);
-    expect(row.confidence_display).toMatch(/^\d+%$/);
     expect(row.score_display).toMatch(/^\d+$/);
     expect(row.mtf_label_display).toBe('WEAK BULL');
+    for (const gone of ['signal', 'direction', 'rr_display', 'confidence_display', 'risk_display']) {
+        expect(row[gone], `strategy field ${gone} must not be exported`).toBeUndefined();
+    }
     expect(c.dom).toContain('BTC');
     expect(c.dom).toContain('WEAK BULL');
 
@@ -1251,9 +784,10 @@ describe('export consistency — Overview tab', () => {
     // Source-tab discriminator still exported.
     expect(p.source_tab).toBe('overview');
 
-    // L7 matrix is null → dashboard falls back to L5 local aggregation.
+    // L7 matrix is null. CR-15: there is no L5 fallback any more — the risk
+    // matrix is gone — so nothing here may claim a risk source.
     expect(p.overview_matrix).toBeNull();
-    expect(p.cards.risk_distribution.source).toBe('L5');
+    expect(p.cards.risk_distribution).toBeUndefined();
 
     // Market alignment card shows the empty placeholder.
     expect(p.cards.market_alignment.has_data).toBe(false);

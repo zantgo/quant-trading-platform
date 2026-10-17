@@ -39,7 +39,8 @@ show_help() {
     echo "  build-release      Build the release daemon binary (what run uses)"
     echo "  run                Run the engine in the foreground with live logs (web mode)"
     echo "  run-silent         Run the engine in the background, redirecting logs to $LOG_FILE"
-    echo "  run-cli            Run the terminal monitor (--mode cli, observe-only, no web server)"
+    echo "  shell              Boot the observe shell (--mode cli, no web server) — the canonical CLI"
+    echo "  run-cli            Alias for `shell`"
     echo "  stop               Stop any background engine instance currently running"
     echo "  status             Check if the engine is running (and print process info)"
     echo "  test               Run all test suites (core → golden → indicators → engine → ui → doc)"
@@ -170,7 +171,7 @@ run_cli() {
     echo "🚀 Starting Trading Platform in CLI mode (terminal monitor)..."
     echo "   🔧 Observe-only session — markets + signals, no orders dispatched"
     echo "   📡 Instances from the interactive launch prompt (pre-filled from config.toml)"
-    echo "   🖥️  No web server — the L7 overview redraws in your terminal"
+    echo "   🖥️  No web server — the observe shell renders the same AppState the WebSocket handler serves"
     echo "   💾 Add --save to the daemon args to enable snapshot-export JSON dumps"
     # Release, like the other two run paths: `cargo run` would hand back a DEBUG
     # binary, and the debug pipeline carries the same ~200 MB at 10 instances
@@ -528,7 +529,7 @@ case "$1" in
     run-silent)
         run_silent
         ;;
-    run-cli)
+    shell|run-cli)
         run_cli
         ;;
     stop)

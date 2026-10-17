@@ -133,7 +133,8 @@ fn spawn_analyzer_with_warm(
             None,
             500,
             300,
-            Arc::new(RwLock::new(None)),
+            // CR-15: the per-TF advisory handle that used to sit here is
+            // gone — the snapshot carries the model's cross-TF result.
             Arc::new(RwLock::new(
                 core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
             )),
@@ -492,6 +493,12 @@ async fn all_indicator_families_advance_on_sub_minute_doji_fills() {
 /// different candle sequences (one 1-second bar per sample, one 5-second
 /// bar per sample) and asserting they produce different RSI values. If a
 /// live implementation ever conflated these, the per-TF contract is broken.
+/// CR-15: the model's cross-TF output is alignment + analysis. The strategy
+/// matrices this predicate used to require no longer exist on the snapshot.
+fn has_model_matrices(s: &MarketSnapshot) -> bool {
+    s.alignment.is_some() && s.analysis.is_some()
+}
+
 #[test]
 fn indicator_values_are_per_tf_not_shared_across_tfs() {
     use market_analyzer::indicators::Rsi;
@@ -977,20 +984,10 @@ async fn force_closed_sub_minute_frames_carry_matrix_payload() {
         snaps.len()
     );
 
-    let has_all_matrices = |s: &MarketSnapshot| {
-        s.alignment.is_some()
-            && s.analysis.is_some()
-            && s.risk.is_some()
-            && s.advisory.is_some()
-            && s.opportunity.is_some()
-            && s.decision_context.is_some()
-    };
-
     assert!(
-        snaps.iter().any(&has_all_matrices),
-        "no completed snapshot carries the full matrix payload (alignment/analysis/risk/\
-         advisory/opportunity/decision_context) — the sub-minute force-close path is not \
-         running the matrix synthesis"
+        snaps.iter().any(&has_model_matrices),
+        "no completed snapshot carries the cross-TF model payload (alignment/analysis) — \
+         the sub-minute force-close path is not running the synthesis"
     );
 
     // The decisive pin: a REAL (non-gap-filled) force-closed candle closing at
@@ -998,7 +995,7 @@ async fn force_closed_sub_minute_frames_carry_matrix_payload() {
     // close at 110 but are marked gap-filled, so `close == 110 &&
     // is_gap_filled == false` identifies the force-close path uniquely.
     let force_matrix = snaps.iter().find(|s| {
-        has_all_matrices(s)
+        has_model_matrices(s)
             && s.close == Some(dec!(110))
             && !s
                 .quality_envelope
@@ -1128,13 +1125,8 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
         "warmed sub-minute indicator lifecycle must be Live at the first live close"
     );
     assert!(
-        live.alignment.is_some()
-            && live.analysis.is_some()
-            && live.risk.is_some()
-            && live.advisory.is_some()
-            && live.opportunity.is_some()
-            && live.decision_context.is_some(),
-        "warmed sub-minute first close must carry the full matrix payload"
+        has_model_matrices(live),
+        "warmed sub-minute first close must carry the cross-TF model payload"
     );
     // PRI-12: bars_seen_real counts the warmed real closes.
     let real = live

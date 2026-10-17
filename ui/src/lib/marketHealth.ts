@@ -113,26 +113,23 @@ export function aggregateHealthBars(
 }
 
 /**
- * Read the four health inputs from a list of `InstanceState` risk
- * matrices. Filters out instances with no risk data.
+ * Read the four health inputs from a list of `InstanceState` risk matrices.
+ *
+ * CR-15: this read `inst.risk` — the L5 `RiskMatrix` — for its four risk
+ * dimensions. That matrix is strategy and no longer crosses the wire, so the
+ * function has no input to read and every instance contributes nothing. P10
+ * returns the bars derived from the four typed axes; until then Market Health
+ * reports its L7 aggregate (which is computed server-side) and no sub-bars.
+ *
+ * It is kept, returning empty, because `computeMarketHealth` still calls it and
+ * the empty result is what makes the card say "no data" instead of inventing
+ * four zero-scored bars.
  */
 export function collectHealthBarInputs(
     instances: InstanceState[],
 ): { inputs: HealthBarInputs[]; liqConfidence: number[] } {
-    const inputs: HealthBarInputs[] = [];
-    const liqConfidence: number[] = [];
-    for (const inst of instances) {
-        const r = inst.risk;
-        if (!r) continue;
-        inputs.push({
-            structureRisk: r.structure_risk?.score ?? NaN,
-            executionLiquidityRisk: r.execution_liquidity_risk?.score ?? NaN,
-            volatilityRisk: r.volatility_risk?.score ?? NaN,
-            signalRisk: r.signal_risk?.score ?? NaN,
-        });
-        liqConfidence.push(r.execution_liquidity_risk?.confidence ?? 0);
-    }
-    return { inputs, liqConfidence };
+    void instances;
+    return { inputs: [], liqConfidence: [] };
 }
 
 /**

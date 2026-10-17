@@ -10,7 +10,7 @@
 //!   dashboard. The Launch Setup wizard prompts the user to choose a mode
 //!   (Observe / Simulate / Execute), exchange, currency, and instances
 //!   before entering the workspace.
-//! - `--mode cli`: interactive terminal launch (exchange, currency,
+//! - `--mode cli`: the observe shell (exchange, currency,
 //!   instances — every pair runs the 14-duration TF ladder), then a
 //!   live terminal monitor that redraws the L7 overview + per-instance
 //!   rows. Supports
@@ -77,6 +77,10 @@ struct CliArgs {
     currency: Option<String>,
     config_path: Option<String>,
     /// CLI monitor redraw interval in seconds (default 5).
+    /// CR-15: was the legacy monitor's refresh interval. Kept so existing
+    /// `--interval-secs` invocations do not become a start-up error; the shell
+    /// reads live state and has no refresh cadence.
+    #[allow(dead_code)]
     interval_secs: u64,
     /// CLI mode: enable snapshot-export JSON dumps at boot.
     save_snapshots: bool,
@@ -163,7 +167,7 @@ fn parse_args() -> CliArgs {
                         // silently booting the web server.
                         "headless" | "setup" => {
                             eprintln!(
-                                "⚠️  `--mode {}` was retired. Use `--mode cli` (terminal monitor) or `--mode web` (dashboard).",
+                                "⚠️  `--mode {}` was retired. Use `--mode cli` (observe shell) or `--mode web` (dashboard).",
                                 args[i]
                             );
                             LaunchMode::Cli
@@ -743,23 +747,6 @@ async fn spawn_cli_instance(
 }
 // ─── Main ────────────────────────────────────────────────────────────
 
-/// v6.10.19a: the canonical per-pair risk feeding the L7 risk mean is the
-/// MICRO window's L5 score — the same number the Risk panel, the dashboard
-/// KPI, and the asset rows show. The previous TF-window MEAN drifted
-/// upward whenever the macro window scored high (MAX_COMPRESSION / thin
-/// participation) and rendered "HIGH_RISK" environments next to a visible
-/// avg-risk of 41–46. Falls back to the window mean during warmup (micro
-/// risk matrix not present yet), then 50 (moderate).
-fn canonical_overall_risk(micro_risk: Option<f64>, risk_count: u32, risk_sum: f64) -> f64 {
-    micro_risk.unwrap_or_else(|| {
-        if risk_count > 0 {
-            risk_sum / risk_count as f64
-        } else {
-            50.0
-        }
-    })
-}
-
 // v11.12.25 (memory): return freed heap to the OS.
 //
 //
@@ -991,7 +978,7 @@ async fn async_main() {
     );
 
     match cli.mode {
-        LaunchMode::Cli => println!("🖥️  Launch mode: CLI (terminal monitor, observe-only)"),
+        LaunchMode::Cli => println!("🖥️  Launch mode: CLI (observe shell, model-only)"),
         LaunchMode::Web => {
             println!(
                 "🖥️  Launch mode: WEB (Launch Setup wizard will prompt for mode/exchange/currency)"
@@ -2382,7 +2369,10 @@ async fn async_main() {
                     _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
                 }
                 let instances = workspace.list().await;
-                let mut advisories: Vec<core_domain::advisory::AdvisoryMatrix> = Vec::new();
+                // CR-15: no instance produces an advisory any more, so this
+                // stays empty and `compute_overview` treats the derived
+                // distributions as unmeasured rather than as zero.
+                let advisories: Vec<core_domain::advisory::AdvisoryMatrix> = Vec::new();
                 let mut alignments: Vec<core_domain::alignment::AlignmentMatrix> = Vec::new();
                 let mut metas: Vec<core_domain::overview::InstanceMeta> = Vec::new();
                 // v7.2 parity: the panel builder consumes the SAME per-TF
@@ -2418,10 +2408,6 @@ async fn async_main() {
                     // with `core_domain::SUPPORTED_DURATIONS` so any ACTIVE
                     // subset maps deterministically (the L7 SYSTEMIC path
                     // normalizes by the weight sum).
-                    const POOL_WEIGHTS: [f64; 14] = [
-                        0.04, 0.04, 0.04, 0.07, 0.07, 0.10, 0.10, 0.10, 0.08, 0.07, 0.08, 0.07,
-                        0.07, 0.07,
-                    ];
                     // Audit fix (M6): `instance_count`/`is_active` must
                     // reflect actual monitoring — the previous `!cancel`
                     // check only flipped on delete/recharge, so a
@@ -2441,27 +2427,15 @@ async fn async_main() {
                     // the L7 SYSTEMIC path stays anchored to the slower
                     // windows so a transient fast-window risk spike can
                     // never fire the PME safety veto.
-                    let mut risk_windows: Vec<(f64, f64)> = Vec::new();
-                    let mut risk_sum = 0.0;
-                    let mut risk_count = 0u32;
+                    // CR-15: the L5 risk aggregate and the L6 advisory
+                    // collection are gone from this task — both were strategy.
+                    // `risk_windows` stays empty, which the AssetRank builder
+                    // treats as "no risk signal available" rather than as a
+                    // zero-risk reading; a fabricated 0 here would be a claim
+                    // about danger that nothing measured.
+                    let risk_windows: Vec<(f64, f64)> = Vec::new();
                     let mut alignment_pushed = false;
                     for snap in snaps.iter().flatten() {
-                        if let Some(adv) = snap.advisory.clone() {
-                            advisories.push(adv);
-                        }
-                        if let Some(r) = snap.risk.as_ref() {
-                            // v11.9: weight by the duration's canonical
-                            // pool position (deterministic for any ACTIVE
-                            // subset).
-                            let pool_idx = core_domain::SUPPORTED_DURATIONS
-                                .iter()
-                                .position(|&d| d == snap.timeframe_secs)
-                                .unwrap_or(core_domain::SUPPORTED_DURATIONS.len() - 1);
-                            let w = POOL_WEIGHTS[pool_idx];
-                            risk_windows.push((w, r.overall_risk.score));
-                            risk_sum += r.overall_risk.score;
-                            risk_count += 1;
-                        }
                         // The MTF AlignmentMatrix is one per symbol — push
                         // it once, from the fastest present window.
                         if !alignment_pushed {
@@ -2493,15 +2467,10 @@ async fn async_main() {
                         // bins on. v6.10.19a: the MICRO window's L5 score
                         // (operator-visible); falls back to the window mean,
                         // then 50 (moderate) during warmup.
-                        overall_risk: canonical_overall_risk(
-                            snaps
-                                .first()
-                                .and_then(|s| *s)
-                                .and_then(|s| s.risk.as_ref())
-                                .map(|r| r.overall_risk.score),
-                            risk_count,
-                            risk_sum,
-                        ),
+                        // CR-15: no risk matrix exists on the snapshot any
+                        // more, so this is `None` — "not measured", which the
+                        // Overview renders as absent rather than as zero.
+                        overall_risk: None::<f64>,
                         risk_windows,
                     });
                     // v7.2 parity: feed the panel builder the present
@@ -2547,10 +2516,7 @@ async fn async_main() {
                 }
                 let panel =
                     core_domain::overview_panel::build_overview_panel(&panel_instances, &ranks);
-                overview.hero = panel.hero;
                 overview.overview_rows = panel.rows;
-                overview.signal_quality = panel.signal_quality;
-                overview.direction_distribution = panel.direction_distribution;
                 overview.market_health_dims = panel.market_health_dims;
                 *overview_ref.write().await = Some(overview);
             }
@@ -2970,16 +2936,19 @@ async fn async_main() {
                 cli_mode_label, ex_label, cur_label
             ),
         };
-        handles.push(tokio::spawn(
-            execution_daemon::cli_renderer::run_terminal_monitor(
-                app_state.overview.clone(),
-                workspace_state.clone(),
-                db_pool.clone(),
-                cli.interval_secs,
-                session_line,
-                CancellationToken::new(),
-            ),
-        ));
+        // CR-15: the legacy terminal monitor is deleted. It was a SECOND
+        // presentation of the same data as the dashboard, with its own
+        // formatting, and it printed `Cascade`, the L6 verdict and per-setup
+        // R:R — all strategy. Two presentations of one data set is a parity
+        // violation, and one of them was lying about what the model says.
+        //
+        // `--mode cli` now boots the observe SHELL (P6), which renders the same
+        // `AppState` the WebSocket handler serves.
+        handles.push(tokio::spawn(execution_daemon::shell::run(
+            app_state.clone(),
+            session_line,
+            CancellationToken::new(),
+        )));
     } else {
         let app = build_router(app_state.clone());
         // v11.3 smart port: the listener was probed and bound before AppState
@@ -3136,7 +3105,6 @@ async fn async_main() {
 
 #[cfg(test)]
 mod tests {
-    use super::canonical_overall_risk;
 
     // v11.3 smart port: the probe semantics the web bind block relies on —
     // a held listener reports AddrInUse for the same port and the +1
@@ -3165,27 +3133,11 @@ mod tests {
         assert_ne!(l2.local_addr().unwrap().port(), held);
     }
 
-    // v6.10.19a: the L7 canonical risk is the MICRO window's L5 score —
-    // the visible number. The window-mean drift (macro MAX_COMPRESSION
-    // windows) produced "HIGH_RISK" environments next to an avg-risk of
-    // 41–46; regression tests for all three input shapes.
-    #[test]
-    fn micro_risk_wins_over_window_mean() {
-        // Micro 41.45 vs windows averaging 58.6 (macro-heavy) — the old
-        // mean would have crossed the ≥50 HIGH_RISK line.
-        assert!((canonical_overall_risk(Some(41.45), 4, 234.4) - 41.45).abs() < 1e-9);
-    }
-
-    #[test]
-    fn window_mean_is_the_warmup_fallback() {
-        assert!((canonical_overall_risk(None, 4, 234.4) - 58.6).abs() < 1e-9);
-        assert!((canonical_overall_risk(None, 2, 90.0) - 45.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn no_risk_matrices_yet_falls_back_to_moderate() {
-        assert_eq!(canonical_overall_risk(None, 0, 0.0), 50.0);
-    }
+    // CR-15: the L7 canonical-risk suite is gone. It pinned
+    // `canonical_overall_risk` — the MICRO window's L5 score, with a
+    // window-mean warmup fallback and a `50.0` "moderate" default — and the
+    // L5 risk matrices it aggregated no longer exist. With no risk signal
+    // there is nothing to canonicalise.
 }
 
 #[cfg(test)]

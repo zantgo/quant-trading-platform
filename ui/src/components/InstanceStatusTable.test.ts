@@ -16,7 +16,6 @@ import InstanceStatusTable from './InstanceStatusTable.svelte';
 import headerStyles from './LayerHeader.module.css';
 import styles from './InstanceStatusTable.module.css';
 import { useAppStore } from '../state.svelte';
-import { computeDecisionRank } from '../lib/decisionRank';
 import type {
     AdvisoryMatrix, DecisionContext, InstanceState, OpportunityMatrix, OverviewMatrix,
 } from '../types';
@@ -71,10 +70,6 @@ function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
         currentView: 'terminal',
         alignment: null,
         analysis: null,
-        risk: null,
-        advisory: makeAdvisory(),
-        decisionContext: makeDecisionContext(),
-        opportunity: null,
         lastMatrixTimestampBySlot: {},
         lastCompletedClose: null,
         automationEnabled: false,
@@ -144,57 +139,6 @@ describe('InstanceStatusTable — rows & ordering', () => {
     });
 });
 
-describe('InstanceStatusTable — decision badge', () => {
-    it('matches computeDecisionRank (label + percentage) and the direction palette', () => {
-        const inst = makeInstance();
-        seed('BTC-USDT', inst);
-        renderTable();
-        const rank = computeDecisionRank({
-            advisory: inst.advisory,
-            decisionContext: inst.decisionContext,
-            opportunity: inst.opportunity,
-            analysis: inst.analysis,
-        });
-        const badge = screen.getByLabelText(/Decision badge/);
-        const expectedLabel = rank.top === 'SHORT' ? 'SHORT' : rank.top;
-        expect(badge.textContent).toContain(expectedLabel);
-        expect(badge.textContent).toContain(`${Math.round(rank.top_prob)}%`);
-        // Direction-color discipline: SHORT wears the bearish red (jsdom
-        // normalizes #f87171 → rgb(248, 113, 113)).
-        const style = (badge.getAttribute('style') ?? '').replace(/\s+/g, '').toLowerCase();
-        expect(style.includes('#f87171') || style.includes('rgb(248,113,113)')).toBe(true);
-    });
-
-    it('STAND ASIDE overrides a HOLD verdict when readiness is STAND_ASIDE', () => {
-        seed('BTC-USDT', makeInstance({
-            advisory: makeAdvisory({ directional_guidance: 'Neutral' }),
-            decisionContext: makeDecisionContext({
-                score: 0,
-                bias: 'Neutral',
-                long_probability: 33,
-                short_probability: 33,
-                hold_probability: 34,
-                trade_readiness: 'STAND_ASIDE',
-            }),
-        }));
-        renderTable();
-        const badge = screen.getByLabelText(/Decision badge/);
-        expect(badge.textContent).toContain('STAND ASIDE');
-    });
-
-    it('v11.11: renders the three probability RINGS sorted biggest-LEFT', () => {
-        seed('BTC-USDT', makeInstance());
-        const { container } = renderTable();
-        // The text chips are gone; three ring gauges carry the values with
-        // the dominant probability first (left).
-        expect(container.querySelector('[role="img"][aria-label*="Probabilities"]')).toBeTruthy();
-        const values = Array.from(
-            container.querySelectorAll('[role="img"][aria-label*="Probabilities"] span[title]'),
-        ).map((el) => el.getAttribute('title'));
-        expect(values).toEqual(['SHORT 45%', 'HOLD 35%', 'LONG 20%']);
-    });
-});
-
 describe('InstanceStatusTable — expand / collapse', () => {
     it('expands to one sub-row per ACTIVE slot; collapse-all hides them again', async () => {
         seed('BTC-USDT', makeInstance({ activeDurations: [1, 5] }));
@@ -238,14 +182,11 @@ describe('InstanceStatusTable — expand / collapse', () => {
 });
 
 describe('InstanceStatusTable — empty instance', () => {
-    it('renders the grey — decision badge and per-TF grey badges + loading pills', async () => {
+    it('renders the grey — model bias badge and per-TF grey badges + loading pills', async () => {
         seed('BTC-USDT', makeInstance({
-            advisory: null,
-            decisionContext: null,
-            opportunity: null,
         }));
         const { container } = renderTable();
-        const badge = screen.getByLabelText(/Decision badge/);
+        const badge = screen.getByLabelText(/Model bias/);
         expect(badge.textContent).toContain('\u2014');
         expect(badge.className).toContain(headerStyles.badgeEmpty);
 
@@ -309,5 +250,21 @@ describe('InstanceStatusTable — v11.14.1 warming state', () => {
         const table = screen.getByLabelText('Per-instance status');
         await fireEvent.click(screen.getByLabelText(/Expand BTC/));
         expect(table.querySelectorAll('div[class*="warmingBadge"]').length).toBe(0);
+    });
+});
+
+// CR-15: the "decision badge" suite is gone. It asserted the badge matched
+// `computeDecisionRank`'s LONG/SHORT/HOLD label and printed its top probability
+// — a verdict and a confidence the model does not compute. What replaced the
+// cell is the analysis bias plus the cross-duration label, and the invariant
+// worth pinning is that no probability is invented:
+describe('InstanceStatusTable — model bias badge', () => {
+    it('shows the model bias and never a percentage', () => {
+        const inst = makeInstance();
+        seed('BTC-USDT', inst);
+        renderTable();
+        const badge = screen.getByLabelText(/Model bias/);
+        expect(badge.textContent).toContain(inst.analysis?.bias ?? '');
+        expect(badge.textContent).not.toMatch(/\d+%/);
     });
 });

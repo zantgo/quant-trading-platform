@@ -444,36 +444,28 @@ pub async fn run_historical_backtest(
             prev_bias: None,
         });
 
-        // ── The SAME pure synthesizer the live L4/L5 assembly calls ──
+        // ── The SAME pure synthesizer the live model assembly calls ──
+        //
+        // CR-15: the replay now drives the MODEL only. It used to compute the
+        // L4 opportunity, L5 risk and L6 advisory matrices through this same
+        // call, and then derive a setup from them. Those layers no longer cross
+        // the boundary, so the replay stops at alignment + analysis, exactly
+        // where the live observe path does.
         let cross: Vec<(u64, &MarketSnapshot)> = tf_refs.iter().map(|(t, s)| (*t, s)).collect();
-        let mut opportunity_params =
-            market_analyzer::synthesis::OpportunityParams::from_strategy(&run_cfg.strategy.l4);
-        opportunity_params.viability_min_net_rr = run_cfg.strategy.tae.intake.min_net_rr;
-        opportunity_params.ladder_roles = run_cfg.strategy.ladder_roles.clone();
-        let decision_params =
-            market_analyzer::strategy_params::decision_params_from_strategy(&run_cfg.strategy.l6);
         let analysis_params =
             market_analyzer::strategy_params::analysis_params_from_strategy(&run_cfg.strategy.l3);
         let alignment_params =
             market_analyzer::strategy_params::alignment_params_from_strategy(&run_cfg.strategy.l2);
-        let risk_params =
-            market_analyzer::strategy_params::risk_params_from_strategy(&run_cfg.strategy.l5);
         let synthesis = market_analyzer::synthesis::synthesize_cross_tf(
             &ev.symbol,
             &cross,
-            None,
-            None,
-            &[],
             mtf.prev_score,
             mtf.prev_regime,
             mtf.prev_volume_dim,
             mtf.prev_bias,
-            // v9: same wired opportunity params as live.
-            &opportunity_params,
-            &decision_params,
             &analysis_params,
             &alignment_params,
-            &risk_params,
+            &run_cfg.strategy.ladder_roles,
         );
 
         mtf.prev_score = Some(synthesis.alignment.mtf_overall_score);
@@ -483,47 +475,7 @@ pub async fn run_historical_backtest(
         mtf_states.insert(ev.symbol.clone(), mtf);
         latest_bias.insert(ev.symbol.clone(), Some(synthesis.analysis.bias));
 
-        // Confluence score — the same unsigned 3-factor blend as live.
-        let confluence_score = {
-            let tradability_dim = synthesis
-                .alignment
-                .dimensions
-                .get(9)
-                .map(|d| d.score)
-                .unwrap_or(0.0);
-            let market_quality_score = synthesis.analysis.market_quality_score;
-            let opp_score = synthesis
-                .opportunity
-                .as_ref()
-                .map(|o| o.opportunity_score)
-                .unwrap_or(0.0);
-            {
-                let [w_l2, w_l3, w_l4] =
-                    core_domain::decision_params::DecisionParams::default().confluence_weights;
-                w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score
-            }
-            .clamp(0.0, 100.0)
-        };
-
-        let close_f = snap.close.as_ref().and_then(|d| d.to_f64()).unwrap_or(0.0);
-        let atr_val = snap.atr_14().and_then(|d| d.to_f64()).unwrap_or(0.0);
-        let decision = core_domain::decision_context::DecisionContext::compute(
-            &snap.indicators,
-            close_f,
-            atr_val,
-            confluence_score,
-            &synthesis.analysis,
-            synthesis.opportunity.as_ref(),
-            &synthesis.risk,
-            // v9 F-05: shared DecisionParams (strategy-derived).
-            &decision_params,
-            &analysis_params,
-        );
-
-        snap.opportunity = synthesis.opportunity.clone();
         snap.analysis = Some(synthesis.analysis.clone());
-        snap.decision_context = Some(decision);
-        snap.advisory = Some(synthesis.advisory.clone());
         snap.is_completed = Some(true);
 
         // v8.2 parity: the simulated safety ladder is the soft entry gate.

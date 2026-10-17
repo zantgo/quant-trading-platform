@@ -182,7 +182,6 @@ fn build_stub_instance(
         ))),
         pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        advisory: Arc::new(RwLock::new(None)),
         tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
         buffer_size: 500,
         stale_threshold_secs: 300,

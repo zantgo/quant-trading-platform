@@ -250,19 +250,12 @@ pub async fn tick_once(
     Ok(())
 }
 
-/// Build the per-tab payload — either the per-tab matrix directly
-/// (alignment / opportunity / risk / analysis / advisory / decision)
-/// or a small wrapper (metrics / mtf / recommendation).
+/// Build the per-tab payload — either a per-tab matrix directly
+/// (alignment / analysis) or a small wrapper (metrics / mtf).
 fn build_tab_payload(tab: &str, snap: &MarketSnapshot) -> serde_json::Value {
     match tab {
         "alignment" => serde_json::to_value(&snap.alignment).unwrap_or(serde_json::Value::Null),
-        "opportunity" => serde_json::to_value(&snap.opportunity).unwrap_or(serde_json::Value::Null),
-        "risk" => serde_json::to_value(&snap.risk).unwrap_or(serde_json::Value::Null),
         "analysis" => serde_json::to_value(&snap.analysis).unwrap_or(serde_json::Value::Null),
-        "advisory" => serde_json::to_value(&snap.advisory).unwrap_or(serde_json::Value::Null),
-        "decision" => {
-            serde_json::to_value(&snap.decision_context).unwrap_or(serde_json::Value::Null)
-        }
         "metrics" => serde_json::to_value(snap).unwrap_or(serde_json::Value::Null),
         "mtf" => serde_json::json!({
             "slot": snap
@@ -273,12 +266,6 @@ fn build_tab_payload(tab: &str, snap: &MarketSnapshot) -> serde_json::Value {
             "indicators": snap.indicators.len(),
             "alignment": snap.alignment,
             "analysis": snap.analysis,
-            "advisory": snap.advisory,
-            "decision_context": snap.decision_context,
-        }),
-        "recommendation" => serde_json::json!({
-            "advisory": snap.advisory,
-            "decision_context": snap.decision_context,
         }),
         _ => serde_json::json!({
             "unknown_tab": tab,
@@ -412,17 +399,38 @@ mod tests {
 
     #[test]
     fn runtime_from_config_filters_unknown_tabs() {
+        // CR-15: `risk` and `opportunity` used to be real tabs. They are now
+        // filtered as unknown, which is the point — a config.toml written before
+        // this change must not fail to load, and the stale entries must drop out
+        // rather than resurrect a strategy tab.
         let cfg = SnapshotExportConfig {
             tabs: Some(vec![
                 "alignment".into(),
                 "not_a_real_tab".into(),
                 "risk".into(),
+                "opportunity".into(),
+                "advisory".into(),
                 "alignment".into(),
             ]),
             ..SnapshotExportConfig::default()
         };
         let rt = runtime_from_config(&cfg);
-        assert_eq!(rt.tabs, vec!["alignment".to_string(), "risk".to_string()]);
+        assert_eq!(
+            rt.tabs,
+            vec!["alignment".to_string()],
+            "CR-15: the strategy tabs must be filtered out of a pre-CR-15 config"
+        );
+    }
+
+    #[test]
+    fn the_all_tabs_set_carries_no_strategy_tab() {
+        // The regression this pins: adding a strategy tab to `ALL_TABS` would
+        // silently re-expose the removed surface through every default export.
+        for tab in ALL_TABS {
+            for gone in ["risk", "opportunity", "advisory", "decision_context"] {
+                assert_ne!(*tab, gone, "CR-15: `{gone}` must not be an export tab");
+            }
+        }
     }
 
     #[test]

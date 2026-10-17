@@ -1,8 +1,8 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
-    import { createInstance, deleteInstanceById, waitForAdvisory } from '../lib/api.svelte';
+    import { createInstance, waitForModelState } from '../lib/api.svelte';
     import { connectWsForInstance, type WsState } from '../lib/websocket.svelte';
-    import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbolsWithReasons, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from '../lib/watchlistScanner';
+    import { clampWaitMinutes, detectBackendErrorKind, parseSymbolsWithReasons, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from '../lib/watchlistScanner';
     import styles from './WatchlistScannerModal.module.css';
     import brutalistStyles from '../styles/brutalist-grid.module.css';
 
@@ -106,21 +106,29 @@
         );
 
         // PHASE 2 — one wait window per pair, all concurrent: each pair is
-        // watched for `windowMs`; the first recommendation to any side
-        // keeps the instance, a window without one removes it.
+        // watched for `windowMs` to produce a resolved model state.
+        //
+        // CR-15: this phase used to delete the instance when the window closed
+        // without a READY trade call. The rule that decided it read `trade_readiness`
+        // and `directional_guidance`, both L5/L6 strategy inputs the wire no
+        // longer carries — so with them gone every pair resolved DELETE and the
+        // scanner removed everything it had just added.
+        //
+        // A timeout is now a NOTE on a pair that stays: the model had not spoken
+        // within the window, which is not grounds for removing an instance the
+        // operator added. Nothing is deleted here at all.
         await Promise.all(
             added
                 .filter((a): a is { i: number; instanceId: string; pairKey: string } => a !== null)
-                .map(async ({ i, instanceId, pairKey }) => {
+                .map(async ({ i, pairKey }) => {
                     if (cancelRun) return;
                     const outcome = outcomes[i];
                     outcomes[i] = { ...outcome, status: 'waiting' };
-                    const verdict = await waitForAdvisory(app, pairKey, windowMs);
+                    const verdict = await waitForModelState(app, pairKey, windowMs);
                     const elapsedMs = verdict.waitedMs ?? 0;
 
                     if (verdict.status === 'TIMEOUT') {
-                        await deleteInstanceById(instanceId);
-                        app.removeInstance(pairKey);
+                        // Kept, with a note. See the PHASE 2 comment above.
                         outcomes[i] = {
                             ...outcome,
                             status: 'done',
@@ -130,27 +138,12 @@
                         return;
                     }
 
-                    const keep = decide(verdict.decisionContext, verdict.advisory) === 'KEEP';
-                    if (!keep) {
-                        await deleteInstanceById(instanceId);
-                        app.removeInstance(pairKey);
-                        outcomes[i] = {
-                            ...outcome,
-                            status: 'done',
-                            reason: reasonFor('DELETE', verdict.decisionContext, verdict.advisory),
-                            guidance: verdict.advisory?.directional_guidance,
-                            tradeReadiness: verdict.decisionContext.trade_readiness,
-                            elapsedMs,
-                        };
-                        return;
-                    }
-
                     outcomes[i] = {
                         ...outcome,
                         status: 'done',
-                        reason: 'KEEP',
-                        guidance: verdict.advisory?.directional_guidance,
-                        tradeReadiness: verdict.decisionContext.trade_readiness,
+                        reason: reasonFor('KEEP', verdict.analysis, verdict.alignment),
+                        guidance: verdict.analysis.bias ?? null,
+                        mtfLabel: verdict.alignment.mtf_overall_label ?? null,
                         elapsedMs,
                     };
                 }),
@@ -191,7 +184,7 @@
         }
         if (outcome.status === 'evaluating') return 'Evaluating…';
         if (outcome.reason === 'KEEP') {
-            return `Kept · ${outcome.guidance ?? ''} · ${outcome.tradeReadiness ?? ''}`;
+            return `Kept · ${outcome.guidance ?? ''} · ${outcome.mtfLabel ?? ''}`;
         }
         return reasonLabel(outcome.reason);
     }
@@ -251,8 +244,9 @@
                             disabled={!sessionReady}
                         />
                         <span class={styles.inputWaitHint}>
-                            A pair is kept when a recommendation to any side appears within the
-                            window; otherwise it is removed.
+                            How long to wait for the model to resolve a reading on each pair.
+                            Pairs are kept either way — the window only decides whether the
+                            reading arrives before the scan is called done.
                         </span>
                     </div>
                     <div class={styles.inputMeta}>
@@ -327,10 +321,11 @@
                             <span class={styles.summaryStatLabel}>Kept</span>
                             <span class="{styles.summaryStatValue} {styles.kept}">{summary.kept.length}</span>
                         </div>
-                        <div class={styles.summaryStat}>
-                            <span class={styles.summaryStatLabel}>Removed</span>
-                            <span class="{styles.summaryStatValue} {styles.removed}">{summary.removed.length}</span>
-                        </div>
+                        <!-- CR-15: the Removed stat is gone. Nothing the scanner
+                             adds is ever removed on a model judgement, so this
+                             tile could only ever read 0. Pairs leave the
+                             workspace when the operator removes them, or when
+                             the input itself is unusable (Skipped, below). -->
                         {#if summary.skipped.length > 0}
                             <div class={styles.summaryStat}>
                                 <span class={styles.summaryStatLabel}>Skipped</span>
@@ -352,18 +347,6 @@
                                 </div>
                             </div>
                         {/if}
-                        {#if summary.removed.length > 0}
-                            <div class={styles.summaryGroup}>
-                                <span class={styles.summaryGroupTitle}>Removed</span>
-                                <div class={styles.summaryGroupItems}>
-                                    {#each summary.removed as o (o.pairKey)}
-                                        <span class={styles.summaryGroupItem}>
-                                            {o.base} · {reasonLabel(o.reason)}
-                                        </span>
-                                    {/each}
-                                </div>
-                            </div>
-                        {/if}
                         {#if summary.skipped.length > 0}
                             <div class={styles.summaryGroup}>
                                 <span class={styles.summaryGroupTitle}>Skipped</span>
@@ -376,7 +359,7 @@
                                 </div>
                             </div>
                         {/if}
-                        {#if summary.kept.length === 0 && summary.removed.length === 0 && summary.skipped.length === 0}
+                        {#if summary.kept.length === 0 && summary.skipped.length === 0}
                             <span class={styles.summaryEmpty}>No pairs were processed.</span>
                         {/if}
                     </div>

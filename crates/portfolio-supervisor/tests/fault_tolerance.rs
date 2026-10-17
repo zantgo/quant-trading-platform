@@ -114,7 +114,6 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 None,
                 1,
                 300,
-                Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(
                     core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
                 )),

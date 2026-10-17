@@ -30,7 +30,6 @@ use crate::indicators::{
     VolumeProfile, WilliamsR, ZScore,
 };
 use crate::sr_engine::SrRoleTracker;
-use core_domain::advisory::AdvisoryMatrix;
 use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
 use core_domain::liquidity::LiquidationClusterMatrix;
 use core_domain::models::{
@@ -134,14 +133,12 @@ pub struct TimeframePipeline {
     /// See [03-02-15](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)
     /// ILS-01 … ILS-15.
     pub indicator_lifecycle: Arc<RwLock<IndicatorLifecycleMap>>,
-    /// v6.10 (Phase 2 / B3): latest cross-TF Advisory Matrix promoted onto
-    /// the pipeline struct. `synthesize_cross_tf` writes the freshly
-    /// computed advisory here; `apply_snapshot_to_timeframe` reads it
-    /// and binds it onto the emitted `MarketSnapshot.advisory`. This
-    /// mirrors the promotion of `pipeline_state` and `indicator_lifecycle`
-    /// so the pipeline struct carries authoritative state for all
-    /// cross-TF outputs, not just per-TF state.
-    pub advisory: Arc<RwLock<Option<AdvisoryMatrix>>>,
+    // CR-15: this field used to hold the latest cross-TF `AdvisoryMatrix`,
+    // promoted onto the pipeline struct so `apply_snapshot_to_timeframe`
+    // could bind it onto the emitted snapshot. The advisory was a statement
+    // about what to do, so it went with the L5/L6 layers; the snapshot now
+    // carries the model's own cross-TF result (`alignment` + `analysis`)
+    // directly and no separate handle is needed.
     /// v6.10 (Phase 2 / B4): per-TF leverage configuration feeding the
     /// cluster estimator. Defaults match the legacy hardcoded
     /// `[1, 3, 5, 10, 20, 50, 100]` / `[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05]`
@@ -854,7 +851,6 @@ pub async fn run_single(
     // computed cross-TF advisory here on every completed candle so
     // consumers that read `pipeline.advisory` directly see the latest
     // cross-TF synthesis result.
-    advisory: Arc<RwLock<Option<AdvisoryMatrix>>>,
     // v6.10 (Phase 3 / C1 + C3): per-TF indicator-lifecycle state map.
     // Passed in so `build_indicator_lifecycle_map` can apply the transition
     // table using the previous snapshot's state and write the result back.
@@ -1634,7 +1630,7 @@ pub async fn run_single(
                         // the shared matrix synthesis. The function builds the
                         // indicators map from the JUST-computed readings (no
                         // double-application), computes the alignment/analysis/
-                        // risk/advisory/opportunity/decision_context matrices
+                        // the model matrices (alignment + analysis)
                         // (previously only the trade-triggered path did),
                         // advances the divergence / S/R / SIL / signal-age
                         // trackers, and broadcasts the completed frame with the
@@ -1761,7 +1757,6 @@ pub async fn run_single(
                             &indicator_lifecycle,
                             &pipeline_state_handle,
                             &latest_snapshot,
-                            &advisory,
                             &broadcast_tx,
                             &telemetry_tx,
                             &latency_tracker,
@@ -2708,7 +2703,6 @@ pub async fn run_single(
                         &indicator_lifecycle,
                         &pipeline_state_handle,
                         &latest_snapshot,
-                        &advisory,
                         &broadcast_tx,
                         &telemetry_tx,
                         &latency_tracker,
@@ -3013,7 +3007,7 @@ pub async fn run_single(
 /// order-book indicators, advances the statistical-intelligence / divergence /
 /// S/R stateful trackers, runs the cross-TF synthesis, and produces + broadcasts
 /// the completed `MarketSnapshot` with the full matrix payload
-/// (alignment/analysis/risk/advisory/opportunity/decision_context).
+/// (alignment + analysis).
 ///
 /// Every stateful tracker advanced here runs exactly once per closed candle:
 /// the v6.11 dedup gate in `run_single` guarantees a bucket is processed by
@@ -3097,7 +3091,6 @@ async fn synthesize_completed_candle(
     indicator_lifecycle: &Arc<RwLock<IndicatorLifecycleMap>>,
     pipeline_state_handle: &Arc<RwLock<CandlePipelineState>>,
     latest_snapshot: &Arc<RwLock<Option<MarketSnapshot>>>,
-    advisory: &Arc<RwLock<Option<AdvisoryMatrix>>>,
     broadcast_tx: &broadcast::Sender<MarketSnapshot>,
     telemetry_tx: &Sender<database_storage::TelemetryMsg>,
     latency_tracker: &core_domain::SharedLatencyTracker,
@@ -3739,14 +3732,10 @@ async fn synthesize_completed_candle(
             pipeline_is_live,
         ),
         context: Some(current_context.clone()),
-        decision_context: None,
         statistical_context: None,
         indicators: indicators.clone(),
         alignment: None,
-        risk: None,
         analysis: None,
-        advisory: None,
-        opportunity: None,
         liquidity_signals: vec![],
         metrics_config: None,
         risk_profile: None,
@@ -3932,35 +3921,25 @@ async fn synthesize_completed_candle(
             Vec::new()
         };
 
-    let mut opportunity_params = crate::synthesis::OpportunityParams::from_strategy(&strategy.l4);
-    opportunity_params.viability_min_net_rr = strategy.tae.intake.min_net_rr;
-    opportunity_params.signal_weights = strategy.l1_5.signal_weights.clone();
-    opportunity_params.ladder_roles = strategy.ladder_roles.clone();
-    let decision_params = crate::strategy_params::decision_params_from_strategy(&strategy.l6);
+    // CR-15: the L4 opportunity, L5 risk and L6 advisory params are strategy
+    // parameters. MME no longer reads them — the strategy layer is not run in
+    // observe mode, and nothing here consumes them.
     let analysis_params = crate::strategy_params::analysis_params_from_strategy(&strategy.l3);
     let alignment_params = crate::strategy_params::alignment_params_from_strategy(&strategy.l2);
-    let mut risk_params = crate::strategy_params::risk_params_from_strategy(&strategy.l5);
-    risk_params.signal_weights = strategy.l1_5.signal_weights.clone();
     let synthesis = crate::synthesis::synthesize_cross_tf(
         symbol,
         &cross_refs,
-        Some(&liquidity_flow),
-        cluster_guard.as_ref(),
-        &emitted_liquidity_signals,
         *prev_mtf_score,
         *prev_regime,
         *prev_volume_dim,
         *prev_bias,
-        // v9: the strategy's L4 opportunity params.
-        &opportunity_params,
-        // v9: the shared L6 DecisionParams.
-        &decision_params,
         // v9: the strategy's L3 params.
         &analysis_params,
         // v9: the strategy's L2 params.
         &alignment_params,
+        // CR-15: which duration leads the per-duration indicator union.
+        &strategy.ladder_roles,
         // v9: the strategy's L5 params.
-        &risk_params,
     );
 
     *prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
@@ -3968,49 +3947,6 @@ async fn synthesize_completed_candle(
     *prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
     *prev_bias = Some(synthesis.analysis.bias);
 
-    let confluence_score = {
-        // v6.10 (Phase 6 / F1): Unsigned 3-factor quality
-        // blend in [0, 100]. All three inputs are categorical
-        // quality scores in [0, 100]. The signed direction
-        // (`sign × magnitude × 100`) was a v6.9 deviation that
-        // turned confluence into a signed [-100, +100] range,
-        // contradicting the spec at
-        // `02-04-decision-matrix.md §2.3` which mandates
-        // unsigned [0, 100]. The direction now lives
-        // separately in `Decision.bias` (Phase 6 / F2 mirrors
-        // `Analysis.bias` via ±40 thresholds).
-        // v9 F-05: the blend weights come from the shared
-        // `DecisionParams` (single source with the BTE runner).
-        let [w_l2, w_l3, w_l4] = decision_params.confluence_weights;
-        let tradability_dim = synthesis
-            .alignment
-            .dimensions
-            .get(9)
-            .map(|d| d.score)
-            .unwrap_or(0.0);
-        let market_quality_score = synthesis.analysis.market_quality_score;
-        let opp_score = synthesis
-            .opportunity
-            .as_ref()
-            .map(|o| o.opportunity_score)
-            .unwrap_or(0.0);
-        (w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score).clamp(0.0, 100.0)
-    };
-
-    let l4_opportunity = synthesis.opportunity.clone();
-
-    let dec_ctx = core_domain::decision_context::DecisionContext::compute(
-        &indicators,
-        close_f,
-        atr_val,
-        confluence_score,
-        &synthesis.analysis,
-        l4_opportunity.as_ref(),
-        &synthesis.risk,
-        // v9: the shared strategy-derived DecisionParams.
-        &decision_params,
-        &analysis_params,
-    );
     let sil_ctx = sil_engine.advance_ext(
         close_f,
         atr_val,
@@ -4105,14 +4041,10 @@ async fn synthesize_completed_candle(
             pipeline_is_live,
         ),
         context: Some(current_context),
-        decision_context: Some(dec_ctx),
         statistical_context: Some(sil_ctx),
         indicators,
         alignment: Some(synthesis.alignment),
-        risk: Some(synthesis.risk),
         analysis: Some(synthesis.analysis),
-        advisory: Some(synthesis.advisory.clone()),
-        opportunity: synthesis.opportunity,
         risk_profile: None,
         // CA-15: master `[liquidity] enabled = false` ⇒ the liquidity
         // payloads are absent from the snapshot (disabled ≡ absent).
@@ -4156,12 +4088,10 @@ async fn synthesize_completed_candle(
     // (~50 s at 1 s TF).
     let mut broadcast_snapshot = completed_snapshot.clone();
     if !pipeline_is_live {
+        // The shadow frame carries candle-derived data only. CR-15 removed the
+        // four strategy nullings here along with the fields themselves.
         broadcast_snapshot.alignment = None;
         broadcast_snapshot.analysis = None;
-        broadcast_snapshot.risk = None;
-        broadcast_snapshot.advisory = None;
-        broadcast_snapshot.opportunity = None;
-        broadcast_snapshot.decision_context = None;
         broadcast_snapshot.statistical_context = None;
         broadcast_snapshot.context = None;
     }
@@ -4173,13 +4103,7 @@ async fn synthesize_completed_candle(
         *snap = Some(completed_snapshot.clone());
     }
 
-    // v6.10 (Phase 2 / B3): write-through the cross-TF
-    // advisory onto the pipeline struct. Mirrors the
-    // pipeline_state / indicator_lifecycle write-through
-    // (those are written via `build_indicator_lifecycle_map`
-    // above). Consumers reading `pipeline.advisory` directly
-    // see the most recent cross-TF synthesis result.
-    *advisory.write().await = Some(synthesis.advisory.clone());
+    // CR-15: the cross-TF advisory write-through is deleted with the L6 layer.
 
     // v6.10 (Phase 3 / C3): write-through the per-TF
     // pipeline_state and indicator_lifecycle onto the
@@ -5503,14 +5427,10 @@ pub(super) fn build_completed_snapshot_from_readings(
         ),
         indicator_lifecycle,
         context: None,
-        decision_context: None,
         statistical_context: None,
         indicators,
         alignment: None,
-        risk: None,
         analysis: None,
-        advisory: None,
-        opportunity: None,
         risk_profile: None,
         liquidity: None,
         cluster: None,
@@ -5810,14 +5730,10 @@ fn broadcast_live_snapshot(
             pipeline_state == CandlePipelineState::Live,
         ),
         context: None,
-        decision_context: None,
         statistical_context: None,
         indicators,
         alignment: None,
-        risk: None,
         analysis: None,
-        advisory: None,
-        opportunity: None,
         liquidity_signals: vec![],
         metrics_config: None,
         risk_profile: None,

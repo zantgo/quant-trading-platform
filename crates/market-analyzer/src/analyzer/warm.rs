@@ -1116,14 +1116,10 @@ fn build_historical_snapshot(
         // and served the resulting zeroed guidance (readiness, probabilities,
         // R:R) on WS bootstrap. Honest `None` — the first live close computes
         // the real decision context a candle later.
-        decision_context: None,
         statistical_context: None,
         indicators,
         alignment: None,
-        risk: None,
         analysis: None,
-        advisory: None,
-        opportunity: None,
         liquidity_signals: vec![],
         metrics_config: None,
         risk_profile: None,
@@ -1258,10 +1254,7 @@ mod tests {
             indicator_lifecycle: std::collections::HashMap::new(),
             indicators: Default::default(),
             alignment: None,
-            risk: None,
             analysis: None,
-            advisory: None,
-            opportunity: None,
             liquidity_signals: vec![],
             metrics_config: None,
             risk_profile: None,
@@ -1270,7 +1263,6 @@ mod tests {
             volume_profile: None,
             quality_envelope: None,
             context: None,
-            decision_context: None,
             statistical_context: None,
         }
     }

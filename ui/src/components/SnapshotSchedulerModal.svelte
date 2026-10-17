@@ -129,12 +129,7 @@
             case 'metrics': return 'Metrics (full raw snapshot)';
             case 'mtf': return 'MTF (raw: slot, indicators count, matrices)';
             case 'alignment': return 'Alignment matrix (raw)';
-            case 'opportunity': return 'Opportunity matrix (raw)';
-            case 'risk': return 'Risk matrix (raw)';
             case 'analysis': return 'Analysis matrix (raw)';
-            case 'advisory': return 'Advisory matrix (raw)';
-            case 'decision': return 'Decision context (raw)';
-            case 'recommendation': return 'Recommendation (raw: advisory + decision)';
         }
     }
 </script>

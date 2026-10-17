@@ -226,8 +226,6 @@ export interface MarketSnapshot {
     context?: MarketContext | null;
     alignment?: AlignmentMatrix | null;
     analysis?: AnalysisMatrix | null;
-    risk?: RiskMatrix | null;
-    advisory?: AdvisoryMatrix | null;
     open_interest?: number | string | null;
     oi_delta_pct?: number | string | null;
     mark_price?: number | string | null;
@@ -235,8 +233,6 @@ export interface MarketSnapshot {
     mark_index_spread_pct?: number | null;
     prev_day_px?: number | string | null;
     statistical_context?: StatisticalContext | null;
-    decision_context?: DecisionContext | null;
-    opportunity?: OpportunityMatrix | null;
     liquidity_signals?: LiquiditySignal[];
     metrics_config?: MetricsConfig | null;
     risk_profile?: number | null;
@@ -600,7 +596,6 @@ export interface OverviewMatrix {
     global_market_bias: GlobalBias;
     market_breadth: MarketBreadth;
     regime_distribution: Record<string, number>;
-    opportunity_distribution: Record<string, number>;
     risk_distribution: RiskDistribution;
     asset_ranking: AssetRank[];
     market_synchronization: SyncLevel;
@@ -949,7 +944,14 @@ export interface TimeframeTelemetry {
 }
 
 /** All feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'opportunity' | 'risk' | 'analysis' | 'recommendation' | 'settings' | 'costs' | 'ledger';
+/**
+ * CR-15: `opportunity`, `risk` and `recommendation` are gone. Each was a view
+ * over an L4/L5/L6 strategy matrix, none of which the wire carries any more.
+ * `analysis` stays for now — it is dissolved with the axes in P10, when the
+ * separate States tab replaces it (P13), so deleting it here would leave a gap
+ * in the sub-tab row rather than a narrowing.
+ */
+export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'analysis' | 'settings' | 'costs' | 'ledger';
 
 export interface InstanceState {
     symbol: string;
@@ -979,27 +981,12 @@ export interface InstanceState {
     currentView: CurrentView;
     alignment: AlignmentMatrix | null;
     analysis: AnalysisMatrix | null;
-    risk: RiskMatrix | null;
-    advisory: AdvisoryMatrix | null;
-    /** Decision-context synthesis (L6) — surfaces trade_readiness and
-     *  confluence score across the most recent macro snapshot. Extracted
-     *  from the WS frame by `applySnapshotToTimeframe` so the Watchlist
-     *  Scanner can poll for the first `trade_readiness` value without
-     *  having to read every TF's `latestSnapshot`. */
-    decisionContext: DecisionContext | null;
-    /** L4 opportunity matrix — entry/target/invalidation zones for both
-     *  sides plus R:R, time horizon, confluent levels and the 8 evaluated
-     *  setup profiles. Only the completed-candle WS frame carries this
-     *  payload (`broadcast_live_snapshot` zeroes it for performance), so
-     *  it is mirrored at the pair level by `applySnapshotToTimeframe`
-     *  rather than read from `terms[1].latestSnapshot` (which gets
-     *  overwritten by shadow ticks). */
-    opportunity: OpportunityMatrix | null;
+
+
     /// Last candle-close timestamp (epoch seconds) whose WS frame was
     /// accepted for the pair-level matrix fields below. Used by the
     /// WebSocket handler as a monotonicity guard so the four slot streams
-    /// can't race-write the shared `alignment` / `analysis` / `risk` /
-    /// `advisory` / `decisionContext` / `opportunity` fields with stale
+    /// can't race-write the shared `alignment` / `analysis` fields with stale
     /// or out-of-order payloads. `-Infinity` means "no frame accepted yet".
     /// Per-slot monotonicity guard (PRI-09, v6.10.7): one timestamp per
     /// slot (`micro|fast|slow|macro`), advanced only by completed frames
@@ -1463,18 +1450,17 @@ export interface NeutralBracket {
 //
 // Mirrors the Rust `SnapshotExportRuntime` (in
 // `core-domain/src/snapshot_export.rs`) and the JSON wire shape
-// returned by `GET /api/snapshot-export/status`. The 9 tabs
-// listed in `ALL_SNAPSHOT_TABS` mirror the Rust `ALL_TABS` array.
+// returned by `GET /api/snapshot-export/status`. These tabs MUST mirror the
+// Rust `ALL_TABS` array exactly — `runtime_from_config` filters a configured
+// tab against that list, so a tab present here but absent there is silently
+// dropped from the runtime (and vice versa). CR-15 removed the five strategy
+// tabs (opportunity / risk / advisory / decision / recommendation) along with
+// the matrices they exported.
 export const ALL_SNAPSHOT_TABS = [
     'metrics',
     'mtf',
     'alignment',
-    'opportunity',
-    'risk',
     'analysis',
-    'advisory',
-    'decision',
-    'recommendation',
 ] as const;
 
 export type SnapshotExportTabId = typeof ALL_SNAPSHOT_TABS[number];

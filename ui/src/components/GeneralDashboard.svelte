@@ -12,14 +12,17 @@
     //      tab); row 2: scan strip (pairs · last scan · auto-refresh);
     //      row 3: badge (BULLISH • HEALTHY (2 pairs)) + meta chips
     //      (Instances / Sys Risk / Sync).
-    //   2. RecommendationHero (TRADE / WAIT / STAND ASIDE)
-    //   3. Header KPI strip (6 cards)
-    //   4. 6-up card row (equally sized + distributed): Trade
-    //      Opportunities, Risk Distribution, Signal Quality, Direction,
-    //      Market Alignment, Regime Distribution
-    //   5. Market Health card (full-width, 4 sub-dim bars)
-    //   6. Asset Rankings table (15-column leaderboard incl. MTF cols + the
-    //      top-setup Entry / Target / Stop / Risk-Reward block)
+    //   2. Header KPI strip
+    //   3. 2-up card row: Market Alignment, Regime Distribution
+    //   4. Market Health card (full-width, 4 sub-dim bars)
+    //   5. Asset Rankings table
+    //
+    // CR-15: the hero verdict, the Trade Opportunities / Risk Distribution /
+    // Signal Quality / Direction cards and the rankings table's top-setup
+    // geometry block are gone. Each rendered a verdict — an opportunity, a
+    // risk level, a confidence band, an entry/target/stop bracket — from the
+    // L4/L5/L6 strategy matrices. The market-status banner above now carries the
+    // page's headline reading on its own.
     //   7. Bottom toolbar: [SCHEDULE SNAPSHOTS] [SCAN WATCHLIST] buttons
     //      grouped and centered; instructional copy lives inside the
     //      watchlist scanner modal
@@ -32,22 +35,16 @@
     import SnapshotSchedulerButton from './SnapshotSchedulerButton.svelte';
     import UtcClockBadge from './dashboard/UtcClockBadge.svelte';
     import ScanStatusStrip from './dashboard/ScanStatusStrip.svelte';
-    import RecommendationHero from './dashboard/RecommendationHero.svelte';
     import HeaderKpiStrip from './dashboard/HeaderKpiStrip.svelte';
-    import TradeOpportunitiesCard from './dashboard/TradeOpportunitiesCard.svelte';
-    import RiskDistributionCard from './dashboard/RiskDistributionCard.svelte';
-    import SignalQualityCard from './dashboard/SignalQualityCard.svelte';
-    import DirectionDistributionCard from './dashboard/DirectionDistributionCard.svelte';
     import MarketAlignmentCard from './dashboard/MarketAlignmentCard.svelte';
     import MarketHealthCard from './dashboard/MarketHealthCard.svelte';
     import RegimeDistributionCard from './dashboard/RegimeDistributionCard.svelte';
     import AssetRankingsTable from './dashboard/AssetRankingsTable.svelte';
     import InstanceStatusTable from './InstanceStatusTable.svelte';
     import ExportDataButton from './ExportDataButton.svelte';
-    import { computeDecisionRank } from '../lib/decisionRank';
     import { getBadgeTrail, badgeHistoryVersion, L7_KEY } from '../lib/badgeHistory.svelte';
     import BadgeTrail from './BadgeTrail.svelte';
-    import { buildL6DecisionHeader, metricsBadgeFor } from '../lib/layerHeader';
+    import { metricsBadgeFor } from '../lib/layerHeader';
     import { activeDurations } from '../lib/terms';
     import { buildOverviewTabExport } from '../lib/exportBuilders/overviewTab';
 
@@ -99,34 +96,26 @@
 
     const buildExport = $derived(() => {
         const instances = Object.values(app.instancesMap);
-        // v11.4: mirror the InstanceStatusTable rows 1:1 — decision badge
-        // + probabilities + per-ACTIVE-TF badges (same derivations the
-        // table renders).
+        // v11.4: mirror the InstanceStatusTable rows 1:1 — the per-ACTIVE-TF
+        // badges (same derivations the table renders).
+        //
+        // CR-15: the row's `decision` block is gone. It rendered a verdict
+        // label plus the LONG / HOLD / SHORT probability ring from
+        // `computeDecisionRank`, which read the L4/L5/L6 matrices. A probability
+        // of "what should I do" is not a market state, and there is nothing to
+        // fill the three buckets with now that the inputs are gone — so the
+        // export carries the model state (`alignment` / `analysis`) below
+        // instead of three fabricated percentages.
         const instance_status = instances.map((inst) => {
-            const rank = computeDecisionRank({
-                advisory: inst.advisory,
-                decisionContext: inst.decisionContext,
-                opportunity: inst.opportunity,
-                analysis: inst.analysis,
-            });
-            const badge = buildL6DecisionHeader({
-                rank,
-                decisionContext: inst.decisionContext,
-                advisory: inst.advisory,
-            }).badge;
             const wss = wssMap[app.pairKeyFor(inst.symbol)];
             return {
                 pair_key: app.pairKeyFor(inst.symbol),
                 symbol: inst.symbol,
-                decision: badge.state === 'empty'
-                    ? null
-                    : {
-                        label: badge.label,
-                        probability_pct: Math.round(rank.top_prob),
-                        long_pct: Math.round(rank.long.probability),
-                        hold_pct: Math.round(rank.hold.probability),
-                        short_pct: Math.round(rank.short.probability),
-                    },
+                model_state: {
+                    bias: inst.analysis?.bias ?? null,
+                    mtf_score: inst.alignment?.mtf_overall_score ?? null,
+                    mtf_label: inst.alignment?.mtf_overall_label ?? null,
+                },
                 timeframes: activeDurations(inst).map((slot) => {
                     const info = metricsBadgeFor(inst.terms?.[slot] ?? null, wss);
                     return {
@@ -222,8 +211,6 @@
                  verdict (Market Status) → comparison (Asset Rankings) →
                  operational detail (Instance Status) → KPIs → cards →
                  diagnostics (Market Health, last). -->
-            <RecommendationHero />
-
             <AssetRankingsTable />
 
             <InstanceStatusTable {wssMap} />
@@ -231,10 +218,6 @@
             <HeaderKpiStrip />
 
             <div class={styles.grid6}>
-                <TradeOpportunitiesCard />
-                <RiskDistributionCard />
-                <SignalQualityCard />
-                <DirectionDistributionCard />
                 <MarketAlignmentCard />
                 <RegimeDistributionCard />
             </div>

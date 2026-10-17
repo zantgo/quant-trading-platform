@@ -5,7 +5,7 @@
 // component regression tests in `src/components/*.test.ts`).
 
 import { useAppStore } from '../../state.svelte';
-import type { AdvisoryMatrix, AlignmentMatrix, AnalysisMatrix, DecisionContext, IndicatorLifecycleStatus, IndicatorMeta, IndicatorDto, LiquidationClusterMatrix, LiquidityFlow, MarketContext, OpportunityMatrix, OpportunityProfile, RiskDimension, RiskMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
+import type { AlignmentMatrix, AnalysisMatrix, IndicatorLifecycleStatus, IndicatorMeta, IndicatorDto, LiquidationClusterMatrix, LiquidityFlow, MarketContext, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
 
 export const PAIR = 'BTC-USDT';
 export const MARK_PRICE = 63390.0;
@@ -43,12 +43,12 @@ export function seedRichInstance(): void {
   entry.terms[30].latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63380, is_completed: true } as unknown as Record<string, unknown>;
   entry.terms[900].latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63360, is_completed: true } as unknown as Record<string, unknown>;
 
+  // CR-15: the fixture sets the model's two matrices only. The strategy
+  // matrices (`risk` / `opportunity` / `advisory` / `decisionContext`) and their
+  // builders are gone from the wire, so a fixture that still populated them
+  // would be testing an export path that can no longer exist.
   entry.alignment = makeAlignment();
   entry.analysis = makeAnalysis();
-  entry.risk = makeRisk();
-  entry.opportunity = makeOpportunity();
-  entry.advisory = makeAdvisory();
-  entry.decisionContext = makeDecisionContext();
 
   entry.terms[1].indicators = makeMicroIndicators();
   entry.terms[1].indicatorLifecycle = makeMicroLifecycle() as unknown as Record<string, IndicatorLifecycleStatus>;
@@ -359,141 +359,6 @@ export function makeAnalysis(): AnalysisMatrix {
     ],
     timeframes_considered: 14,
   };
-}
-
-export function makeRisk(): RiskMatrix {
-  const rd = (score: number, level: RiskDimension['level'], state: RiskDimension['state'], confidence: number, evidence: string[] = []) =>
-    ({ score, level, state, confidence, evidence });
-  return {
-    symbol: PAIR,
-    market_risk: rd(62, 'High', 'Increasing', 80, ['Leverage crowding on the long side']),
-    volatility_risk: rd(45, 'Moderate', 'Elevated', 65, ['ATR expanding']),
-    execution_liquidity_risk: rd(30, 'Low', 'Stable', 70),
-    structure_risk: rd(58, 'High', 'Increasing', 75, ['Price rejecting into supply']),
-    momentum_risk: rd(22, 'Low', 'Stable', 60),
-    signal_risk: rd(35, 'Moderate', 'Stable', 55),
-    execution_risk: { ...rd(15, 'Low', 'Stable', 50), volatility_to_spread_ratio: 9.2 },
-    cascade_risk: rd(70, 'High', 'Critical', 85, ['SUSTAINED cascade above price']),
-    overall_risk: rd(48, 'Moderate', 'Elevated', 74),
-  };
-}
-
-export function makeOpportunity(): OpportunityMatrix {
-  const tc: OpportunityProfile = {
-    opportunity_type: 'TrendContinuation',
-    score: 78,
-    preconditions_met: 3,
-    preconditions_total: 3,
-    notes: 'Trend + bias + momentum aligned',
-    direction_family: 'TREND_RIDING',
-    long_entry_zone: { low: 63200, high: 63400 },
-    long_target_zone: { low: 66000, high: 66500 },
-    long_invalidation_level: 62800,
-    long_expected_rr_internal: 2.5,
-    long_geometry_consistent: true,
-    short_entry_zone: null,
-    short_target_zone: null,
-    short_invalidation_level: null,
-    short_expected_rr_internal: null,
-    short_geometry_consistent: false,
-    trade_viability: 'ACTIONABLE',
-    display_score: 78,
-  };
-  const mr: OpportunityProfile = {
-    opportunity_type: 'MeanReversion',
-    score: 42,
-    preconditions_met: 2,
-    preconditions_total: 3,
-    notes: 'Reversion candidate',
-    direction_family: 'NEUTRAL',
-    long_entry_zone: null,
-    long_target_zone: null,
-    long_invalidation_level: null,
-    long_expected_rr_internal: null,
-    short_entry_zone: null,
-    short_target_zone: null,
-    short_invalidation_level: null,
-    short_expected_rr_internal: null,
-    trade_viability: 'DIRECTIONAL_NEUTRAL',
-    display_score: 28,
-  };
-  return {
-    symbol: PAIR,
-    primary_opportunity: 'TrendContinuation',
-    opportunity_score: 78,
-    setup_quality: 'Strong',
-    profiles: [tc, mr],
-    forecast_confidence: 0.72,
-    contributing_signals: ['rsi_14', 'macd_12_26_9'],
-    invalidation_note: 'A close below 62800 on the completed candle invalidates the TrendContinuation thesis.',
-    entry_zone: { low: 63200, high: 63400 },
-    target_zone: { low: 66000, high: 66500 },
-    invalidation_level: 62800,
-    long_entry_zone: { low: 63200, high: 63400 },
-    long_target_zone: { low: 66000, high: 66500 },
-    long_invalidation_level: 62800,
-    short_entry_zone: null,
-    short_target_zone: null,
-    short_invalidation_level: null,
-    long_expected_rr_internal: 2.5,
-    short_expected_rr_internal: 0,
-    time_horizon: 'SWING',
-    confluent_entry_levels: [
-      { price: 63330, confluence_count: 3, sources: ['FIBONACCI', 'VOLUME_PROFILE', 'PIVOT_POINTS'], strength: 78 },
-      { price: 63100, confluence_count: 2, sources: ['SUPPORT_RESISTANCE'], strength: 64 },
-      { price: 63900, confluence_count: 1, sources: ['LIQUIDITY_CLUSTER'], strength: 50 },
-      { price: 64050, confluence_count: 1, sources: ['FIBONACCI'], strength: 40 },
-      { price: 65000, confluence_count: 1, sources: ['PIVOT_POINTS'], strength: 30 },
-    ],
-    confluent_target_levels: [
-      { price: 66000, confluence_count: 2, sources: ['FIBONACCI', 'VOLUME_PROFILE'], strength: 71 },
-      { price: 66500, confluence_count: 1, sources: ['PIVOT_POINTS'], strength: 55 },
-    ],
-    confluent_invalidation_levels: [],
-    direction_family: 'TREND_RIDING',
-    long_geometry_consistent: true,
-    short_geometry_consistent: false,
-  } as unknown as OpportunityMatrix;
-}
-
-export function makeAdvisory(): AdvisoryMatrix {
-  return {
-    symbol: PAIR,
-    directional_guidance: 'Long',
-    market_stance: 'Constructive',
-    opportunity_classification: 'TrendContinuation',
-    strategy_environment: 'TrendFollowing',
-    entry_guidance: 'Pullback',
-    exit_guidance: 'TrendWeakening',
-    protection_strategy: 'ATRBased',
-    target_strategy: 'ResistanceBased',
-    confidence_assessment: 72,
-    stop_loss_distance_pct: 1.0,
-    cascade_risk_score: 22,
-    environment_favorability: { score: 30, level: 'Low', state: 'Stable', confidence: 60, evidence: [] },
-    // v6.11: setup-efficiency ratio (market quality 72 ÷ overall risk 48 = 1.5).
-    quality_to_risk_ratio: 1.5,
-    final_recommendation: 'Long on pullback toward the 63200-63400 entry zone with invalidation below 62800.',
-  };
-}
-
-export function makeDecisionContext(): DecisionContext {
-  return {
-    score: 62,
-    bias: 'Bullish',
-    confidence: 0.72,
-    score_confidence: 0.72,
-    entry_danger: { score: 35, level: 'Moderate', state: 'Stable', confidence: 60, evidence: [] },
-    expected_reward_risk_ratio: 2.5,
-    trade_readiness: 'READY',
-    contributing_indicators: ['rsi_14', 'macd_12_26_9'],
-    long_probability: 60,
-    short_probability: 15,
-    hold_probability: 25,
-    net_bias_pct: 45,
-    expected_entry_price: 63300,
-    expected_exit_price: 66000,
-  } as unknown as DecisionContext;
 }
 
 export type TimeframeLike = TimeframeTelemetry;

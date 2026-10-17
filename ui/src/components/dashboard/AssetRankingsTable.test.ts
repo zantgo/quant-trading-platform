@@ -77,13 +77,13 @@ describe('AssetRankingsTable — 3-state sort (v11.12)', () => {
         expect(rowSymbols(container)).toEqual(['BTC-USDT', 'ETH-USDT']);
     });
 
-    it('text columns start ASCENDING (SYMBOL: default → ↑)', async () => {
+    it('the first click on a text column starts DESCENDING (SYMBOL: default → ↓)', async () => {
         seedOverview();
         const { container } = render(AssetRankingsTable);
         await tick();
         const symbolTh = header(container, 'Symbol');
         await fireEvent.click(symbolTh);
         await tick();
-        expect(symbolTh.textContent).toContain('↑');
+        expect(symbolTh.textContent).toContain('↓');
     });
 });

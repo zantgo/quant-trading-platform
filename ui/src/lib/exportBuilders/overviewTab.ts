@@ -21,31 +21,13 @@ import type { AssetRank, InstanceState, OverviewMatrix } from '../../types';
 import { buildHeaderBlock, type HeaderBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { demoteBiasForCoverage } from '../layerHeader';
-import { computeHeroState, pickBestOpportunity, collectActiveSetups, aggregateRR, aggregateConfidence, aggregateRisk, aggregateDirections, aggregateSignalQuality, type HeroState } from '../tradeAggregates';
 import { computeMarketHealth } from '../marketHealth';
 import { formatRewardRatio, signalLabel, directionLabel } from '../dashboardColors';
 import { formatRelativeTime } from '../relTime';
-import { resolveActiveRr, topSetupSummary } from '../decisionRank';
 
 // ── Header chrome (LayerHeader) ───────────────────────────────────────────
 
 // ── Hero block ────────────────────────────────────────────────────────────
-
-export interface OverviewHeroBlock {
-    state: HeroState;
-    /** Verbatim screen headline ("TRADE" / "WAIT" / "STAND ASIDE"). */
-    headline: string;
-    /** Verbatim sentence under the headline. */
-    subtext: string;
-    total_candidates: number;
-    actionable_count: number;
-    best_symbol: string | null;
-    best_direction: 'LONG' | 'SHORT' | 'NEUTRAL' | null;
-    best_opportunity_score: number;
-    best_rr: number;
-    best_rr_display: string;
-    best_confidence_pct: number;
-}
 
 // ── Header KPI strip (6 cards) ────────────────────────────────────────────
 
@@ -56,68 +38,19 @@ export interface OverviewKpiBlock {
 }
 
 export interface OverviewKpisBlock {
-    valid_trades: OverviewKpiBlock;
-    best_opportunity: OverviewKpiBlock;
-    avg_rr: OverviewKpiBlock;
     market_bias: OverviewKpiBlock;
-    avg_risk: OverviewKpiBlock;
-    coverage: OverviewKpiBlock;
+    /**
+     * CR-15: `valid_trades`, `best_opportunity`, `avg_rr` and `avg_risk` are
+     * gone. Each was a statement about what to do with the market — how many
+     * setups qualified, which one was best, what the reward:risk was, how risky
+     * the book looked. The two that remain describe the model: its cross-symbol
+     * direction, and how strongly the instances agree.
+     */
+    cross_tf_consensus: OverviewKpiBlock;
+    active_pairs: OverviewKpiBlock;
 }
 
 // ── Card row (5-up) ───────────────────────────────────────────────────────
-
-export interface OverviewTradeOppsCard {
-    valid_total_display: string;
-    valid_setups: number;
-    total_pairs: number;
-    actionable_count: number;
-    total_candidates: number;
-    highest_confidence_pct: number;
-    best: {
-        symbol: string;
-        direction: 'LONG' | 'SHORT' | 'NEUTRAL';
-        rr: number;
-        rr_display: string;
-        confidence_pct: number;
-        opportunity_score: number;
-    } | null;
-    /** Empty-state verbatim copy when no qualifying opportunity exists. */
-    empty_text: string | null;
-}
-
-export interface OverviewRiskDistributionCard {
-    low_pct: number;
-    moderate_pct: number;
-    high_pct: number;
-    environment: string;
-    environment_display: string;
-    source: 'L7' | 'L5' | null;
-    source_display: string;
-}
-
-export interface OverviewSignalQualityCard {
-    strong: number;
-    moderate: number;
-    weak: number;
-    total: number;
-    strong_pct: number;
-    moderate_pct: number;
-    weak_pct: number;
-    total_display: string;
-}
-
-export interface OverviewDirectionCard {
-    long: number;
-    short: number;
-    neutral: number;
-    total: number;
-    long_pct: number;
-    short_pct: number;
-    neutral_pct: number;
-    total_display: string;
-    bullish_setups: number;
-    bearish_setups: number;
-}
 
 export interface OverviewAlignmentCard {
     has_data: boolean;
@@ -140,10 +73,12 @@ export interface OverviewAlignmentCard {
 }
 
 export interface OverviewCardsBlock {
-    trade_opportunities: OverviewTradeOppsCard;
-    risk_distribution: OverviewRiskDistributionCard;
-    signal_quality: OverviewSignalQualityCard;
-    direction: OverviewDirectionCard;
+    /**
+     * CR-15: this block carried four strategy cards alongside the alignment
+     * card — Trade Opportunities, Risk Distribution, Signal Quality and
+     * Direction. The page no longer renders any of them, and the export mirrors
+     * the page: what is exported is what is on screen.
+     */
     market_alignment: OverviewAlignmentCard;
 }
 
@@ -181,40 +116,23 @@ export interface OverviewRegimeBlock {
 
 // ── Asset rankings table ──────────────────────────────────────────────────
 
+// CR-15: the strategy sort keys (signal / direction / rr / confidence / risk
+// and the entry / target / stop levels) are gone with their columns.
 export type SortKey =
-    | 'symbol' | 'price' | 'bias' | 'signal' | 'direction'
-    | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label'
-    | 'risk' | 'entry' | 'target' | 'stop' | 'updated';
+    | 'symbol' | 'price' | 'bias' | 'score' | 'mtf_score' | 'mtf_label'
+    | 'updated';
 export type SortDir = 'asc' | 'desc';
 
 export interface AssetRankingRow {
     symbol: string;
     price_display: string;
     bias: string;
-    signal: 'BUY' | 'SELL' | 'WAIT';
-    direction: 'LONG' | 'SHORT' | 'NEUTRAL';
-    /** Null when the shared resolver marks R:R unavailable (mirrors the L4/L6 panels). */
-    rr: number | null;
-    rr_display: string;
     score: number;
     score_display: string;
-    confidence_pct: number;
-    confidence_display: string;
     mtf_score: number;
     mtf_score_display: string;
     mtf_label: string;
     mtf_label_display: string;
-    risk: number;
-    risk_display: string;
-    /** Top-setup of the Opportunity Layer — entry / target / stop-loss
-     *  levels (0 = N/A) and their compact display strings, mirroring the
-     *  table's ENTRY / TARGET / STOP columns. */
-    entry_low: number;
-    entry_display: string;
-    target_low: number;
-    target_display: string;
-    stop_level: number;
-    stop_display: string;
     updated_ms: number | null;
     updated_display: string;
     connected: boolean;
@@ -253,7 +171,6 @@ export interface OverviewPayload {
     header: HeaderBlock;
     clock: OverviewClockBlock;
     scan_strip: OverviewScanStripBlock;
-    hero: OverviewHeroBlock;
     kpis: OverviewKpisBlock;
     cards: OverviewCardsBlock;
     market_health: OverviewMarketHealthBlock;
@@ -268,80 +185,11 @@ export interface OverviewPayload {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function heroHeadline(s: HeroState): string {
-    if (s === 'TRADE') return 'TRADE';
-    if (s === 'WAIT') return 'WAIT';
-    return 'STAND ASIDE';
-}
-
-function heroSubtext(s: HeroState, n: number, best: ReturnType<typeof pickBestOpportunity>): string {
-    if (s === 'TRADE') {
-        const symbol = best?.symbol ?? '—';
-        const dir = best?.direction === 'LONG' ? 'LONG' : best?.direction === 'SHORT' ? 'SHORT' : '—';
-        const rr = formatRewardRatio(best?.rr);
-        const conf = (best?.confidence ?? 0).toFixed(0);
-        return `${n} actionable setup${n === 1 ? '' : 's'} · best ${symbol} ${dir} · risk-reward ${rr} · confidence ${conf}%`;
-    }
-    if (s === 'WAIT') {
-        return `${n} candidate setup${n === 1 ? '' : 's'} forming — no READY trade yet.`;
-    }
-    return 'No high-quality opportunities detected — stand aside.';
-}
-
-function emptyText(s: HeroState): string | null {
-    // The hero always renders a subtext line — no empty-state placeholder.
-    if (s === 'STAND_ASIDE') return null;
-    return null;
-}
-
 function riskEnvColor(env: string): string {
     if (env === 'LOW_RISK') return '#22c55e';
     if (env === 'MODERATE') return '#f59e0b';
     if (env === 'HIGH_RISK') return '#ef4444';
     return 'rgba(255,255,255,0.4)';
-}
-
-function computeRiskDistributionCard(
-    overview: OverviewMatrix | null,
-    instances: InstanceState[],
-): OverviewRiskDistributionCard {
-    const rd = overview?.risk_distribution;
-    if (rd && (rd.low_pct + rd.moderate_pct + rd.high_pct) > 0) {
-        const env = rd.risk_environment ?? 'NO_DATA';
-        return {
-            low_pct: rd.low_pct,
-            moderate_pct: rd.moderate_pct,
-            high_pct: rd.high_pct,
-            environment: env,
-            environment_display: env.replace('_', ' '),
-            source: 'L7',
-            source_display: 'L7',
-        };
-    }
-    const local = aggregateRisk(instances);
-    if (local.count > 0) {
-        const low = instances.filter((i) => (i.risk?.overall_risk?.score ?? 50) <= 30).length;
-        const high = instances.filter((i) => (i.risk?.overall_risk?.score ?? 50) >= 70).length;
-        const moderate = instances.length - low - high;
-        return {
-            low_pct: (low / instances.length) * 100,
-            moderate_pct: (moderate / instances.length) * 100,
-            high_pct: (high / instances.length) * 100,
-            environment: 'LOCAL',
-            environment_display: 'LOCAL',
-            source: 'L5',
-            source_display: 'L5',
-        };
-    }
-    return {
-        low_pct: 0,
-        moderate_pct: 0,
-        high_pct: 0,
-        environment: 'NO_DATA',
-        environment_display: 'NO_DATA',
-        source: null,
-        source_display: 'no data',
-    };
 }
 
 function computeAlignmentCard(overview: OverviewMatrix | null): OverviewAlignmentCard {
@@ -427,55 +275,21 @@ function fmtZone(low: number, high: number): string {
 function buildAssetRankingRow(
     inst: InstanceState,
     nowMs: number,
-    actionableSymbols: Set<string>,
     assetRanking: AssetRank[] | null = null,
 ): AssetRankingRow | null {
     if (!inst.instanceId) return null;
-    // v2026-08 (M4): one Score definition per column — prefer the canonical
-    // L7 AssetRank score (0.5 × mean_conf + 50), fall back to the local
-    // max qualifying profile score when the backend array is absent.
+    // CR-15: one Score definition per column — prefer the canonical L7 AssetRank
+    // score, falling back to the cross-duration agreement when the backend array
+    // is absent. The old fallback chain walked the opportunity matrix (max
+    // qualifying profile score, then `opportunity_score`), which no longer
+    // exists; the agreement score is the model measurement that remains.
     const backendRank = assetRanking?.find((r) => r.symbol === inst.symbol) ?? null;
-    const opp = inst.opportunity;
-    const adv = inst.advisory;
     const analysis = inst.analysis;
-    const risk = inst.risk;
     const aln = inst.alignment;
-    const guidance = adv?.directional_guidance ?? null;
-    const direction = directionLabel(guidance);
-    // v6.10.16 (FIX-O1): the signal token must agree with the hero's
-    // validity gate — a row can only say BUY/SELL when this instance has
-    // an Actionable + READY setup (the same set the hero counts). A
-    // directional verdict with WATCH/STAND_ASIDE readiness renders WAIT,
-    // so "0 READY trades" and a "BUY" row can never coexist.
-    const signal = actionableSymbols.has(inst.symbol) ? signalLabel(guidance) : 'WAIT';
-
-    let score = 0;
-    if (backendRank != null && Number.isFinite(backendRank.score)) {
-        score = backendRank.score;
-    } else if (opp?.profiles && opp.profiles.length > 0) {
-        score = Math.max(...opp.profiles.map((p) => p.score ?? 0));
-    } else if (opp?.opportunity_score != null) {
-        score = opp.opportunity_score;
-    }
-
-    const bias = analysis?.bias ?? null;
-    // v6.10.16 (FIX-O1): R:R goes through the shared resolver — the same
-    // chain as the L4/L6 panels — so the row can never show a value the
-    // panels explicitly mark N/A (legacy scalar `long_expected_rr_internal`
-    // was the divergence source).
-    const resolvedRr = resolveActiveRr(opp, inst.decisionContext, analysis);
-    const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
-    // Top-setup of the Opportunity Layer — the same `topSetupSummary`
-    // derivation the table's warmup fallback and the Recommendation panel
-    // use (server-computed rows win when the L7 payload is present).
-    const setup = topSetupSummary(opp, analysis, inst.decisionContext, undefined, undefined);
-    const setupZones = setup?.zones ?? null;
-    const entryLow = setupZones?.entry.low ?? 0;
-    const targetLow = setupZones?.target.low ?? 0;
-    const stopLevel = setupZones?.invalidation ?? 0;
-    const confidence = adv?.confidence_assessment ?? 0;
-    const riskScore = risk?.overall_risk?.score ?? 0;
     const mtfScore = aln?.mtf_overall_score ?? 0;
+    const score = backendRank != null && Number.isFinite(backendRank.score)
+        ? backendRank.score
+        : mtfScore;
     const mtfLabel = aln?.mtf_overall_label ?? 'NO_DATA';
     const snap = inst.terms?.[1]?.latestSnapshot as { timestamp?: number } | null;
     const ts = snap?.timestamp ?? null;
@@ -484,26 +298,12 @@ function buildAssetRankingRow(
         symbol: inst.symbol,
         price_display: inst.terms?.[1]?.priceText ?? '--',
         bias: analysis?.bias ?? 'Neutral',
-        signal,
-        direction,
-        rr,
-        rr_display: formatRewardRatio(rr),
         score,
         score_display: score.toFixed(0),
-        confidence_pct: confidence,
-        confidence_display: `${confidence.toFixed(0)}%`,
         mtf_score: mtfScore,
         mtf_score_display: mtfScoreDisplay(mtfScore),
         mtf_label: mtfLabel,
         mtf_label_display: mtfLabelDisplay(mtfLabel),
-        risk: riskScore,
-        risk_display: riskScore.toFixed(0),
-        entry_low: entryLow,
-        entry_display: fmtZone(entryLow, setupZones?.entry.high ?? 0),
-        target_low: targetLow,
-        target_display: fmtZone(targetLow, setupZones?.target.high ?? 0),
-        stop_level: stopLevel,
-        stop_display: fmtLevel(stopLevel),
         updated_ms: ts,
         updated_display: formatRelativeTime(ts, nowMs).label,
         connected: inst.isConnected,
@@ -512,10 +312,7 @@ function buildAssetRankingRow(
 
 /** Numeric sort value for the setup columns (raw levels, not display). */
 function sortValue(r: AssetRankingRow, key: SortKey): number | string | null {
-    if (key === 'entry') return r.entry_low;
-    if (key === 'target') return r.target_low;
-    if (key === 'stop') return r.stop_level;
-    return (r as any)[key];
+    return (r as unknown as Record<string, unknown>)[key] as number | string | null;
 }
 
 function sortAssetRankings(rows: AssetRankingRow[], key: SortKey, dir: SortDir): AssetRankingRow[] {
@@ -562,12 +359,16 @@ export interface OverviewTabInputs {
 export interface InstanceStatusExportRow {
     pair_key: string;
     symbol: string;
-    decision: {
-        label: string;
-        probability_pct: number | null;
-        long_pct: number | null;
-        hold_pct: number | null;
-        short_pct: number | null;
+    /**
+     * CR-15: this row used to carry a `decision` block — a verdict label plus
+     * LONG / HOLD / SHORT probabilities from the L4/L5/L6 strategy matrices.
+     * The export now carries the model's own state, which is what the row
+     * actually shows.
+     */
+    model_state: {
+        bias: string | null;
+        mtf_score: number | null;
+        mtf_label: string | null;
     } | null;
     timeframes: Array<{
         slot: number;
@@ -581,15 +382,10 @@ export interface InstanceStatusExportRow {
 export function buildOverviewTabExport(args: OverviewTabInputs): string {
     const now = args.nowMs ?? Date.now();
     const instances = args.instances;
-    const hero = computeHeroState(instances);
-    const setups = collectActiveSetups(instances);
-    const actionable = setups.filter(
-        (s) => s.viability === 'Actionable' && s.readiness === 'READY',
-    );
-    // v6.10.16 (FIX-O1): the same gate that counts valid trades must drive
-    // the per-asset signal tokens — one shared definition of "tradable".
-    const actionableSymbols = new Set(actionable.map((a) => a.symbol));
-    const best = pickBestOpportunity(instances);
+    // CR-15: the hero verdict, the valid/actionable setup counts and the
+    // "actionable symbol" set are gone. The last one drove a per-asset signal
+    // token in the rankings table — a token that read TRADE / WAIT / STAND
+    // ASIDE. The export mirrors the screen, so none of it survives.
     const overview = args.overviewMatrix;
 
     // v11.4: mirror the InstanceStatusTable — computed by the caller
@@ -625,24 +421,11 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
             last_scan_label: formatRelativeTime(overview ? now : null, now).label,
             auto_refresh: 'on',
         },
-        hero: {
-            state: hero,
-            headline: heroHeadline(hero),
-            subtext: heroSubtext(hero, actionable.length, best),
-            total_candidates: setups.length,
-            actionable_count: actionable.length,
-            best_symbol: best?.symbol ?? null,
-            best_direction: best?.direction ?? null,
-            best_opportunity_score: best?.opportunityScore ?? 0,
-            best_rr: best?.rr ?? 0,
-            best_rr_display: formatRewardRatio(best?.rr),
-            best_confidence_pct: best?.confidence ?? 0,
-        },
-        kpis: buildKpisBlock(instances, actionable, setups, best, overview),
-        cards: buildCardsBlock(instances, setups, actionable, best, overview),
+        kpis: buildKpisBlock(instances, overview),
+        cards: buildCardsBlock(overview),
         market_health: buildMarketHealthBlock(instances, overview),
         regime_distribution: buildRegimeBlock(overview),
-        asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now, actionableSymbols, overview?.asset_ranking ?? null),
+        asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now, overview?.asset_ranking ?? null),
         overview_matrix: overview,
         instance_count: instances.length,
     };
@@ -653,39 +436,18 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
 
 function buildKpisBlock(
     instances: InstanceState[],
-    actionable: ReturnType<typeof collectActiveSetups>,
-    setups: ReturnType<typeof collectActiveSetups>,
-    best: ReturnType<typeof pickBestOpportunity>,
     overview: OverviewMatrix | null,
 ): OverviewKpisBlock {
-    const rr = aggregateRR(instances);
-    const conf = aggregateConfidence(instances);
-    const risk = aggregateRisk(instances);
-
+    // CR-15: the strategy KPIs (valid trades / best opportunity / avg R:R /
+    // avg risk) are gone. Each was a statement about what to do with the
+    // market — how many setups qualified, which one was best, what the
+    // reward:risk was, how risky the book looked. What remains is model state:
+    // the cross-symbol bias, how strongly the instances agree across
+    // durations, and how much of the workspace is actually reporting.
     const totalCount = instances.length;
-    const withOpportunity = instances.filter((i) => i.opportunity).length;
-    const coverage = totalCount > 0 ? (withOpportunity / totalCount) * 100 : 0;
-
+    const connected = instances.filter((i) => i.isConnected).length;
+    const consensus = overview?.alignment_consensus_index ?? null;
     return {
-        valid_trades: {
-            label: 'VALID TRADES',
-            value: actionable.length.toString(),
-            sub: `of ${setups.length} candidates`,
-        },
-        best_opportunity: {
-            label: 'BEST OPPORTUNITY',
-            value: best?.symbol ?? '—',
-            sub: best
-                ? `score ${best.opportunityScore.toFixed(0)} · ${best.direction}`
-                : 'no qualifying setup',
-        },
-        avg_rr: {
-            label: 'RISK TO REWARD RATIO',
-            value: formatRewardRatio(rr.avg),
-            sub: rr.count > 0
-                ? `best ${formatRewardRatio(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}`
-                : 'no ratio data',
-        },
         market_bias: {
             label: 'MARKET BIAS',
             // I-10 parity: the KPI value demotes exactly like the header
@@ -708,93 +470,23 @@ function buildKpisBlock(
                 })()}`
                 : 'local aggregation',
         },
-        avg_risk: {
-            label: 'AVG RISK',
-            value: risk.count > 0 ? risk.avg.toFixed(0) : '—',
-            sub: risk.count > 0
-                ? `across ${risk.count} pair${risk.count === 1 ? '' : 's'}`
-                : 'no risk data',
+        cross_tf_consensus: {
+            label: 'CROSS-TF CONSENSUS',
+            value: consensus != null ? consensus.toFixed(0) : '—',
+            sub: consensus != null ? 'mean cross-duration agreement' : 'no alignment data yet',
         },
-        coverage: {
-            label: 'COVERAGE',
-            value: `${coverage.toFixed(0)}%`,
-            sub: `${withOpportunity}/${totalCount} pairs have opportunity data`,
+        active_pairs: {
+            label: 'ACTIVE PAIRS',
+            value: `${connected}/${totalCount}`,
+            sub: totalCount === 0 ? 'no instances' : `${totalCount - connected} not reporting`,
         },
     };
 }
 
-function buildCardsBlock(
-    instances: InstanceState[],
-    setups: ReturnType<typeof collectActiveSetups>,
-    actionable: ReturnType<typeof collectActiveSetups>,
-    best: ReturnType<typeof pickBestOpportunity>,
-    overview: OverviewMatrix | null,
-): OverviewCardsBlock {
-    const total = instances.length;
-    const valid = Math.min(actionable.length, total);
-    const highestConfidence = setups.length > 0
-        ? Math.max(...setups.map((s) => s.confidence))
-        : 0;
-
-    const tradeOpps: OverviewTradeOppsCard = {
-        valid_total_display: `${valid}/${total}`,
-        valid_setups: valid,
-        total_pairs: total,
-        actionable_count: actionable.length,
-        total_candidates: setups.length,
-        highest_confidence_pct: Number.isFinite(highestConfidence) ? highestConfidence : 0,
-        best: best
-            ? {
-                symbol: best.symbol,
-                direction: best.direction,
-                rr: best.rr,
-                rr_display: formatRewardRatio(best.rr),
-                confidence_pct: best.confidence,
-                opportunity_score: best.opportunityScore,
-            }
-            : null,
-        empty_text: best ? null : 'No qualifying opportunity yet.',
-    };
-
-    const riskDist = computeRiskDistributionCard(overview, instances);
-
-    const sq = aggregateSignalQuality(instances);
-    const sqTotal = sq.strong + sq.moderate + sq.weak;
-    const signalQuality: OverviewSignalQualityCard = {
-        strong: sq.strong,
-        moderate: sq.moderate,
-        weak: sq.weak,
-        total: sqTotal,
-        strong_pct: sqTotal > 0 ? (sq.strong / sqTotal) * 100 : 0,
-        moderate_pct: sqTotal > 0 ? (sq.moderate / sqTotal) * 100 : 0,
-        weak_pct: sqTotal > 0 ? (sq.weak / sqTotal) * 100 : 0,
-        total_display: `${sqTotal} pairs`,
-    };
-
-    const d = aggregateDirections(instances);
-    const dTotal = d.long + d.short + d.neutral;
-    const direction: OverviewDirectionCard = {
-        long: d.long,
-        short: d.short,
-        neutral: d.neutral,
-        total: dTotal,
-        long_pct: dTotal > 0 ? (d.long / dTotal) * 100 : 0,
-        short_pct: dTotal > 0 ? (d.short / dTotal) * 100 : 0,
-        neutral_pct: dTotal > 0 ? (d.neutral / dTotal) * 100 : 0,
-        total_display: `${dTotal} pairs`,
-        bullish_setups: d.long,
-        bearish_setups: d.short,
-    };
-
-    const alignment = computeAlignmentCard(overview);
-
-    return {
-        trade_opportunities: tradeOpps,
-        risk_distribution: riskDist,
-        signal_quality: signalQuality,
-        direction,
-        market_alignment: alignment,
-    };
+function buildCardsBlock(overview: OverviewMatrix | null): OverviewCardsBlock {
+    // CR-15: only the alignment card survives. The four strategy cards each
+    // aggregated a verdict across instances and are gone with their matrices.
+    return { market_alignment: computeAlignmentCard(overview) };
 }
 
 function buildMarketHealthBlock(instances: InstanceState[], overview: OverviewMatrix | null): OverviewMarketHealthBlock {
@@ -847,12 +539,11 @@ function buildAssetRankingsBlock(
     sortKey: SortKey,
     sortDir: SortDir,
     nowMs: number,
-    actionableSymbols: Set<string>,
     assetRanking: AssetRank[] | null,
 ): OverviewAssetRankingsBlock {
     const rows: AssetRankingRow[] = [];
     for (const inst of instances) {
-        const r = buildAssetRankingRow(inst, nowMs, actionableSymbols, assetRanking);
+        const r = buildAssetRankingRow(inst, nowMs, assetRanking);
         if (r) rows.push(r);
     }
     const sorted = sortAssetRankings(rows, sortKey, sortDir);

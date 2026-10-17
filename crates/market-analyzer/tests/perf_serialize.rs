@@ -8,15 +8,12 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use core_domain::advisory::AdvisoryMatrix;
 use core_domain::alignment::AlignmentMatrix;
 use core_domain::analysis::AnalysisMatrix;
-use core_domain::decision_context::DecisionContext;
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::{ContextDimension, MarketContext};
 use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity};
 use core_domain::normalized::Exchange;
-use core_domain::risk::RiskMatrix;
 use rust_decimal_macros::dec;
 
 const INDICATOR_KEYS: &[&str] = &[
@@ -102,21 +99,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         overall_label: "BULLISH".into(),
     };
 
-    let decision = DecisionContext {
-        score: 45.0,
-        bias: "Bullish".into(),
-        score_confidence: 0.68,
-        entry_danger: core_domain::risk::RiskDimension::from_score(35.0),
-        expected_reward_risk_ratio: 2.1,
-        trade_readiness: "WATCH".into(),
-        contributing_indicators: vec!["rsi".into(), "macd".into(), "adx".into()],
-        long_probability: 0.0,
-        short_probability: 0.0,
-        hold_probability: 0.0,
-        net_bias_pct: 0.0,
-        lean_floor_applied: false,
-    };
-
     MarketSnapshot {
         timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
@@ -140,8 +122,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         context: Some(context),
         alignment: Some(AlignmentMatrix::empty("BTC-USDT")),
         analysis: Some(AnalysisMatrix::empty("BTC-USDT")),
-        risk: Some(RiskMatrix::empty("BTC-USDT")),
-        advisory: Some(AdvisoryMatrix::empty("BTC-USDT")),
         open_interest: Some(dec!(15000000.0)),
         oi_delta_pct: Some(dec!(500000.0)),
         oi_delta_window_secs: None,
@@ -150,8 +130,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         mark_index_spread_pct: Some(0.004),
         prev_day_px: Some(dec!(49500.0)),
         statistical_context: None,
-        decision_context: Some(decision),
-        opportunity: None,
         liquidity_signals: vec![],
         metrics_config: None,
         risk_profile: Some(1),

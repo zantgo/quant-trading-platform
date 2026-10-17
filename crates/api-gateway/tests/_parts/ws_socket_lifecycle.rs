@@ -105,7 +105,6 @@ async fn app_state() -> Arc<AppState> {
                 core_domain::models::CandlePipelineState::Initializing,
             )),
             indicator_lifecycle: Arc::new(RwLock::new(Default::default())),
-            advisory: Arc::new(RwLock::new(None)),
             tf_leverage_config: Arc::new(Default::default()),
             buffer_size: 500,
             stale_threshold_secs: 300,

@@ -149,7 +149,6 @@ async fn shadow_candles_never_completed() {
             None,
             1,
             300,
-            Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(
                 core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
             )),

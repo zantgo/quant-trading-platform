@@ -15,8 +15,6 @@ import { cleanup, render } from '@testing-library/svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import AlignmentPanel from './AlignmentPanel.svelte';
 import AnalysisPanel from './AnalysisPanel.svelte';
-import RiskPanel from './RiskPanel.svelte';
-import RecommendationPanel from './RecommendationPanel.svelte';
 import { useAppStore } from '../state.svelte';
 import type { AlignmentMatrix, AnalysisMatrix, DecisionContext, InstanceState, OpportunityMatrix, RiskDimension, RiskMatrix } from '../types';
 
@@ -52,10 +50,6 @@ function seedEmptyPair(): InstanceState {
     const entry = app.instancesMap['BTC-USDT'];
     entry.alignment = null;
     entry.analysis = null;
-    entry.risk = null;
-    entry.opportunity = null;
-    entry.advisory = null;
-    entry.decisionContext = null;
     return entry;
 }
 
@@ -77,15 +71,15 @@ describe('chrome invariant — no text sits above the LayerHeader', () => {
             // as the first painted child; the document's full text content
             // must not contain the legacy phrase. OpportunitiesPanel is
             // deliberately excluded from this loop — the user's later
-            // request restored it to its pre-v7 chrome shape, so the L4
-            // body content (Trade Setups / Invalidation Note / etc.)
-            // legitimately re-renders even with no matrix loaded, and the
-            // v6 "Awaiting" copy may surface inside the body.
+            // The three per-pair panels that render a LayerHeader.
+            //
+            // CR-15: `RiskPanel` and `RecommendationPanel` were in this list
+            // and are gone — both were deleted, since each rendered a strategy
+            // verdict. The invariant still has three panels to check, which is
+            // what it is for: a new panel must not grow a pre-header banner.
             const panels = [
                 AlignmentPanel,
                 AnalysisPanel,
-                RiskPanel,
-                RecommendationPanel,
             ];
             let found = false;
             for (const Panel of panels) {

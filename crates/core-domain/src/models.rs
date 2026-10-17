@@ -230,14 +230,14 @@ pub struct MarketSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub analysis: Option<crate::analysis::AnalysisMatrix>,
 
-    /// Market risk assessment per symbol.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub risk: Option<crate::risk::RiskMatrix>,
-
-    /// Advisory guidance per symbol.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub advisory: Option<crate::advisory::AdvisoryMatrix>,
-
+    // ── CR-15: removed from this struct ────────────────────────────────
+    // `risk` (L5), `advisory` (L6), `opportunity` (L4) and
+    // `decision_context` (L6) were deleted here. They are strategy: they
+    // exist to decide an action, and nothing in observe mode decides one. The
+    // types remain in core-domain (`risk`, `advisory`, `opportunity`,
+    // `decision_context`) because TAE names them and the BTE runner replays
+    // against them; what is gone is the ability to reach a browser with one
+    // attached. See 01-21 §5 — the boundary is a test, not a convention.
     /// Open Interest value at snapshot time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_interest: Option<Decimal>,
@@ -270,14 +270,6 @@ pub struct MarketSnapshot {
     /// Statistical intelligence context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub statistical_context: Option<StatisticalContext>,
-
-    /// Decision context from the decision_context module.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decision_context: Option<crate::decision_context::DecisionContext>,
-
-    /// Opportunity matrix (L4). Populated for completed snapshots.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub opportunity: Option<crate::opportunity::OpportunityMatrix>,
 
     /// Liquidity signals (Phase 3). Per-snapshot derived from L1.5 + L2.5.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -424,10 +416,6 @@ impl MarketSnapshot {
         out.context = None;
         out.alignment = None;
         out.analysis = None;
-        out.risk = None;
-        out.advisory = None;
-        out.decision_context = None;
-        out.opportunity = None;
         out.statistical_context = None;
         out.cluster = None;
         out.liquidity = None;

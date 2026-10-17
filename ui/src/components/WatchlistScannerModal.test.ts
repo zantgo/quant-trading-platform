@@ -1,23 +1,30 @@
 // @vitest-environment jsdom
 // Tests for the Watchlist Scanner modal — three phases (input, running,
-// done) over a single dialog. The modal's three async dependencies
-// (`createInstance`, `waitForAdvisory`, `connectWsForInstance`) are
+// done) over a single dialog. The modal's async dependencies
+// (`createInstance`, `waitForModelState`, `connectWsForInstance`) are
 // mocked at the module level so the test never hits the network.
+//
+// CR-15: the modal no longer deletes anything it added. It used to remove a
+// pair whose wait window closed without a READY trade call — a rule reading
+// `trade_readiness` and `directional_guidance`, both of which are gone. With
+// the inputs gone every pair resolved DELETE and the scanner removed everything
+// it had just added. The tests below pin the replacement: a timeout and an
+// unresolved model state are NOTES on a pair that stays.
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdvisoryMatrix, DecisionContext } from '../types';
+import type { AlignmentMatrix, AnalysisMatrix } from '../types';
 import { useAppStore } from '../state.svelte';
 
 const mockCreateInstance = vi.fn();
 const mockDeleteInstanceById = vi.fn();
-const mockWaitForAdvisory = vi.fn();
+const mockWaitForModelState = vi.fn();
 const mockConnectWsForInstance = vi.fn();
 
 vi.mock('../lib/api.svelte', () => ({
     createInstance: (...args: unknown[]) => mockCreateInstance(...args),
     deleteInstanceById: (...args: unknown[]) => mockDeleteInstanceById(...args),
-    waitForAdvisory: (...args: unknown[]) => mockWaitForAdvisory(...args),
+    waitForModelState: (...args: unknown[]) => mockWaitForModelState(...args),
 }));
 
 vi.mock('../lib/websocket.svelte', () => ({
@@ -26,41 +33,22 @@ vi.mock('../lib/websocket.svelte', () => ({
 
 import WatchlistScannerModal from './WatchlistScannerModal.svelte';
 
-function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
-    return {
-        symbol: 'BTC-USDT',
-        directional_guidance: 'Long',
-        market_stance: 'Neutral',
-        opportunity_classification: 'TrendContinuation',
-        strategy_environment: 'TrendFollowing',
-        entry_guidance: 'WaitForConfirmation',
-        exit_guidance: 'NoWarning',
-        protection_strategy: 'ATRBased',
-        target_strategy: 'ResistanceBased',
-        confidence_assessment: 31,
-        final_recommendation: 'Long bias',
-        ...overrides,
-    } as AdvisoryMatrix;
+function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
+    return { bias: 'Bullish', ...overrides } as AnalysisMatrix;
 }
 
-function makeDecisionContext(overrides: Partial<DecisionContext> = {}): DecisionContext {
+function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatrix {
     return {
-        score: 75,
-        bias: 'Bullish',
-        confidence: 0.7,
-        score_confidence: 0.7,
-        entry_danger: 25,
-        expected_reward_risk_ratio: 2.0,
-        trade_readiness: 'READY',
-        contributing_indicators: [],
+        mtf_overall_score: 42,
+        mtf_overall_label: 'WEAK_BULL_MTF',
         ...overrides,
-    } as DecisionContext;
+    } as AlignmentMatrix;
 }
 
 beforeEach(() => {
     mockCreateInstance.mockReset();
     mockDeleteInstanceById.mockReset();
-    mockWaitForAdvisory.mockReset();
+    mockWaitForModelState.mockReset();
     mockConnectWsForInstance.mockReset();
     mockDeleteInstanceById.mockResolvedValue(true);
 
@@ -112,9 +100,9 @@ describe('WatchlistScannerModal — input phase', () => {
         expect(waitInput.max).toBe('60');
     });
 
-    it('passes the configured wait window (minutes → ms) to waitForAdvisory', async () => {
+    it('passes the configured wait window (minutes → ms) to waitForModelState', async () => {
         mockCreateInstance.mockResolvedValue({ ok: true, instanceId: 'inst_btc' });
-        mockWaitForAdvisory.mockResolvedValue({ status: 'TIMEOUT', waitedMs: 420_000 });
+        mockWaitForModelState.mockResolvedValue({ status: 'TIMEOUT', waitedMs: 420_000 });
 
         render(WatchlistScannerModal, {
             props: { isOpen: true, wssMap: {}, onclose: () => {} },
@@ -127,7 +115,7 @@ describe('WatchlistScannerModal — input phase', () => {
 
         await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy());
         // 7 minutes → 420,000 ms window.
-        expect(mockWaitForAdvisory).toHaveBeenCalledWith(
+        expect(mockWaitForModelState).toHaveBeenCalledWith(
             expect.anything(),
             expect.any(String),
             420_000,
@@ -170,41 +158,40 @@ describe('WatchlistScannerModal — run phase', () => {
         expect(mockCreateInstance).toHaveBeenCalled();
     });
 
-    it('keeps pair with READY + Long; removes pair with STAND_ASIDE', async () => {
+    // CR-15: the four cases below used to assert deletions. They now assert the
+    // opposite — every pair that was added survives, whatever the model (or the
+    // lack of it) said.
+    it('keeps both pairs when both resolve a model state', async () => {
         mockCreateInstance
             .mockResolvedValueOnce({ ok: true, instanceId: 'inst_btc' })
             .mockResolvedValueOnce({ ok: true, instanceId: 'inst_eth' });
-        mockWaitForAdvisory
+        mockWaitForModelState
             .mockResolvedValueOnce({
                 status: 'READY',
-                decisionContext: makeDecisionContext({ trade_readiness: 'READY' }),
-                advisory: makeAdvisory({ directional_guidance: 'Long' }),
+                analysis: makeAnalysis({ bias: 'Bullish' }),
+                alignment: makeAlignment(),
             })
             .mockResolvedValueOnce({
                 status: 'READY',
-                decisionContext: makeDecisionContext({ trade_readiness: 'STAND_ASIDE' }),
-                advisory: makeAdvisory({ directional_guidance: 'StrongLong' }),
+                analysis: makeAnalysis({ bias: 'StrongBullish' }),
+                alignment: makeAlignment(),
             });
 
-        const onclose = vi.fn();
         render(WatchlistScannerModal, {
-            props: { isOpen: true, wssMap: {}, onclose },
+            props: { isOpen: true, wssMap: {}, onclose: () => {} },
         });
         const textarea = screen.getByLabelText('Watchlist symbols') as HTMLTextAreaElement;
         await fireEvent.input(textarea, { target: { value: 'BTC ETH' } });
         await fireEvent.click(screen.getByText('Continue'));
 
         await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy());
-        // The "Kept" label appears in both the summary stats block and the
-        // summary groups block; use getAllByText since both must render.
         expect(screen.getAllByText('Kept').length).toBeGreaterThanOrEqual(1);
-        expect(mockDeleteInstanceById).toHaveBeenCalledWith('inst_eth');
-        expect(mockDeleteInstanceById).not.toHaveBeenCalledWith('inst_btc');
+        expect(mockDeleteInstanceById).not.toHaveBeenCalled();
     });
 
-    it('removes pair on timeout (TIMEOUT branch)', async () => {
+    it('CR-15: keeps the pair on timeout — a silent model is not a reason to delete', async () => {
         mockCreateInstance.mockResolvedValue({ ok: true, instanceId: 'inst_btc' });
-        mockWaitForAdvisory.mockResolvedValue({ status: 'TIMEOUT' });
+        mockWaitForModelState.mockResolvedValue({ status: 'TIMEOUT' });
 
         render(WatchlistScannerModal, {
             props: { isOpen: true, wssMap: {}, onclose: () => {} },
@@ -214,15 +201,19 @@ describe('WatchlistScannerModal — run phase', () => {
         await fireEvent.click(screen.getByText('Continue'));
 
         await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy());
-        expect(mockDeleteInstanceById).toHaveBeenCalledWith('inst_btc');
+        expect(
+            mockDeleteInstanceById,
+            'CR-15: a timeout must not delete the instance the operator added',
+        ).not.toHaveBeenCalled();
+        expect(screen.getAllByText('Kept').length).toBeGreaterThanOrEqual(1);
     });
 
-    it('keeps pair with READY + StrongShort', async () => {
+    it('CR-15: keeps the pair on a bearish model state', async () => {
         mockCreateInstance.mockResolvedValue({ ok: true, instanceId: 'inst_sol' });
-        mockWaitForAdvisory.mockResolvedValue({
+        mockWaitForModelState.mockResolvedValue({
             status: 'READY',
-            decisionContext: makeDecisionContext({ trade_readiness: 'READY' }),
-            advisory: makeAdvisory({ directional_guidance: 'StrongShort' }),
+            analysis: makeAnalysis({ bias: 'StrongBearish' }),
+            alignment: makeAlignment({ mtf_overall_label: 'STRONG_BEAR_MTF' }),
         });
 
         render(WatchlistScannerModal, {
@@ -236,12 +227,15 @@ describe('WatchlistScannerModal — run phase', () => {
         expect(mockDeleteInstanceById).not.toHaveBeenCalled();
     });
 
-    it('removes pair with READY + Neutral', async () => {
+    it('CR-15: keeps the pair on a NEUTRAL model state', async () => {
+        // This is the exact case the old rule DELETEd ("direction neutral"), on
+        // the grounds that a market with no directional call is not worth a
+        // workspace slot. That is a trading judgement, not an observe one.
         mockCreateInstance.mockResolvedValue({ ok: true, instanceId: 'inst_avax' });
-        mockWaitForAdvisory.mockResolvedValue({
+        mockWaitForModelState.mockResolvedValue({
             status: 'READY',
-            decisionContext: makeDecisionContext({ trade_readiness: 'READY' }),
-            advisory: makeAdvisory({ directional_guidance: 'Neutral' }),
+            analysis: makeAnalysis({ bias: 'Neutral' }),
+            alignment: makeAlignment({ mtf_overall_label: 'NEUTRAL_MTF', mtf_overall_score: 0 }),
         });
 
         render(WatchlistScannerModal, {
@@ -252,7 +246,10 @@ describe('WatchlistScannerModal — run phase', () => {
         await fireEvent.click(screen.getByText('Continue'));
 
         await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy());
-        expect(mockDeleteInstanceById).toHaveBeenCalledWith('inst_avax');
+        expect(
+            mockDeleteInstanceById,
+            'CR-15: a neutral model state must not delete the pair',
+        ).not.toHaveBeenCalled();
     });
 
     it('skips duplicate pair without deleting anything', async () => {
@@ -270,7 +267,7 @@ describe('WatchlistScannerModal — run phase', () => {
 
         await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy());
         expect(mockDeleteInstanceById).not.toHaveBeenCalled();
-        expect(mockWaitForAdvisory).not.toHaveBeenCalled();
+        expect(mockWaitForModelState).not.toHaveBeenCalled();
     });
 });
 
@@ -291,15 +288,18 @@ describe('WatchlistScannerModal — done phase', () => {
         expect(onclose).toHaveBeenCalled();
     });
 
-    it('renders summary stats with kept/removed counts', async () => {
+    // CR-15: this counted one kept and one removed (ETH, on timeout). Nothing is
+    // removed any more, so both are kept — and the summary must not claim
+    // otherwise.
+    it('renders summary stats with both pairs kept', async () => {
         mockCreateInstance
             .mockResolvedValueOnce({ ok: true, instanceId: 'inst_btc' })
             .mockResolvedValueOnce({ ok: true, instanceId: 'inst_eth' });
-        mockWaitForAdvisory
+        mockWaitForModelState
             .mockResolvedValueOnce({
                 status: 'READY',
-                decisionContext: makeDecisionContext({ trade_readiness: 'READY' }),
-                advisory: makeAdvisory({ directional_guidance: 'Long' }),
+                analysis: makeAnalysis({ bias: 'Bullish' }),
+                alignment: makeAlignment(),
             })
             .mockResolvedValueOnce({ status: 'TIMEOUT' });
 
@@ -311,9 +311,10 @@ describe('WatchlistScannerModal — done phase', () => {
         await fireEvent.click(screen.getByText('Continue'));
 
         await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy());
-        // Kept: 1 (BTC), Removed: 1 (ETH — timeout). Both labels appear in
-        // multiple sections (stats + groups), so use getAllByText.
         expect(screen.getAllByText('Kept').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Removed').length).toBeGreaterThanOrEqual(1);
+        expect(
+            screen.queryAllByText('Removed').length,
+            'CR-15: no pair is removed, so the Removed count must read zero',
+        ).toBe(0);
     });
 });

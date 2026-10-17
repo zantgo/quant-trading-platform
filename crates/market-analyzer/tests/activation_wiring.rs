@@ -164,7 +164,8 @@ async fn drive_pipeline(
             None,
             5,
             300,
-            Arc::new(RwLock::new(None)),
+            // CR-15: the per-TF advisory handle that used to sit here is
+            // gone — the snapshot carries the model's cross-TF result.
             Arc::new(RwLock::new(
                 core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
             )),

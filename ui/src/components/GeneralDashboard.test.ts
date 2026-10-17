@@ -155,10 +155,6 @@ function makeInstance(symbol: string, overrides: Partial<InstanceState> = {}): I
         currentView: 'terminal',
         alignment: null,
         analysis: makeAnalysis(),
-        risk: makeRiskMatrix(40),
-        advisory: makeAdvisory(),
-        decisionContext: makeDecisionContext(),
-        opportunity: makeOpportunity(),
         lastMatrixTimestampBySlot: {},
         lastCompletedClose: null,
         automationEnabled: false,
@@ -208,129 +204,54 @@ describe('GeneralDashboard — empty state', () => {
 });
 
 describe('GeneralDashboard — instance status table (v11.2)', () => {
-    it('renders the v11.11 definitive order: header → hero → rankings → instance table', () => {
+    it('renders the definitive order: header → rankings → instance table', () => {
         seedPair('BTC');
         seedPair('ETH');
         const { container } = render(GeneralDashboard, { props: { wssMap: {} } });
         const table = container.querySelector('[aria-label="Per-instance status"]');
-        expect(table).toBeTruthy();
         const header = container.querySelector('[class*="unifiedHeader"]');
-        const hero = container.querySelector('[class*="hero"]');
+        const rankings = container.querySelector('[class*="assetRankings"], [class*="ranking"]')
+            ?? container.querySelector('table');
         expect(header).toBeTruthy();
-        expect(hero).toBeTruthy();
-        // v11.11 DEFINITIVE ORDER: header → MARKET STATUS (hero) →
-        // ASSET RANKINGS → INSTANCE STATUS (…→ Market Health last).
-        expect(header!.compareDocumentPosition(hero!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-        expect(hero!.compareDocumentPosition(table!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        expect(rankings).toBeTruthy();
+        expect(table).toBeTruthy();
+        // CR-15: the market-status banner used to be a separate `RecommendationHero`
+        // between the header and the rankings. Its verdict (TRADE / WAIT / STAND
+        // ASIDE) was strategy; the status reading now lives in the unified
+        // header's own badge row, so the funnel is header → rankings → instance
+        // status → KPIs → cards → market health.
+        expect(header!.compareDocumentPosition(rankings!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        expect(rankings!.compareDocumentPosition(table!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
         // One collapsed row per instance.
         const bodyRows = Array.from(table!.querySelectorAll('tbody tr'));
         expect(bodyRows.length).toBe(2);
     });
 });
 
-describe('GeneralDashboard — hero states', () => {
-    it('renders TRADE when at least one Actionable + READY setup exists', () => {
-        seedPair('BTC', {
-            decisionContext: makeDecisionContext({ trade_readiness: 'READY' }),
-            opportunity: makeOpportunity({
-                profiles: [{
-                    opportunity_type: 'TrendContinuation',
-                    score: 80,
-                    preconditions_met: 3,
-                    preconditions_total: 4,
-                    notes: '',
-                    direction_family: 'TREND_RIDING',
-                    long_entry_zone: null,
-                    long_target_zone: null,
-                    long_invalidation_level: null,
-                    short_entry_zone: null,
-                    short_target_zone: null,
-                    short_invalidation_level: null,
-                    long_expected_rr_internal: 2.5,
-                    short_expected_rr_internal: null,
-                    trade_viability: 'ACTIONABLE',
-                }],
-            }),
-        });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getByText('TRADE')).toBeTruthy();
-        expect(screen.getByText(/actionable setup/i)).toBeTruthy();
-    });
-
-    it('renders WAIT when only DirectionalNeutral setups exist', () => {
-        seedPair('BTC', {
-            decisionContext: makeDecisionContext({ trade_readiness: 'FORMING' }),
-            opportunity: makeOpportunity({
-                profiles: [{
-                    opportunity_type: 'MeanReversion',
-                    score: 50,
-                    preconditions_met: 2,
-                    preconditions_total: 4,
-                    notes: '',
-                    direction_family: 'NEUTRAL',
-                    long_entry_zone: null,
-                    long_target_zone: null,
-                    long_invalidation_level: null,
-                    short_entry_zone: null,
-                    short_target_zone: null,
-                    short_invalidation_level: null,
-                    long_expected_rr_internal: null,
-                    short_expected_rr_internal: null,
-                    trade_viability: 'DIRECTIONAL_NEUTRAL',
-                }],
-            }),
-        });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        // The hero WAIT and the asset-table WAIT cells both render.
-        expect(screen.getAllByText('WAIT').length).toBeGreaterThan(0);
-    });
-
-    it('renders STAND ASIDE when no qualifying profile exists', () => {
-        seedPair('BTC', {
-            opportunity: makeOpportunity({ profiles: [] }),
-        });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getByText('STAND ASIDE')).toBeTruthy();
-    });
-});
-
 describe('GeneralDashboard — asset rankings table', () => {
-    it('renders 15 columns (Symbol, Price, Entry, Take Profit, Stop Loss, Bias, Signal, Direction, R:R, Score, Confidence, MTF Score, MTF Label, Risk, Updated) — Image 1 fidelity', () => {
+    // CR-15: the table was 15 columns — Symbol, Price, Entry, Take Profit,
+    // Stop Loss, Bias, Signal, Direction, R:R, Score, Confidence, MTF Score,
+    // MTF Label, Risk, Updated — and eight of them were strategy. The seven that
+    // remain are what the model measures.
+    it('renders the 7 model columns (Symbol, Price, Bias, Score, MTF Score, MTF Label, Updated)', () => {
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
-        // Verify each column header is present (use getAllByText for
-        // labels that may appear in multiple cards, e.g. "Direction"
-        // appears in the Trade Opportunities card AND the table).
-        expect(screen.getAllByText('Symbol').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Price').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Entry').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Take Profit').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Stop Loss').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Bias').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Signal').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
-        // R:R header renders as "R:R" (colon without slash)
-        expect(screen.getAllByText('R:R').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Score').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('MTF Score').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('MTF Label').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Risk').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Updated').length).toBeGreaterThan(0);
+        for (const col of ['Symbol', 'Price', 'Bias', 'Score', 'MTF Score', 'MTF Label', 'Updated']) {
+            expect(screen.getAllByText(col).length, `missing column ${col}`).toBeGreaterThan(0);
+        }
     });
 
-    it('renders the top-setup entry / target / stop levels', () => {
+    it('renders no strategy column', () => {
+        // The regression this pins: a strategy column creeping back onto the
+        // table. Each of these rendered a claim about what to do.
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
-        // The seeded profile carries long zones 60,000–62,000 /
-        // 65,000–68,000 / 59,000 → the ENTRY / TARGET / STOP cells render
-        // them (local warmup fallback through `topSetupSummary`).
-        expect(screen.getAllByText('60,000–62,000').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('65,000–68,000').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('59,000').length).toBeGreaterThan(0);
+        for (const col of ['Entry', 'Take Profit', 'Stop Loss', 'Signal', 'Direction', 'R:R', 'Confidence', 'Risk']) {
+            expect(screen.queryAllByText(col).length, `strategy column ${col} is back`).toBe(0);
+        }
     });
 
-    it('renders the server-computed setup levels from overview_rows', () => {
+    it('renders the server-computed model columns from overview_rows', () => {
         seedPair('BTC');
         const app = useAppStore();
         app.overviewMatrix = {
@@ -339,28 +260,18 @@ describe('GeneralDashboard — asset rankings table', () => {
                     symbol: 'BTC-USDT',
                     price: 63505,
                     bias: 'Bullish',
-                    signal: 'BUY',
-                    direction: 'LONG',
-                    rr: 2.5,
                     score: 61,
-                    confidence: 75,
                     mtf_score: 42,
                     mtf_label: 'WEAK_BULL_MTF',
-                    risk: 45,
-                    entry_low: 63200,
-                    entry_high: 63400,
-                    target_low: 66000,
-                    target_high: 66500,
-                    invalidation: 62800,
                     updated_ts: 1_700_000_000,
                     active: true,
                 },
             ],
         } as OverviewMatrix;
         render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getAllByText('63,200–63,400').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('66,000–66,500').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('62,800').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('WEAK BULL').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('61').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('+42').length).toBeGreaterThan(0);
     });
 
     it('renders one row per pair', () => {
@@ -374,71 +285,6 @@ describe('GeneralDashboard — asset rankings table', () => {
         expect(screen.getAllByText('ETH').length).toBeGreaterThan(0);
     });
 
-    it('renders BUY signal for LONG directional_guidance', () => {
-        seedPair('BTC', {
-            advisory: makeAdvisory({ directional_guidance: 'Long' }),
-        });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        const cells = screen.getAllByText('BUY');
-        expect(cells.length).toBeGreaterThan(0);
-    });
-
-    it('renders SELL signal for SHORT directional_guidance', () => {
-        seedPair('BTC', {
-            advisory: makeAdvisory({ directional_guidance: 'StrongShort' }),
-        });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        const cells = screen.getAllByText('SELL');
-        expect(cells.length).toBeGreaterThan(0);
-    });
-
-    it('renders WAIT signal for Neutral directional_guidance', () => {
-        seedPair('BTC', {
-            advisory: makeAdvisory({ directional_guidance: 'Neutral' }),
-        });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        const cells = screen.getAllByText('WAIT');
-        expect(cells.length).toBeGreaterThan(0);
-    });
-});
-
-describe('GeneralDashboard — risk distribution', () => {
-    it('renders the Risk Distribution card', () => {
-        seedPair('BTC');
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getByText('RISK DISTRIBUTION')).toBeTruthy();
-        expect(screen.getByText('Low')).toBeTruthy();
-        expect(screen.getByText('Moderate')).toBeTruthy();
-        expect(screen.getByText('High')).toBeTruthy();
-    });
-
-    it('uses OverviewMatrix.risk_distribution when present (L7 source)', () => {
-        const app = useAppStore();
-        app.overviewMatrix = {
-            global_market_bias: 'BULLISH',
-            market_breadth: 'POSITIVE',
-            low_coverage: false,
-            breadth_pct: 50,
-            regime_distribution: {},
-            opportunity_distribution: {},
-            risk_distribution: {
-                low_pct: 60,
-                moderate_pct: 30,
-                high_pct: 10,
-                risk_environment: 'LOW_RISK',
-            },
-            asset_ranking: [],
-            market_synchronization: 'SYNCHRONIZED',
-            market_health: 'HEALTHY',
-            global_summary: '',
-            instance_count: 1,
-            active_symbols: ['BTC-USDT'],
-        } as OverviewMatrix;
-        seedPair('BTC');
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        // The card should show "LOW RISK" environment from L7.
-        expect(screen.getByText(/LOW RISK/i)).toBeTruthy();
-    });
 });
 
 describe('GeneralDashboard — UTC clock badge', () => {
@@ -450,27 +296,52 @@ describe('GeneralDashboard — UTC clock badge', () => {
 });
 
 describe('GeneralDashboard — header KPI strip', () => {
-    it('renders the 6 KPI tiles', () => {
+    // CR-15: the strip was six tiles and five were strategy (valid trades, best
+    // opportunity, R:R, avg risk, and a coverage ratio measured as "pairs with
+    // opportunity data"). What remains are three model readings.
+    it('renders the 3 model tiles', () => {
+        seedPair('BTC');
+        seedPair('ETH');
+        render(GeneralDashboard, { props: { wssMap: {} } });
+        expect(screen.getByText('MARKET BIAS')).toBeTruthy();
+        expect(screen.getByText('CROSS-TF CONSENSUS')).toBeTruthy();
+        expect(screen.getByText('ACTIVE PAIRS')).toBeTruthy();
+    });
+
+    it('renders no strategy tile', () => {
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getByText('VALID TRADES')).toBeTruthy();
-        expect(screen.getByText('BEST OPPORTUNITY')).toBeTruthy();
-        expect(screen.getByText('RISK TO REWARD RATIO')).toBeTruthy();
-        expect(screen.getByText('MARKET BIAS')).toBeTruthy();
-        expect(screen.getByText('AVG RISK')).toBeTruthy();
-        expect(screen.getByText('COVERAGE')).toBeTruthy();
+        for (const gone of ['VALID TRADES', 'BEST OPPORTUNITY', 'RISK TO REWARD RATIO', 'AVG RISK', 'COVERAGE']) {
+            expect(screen.queryByText(gone), `strategy tile ${gone} is back`).toBeNull();
+        }
     });
 });
 
 describe('GeneralDashboard — market health bars', () => {
-    it('renders the 4 sub-dimension bars', () => {
+    // CR-15: the four sub-dimension bars were computed from the L5 `RiskMatrix`
+    // dimensions. That matrix no longer crosses the wire, so there is nothing to
+    // bar.
+    //
+    // The card keeps its four slots and renders them UNAVAILABLE — the label
+    // plus a dash, never a zero. That distinction is the point: a bar reading 0
+    // looks like "measured, and this is the value", while a dash says "not
+    // measured". P10 returns the bars derived from the four typed axes.
+    it('shows the card with its four bars marked unavailable, not zeroed', () => {
         seedPair('BTC');
-        render(GeneralDashboard, { props: { wssMap: {} } });
+        const { container } = render(GeneralDashboard, { props: { wssMap: {} } });
         expect(screen.getByText('MARKET HEALTH')).toBeTruthy();
-        expect(screen.getByText('TREND STRENGTH')).toBeTruthy();
-        expect(screen.getByText('LIQUIDITY')).toBeTruthy();
-        expect(screen.getByText('VOLATILITY')).toBeTruthy();
-        expect(screen.getByText('SIGNAL STABILITY')).toBeTruthy();
+        for (const label of ['TREND STRENGTH', 'LIQUIDITY', 'VOLATILITY', 'SIGNAL STABILITY']) {
+            expect(screen.getByText(label), `sub-bar ${label} should still be present`).toBeTruthy();
+        }
+        // No bar may render a numeric value — every one is an em dash.
+        const bars = container.querySelectorAll('[class*="barValue"], [class*="bar"]');
+        const values = Array.from(bars)
+            .map((b) => (b.textContent ?? '').trim())
+            .filter((s) => s.length > 0);
+        expect(
+            values.some((v) => /^\d/.test(v)),
+            `no sub-bar may render a number: ${values.join(' | ')}`,
+        ).toBe(false);
     });
 });
 
@@ -481,43 +352,6 @@ describe('GeneralDashboard — scan status', () => {
         render(GeneralDashboard, { props: { wssMap: {} } });
         expect(screen.getAllByText('Last scan').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Auto-refresh').length).toBeGreaterThan(0);
-    });
-});
-
-describe('GeneralDashboard — direction distribution', () => {
-    it('renders Long, Short, Neutral counts', () => {
-        seedPair('BTC', { advisory: makeAdvisory({ directional_guidance: 'Long' }) });
-        seedPair('ETH', { advisory: makeAdvisory({ directional_guidance: 'Short' }) });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        // Use getAllByText because LONG/SHORT/NEUTRAL also appear in
-        // the Asset Rankings table's Direction column.
-        expect(screen.getAllByText('LONG').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('SHORT').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('NEUTRAL').length).toBeGreaterThan(0);
-    });
-});
-
-describe('GeneralDashboard — signal quality', () => {
-    it('renders Strong/Moderate/Weak buckets', () => {
-        seedPair('BTC', { advisory: makeAdvisory({ confidence_assessment: 80 }) });
-        seedPair('ETH', { advisory: makeAdvisory({ confidence_assessment: 50 }) });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getAllByText('STRONG').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('MODERATE').length).toBeGreaterThan(0);
-    });
-});
-
-describe('GeneralDashboard — trade opportunities card', () => {
-    it('renders the count of valid setups', () => {
-        seedPair('BTC', {
-            decisionContext: makeDecisionContext({ trade_readiness: 'READY' }),
-        });
-        render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getAllByText('TRADE OPPORTUNITIES').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Best Pair').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Best Risk/Reward').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
     });
 });
 
