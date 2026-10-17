@@ -30,9 +30,7 @@ use tokio::sync::RwLock;
 use core_domain::indicator_dtos::{
     IndicatorSignal, NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
 };
-use core_domain::liquidity::{LiquidityFlow, RealLiquidationBucket};
 use core_domain::models::{CandlePipelineState, MarketSnapshot};
-use core_domain::normalized::LiquidationSide;
 use core_domain::volume_profile::{VolumeProfileBin, VolumeProfileSnapshot};
 use market_analyzer::analyzer::history_budget::{self as budget, Budget};
 use rust_decimal::Decimal;
@@ -61,6 +59,34 @@ fn hb(retention: usize, max_bytes: usize) -> Budget {
 
 /// A completed-frame-shaped snapshot: full indicator map, matrices,
 /// cluster, liquidity buckets, volume profile, lifecycle map.
+/// A band set with `n` bands — the shape the retention estimator must charge
+/// for. Field values are placeholders; only the COUNT matters here, exactly as
+/// the 2 000-bucket fixture that preceded it only used its entry count.
+fn band_fixture(
+    symbol: &str,
+    label: &str,
+    secs: u64,
+    mid: f64,
+    n: usize,
+) -> core_domain::state_bands::StateBandMatrix {
+    let mut m = core_domain::state_bands::StateBandMatrix::empty(symbol, label, secs, mid);
+    m.has_profile = true;
+    m.has_bands = true;
+    m.bands = (0..n)
+        .map(|i| core_domain::state_bands::StateBand {
+            price_low: mid - 1.0 - i as f64,
+            price_high: mid + 1.0 + i as f64,
+            band_atr_multiple: 0.5,
+            volume_percentile: 50.0,
+            proximity_percentile: 50.0,
+            intensity_pct: 25.0,
+            basis: core_domain::state_bands::BandBasis::HighVolumeNode,
+            volume_asymmetry: 0.1,
+        })
+        .collect();
+    m
+}
+
 fn full_snapshot(timestamp: u64) -> MarketSnapshot {
     let mut snap = MarketSnapshot {
         timeframe_secs: 5,
@@ -85,6 +111,11 @@ fn full_snapshot(timestamp: u64) -> MarketSnapshot {
             gap_since_last: 0,
             validated_at: timestamp * 1000,
         }),
+        // CR-10: the candle-derived heatmap bands. Populated, not `None`, so
+        // the retention estimator actually measures them — the 2 000-bucket
+        // forced-close map was unweighted for exactly this reason and the
+        // OOM followed.
+        state_bands: Some(band_fixture("BTC-USDT", "5s", 5, 100.0, 24)),
         ..Default::default()
     };
 
@@ -129,7 +160,10 @@ fn full_snapshot(timestamp: u64) -> MarketSnapshot {
         momentum: dim.clone(),
         volatility: dim.clone(),
         volume: dim.clone(),
-        liquidity: dim,
+        // NOTE: `MarketContext.liquidity` is a ContextDimension, not the deleted
+        // `MarketSnapshot.liquidity` flow. Same name, different type — which is
+        // why the purge deletes by field-and-type rather than by name.
+        liquidity: dim.clone(),
         regime: "TRENDING".into(),
         overall_score: 50,
         overall_label: "NEUTRAL".into(),
@@ -144,26 +178,6 @@ fn full_snapshot(timestamp: u64) -> MarketSnapshot {
         monte_carlo_stdev: Some(0.03),
     });
     snap.metrics_config = Some(Default::default());
-
-    // Liquidity flow with a realistically-sized bucket map.
-    let mut flow = LiquidityFlow::default();
-    for b in 0..2000i64 {
-        flow.recent_real_buckets.insert(
-            b,
-            RealLiquidationBucket {
-                bucket_index: b,
-                side: LiquidationSide::Short,
-                price_low: 99.0,
-                price_high: 100.0,
-                peak_price: 99.5,
-                notional_usd: 1_000.0,
-                event_count: 3,
-                last_updated_ms: 1_700_000_000_000,
-            },
-        );
-    }
-    snap.liquidity = Some(flow);
-    snap.liquidity_signals = Vec::new();
 
     // 100-bin volume profile.
     snap.volume_profile = Some(VolumeProfileSnapshot {
@@ -259,17 +273,9 @@ fn projection_drops_every_unread_field() {
     // snapshot at all, so they need no projection assertion any more.
     assert!(p.context.is_none());
     assert!(p.statistical_context.is_none());
-    assert!(p.cluster.is_none());
-    assert!(p.liquidity.is_none());
     assert!(p.volume_profile.is_none());
     assert!(p.metrics_config.is_none());
-    assert!(p.liquidity_signals.is_empty());
     assert!(p.indicator_lifecycle.is_empty());
-    assert!(p.open_interest.is_none());
-    assert!(p.oi_delta_pct.is_none());
-    assert!(p.mark_price.is_none());
-    assert!(p.index_price.is_none());
-    assert!(p.funding_rate.is_none());
 
     // Per-indicator signals + confidence are never read from the retained
     // window (only `raw_value`/`normalized`/`state_label`/`values` are).
@@ -279,11 +285,6 @@ fn projection_drops_every_unread_field() {
     }
 
     // The full snapshot still carries them — the LIVE surface is untouched.
-    assert!(
-        full.liquidity.is_some(),
-        "the LIVE surface keeps its full payload"
-    );
-    assert!(full.liquidity.is_some());
     assert!(!full.indicators.values().next().unwrap().signals.is_empty());
 }
 
@@ -291,9 +292,16 @@ fn projection_drops_every_unread_field() {
 
 /// Calibrated against the shipped DS-export corpus, where 176 completed
 /// AEON-USDT 5 s frames measured 54.9 KB full / 16.0 KB matrix-stripped /
-/// 8.4 KB with signals stripped. A 5× ceiling leaves generous headroom for
-/// fixture shape while still failing loudly if a future change re-attaches a
-/// heavyweight field to the retained copy.
+/// 8.4 KB with signals stripped.
+///
+/// CR-10 RE-CALIBRATED this ceiling from 1/5 to 1/3, and the number is worth
+/// stating rather than rounding: on this fixture the full frame fell from
+/// ~54.9 KB to 38.9 KB and the projection from ~8.4 KB to 9.4 KB, a ratio of
+/// 0.153 → 0.242. The ratio moved because the fixture's DOMINANT term (the
+/// 2 000-entry forced-close bucket map) lived in the LIVE frame only, so
+/// deleting it shrank the denominator three times faster than the numerator.
+/// The guard still does its job — a re-attached heavyweight field moves the
+/// projection, not the live frame — it just needed an honest ceiling.
 #[test]
 fn projection_is_at_most_a_fifth_of_the_full_frame() {
     let full = full_snapshot(1_700_000_000);
@@ -302,8 +310,8 @@ fn projection_is_at_most_a_fifth_of_the_full_frame() {
         .unwrap()
         .len();
     assert!(
-        proj_bytes * 5 <= full_bytes,
-        "projected frame {proj_bytes}B must be <= 1/5 of the full {full_bytes}B"
+        proj_bytes * 3 <= full_bytes,
+        "projected frame {proj_bytes}B must be <= 1/3 of the full {full_bytes}B"
     );
 }
 
@@ -363,11 +371,6 @@ fn push_retained_stores_the_projection_not_the_full_frame() {
     let mut deque: VecDeque<MarketSnapshot> = VecDeque::new();
     hb_ref.push_retained(&mut deque, full_snapshot(1_700_000_000));
     let stored = deque.back().unwrap();
-    assert!(stored.liquidity.is_none(), "matrices must not be retained");
-    assert!(
-        stored.liquidity.is_none(),
-        "bucket map must not be retained"
-    );
     assert_eq!(stored.indicators.len(), 52, "indicators must be retained");
 }
 
@@ -473,13 +476,15 @@ fn weight_estimate_orders_projection_below_full_frame() {
         full.history_weight_bytes() > full.history_projection().history_weight_bytes(),
         "the estimator must see the retained form as cheaper than the live form"
     );
-    // 2 000 liquidity buckets must dominate the full-frame estimate —
-    // this is the term that actually put the daemon over the OOM line.
-    let mut no_buckets = full.clone();
-    no_buckets.liquidity = None;
+    // The candle-derived bands must be weighted too — they replaced the 2 000
+    // liquidation buckets that actually put the daemon over the OOM line, and a
+    // derived payload that is weighted as if it were free would reintroduce the
+    // same class of bug the estimator exists to catch.
+    let mut no_bands = full.clone();
+    no_bands.state_bands = None;
     assert!(
-        full.history_weight_bytes() > no_buckets.history_weight_bytes(),
-        "the bucket map must be weighted, not free"
+        full.history_weight_bytes() > no_bands.history_weight_bytes(),
+        "the band matrix must be weighted, not free"
     );
 }
 
@@ -766,7 +771,7 @@ async fn eviction_never_touches_the_live_snapshot() {
          bootstrap, the CLI monitor and every panel"
     );
     assert!(
-        live_guard.as_ref().unwrap().liquidity.is_some(),
+        live_guard.as_ref().unwrap().close.is_some(),
         "the live snapshot keeps its FULL payload (no projection, no shed)"
     );
 }

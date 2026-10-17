@@ -14,8 +14,8 @@
 //     `liquidity_flow.largest_event_price/.side`,
 //     `cluster_matrix.leverage_assumptions`, `signals_total`
 
-import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, IndicatorSignal, VolumeProfileSnapshot, LiquidationClusterMatrix, LiquidationCluster, LiquidityFlow, LiquiditySignal, LiquidityDirection, MarketContext, IndicatorLifecycleStatus, SignalDirection, SignalStatus } from '../../types';
-import { buildPriceBlock, buildHeaderBlock, buildEmaBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike, type LiquidityPanelBlock, type MetaEmaBlock } from './shared';
+import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, IndicatorSignal, VolumeProfileSnapshot, StateBandMatrix, MarketContext, IndicatorLifecycleStatus, SignalDirection, SignalStatus } from '../../types';
+import { buildPriceBlock, buildHeaderBlock, buildEmaBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike, type StateBandBlock, type MetaEmaBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { GROUP_META } from '../groupMeta';
 import { fmtPrice, isSqueezeOn } from '../telemetry';
@@ -81,34 +81,26 @@ export interface VolumeProfileExport {
   range_pos_pct: number;
 }
 
-export interface LiquidityClusterSummary {
-  peak_price: number;
-  price_low: number;
-  price_high: number;
-  notional_usd: number;
-  dominant_leverage: number;
-  distance_from_mid_pct: number;
-  magnet_strength: number;
-  cluster_kind: string;
-}
-
-export interface LiquidityBlock {
-  oi_long_pct: number;
-  oi_short_pct: number;
-  cascade_state: string;
-  cascade_intensity: number;
-  cascade_intensity_display: string;
-  cascade_state_label: string;
-  cascade_asymmetry: number | null;
-  cascade_asymmetry_sign: string;
-  cascade_asymmetry_magnitude_pct: number | null;
-  cascade_asymmetry_description: string | null;
-  estimation_confidence: number | null;
-  estimation_confidence_pct: number | null;
-  total_short_clusters: number;
-  total_long_clusters: number;
-  top_short: LiquidityClusterSummary[];
-  top_long: LiquidityClusterSummary[];
+// CR-10: `LiquidityBlock` is DELETED. Every field described the forced-close
+// flow (cascade state/intensity), the cluster estimator (estimation confidence,
+// OI split, magnet strength, dominant leverage) or a leverage assumption.
+// `StructuralAnchorsBlock.liquidity` now carries the candle-derived band
+// summary instead, so the strip still has a zone read after the purge.
+export interface StateBandSummary {
+  band_count: number;
+  contributing_bins: number;
+  poc_price: number | null;
+  value_area_high: number | null;
+  value_area_low: number | null;
+  /** `|buy - sell| / (buy + sell)` across every bin, 0..=1. */
+  volume_asymmetry: number | null;
+  /** Strongest band by `intensity_pct`, or null when no bands were placed. */
+  strongest: {
+    price_low: number;
+    price_high: number;
+    intensity_pct: number;
+    basis: string;
+  } | null;
 }
 
 export interface StructuralAnchorsBlock {
@@ -117,12 +109,12 @@ export interface StructuralAnchorsBlock {
   /** Micro-TF volume profile — mirrors the Structural Anchors strip VP tile,
    *  whose refresh cadence is anchored to the micro timeframe. */
   micro_volume_profile: VolumeProfileExport | null;
-  liquidity: LiquidityBlock | null;
-  cascade_alert: { state: string; intensity: number } | null;
-  /** Micro-TF cascade alert — mirrors the Tier-1 cascade banner in
-   *  TerminalMonitor, which watches the micro TF regardless of the
-   *  active timeframe. */
-  micro_cascade_alert: { state: string; intensity: number } | null;
+  /** CR-10: the candle-derived band summary, replacing `LiquidityBlock`. */
+  state_bands: StateBandSummary | null;
+  /** CR-10: `cascade_alert` / `micro_cascade_alert` are deleted. The cascade
+   *  banner rendered `CascadeState` off the forced-close flow; with no flow
+   *  there is no cascade, and a banner that can only ever read "NONE" is a
+   *  permanent decoration pretending to be a readout. */
 }
 
 export interface IndicatorSignalExport {
@@ -217,7 +209,7 @@ export interface MetricsPayload {
   signals_by_kind: Record<string, IndicatorSignalExport[]>;
   divergences: DivergenceRow[];
   levels: LevelRow[];
-  liquidity_panel: LiquidityPanelBlock;
+  state_bands: StateBandBlock;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -573,139 +565,73 @@ function buildVolumeProfileExport(vp: VolumeProfileSnapshot | null, markPrice: n
   };
 }
 
-function buildLiquidityBlock(
-  flow: LiquidityFlow | null,
-  cluster: LiquidationClusterMatrix | null,
-): LiquidityBlock | null {
-  if (!flow && !cluster) return null;
-  const sortBy = (a: LiquidationCluster, b: LiquidationCluster) =>
-    (b.magnet_strength ?? 0) - (a.magnet_strength ?? 0);
-  const topShort = [...(cluster?.short_clusters ?? [])].sort(sortBy).slice(0, 4);
-  const topLong = [...(cluster?.long_clusters ?? [])].sort(sortBy).slice(0, 4);
-  const total = (cluster?.total_long_oi_usd ?? 0) + (cluster?.total_short_oi_usd ?? 0);
-  const longPct = total > 0 ? Math.round(((cluster?.total_long_oi_usd ?? 0) / total) * 100) : 50;
-  const shortPct = total > 0 ? Math.round(((cluster?.total_short_oi_usd ?? 0) / total) * 100) : 50;
-  const asym: number | null = cluster?.cascade_asymmetry ?? null;
-  const asymVal = asym ?? 0;
-  const asymSign = asym != null && asym > 0 ? '+' : asym != null && asym < 0 ? '-' : '';
-  const asymMagnitude = asym != null ? Math.abs(asym) : null;
-  const asymDescription =
-    asym == null ? null : asymVal > 0.3 ? 'short_squeeze_risk' : asymVal < -0.3 ? 'long_squeeze_risk' : 'neutral';
-  const mapCluster = (c: LiquidationCluster) => ({
-    peak_price: c.peak_price,
-    price_low: c.price_low,
-    price_high: c.price_high,
-    notional_usd: c.notional_usd,
-    dominant_leverage: c.dominant_leverage,
-    distance_from_mid_pct: c.distance_from_mid_pct,
-    magnet_strength: c.magnet_strength,
-    cluster_kind: c.cluster_kind,
-  });
+/**
+ * CR-10's replacement for `buildLiquidityBlock`.
+ *
+ * Same slot in the anchors strip, same "null means not measured" rule, and the
+ * same reason to prefer a real percentile over a synthesized badge: the cluster
+ * version reported `estimation_confidence` for an estimate built on an assumed
+ * leverage curve, which is a number with no measurement behind it.
+ */
+function buildStateBandSummary(
+  bands: StateBandMatrix | null,
+  refPrice: number | null,
+): StateBandSummary | null {
+  if (!bands || !bands.has_bands) return null;
+  const strongest = bands.bands[0] ?? null;
   return {
-    oi_long_pct: longPct,
-    oi_short_pct: shortPct,
-    // Screen renders "CASCADE {flow?.cascade_state ?? 'NONE'}" — never
-    // synthesize SUSTAINED from asymmetry (JSON must say what the strip
-    // shows).
-    cascade_state: flow?.cascade_state ?? 'NONE',
-    cascade_intensity: flow?.cascade_intensity ?? 0,
-    // Screen renders "—" when no flow exists; the integer badge otherwise.
-    cascade_intensity_display: flow ? String(Math.round(flow.cascade_intensity)) : '\u2014',
-    cascade_state_label: flow?.cascade_state ?? 'NONE',
-    cascade_asymmetry: asym,
-    cascade_asymmetry_sign: asymSign,
-    cascade_asymmetry_magnitude_pct: asymMagnitude,
-    cascade_asymmetry_description: asymDescription,
-    estimation_confidence: cluster?.estimation_confidence ?? null,
-    estimation_confidence_pct: cluster?.estimation_confidence != null
-      ? Math.round(cluster.estimation_confidence * 100)
+    band_count: bands.summary.band_count,
+    contributing_bins: bands.summary.contributing_bins,
+    poc_price: bands.poc_price,
+    value_area_high: bands.value_area_high,
+    value_area_low: bands.value_area_low,
+    volume_asymmetry: bands.summary.volume_asymmetry,
+    strongest: strongest
+      ? {
+          price_low: strongest.price_low,
+          price_high: strongest.price_high,
+          intensity_pct: strongest.intensity_pct,
+          basis: strongest.basis,
+        }
       : null,
-    total_short_clusters: cluster?.short_clusters?.length ?? 0,
-    total_long_clusters: cluster?.long_clusters?.length ?? 0,
-    top_short: topShort.map(mapCluster),
-    top_long: topLong.map(mapCluster),
   };
 }
 
-export function buildLiquidityPanelBlock(
-  flow: LiquidityFlow | null,
-  cluster: LiquidationClusterMatrix | null,
-  signals: LiquiditySignal[] | undefined,
-): LiquidityPanelBlock {
-  const flowBlock = flow
-    ? {
-        available: true,
-        long_liquidations_usd: flow.long_liquidations_usd,
-        short_liquidations_usd: flow.short_liquidations_usd,
-        net_liquidation_usd: flow.net_liquidation_usd,
-        event_count: flow.event_count,
-        largest_event_usd: flow.largest_event_usd,
-        largest_event_price: flow.largest_event_price ?? null,
-        largest_event_side: flow.largest_event_side ?? null,
-        cascade_state: flow.cascade_state,
-        cascade_intensity: flow.cascade_intensity,
-      }
-    : null;
-  const clusterBlock = cluster
-    ? {
-        available: true,
-        mid_price: cluster.mid_price,
-        cascade_asymmetry: cluster.cascade_asymmetry,
-        estimation_confidence: cluster.estimation_confidence,
-        total_long_oi_usd: cluster.total_long_oi_usd,
-        total_short_oi_usd: cluster.total_short_oi_usd,
-        total_short_clusters: cluster.short_clusters?.length ?? 0,
-        total_long_clusters: cluster.long_clusters?.length ?? 0,
-        leverage_assumptions: {
-          source: cluster.leverage_assumptions.source,
-          buckets: cluster.leverage_assumptions.buckets,
-          weights: cluster.leverage_assumptions.weights,
-          funding_modulation_active: cluster.leverage_assumptions.funding_modulation_active,
-          funding_extreme_pct: cluster.leverage_assumptions.funding_extreme_pct ?? null,
-        },
-        short_clusters: (cluster.short_clusters ?? []).map((c) => ({
-          price_low: c.price_low,
-          price_high: c.price_high,
-          peak_price: c.peak_price,
-          notional_usd: c.notional_usd,
-          dominant_leverage: c.dominant_leverage,
-          distance_from_mid_pct: c.distance_from_mid_pct,
-          magnet_strength: c.magnet_strength,
-          cluster_kind: c.cluster_kind,
-        })),
-        long_clusters: (cluster.long_clusters ?? []).map((c) => ({
-          price_low: c.price_low,
-          price_high: c.price_high,
-          peak_price: c.peak_price,
-          notional_usd: c.notional_usd,
-          dominant_leverage: c.dominant_leverage,
-          distance_from_mid_pct: c.distance_from_mid_pct,
-          magnet_strength: c.magnet_strength,
-          cluster_kind: c.cluster_kind,
-        })),
-      }
-    : null;
-  const contextBlock = {
-    available: !!(flow || cluster),
-    long_oi_usd: cluster?.total_long_oi_usd ?? 0,
-    short_oi_usd: cluster?.total_short_oi_usd ?? 0,
-    estimation_confidence_pct: cluster?.estimation_confidence != null
-      ? Math.round(cluster.estimation_confidence * 100)
-      : null,
-    signals: (signals ?? []).map((s) => ({
-      kind: s.kind,
-      direction: s.direction,
-      strength: s.strength,
-      confidence: s.confidence,
-      evidence: s.evidence,
-    })),
+export function buildStateBandBlock(bands: StateBandMatrix | null): StateBandBlock {
+  if (!bands) {
+    return {
+      available: false,
+      symbol: null,
+      timeframe_label: null,
+      timeframe_secs: null,
+      poc_price: null,
+      value_area_high: null,
+      value_area_low: null,
+      has_profile: false,
+      has_bands: false,
+      bands: [],
+      band_count: 0,
+      contributing_bins: 0,
+      volume_asymmetry: null,
+      timestamp_ms: null,
+    };
+  }
+  return {
+    available: true,
+    symbol: bands.symbol,
+    timeframe_label: bands.timeframe_label,
+    timeframe_secs: bands.timeframe_secs,
+    poc_price: bands.poc_price,
+    value_area_high: bands.value_area_high,
+    value_area_low: bands.value_area_low,
+    has_profile: bands.has_profile,
+    has_bands: bands.has_bands,
+    bands: bands.bands.map((b) => ({ ...b })),
+    band_count: bands.summary.band_count,
+    contributing_bins: bands.summary.contributing_bins,
+    volume_asymmetry: bands.summary.volume_asymmetry,
+    timestamp_ms: bands.timestamp_ms,
   };
-  return { flow: flowBlock, cluster: clusterBlock, context: contextBlock };
-}
-
-function buildCascadeAlert(flow: LiquidityFlow | null): StructuralAnchorsBlock['cascade_alert'] {
-  if (!flow) return null;
-  return { state: flow.cascade_state, intensity: flow.cascade_intensity };
 }
 
 function buildIndicatorSignals(
@@ -941,11 +867,9 @@ export interface MetricsTabInputs {
   volumeProfile: VolumeProfileSnapshot | null;
   /** Micro-TF volume profile — mirrors the Structural Anchors strip VP tile. */
   microVolumeProfile?: VolumeProfileSnapshot | null;
-  liquidity: LiquidityFlow | null;
-  /** Micro-TF liquidity flow — mirrors the Tier-1 cascade banner. */
-  microLiquidity?: LiquidityFlow | null;
-  cluster: LiquidationClusterMatrix | null;
-  liquiditySignals?: import('../../types').LiquiditySignal[];
+  /** CR-10: `liquidity` / `microLiquidity` / `cluster` / `liquiditySignals` are
+   *  replaced by the one candle-derived band set. */
+  stateBands: StateBandMatrix | null;
   symbol: string;
   exchange?: string;
   tfSecs?: number | null;
@@ -1008,16 +932,14 @@ export function buildMetricsTabExport(args: MetricsTabInputs): string {
       fibonacci: buildFibonacciSummary(indicators, refPrice),
       volume_profile: buildVolumeProfileExport(args.volumeProfile, refPrice),
       micro_volume_profile: buildVolumeProfileExport(args.microVolumeProfile ?? null, refPrice),
-      liquidity: buildLiquidityBlock(args.liquidity, args.cluster),
-      cascade_alert: buildCascadeAlert(args.liquidity),
-      micro_cascade_alert: buildCascadeAlert(args.microLiquidity ?? null),
+      state_bands: buildStateBandSummary(args.stateBands, refPrice),
     },
     ema,
     indicators: tf ? buildIndicators(args.registry, indicators, tf, lifecycleMap) : [],
     signals_by_kind: signalsByKind,
     divergences: buildDivergences(args.registry, indicators),
     levels: buildLevels(args.registry, indicators, refPrice),
-    liquidity_panel: buildLiquidityPanelBlock(args.liquidity, args.cluster, args.liquiditySignals),
+    state_bands: buildStateBandBlock(args.stateBands),
   };
   return JSON.stringify(payload, null, 2);
 }

@@ -4,7 +4,6 @@
 //! namespace, which `api-gateway` re-assembles from the group crates so
 //! that no consumer import path changed.
 
-pub mod cluster_status;
 pub mod connection_quality;
 pub mod history;
 pub mod monitor;

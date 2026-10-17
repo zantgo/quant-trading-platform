@@ -5,7 +5,6 @@
 //! dual-representation normalized indicator map (v2.0).
 
 use crate::indicator_dtos::{IndicatorLifecycleMap, NormalizedIndicatorValue};
-use crate::liquidity::{LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal};
 use crate::normalized::Exchange;
 use crate::volume_profile::VolumeProfileSnapshot;
 use rust_decimal::Decimal;
@@ -20,28 +19,7 @@ pub struct MetricsConfig {
     pub disabled_signals: Vec<(String, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub disabled_signal_kinds: Vec<String>,
-    #[serde(default)]
-    pub liquidity: LiquidityActivation,
     pub config_version: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LiquidityActivation {
-    pub enabled: bool,
-    pub liquidation_feed: bool,
-    pub cluster_estimation: bool,
-    pub signals: bool,
-}
-
-impl Default for LiquidityActivation {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            liquidation_feed: true,
-            cluster_estimation: true,
-            signals: true,
-        }
-    }
 }
 
 /// CR-13 — the one history cap.
@@ -213,9 +191,9 @@ pub struct MarketSnapshot {
     pub mid_price: Decimal,
     pub bid_price: Decimal,
     pub ask_price: Decimal,
-    pub bid_size: Option<Decimal>,
-    pub ask_size: Option<Decimal>,
-    pub funding_rate: Option<Decimal>,
+    // CR-10 / CH-1: `bid_size`, `ask_size` and `funding_rate` are DELETED.
+    // Top-of-book depth is an order-book reading and the funding rate is a
+    // venue feed value; neither is an OHLCV field.
 
     // Consolidated Candle OHLC Bars (core, non-indicator telemetry)
     pub open: Option<Decimal>,
@@ -270,31 +248,6 @@ pub struct MarketSnapshot {
     // `decision_context`) because TAE names them and the BTE runner replays
     // against them; what is gone is the ability to reach a browser with one
     // attached. See 01-21 §5 — the boundary is a test, not a convention.
-    /// Open Interest value at snapshot time.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub open_interest: Option<Decimal>,
-
-    /// 1-hour Open Interest delta.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    /// v11.10: per-duration OI-delta over the duration's own window
-    /// (renamed from the fixed 1-hour `oi_delta_pct`).
-    pub oi_delta_pct: Option<Decimal>,
-    /// v11.10: the window (seconds) the `oi_delta_pct` anchor used.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oi_delta_window_secs: Option<u64>,
-
-    /// Mark price (perpetual mark for margin + liquidation price computation).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mark_price: Option<Decimal>,
-
-    /// Index price (underlying spot composite).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub index_price: Option<Decimal>,
-
-    /// Mark-vs-index spread in percent (positive = perp premium).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mark_index_spread_pct: Option<f64>,
-
     /// Previous day price (from asset context).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_day_px: Option<Decimal>,
@@ -302,10 +255,6 @@ pub struct MarketSnapshot {
     /// Statistical intelligence context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub statistical_context: Option<StatisticalContext>,
-
-    /// Liquidity signals (Phase 3). Per-snapshot derived from L1.5 + L2.5.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub liquidity_signals: Vec<LiquiditySignal>,
 
     /// Metrics config block — present only when the active indicator/signal
     /// set differs from the registry default (all enabled). Absent otherwise.
@@ -316,18 +265,12 @@ pub struct MarketSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub risk_profile: Option<i32>,
 
-    /// Liquidity flow matrix (Phase 1). Per-candle aggregate of real
-    /// liquidation events observed on the exchange WS. `None` for live
-    /// (flickering) snapshots; populated only for completed bars.
+    /// CR-10: the candle-derived heatmap bands. Replaces `cluster`
+    /// (`LiquidationClusterMatrix`), which needed open interest and an assumed
+    /// leverage distribution; these need only the volume profile and the loaded
+    /// candle set's ATR and swing extremes. See [`state_bands`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub liquidity: Option<LiquidityFlow>,
-
-    /// Estimated liquidation cluster matrix (Phase 2). Refreshed at each
-    /// TF's own candle cadence (per-TF pipeline task); `valid_until_ms`
-    /// grants a fixed 5-minute TTL. `None` when the data is insufficient
-    /// or before the first refresh.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cluster: Option<LiquidationClusterMatrix>,
+    pub state_bands: Option<crate::state_bands::StateBandMatrix>,
 
     /// Per-timeframe volume profile snapshot. Recomputed on each
     /// completed candle. `None` before the analyzer has accumulated
@@ -449,20 +392,15 @@ impl MarketSnapshot {
         out.alignment = None;
         out.analysis = None;
         out.statistical_context = None;
-        out.cluster = None;
-        out.liquidity = None;
-        out.liquidity_signals = Vec::new();
+        // CR-10: `cluster`, `liquidity` and `liquidity_signals` no longer exist.
+        // `state_bands` joins `volume_profile` on the dropped side — the
+        // projection is a storage view, and the heatmap reads its inputs from
+        // the live snapshot (which keeps its full payload).
+        out.state_bands = None;
         out.volume_profile = None;
         out.indicator_lifecycle = IndicatorLifecycleMap::new();
         out.pipeline_state = CandlePipelineState::default();
         out.metrics_config = None;
-        out.open_interest = None;
-        out.oi_delta_pct = None;
-        out.oi_delta_window_secs = None;
-        out.mark_price = None;
-        out.index_price = None;
-        out.mark_index_spread_pct = None;
-        out.funding_rate = None;
         out.prev_day_px = None;
         out.risk_profile = None;
         out
@@ -513,13 +451,20 @@ impl MarketSnapshot {
         if let Some(vp) = self.volume_profile.as_ref() {
             n += 64 + vp.bins.len() * 48;
         }
-        if let Some(liq) = self.liquidity.as_ref() {
-            n += 96 + liq.recent_real_buckets.len() * 96;
+        // CR-10: the three liquidity charges are gone with the fields they
+        // measured (`recent_real_buckets` reached 2000 entries at the shipped
+        // 24 h retention — that was the term that put the daemon over the OOM
+        // line).
+        //
+        // `state_bands` DOES get its own term. It looks small — a band per
+        // qualifying bin — but "looks small" is exactly the reasoning that let
+        // the bucket map ship unweighted, and an unweighted derived payload is
+        // how the same class of bug returns. The band count is bounded by the
+        // profile's bin count, not by the candle buffer, so it is charged
+        // explicitly.
+        if let Some(sb) = self.state_bands.as_ref() {
+            n += 96 + sb.bands.len() * 72;
         }
-        if let Some(cl) = self.cluster.as_ref() {
-            n += 128 + cl.short_clusters.len() * 96 + cl.long_clusters.len() * 96;
-        }
-        n += self.liquidity_signals.len() * 128;
         n
     }
 

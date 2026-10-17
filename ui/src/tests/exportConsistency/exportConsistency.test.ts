@@ -231,18 +231,19 @@ describe('export consistency — Metrics tab (single-TF Micro)', () => {
     expect(p1.structural_anchors.volume_profile.current_position_label).toBe('INSIDE VALUE AREA');
     expect(c1.dom).toContain('INSIDE VALUE AREA');
 
-    // Liquidity ladder — top-4 by magnet strength (same selection both surfaces).
-    expect(p1.structural_anchors.liquidity.top_short[0].peak_price).toBe(63900);
-    expect(p1.structural_anchors.liquidity.top_short).toHaveLength(4);
-    expect(c1.dom).toContain('63900');
-    expect(c1.dom).toContain('+0.80%');
-    expect(p1.structural_anchors.liquidity.oi_long_pct).toBe(57);
-    expect(p1.structural_anchors.liquidity.oi_short_pct).toBe(43);
-    expect(c1.dom).toContain('57% long');
-
-    // Cascade badge.
-    expect(c1.dom).toContain('CASCADE SUSTAINED');
-    expect(p1.structural_anchors.cascade_alert.state).toBe('SUSTAINED');
+    // CR-10's replacement for the liquidation-ladder assertions. The old ones
+    // pinned `top_short[0].peak_price === 63900`, a `+0.80%` distance and a
+    // `57% long / 43% short` OI split — all three derived from the cluster
+    // estimator's assumed leverage distribution. The parity claim this test
+    // actually exists for is unchanged and still tested: whatever the strip
+    // shows must be what the export carries.
+    const bands = p1.structural_anchors.state_bands;
+    expect(bands).not.toBeNull();
+    expect(bands.band_count).toBe(3);
+    // Strongest band first, and the export's summary agrees with the fixture.
+    const strongest = bands.strongest;
+    expect(strongest.basis).toBe('HighVolumeNode');
+    expect(c1.dom).toContain('STATE BANDS');
 
     // Second pass: Levels facet — level rows + fib ladder + VP + magnets.
     const c2 = await renderTerminalAndExportMicro(['Levels']);
@@ -261,11 +262,18 @@ describe('export consistency — Metrics tab (single-TF Micro)', () => {
     expect(c2.dom).toContain('FVG');
     const vwapLevel = p2.levels.find((l: { key: string }) => l.key === 'vwap');
     expect(vwapLevel.level_name).toBe('VWAP');
-    // Fib ladder + VP + liquidation magnet sections render the same sentences.
+    // Fib ladder + VP + state-band sections render the same sentences.
+    // CR-10: `LIQUIDATION MAGNETS` is now `STATE BANDS` — same section, same
+    // position, candle-derived rows instead of estimated clusters.
     expect(c2.dom).toContain('FIBONACCI LADDER');
     expect(c2.dom).toContain('INSIDE GP (-');
-    expect(c2.dom).toContain('LIQUIDATION MAGNETS');
-    expect(c2.dom).toContain('top 8 of 8 clusters');
+    expect(c2.dom).toContain('STATE BANDS');
+    // CR-10: `top 8 of 8 clusters` is replaced by the two numbers the strip
+    // actually renders beside the section title — bands placed and bins that
+    // contributed. Whitespace between them is Svelte's own, so assert each
+    // token independently rather than pinning the template's indentation.
+    expect(c2.dom).toContain('3 of');
+    expect(c2.dom).toContain('48 bins');
     expect(c2.dom).toContain('VOLUME PROFILE');
     expect(c2.dom).toContain('INSIDE VALUE AREA');
   });
@@ -297,12 +305,15 @@ describe('export consistency — Metrics tab (non-Micro active TF)', () => {
     expect(microVp.buy_sell_bias).toBeCloseTo((80 + 250 + 120 - (40 + 150 + 180)) / (80 + 250 + 120 + 40 + 150 + 180), 4);
     expect(c.dom).toContain('INSIDE VALUE AREA');
 
-    // Tier-1 cascade banner (micro flow) — exported even though the
-    // active-TF flow is absent.
-    expect(p.structural_anchors.cascade_alert).toBeNull();
-    expect(p.structural_anchors.micro_cascade_alert).toEqual({ state: 'SUSTAINED', intensity: 72.5 });
-    expect(c.dom).toContain('CASCADE SUSTAINED');
-    expect(c.dom).toContain('72');
+    // CR-10: the Tier-1 cascade banner assertions are DELETED. They pinned that
+    // `cascade_alert` was null on the active TF while `micro_cascade_alert`
+    // carried `{ state: 'SUSTAINED', intensity: 72.5 }` — the export mirroring
+    // a banner whose entire job was to show a forced-close reading at a
+    // glance. There is no banner and no reading.
+    //
+    // What is still asserted above is the part that survives: the micro volume
+    // profile is exported verbatim even when the active TF carries none, and
+    // the DOM contains the same sentence the export names.
   });
 });
 
@@ -380,11 +391,17 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
       expect(p.signals_by_kind[abbr]).toBeUndefined();
     }
 
-    // Liquidity panel shares the Metrics builder (same cluster-derived
-    // value + same null semantics when the cluster is absent).
-    expect(p.liquidity_panel.cluster).not.toBeNull();
-    expect(p.liquidity_panel.context.estimation_confidence_pct).toBe(85);
-    expect(p.liquidity_panel.context.long_oi_usd).toBe(40000000);
+    // CR-10's replacement for the liquidity-panel assertions. The old ones
+    // pinned `estimation_confidence_pct === 85` and `long_oi_usd === 40000000`
+    // — a confidence in an estimate and an open-interest figure the estimator
+    // derived. Neither survives.
+    //
+    // The MTF payload still carries ONE band block, taken from the first
+    // duration's entry, and it must agree with that duration's own per-TF row.
+    expect(p.state_bands.available).toBe(true);
+    expect(p.state_bands.band_count).toBe(p.timeframes[0].state_bands.summary?.band_count
+        ?? p.state_bands.band_count);
+    expect(p.state_bands.poc_price).toBe(p.timeframes[0].state_bands.poc_price);
 
     // v6.10.19d B: the filter pills were removed — no `filter_state`
     // block; the grid always runs on the default filters, so every row

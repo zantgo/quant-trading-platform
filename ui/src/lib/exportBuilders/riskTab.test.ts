@@ -51,8 +51,6 @@ describe('buildRiskTabExport', () => {
   it('v7.1: the header trailing headline is gone from the panel AND the export (summary_counts carries the distribution)', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -67,8 +65,6 @@ describe('buildRiskTabExport', () => {
   it('interpretation_full mirrors the screen paragraph', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -80,8 +76,6 @@ describe('buildRiskTabExport', () => {
   it('summary_counts carry labels with counts', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -93,8 +87,6 @@ describe('buildRiskTabExport', () => {
   it('dimension scores and confidence are integer-rounded; state_display is the Scheme-A token (v6.10.19d C)', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -109,8 +101,6 @@ describe('buildRiskTabExport', () => {
   it('no risk → hero null, awaiting placeholder dims, init interpretation, valid meta identity', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: null,
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -135,8 +125,6 @@ describe('buildRiskTabExport', () => {
   it('emits disclosure (8 weight chips + note); hero hint removed (v6.10.19d C)', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -172,8 +160,6 @@ describe('buildRiskTabExport', () => {
     risk.cascade_risk = dim(30, 'Low');
     const p = JSON.parse(buildRiskTabExport({
       risk,
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -185,8 +171,6 @@ describe('buildRiskTabExport', () => {
   it('RK-D: the warmup sentinel matrix renders as AWAITING (hero null, awaiting rows, init interpretation)', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeSentinelRisk(),
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -202,8 +186,6 @@ describe('buildRiskTabExport', () => {
     (risk.execution_risk as RiskDimension).volatility_to_spread_ratio = 12.4;
     const p = JSON.parse(buildRiskTabExport({
       risk,
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -218,8 +200,6 @@ describe('buildRiskTabExport', () => {
   it('v6.11: awaiting and ratio-less risk exports carry null execution extras', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
-      flow: null,
-      cluster: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,

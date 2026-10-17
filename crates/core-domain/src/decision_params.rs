@@ -306,7 +306,6 @@ mod tests {
             &high_risk(),
             None,
             None,
-            None,
             &p,
             &crate::analysis::AnalysisParams::default(),
         );
@@ -315,7 +314,6 @@ mod tests {
         let adv2 = crate::advisory::compute_advisory(
             &analysis,
             &low_risk(),
-            None,
             None,
             None,
             &p,

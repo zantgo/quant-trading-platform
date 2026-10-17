@@ -176,14 +176,11 @@
             registry,
             volumeProfile: (activeTfObj as any)?.volumeProfile ?? null,
             microVolumeProfile: pair?.terms?.[1]?.volumeProfile ?? null,
-            liquidity: (activeTfObj as any)?.liquidity ?? null,
-            // M-3 (v6.10.11): the export's `micro_cascade_alert` mirrors
-            // the Tier-1 cascade banner — both must read the SNAPSHOT-path
-            // liquidity (the tf-level field retains stale values across
-            // shadow ticks; the RiskPanel documents the same source rule).
-            microLiquidity: ((pair?.terms?.[1]?.latestSnapshot as Record<string, unknown> | undefined)?.liquidity as import('../types').LiquidityFlow | null | undefined) ?? null,
-            cluster: (activeTfObj as any)?.cluster ?? null,
-            liquiditySignals: (activeTfObj as any)?.liquiditySignals ?? [],
+            // CR-10: the candle-derived band set. Read from the SNAPSHOT
+            // path for the same reason the cascade alert used it — the
+            // tf-level field retains its last value across shadow ticks, and
+            // a band set is computed per completed candle.
+            stateBands: ((activeTfObj as any)?.latestSnapshot as Record<string, unknown> | undefined)?.state_bands as import('../types').StateBandMatrix | null | undefined ?? null,
             // `pairKey` is the FULL exchange-symbol (e.g. BTC-USDC) — never
             // the bare base. This is the canonical `meta.pair` for every
             // export payload.
@@ -294,26 +291,20 @@
                     context={context ?? null}
                 />
 
-                <!-- ROW 1.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
-                <!-- M-3 (v6.10.11): read the SNAPSHOT-path liquidity (the
-                     tf-level `liquidity` retains the last non-null value
-                     across shadow ticks — the RiskPanel documents the same
-                     staleness), match the RiskPanel's 1-decimal intensity
-                     format, and reference the Structural Anchors Liquidity
-                     tile — the old "click for Liquidity facet" navigated to
-                     a facet that no longer exists. -->
-                {@const microFlow = (pair?.terms?.[1]?.latestSnapshot as Record<string, unknown> | undefined)?.liquidity as import('../types').LiquidityFlow | null | undefined ?? null}
-                {#if microFlow && (microFlow.cascade_state === 'SUSTAINED' || microFlow.cascade_state === 'DETECTED')}
-                    <div
-                        class="{styles.cascadeAlert} {microFlow.cascade_state === 'SUSTAINED' ? styles.cascadeAlertSustained : styles.cascadeAlertDetected}"
-                        role="status"
-                    >
-                        <span class={styles.cascadeAlertIcon}>⚠</span>
-                        <span class={styles.cascadeAlertLabel}>
-                            CASCADE {microFlow.cascade_state} · intensity {microFlow.cascade_intensity.toFixed(1)}/100 · see the Liquidity tile in the Structural Anchors strip
-                        </span>
-                    </div>
-                {/if}
+                <!-- CR-10: the Tier-1 Cascade Alert banner is DELETED. It
+                     fired off the SNAPSHOT-path `LiquidityFlow`'s
+                     `cascade_state` — a rolling window over the venue's
+                     forced-close stream. It also carried a comment about
+                     having to read the snapshot path rather than the tf-level
+                     field "because the tf-level value retains the last
+                     non-null value across shadow ticks", and pointed the
+                     operator at a Structural Anchors tile for the full
+                     picture.
+
+                     All of that reasoning was about keeping one derived
+                     number fresh. With no cascade there is no number to keep
+                     fresh, so the banner and its staleness workaround both
+                     go, rather than being left in place reading NONE forever. -->
 
                 <!-- ROW 3 — Structural Anchors Strip -->
                 <StructuralAnchorsStrip

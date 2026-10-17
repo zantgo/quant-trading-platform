@@ -41,7 +41,6 @@ use std::sync::Mutex;
 
 use api_gateway::AppState;
 use config_models::{CandleBufferConfig, InstanceEntry, PlatformConfig, WorkspaceConfig};
-use core_domain::liquidity::ClusterStatusSnapshot;
 use core_domain::models::{CandlePipelineState, MarketSnapshot};
 use core_domain::normalized::{NormalizedEvent, SymbolMapper};
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
@@ -170,16 +169,7 @@ fn build_stub_instance(
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: config_models::FibonacciConfig::default(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
-        cluster_matrix: Arc::new(RwLock::new(None)),
-        cluster_status: Arc::new(RwLock::new(ClusterStatusSnapshot::pending(
-            "TEST-USD",
-            &core_domain::duration_label(secs),
-        ))),
         pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
         tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
@@ -194,12 +184,6 @@ fn build_stub_instance(
         active_secs: active_secs.clone(),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
     let buffers: Vec<TimeframeBuffers> = active

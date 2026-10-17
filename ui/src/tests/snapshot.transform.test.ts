@@ -304,7 +304,6 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             squeezeKcPeriod: 20,  squeezeKcAtrMult: 1.5,
             atrMultiplier: 2.0,  atrTargetRR: 2.5,
             volumeAvgPeriod: 20,  rvolInstitutional: 1.5,  rvolClimax: 3.0,
-            heatmapLeverageTiers: [10],
         });
 
         // Config scalars must reflect the new values.
@@ -605,63 +604,16 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(tf.indicators['rsi'].signals).toHaveLength(0);
     });
 
-    it('shadow_tick_preserves_liquidity_signals_until_next_completed_frame', () => {
-        // Audit regression (M2): the backend shadow path sends an empty
-        // `liquidity_signals` array. Reassigning unconditionally emptied
-        // the LiquidityPanel signal list at up to 4 Hz between candle
-        // closes. Shadow frames must carry forward the previous list;
-        // completed frames remain the authoritative source.
-        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].terms[1];
-
-        const signal = {
-            kind: 'CASCADE_DETECTED',
-            direction: 'Bearish',
-            strength: 65.0,
-            confidence: 0.8,
-            source: 'liquidity_flow',
-            symbol: 'BTC-USDT',
-            timestamp: 1700000000000,
-        } as const;
-
-        // Completed frame seeds the signal list.
-        applySnapshotToTimeframe(app, tf, wsEvent({
-            symbol: 'BTC',
-            timeframe_label: '1s',
-            timeframe_secs: 60,
-            is_completed: true,
-            mid_price: '65000.00',
-            indicators: {},
-            liquidity_signals: [signal],
-        }), 'BTC-USDT');
-        expect(tf.liquiditySignals).toHaveLength(1);
-
-        // Shadow frame with an empty list must NOT wipe it. Serde omits
-        // the field for empty lists — the serde-realistic shadow shape
-        // has NO `liquidity_signals` key at all.
-        applySnapshotToTimeframe(app, tf, wsEvent({
-            symbol: 'BTC',
-            timeframe_label: '1s',
-            timeframe_secs: 60,
-            is_completed: false,
-            mid_price: '65010.00',
-            indicators: {},
-        }), 'BTC-USDT');
-        expect(tf.liquiditySignals).toHaveLength(1);
-
-        // Completed frame with no active signals clears the list. The
-        // backend omits the empty array (`skip_serializing_if =
-        // "Vec::is_empty"`), so the field is ABSENT — absence on a
-        // completed frame is the authoritative "no active signals".
-        applySnapshotToTimeframe(app, tf, wsEvent({
-            symbol: 'BTC',
-            timeframe_label: '1s',
-            timeframe_secs: 60,
-            is_completed: true,
-            mid_price: '65020.00',
-            indicators: {},
-        }), 'BTC-USDT');
-        expect(tf.liquiditySignals).toHaveLength(0);
-    });
+    // CR-10: `shadow_tick_preserves_liquidity_signals_until_next_completed_frame`
+    // is DELETED. It was an audit-M2 regression for a real bug — the shadow
+    // path's empty `liquidity_signals` array wiped the carried-forward list at
+    // up to 4 Hz between candle closes — and it is worth recording that the
+    // bug was real, because the fix it pinned was structural: the field is
+    // gone, so there is no empty-vs-absent distinction left to get wrong.
+    //
+    // The general rule it established still holds and is exercised elsewhere in
+    // this file: a shadow frame must not overwrite an authoritative value it
+    // simply did not carry.
 
     it('shadow_tick_merges_indicator_lifecycle_map_per_key', () => {
         // Regression: a sparse shadow frame must NOT wipe the prior

@@ -136,43 +136,27 @@ function makeTf() {
                 num_bins: 30,
                 timestamp_ms: 1700000000000,
             },
-            liquidity: {
-                long_liquidations_usd: 4000,
-                short_liquidations_usd: 1500,
-                net_liquidation_usd: 2500,
-                event_count: 47,
-                largest_event_usd: 1200,
-                largest_event_price: 64800,
-                largest_event_side: 'LONG',
-                cascade_state: 'SUSTAINED',
-                cascade_intensity: 82,
-            },
-            cluster: {
+            // CR-10: `liquidity` / `cluster` / `liquiditySignals` are replaced
+            // by the one candle-derived band set. The fixture below carries
+            // three zones with distinct volume and proximity percentiles so
+            // the exporter's per-row walk is still exercised.
+            stateBands: {
                 symbol: 'BTC-USDT',
-                generated_at_ms: 1700000000000,
-                valid_until_ms: 1700000300000,
-                mid_price: 65000,
-                leverage_assumptions: {
-                    source: 'DEFAULT_POWER_LAW',
-                    buckets: [1, 5, 10, 20, 50, 100],
-                    weights: [0.3, 0.25, 0.2, 0.15, 0.07, 0.03],
-                    funding_extreme_pct: 0.05,
-                    funding_modulation_active: true,
-                },
-                short_clusters: [
-                    { price_low: 66000, price_high: 66200, peak_price: 66100, notional_usd: 1000000, dominant_leverage: 20, distance_from_mid_pct: 1.7, cluster_kind: 'ABOVE_CURRENT_PRICE', magnet_strength: 87 },
+                timeframe_label: '1m',
+                timeframe_secs: 60,
+                poc_price: 65000,
+                value_area_high: 65300,
+                value_area_low: 64700,
+                has_profile: true,
+                has_bands: true,
+                bands: [
+                    { price_low: 64750, price_high: 64900, band_atr_multiple: 0.4, volume_percentile: 94, proximity_percentile: 86, intensity_pct: 80.8, basis: 'HighVolumeNode', volume_asymmetry: 0.55 },
+                    { price_low: 66000, price_high: 66200, band_atr_multiple: 0.6, volume_percentile: 71, proximity_percentile: 40, intensity_pct: 28.4, basis: 'ValueAreaEdge', volume_asymmetry: -0.3 },
+                    { price_low: 63600, price_high: 63900, band_atr_multiple: 1.2, volume_percentile: 33, proximity_percentile: 12, intensity_pct: 3.9, basis: 'SwingExtreme', volume_asymmetry: 0.02 },
                 ],
-                long_clusters: [
-                    { price_low: 64000, price_high: 64200, peak_price: 64100, notional_usd: 2000000, dominant_leverage: 20, distance_from_mid_pct: -1.4, cluster_kind: 'BELOW_CURRENT_PRICE', magnet_strength: 92 },
-                ],
-                cascade_asymmetry: 0.3,
-                total_long_oi_usd: 50000000,
-                total_short_oi_usd: 30000000,
-                estimation_confidence: 0.85,
+                summary: { volume_asymmetry: 0.18, contributing_bins: 30, band_count: 3 },
+                timestamp_ms: 1700000000000,
             },
-            liquiditySignals: [
-                { kind: 'CASCADE_DETECTED', direction: 'BEARISH', strength: 80, confidence: 0.78, evidence: ['cascade_above_threshold'] },
-            ],
         } as any;
     }
 
@@ -273,9 +257,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             analysis: makeAnalysis(),
             alignment: null,
             volumeProfile: makeTf().volumeProfile,
-            liquidity: makeTf().liquidity,
-            cluster: makeTf().cluster,
-            liquiditySignals: makeTf().liquiditySignals,
+            stateBands: makeTf().stateBands,
         });
         const obj = JSON.parse(json);
 
@@ -298,15 +280,14 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         expect(obj.volume_profile.poc_price).toBe(64650);
         expect(obj.volume_profile.top_hvn.length).toBeGreaterThan(0);
 
-        expect(obj.liquidity_flow.cascade_state).toBe('SUSTAINED');
-        expect(obj.liquidity_flow.cascade_intensity).toBe(82);
-
-        expect(obj.cluster_matrix.top_above.length).toBeGreaterThan(0);
-        expect(obj.cluster_matrix.top_below.length).toBeGreaterThan(0);
-        expect(obj.cluster_matrix.cascade_asymmetry).toBe(0.3);
-
-        expect(obj.liquidity_signals.length).toBe(1);
-        expect(obj.liquidity_signals[0].kind).toBe('CASCADE_DETECTED');
+        // CR-10: the band rows travel verbatim, including the asymmetry that
+        // tells a reader which side of the trade a zone saw.
+        expect(obj.state_bands.bands.length).toBe(3);
+        expect(obj.state_bands.bands[0].basis).toBe('HighVolumeNode');
+        expect(obj.state_bands.bands[0].volume_asymmetry).toBe(0.55);
+        expect(obj.state_bands.band_count).toBe(3);
+        expect(obj.state_bands.contributing_bins).toBe(30);
+        expect(obj.state_bands.volume_asymmetry).toBe(0.18);
     });
 
     it('omits the data-gated model sections gracefully when data is null', () => {
@@ -322,9 +303,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             analysis: null,
             alignment: null,
             volumeProfile: null,
-            liquidity: null,
-            cluster: null,
-            liquiditySignals: [],
+            stateBands: null,
         });
         const obj = JSON.parse(json);
         // CR-15: `opportunity` / `advisory` / `risk` are absent from the payload
@@ -333,8 +312,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             expect(obj[gone], `${gone} key must be absent`).toBeUndefined();
         }
         expect(obj.volume_profile).toBeNull();
-        expect(obj.liquidity_flow).toBeNull();
-        expect(obj.cluster_matrix).toBeNull();
+        expect(obj.state_bands).toBeNull();
     });
 
     it('extracts Fibonacci values from indicators.fibonacci.values even when an opportunity matrix exists', () => {
@@ -351,9 +329,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             analysis: null,
             alignment: null,
             volumeProfile: null,
-            liquidity: null,
-            cluster: null,
-            liquiditySignals: [],
+            stateBands: null,
         });
         const obj = JSON.parse(json);
         const fib = obj.indicators.find((i: any) => i.key === '__fibonacci_summary__');
@@ -388,9 +364,7 @@ describe('metricsExport — per-tab EXPORT DATA wiring', () => {
             analysis: null,
             alignment: null,
             volumeProfile: null,
-            liquidity: null,
-            cluster: null,
-            liquiditySignals: [],
+            stateBands: null,
             ...overrides,
         };
     }
@@ -675,9 +649,7 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
             analysis: makeAnalysis(),
             alignment: null,
             volumeProfile: fullTf().volumeProfile,
-            liquidity: fullTf().liquidity,
-            cluster: fullTf().cluster,
-            liquiditySignals: fullTf().liquiditySignals,
+            stateBands: null,
         });
         const obj = JSON.parse(json);
         expect(obj.analysis.market_phase).toBe('Markup');

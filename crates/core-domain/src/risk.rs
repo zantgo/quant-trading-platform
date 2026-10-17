@@ -187,7 +187,10 @@ pub struct RiskMatrix {
     pub momentum_risk: RiskDimension,
     pub signal_risk: RiskDimension,
     pub execution_risk: RiskDimension,
-    /// Phase 3: cascade risk — danger from forced liquidation cascades.
+    /// CR-10: forced-liquidation cascade risk. There is no arm behind this
+    /// dimension any more — it always carries the empty baseline. It survives
+    /// because `RiskMatrix` is a published schema (02-11) and removing a field
+    /// from a wire contract is P13's job, not P5's.
     #[serde(default)]
     pub cascade_risk: RiskDimension,
     pub overall_risk: RiskDimension,
@@ -205,6 +208,7 @@ impl RiskMatrix {
             momentum_risk: def.clone(),
             signal_risk: def.clone(),
             execution_risk: def.clone(),
+            // CR-10: no arm — see the field's doc comment.
             cascade_risk: def.clone(),
             overall_risk: def.clone(),
         }
@@ -607,14 +611,19 @@ fn assess_volatility_risk(
         .with_evidence(evidence)
 }
 
-/// Assess liquidity risk: quality of market participation.
+/// Assess participation risk: quality of market participation.
+///
+/// CR-10 removed the spread arm. `spread` was an order-book indicator read
+/// from venue depth, and the `wide` / `tight` bands could only ever fire from
+/// that feed — with it gone, `RiskExecLiquidityParams::spread_*` are dead
+/// configuration and the dimension is a pure relative-volume reading, which is
+/// an OHLCV quantity. The `rvol` arm is unchanged.
 fn assess_execution_liquidity_risk(
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
     p: &RiskExecLiquidityParams,
 ) -> RiskDimension {
     let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
-    let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
     let mut evidence = Vec::new();
     let mut score: f64 = p.baseline;
     if rvol < p.rvol_very_low {
@@ -626,13 +635,6 @@ fn assess_execution_liquidity_risk(
     } else if rvol > p.rvol_high {
         score += p.rvol_high_add;
         evidence.push("Strong participation".into());
-    }
-    if spread > p.spread_wide {
-        score += p.spread_wide_add;
-        evidence.push("Wide spread".into());
-    } else if spread < p.spread_tight {
-        score += p.spread_tight_add;
-        evidence.push("Tight spread".into());
     }
     RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
@@ -804,94 +806,19 @@ fn assess_execution_risk(
         .with_volatility_to_spread_ratio(volatility_to_spread_ratio)
 }
 
-/// Assess cascade risk (Phase 3): danger from forced liquidation
-/// cascades. Reads `cascade_intensity` from the per-candle
-/// `LiquidityFlow` if present, plus `cascade_asymmetry` from the
-/// `LiquidationClusterMatrix` for forward-looking pressure. Higher
-/// intensity or larger absolute asymmetry → higher risk.
-///
-/// Per docs/engines `03-02-12-mme-configurable-activation.md` §CA-15,
-/// `cascade_risk` emits `confidence: 0` when the liquidity data feed
-/// is off (no `flow` and no `cluster`), since the dimension has no
-/// underlying measurement to be confident about.
-fn assess_cascade_risk(
-    analysis: &AnalysisMatrix,
-    flow: Option<&crate::liquidity::LiquidityFlow>,
-    cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
-    // AUDIT-AIU-062: the discrete liquidity signals are now consumed here
-    // (previously computed and broadcast but unused by any downstream
-    // layer). OI-Price divergence and funding flips are positioning-stress
-    // tell-tales that belong in the cascade dimension.
-    liquidity_signals: &[crate::liquidity::LiquiditySignal],
-    p: &RiskCascadeParams,
-    signal_weights: &std::collections::HashMap<String, f64>,
-) -> RiskDimension {
-    let mut score: f64 = p.baseline; // baseline
-    let mut evidence = Vec::new();
-    // Confidence override: if the liquidity data feed is off, there is no
-    // measurement for this dimension → confidence 0 (docs §CA-15).
-    let state_confidence = if flow.is_none() && cluster.is_none() {
-        0.0
-    } else {
-        analysis.state_confidence
-    };
-    if let Some(f) = flow {
-        // The intensity is already 0..100; pull it in proportionally.
-        score = score.max(f.cascade_intensity);
-        match f.cascade_state {
-            crate::liquidity::CascadeState::Sustained => {
-                score = (score + p.sustained).min(100.0);
-                evidence.push("Cascade sustained in rolling window".into());
-            }
-            crate::liquidity::CascadeState::Detected => {
-                score = (score + p.detected).min(100.0);
-                evidence.push("Cascade detected this bar".into());
-            }
-            crate::liquidity::CascadeState::Exhausted => {
-                evidence.push("Cascade exhausted (decaying)".into());
-            }
-            _ => {}
-        }
-    }
-    if let Some(c) = cluster {
-        // Forward-looking pressure: |asymmetry| contributes up to 20.
-        let asym = c.cascade_asymmetry.abs();
-        if asym > p.asymmetry_min {
-            score = (score + asym * p.asymmetry_scale).min(100.0);
-            evidence.push(format!(
-                "Cluster asymmetry {:.2} (significant one-sided pressure)",
-                c.cascade_asymmetry
-            ));
-        }
-    }
-    // AUDIT-AIU-062: discrete-signal bonuses — OI-price divergence and
-    // funding flips are positioning-stress tell-tales. Strength is 0..100;
-    // scale the contribution to ≤ 15 points.
-    for sig in liquidity_signals {
-        // v9: the strategy's `l1_5.signal_weights` trust axis multiplies
-        // each kind's bonus (default 1.0 = v8.2 behavior).
-        let kind_weight = signal_weights
-            .get(&format!("{:?}", sig.kind))
-            .copied()
-            .unwrap_or(1.0);
-        match sig.kind {
-            crate::liquidity::LiquiditySignalKind::OiPriceDivergence => {
-                let bonus = (sig.strength / 100.0 * p.oi_divergence_max).min(p.oi_divergence_max)
-                    * kind_weight;
-                score = (score + bonus).min(100.0);
-                evidence.push("OI-price divergence (positioning stress)".into());
-            }
-            crate::liquidity::LiquiditySignalKind::FundingFlip => {
-                let bonus = (sig.strength / 100.0 * p.funding_flip_max).min(p.funding_flip_max)
-                    * kind_weight;
-                score = (score + bonus).min(100.0);
-                evidence.push("Funding rate flipped (crowd positioning stress)".into());
-            }
-            _ => {}
-        }
-    }
-    RiskDimension::from_score_with_confidence(score, state_confidence).with_evidence(evidence)
-}
+// CR-10: `assess_cascade_risk` is DELETED.
+//
+// The cascade dimension scored forced-liquidation pressure: a rolling
+// `LiquidityFlow` intensity, a `LiquidationClusterMatrix` asymmetry term and
+// two discrete positioning signals (OI-price divergence, funding flip). Every
+// one of those inputs came off a venue stream that is not OHLCV, so under CH-1
+// they are not readings.
+//
+// The dimension was ALSO already unreachable — P3 removed `risk` from
+// `MarketSnapshot`, so `compute_risk` had no production caller left. Deleting
+// the arm rather than feeding it an empty input keeps the file honest about
+// what the model can see. `RiskCascadeParams` survives for the config parser
+// (P5 keeps unknown-key tolerance) and dies with the rest of the config purge.
 
 /// Compute the Risk Matrix from the Analysis Matrix and per-timeframe indicators.
 ///
@@ -905,11 +832,7 @@ pub fn compute_risk(
     symbol: &str,
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
-    flow: Option<&crate::liquidity::LiquidityFlow>,
-    cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
     close: f64,
-    // AUDIT-AIU-062: discrete liquidity signals feed the cascade dimension.
-    liquidity_signals: &[crate::liquidity::LiquiditySignal],
     previous_overall: Option<f64>,
     // v6.10.18 (I-8): per-TF L2 volatility states `(label, state_label,
     // score_0_100)` — the actionable-horizon volatility signal for the
@@ -936,39 +859,23 @@ pub fn compute_risk(
     let momentum = assess_momentum_risk(analysis, &params.momentum);
     let signal = assess_signal_risk(analysis, &params.signal);
     let execution = assess_execution_risk(analysis, indicators, close, &params.execution);
-    let cascade = assess_cascade_risk(
-        analysis,
-        flow,
-        cluster,
-        liquidity_signals,
-        &params.cascade,
-        &params.signal_weights,
-    );
 
-    // v6.10 (Phase 1 / A6): Risk weights restored to the canonical spec table
-    // at `docs/matrices/02-11-risk-matrix.md §3`. The previous v6.9 weights
-    // put cascade at 0.11 (vs spec 0.14), under-weighting the cascade
-    // dimension by ~21% relative to spec. We restore the spec weighting:
-    //
-    //   market × 0.14
-    //   volatility × 0.14
-    //   liquidity × 0.14
-    //   structure × 0.10
-    //   momentum × 0.14
-    //   signal × 0.10
-    //   execution × 0.10
-    //   cascade × 0.14
-    //
-    // Sum = 5×0.14 + 3×0.10 = 0.70 + 0.30 = 1.00.
+    // CR-10: the cascade arm is gone, so the weights no longer sum to 1.00.
+    // Renormalizing rather than silently leaving the risk score depressed is
+    // the honest choice — the surviving seven dimensions keep their relative
+    // spec weights (market/volatility/liquidity/momentum 0.14, structure/signal
+    // /execution 0.10, cascade 0.14 removed ⇒ 0.86), and dividing by the
+    // surviving total is exactly equivalent to re-deriving the table without
+    // the deleted row.
+    const SURVIVING_WEIGHT_SUM: f64 = 0.86;
     let overall_score = (market.score * params.weights_market
         + volatility.score * params.weights_volatility
         + liquidity.score * params.weights_execution_liquidity
         + structure.score * params.weights_structure
         + momentum.score * params.weights_momentum
         + signal.score * params.weights_signal
-        + execution.score * params.weights_execution
-        + cascade.score * params.weights_cascade)
-        .clamp(0.0, 100.0);
+        + execution.score * params.weights_execution)
+        / SURVIVING_WEIGHT_SUM.clamp(0.0, 100.0);
     // v6.10.9: functional risk state. The overall state derives from the
     // level + the previous-synthesis delta; each dimension escalates by its
     // own level (≥60 Elevated, ≥80 Critical) and otherwise inherits the
@@ -991,7 +898,6 @@ pub fn compute_risk(
     let momentum_score = momentum.score;
     let signal_score = signal.score;
     let execution_score = execution.score;
-    let cascade_score = cascade.score;
     let overall =
         RiskDimension::from_score_with_confidence(overall_score, analysis.state_confidence)
             .with_state(overall_state);
@@ -1002,7 +908,6 @@ pub fn compute_risk(
     let momentum = momentum.with_state(dim_state(momentum_score));
     let signal = signal.with_state(dim_state(signal_score));
     let execution = execution.with_state(dim_state(execution_score));
-    let cascade = cascade.with_state(dim_state(cascade_score));
 
     RiskMatrix {
         symbol: symbol.to_string(),
@@ -1013,7 +918,10 @@ pub fn compute_risk(
         momentum_risk: momentum,
         signal_risk: signal,
         execution_risk: execution,
-        cascade_risk: cascade,
+        // CR-10: no arm. `confidence: 0` (not 0.5) is the honest value —
+        // the dimension has no underlying measurement left, which is the same
+        // rule the old `assess_cascade_risk` applied when its feed was off.
+        cascade_risk: RiskDimension::from_score_with_confidence(0.0, 0.0),
         overall_risk: overall,
     }
 }
@@ -1076,10 +984,7 @@ mod tests {
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             0.0,
-            &[],
             None,
             &[],
             &RiskParams::default(),
@@ -1121,10 +1026,7 @@ mod tests {
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             63017.0,
-            &[],
             None,
             &tf_volatility,
             &RiskParams::default(),
@@ -1169,10 +1071,7 @@ mod tests {
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             63017.0,
-            &[],
             None,
             &tf_volatility,
             &RiskParams::default(),
@@ -1188,57 +1087,32 @@ mod tests {
         );
     }
 
+    // CR-10: `cascade_risk_does_not_crash_with_zero_inputs` and
+    // `cascade_risk_with_sustained_state_is_high` are DELETED. The first
+    // asserted the baseline of a function that no longer exists; the second
+    // built a `LiquidityFlow` in `CascadeState::Sustained` to prove the
+    // dimension escalated — a synthetic forced-close stream, which is exactly
+    // the non-candle reading CH-1 forbids.
+    //
+    // What replaces them is a single assertion on the surviving schema field:
+    // with no arm, the dimension is pinned at the neutral baseline and carries
+    // no confidence. That is the whole claim worth making about it.
     #[test]
-    fn cascade_risk_does_not_crash_with_zero_inputs() {
+    fn cascade_risk_has_no_arm_and_reports_no_confidence() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
         let r = compute_risk(
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             0.0,
-            &[],
             None,
             &[],
             &RiskParams::default(),
         );
-        // Baseline (no flow, no cluster) → score = 30.0
-        assert!(
-            (r.cascade_risk.score - 30.0).abs() < 1e-9,
-            "expected 30.0, got {}",
-            r.cascade_risk.score
-        );
-    }
-
-    #[test]
-    fn cascade_risk_with_sustained_state_is_high() {
-        use crate::liquidity::{CascadeState, LiquidityFlow};
-        let flow = LiquidityFlow {
-            cascade_state: CascadeState::Sustained,
-            cascade_intensity: 90.0,
-            ..Default::default()
-        };
-        let analysis = make_analysis_with_timeframes();
-        let indicators = HashMap::new();
-        let r = compute_risk(
-            "BTC-USD",
-            &analysis,
-            &indicators,
-            Some(&flow),
-            None,
-            0.0,
-            &[],
-            None,
-            &[],
-            &RiskParams::default(),
-        );
-        // Sustained + high intensity → cascade_risk >= 90 (capped at 100).
-        assert!(
-            r.cascade_risk.score >= 90.0,
-            "sustained cascade should drive risk >= 90, got {}",
-            r.cascade_risk.score
+        assert_eq!(
+            r.cascade_risk.confidence, 0.0,
+            "no measurement ⇒ no confidence"
         );
     }
 
@@ -1270,10 +1144,7 @@ mod tests {
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             60_000.0,
-            &[],
             None,
             &[],
             &RiskParams::default(),
@@ -1297,14 +1168,15 @@ mod tests {
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             0.0,
-            &[],
             None,
             &[],
             &RiskParams::default(),
         );
+        // CR-10: `cascade_risk` is NOT in this list. It has no arm, so it no
+        // longer carries a spec weight — `compute_risk` renormalizes the
+        // surviving seven by their 0.86 total, and averaging eight dimensions
+        // here would compare against a set the function no longer uses.
         let dims = [
             r.market_risk.score,
             r.volatility_risk.score,
@@ -1313,9 +1185,8 @@ mod tests {
             r.momentum_risk.score,
             r.signal_risk.score,
             r.execution_risk.score,
-            r.cascade_risk.score,
         ];
-        let unweighted = dims.iter().sum::<f64>() / 8.0;
+        let unweighted = dims.iter().sum::<f64>() / 7.0;
         let ratio = r.overall_risk.score / unweighted.max(1e-9);
         assert!(
             (0.85..=1.05).contains(&ratio),
@@ -1357,10 +1228,7 @@ mod tests {
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             0.0,
-            &[],
             None,
             &[],
             &RiskParams::default(),
@@ -1392,10 +1260,7 @@ mod tests {
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             0.0,
-            &[],
             Some(90.0),
             &[],
             &RiskParams::default(),
@@ -1406,10 +1271,7 @@ mod tests {
             "BTC-USD",
             &analysis,
             &indicators,
-            None,
-            None,
             0.0,
-            &[],
             Some(-90.0),
             &[],
             &RiskParams::default(),

@@ -15,7 +15,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
-use config_models::{FibonacciConfig, OrderBookConfig, TimeframeConfig};
+use config_models::{FibonacciConfig, TimeframeConfig};
 use core_domain::normalized::{Exchange, NormalizedEvent, NormalizedTrade, TradeSide};
 use market_analyzer::active_set::ActiveSet;
 use market_analyzer::analyzer;
@@ -141,16 +141,6 @@ async fn drive_pipeline(
             cancel,
             None,
             None,
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-            Arc::new(RwLock::new(None)),
-            None,
-            None,
-            OrderBookConfig::default(),
             strategy,
             // Sibling latest-snapshot handles — none in this single-pipeline test.
             Vec::new(),
@@ -261,32 +251,6 @@ async fn disabled_indicators_are_absent_and_metrics_config_attached() {
 }
 
 #[tokio::test]
-async fn signals_sub_toggle_suppresses_emission_but_keeps_flow() {
-    // CA-15: `liquidity_signals_enabled = false` (master liquidity still
-    // enabled) ⇒ `liquidity_signals` is empty on the wire while the
-    // `liquidity` LiquidityFlow payload stays attached.
-    let mut active = ActiveSet::all_enabled();
-    active.liquidity_signals_enabled = false;
-
-    let (completed, _handle, _cancel) = drive_pipeline(active).await;
-    assert!(
-        completed.len() >= 2,
-        "expected completed snapshots, got {}",
-        completed.len()
-    );
-
-    let snap = completed.first().unwrap();
-    assert!(
-        snap.liquidity.is_some(),
-        "LiquidityFlow must stay present when only the signals sub-toggle is off"
-    );
-    assert!(
-        snap.liquidity_signals.is_empty(),
-        "LiquiditySignal emission must be suppressed"
-    );
-}
-
-#[tokio::test]
 async fn disabled_signal_kinds_and_pairs_are_filtered_from_wire() {
     // AUDIT-H2: the `[activation]` signal denylist was parsed and
     // advertised in `metrics_config` but never enforced. A globally
@@ -345,32 +309,11 @@ async fn disabled_signal_kinds_and_pairs_are_filtered_from_wire() {
         .expect("metrics_config must be attached when signals are disabled");
     assert_eq!(mc.config_version, 7);
 }
-
-#[tokio::test]
-async fn liquidity_master_off_absents_the_whole_chain() {
-    // CA-15: master `enabled = false` ⇒ `liquidity`/`cluster`/
-    // `liquidity_signals` all absent from the snapshot.
-    let mut active = ActiveSet::all_enabled();
-    active.liquidity_enabled = false;
-
-    let (completed, _handle, _cancel) = drive_pipeline(active).await;
-    assert!(
-        completed.len() >= 2,
-        "expected completed snapshots, got {}",
-        completed.len()
-    );
-
-    let snap = completed.first().unwrap();
-    assert!(
-        snap.liquidity.is_none(),
-        "liquidity must be absent (master off)"
-    );
-    assert!(
-        snap.cluster.is_none(),
-        "cluster must be absent (master off)"
-    );
-    assert!(
-        snap.liquidity_signals.is_empty(),
-        "liquidity_signals must be absent (master off)"
-    );
-}
+// CR-10: `liquidity_master_off_absents_the_whole_chain` is DELETED.
+//
+// It pinned CA-15: flipping `[liquidity] enabled = false` had to make
+// `liquidity`, `cluster` and `liquidity_signals` absent from the snapshot.
+// All three fields are gone, the master toggle is gone with them, and an
+// `ActiveSet` no longer carries the flag — so the assertion has no subject.
+// A test that can only be kept by re-adding the fields it forbids is worse
+// than no test at all.

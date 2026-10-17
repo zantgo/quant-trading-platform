@@ -15,7 +15,6 @@
 
 mod all;
 mod context;
-pub mod derivatives;
 mod extended;
 mod signals;
 
@@ -84,10 +83,11 @@ pub struct PreviousBarState {
     pub williams_r: Option<f64>,
     pub cci: Option<f64>,
     pub psar_sar: Option<f64>,
-    /// Previous bar funding rate for flip detection.
-    pub funding_rate: Option<f64>,
-    /// Previous bar cascade state for transition detection.
-    pub cascade_state: Option<core_domain::liquidity::CascadeState>,
+    // CR-10: `funding_rate` and `cascade_state` are deleted. The funding rate is
+    // a venue feed value and the cascade state came from the forced-close
+    // accumulator; both existed only so the deleted liquidity signals could
+    // detect a flip between bars. With those signals gone the carry has no
+    // reader.
 }
 
 /// Stateful context bridging the pure calculators to signed normalization.

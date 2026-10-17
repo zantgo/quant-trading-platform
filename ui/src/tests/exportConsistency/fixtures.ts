@@ -5,7 +5,7 @@
 // component regression tests in `src/components/*.test.ts`).
 
 import { useAppStore } from '../../state.svelte';
-import type { AlignmentMatrix, AnalysisMatrix, IndicatorLifecycleStatus, IndicatorMeta, IndicatorDto, LiquidationClusterMatrix, LiquidityFlow, MarketContext, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
+import type { AlignmentMatrix, AnalysisMatrix, BandBasis, IndicatorLifecycleStatus, IndicatorMeta, IndicatorDto, MarketContext, StateBand, StateBandMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
 
 export const PAIR = 'BTC-USDT';
 export const MARK_PRICE = 63390.0;
@@ -36,8 +36,11 @@ export function seedRichInstance(): void {
     prev_day_px: 62000,
     exchange: 'Hyperliquid',
     is_completed: true,
-    liquidity: makeFlow(),
-    cluster: makeCluster(),
+    // CR-10: the SNAPSHOT-path forced-close flow + cluster matrix. The
+    // snapshot is where the band set lives too, because a band set is
+    // computed per completed candle and the tf-level field carries the last
+    // one forward across shadow ticks.
+    state_bands: makeStateBands(),
   } as unknown as Record<string, unknown>;
   entry.terms[5].latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63395, is_completed: true } as unknown as Record<string, unknown>;
   entry.terms[30].latestSnapshot = { timestamp: 1_700_000_000, mid_price: 63380, is_completed: true } as unknown as Record<string, unknown>;
@@ -54,9 +57,7 @@ export function seedRichInstance(): void {
   entry.terms[1].indicatorLifecycle = makeMicroLifecycle() as unknown as Record<string, IndicatorLifecycleStatus>;
   entry.terms[1].context = makeContext();
   entry.terms[1].volumeProfile = makeVolumeProfile();
-  entry.terms[1].cluster = makeCluster();
-  entry.terms[1].liquidity = makeFlow();
-  entry.terms[1].liquiditySignals = [];
+  entry.terms[1].stateBands = makeStateBands();
   entry.terms[5].indicators = makeMicroIndicators();
   entry.terms[5].indicators['rsi_14'] = {
     raw_value: 63.5,
@@ -237,49 +238,61 @@ export function makeVolumeProfile(): VolumeProfileSnapshot {
   };
 }
 
-export function makeCluster(): LiquidationClusterMatrix {
+/**
+ * CR-10's replacement for `makeCluster()` + `makeFlow()`.
+ *
+ * Note what is absent versus the fixture it replaces: no `leverage_assumptions`
+ * (the old fixture set `source: 'FUNDING_ADAPTIVE'` with a seven-bucket power
+ * law), no `estimation_confidence`, no `cascade_asymmetry`, no `dominant_leverage`
+ * per row. Every one of those was either an assumption or a confidence in an
+ * assumption, and an export fixture is the last place they should survive —
+ * a downstream reader diffing two exports would have seen those numbers move
+ * for reasons no candle could explain.
+ *
+ * What is here is arithmetic: the point of control, the value area, and three
+ * zones with their own volume and proximity percentiles.
+ */
+export function makeStateBands(): StateBandMatrix {
+  const band = (
+    priceLow: number,
+    priceHigh: number,
+    basis: BandBasis,
+    volumePercentile: number,
+    proximityPercentile: number,
+    volumeAsymmetry: number,
+  ): StateBand => ({
+    price_low: priceLow,
+    price_high: priceHigh,
+    band_atr_multiple: 0.5,
+    volume_percentile: volumePercentile,
+    proximity_percentile: proximityPercentile,
+    intensity_pct: (volumePercentile * proximityPercentile) / 100,
+    basis,
+    volume_asymmetry: volumeAsymmetry,
+  });
+
   return {
     symbol: PAIR,
-    generated_at_ms: 1700000000000,
-    valid_until_ms: 1700000300000,
-    mid_price: MARK_PRICE,
-    leverage_assumptions: {
-      source: 'FUNDING_ADAPTIVE',
-      buckets: [1, 3, 5, 10, 20, 50, 100],
-      weights: [0.05, 0.1, 0.2, 0.3, 0.2, 0.1, 0.05],
-      funding_modulation_active: true,
-      funding_extreme_pct: 0.0005,
+    timeframe_label: '1s',
+    timeframe_secs: 60,
+    poc_price: MARK_PRICE,
+    value_area_high: MARK_PRICE * 1.006,
+    value_area_low: MARK_PRICE * 0.994,
+    has_profile: true,
+    has_bands: true,
+    // Strongest first by intensity_pct, which is the ordering the Rust builder
+    // guarantees and every consumer relies on.
+    bands: [
+      band(MARK_PRICE * 0.996, MARK_PRICE * 0.999, 'HighVolumeNode', 96, 88, 0.62),
+      band(MARK_PRICE * 1.004, MARK_PRICE * 1.008, 'PointOfControl', 78, 71, -0.34),
+      band(MARK_PRICE * 1.012, MARK_PRICE * 1.018, 'ValueAreaEdge', 41, 22, 0.08),
+    ],
+    summary: {
+      volume_asymmetry: 0.21,
+      contributing_bins: 48,
+      band_count: 3,
     },
-    short_clusters: [
-      { price_low: 63800, price_high: 63950, peak_price: 63900, notional_usd: 3200000, dominant_leverage: 10, distance_from_mid_pct: 0.8, magnet_strength: 82, cluster_kind: 'ABOVE_CURRENT_PRICE' },
-      { price_low: 64500, price_high: 64700, peak_price: 64600, notional_usd: 1800000, dominant_leverage: 20, distance_from_mid_pct: 1.9, magnet_strength: 54, cluster_kind: 'ABOVE_CURRENT_PRICE' },
-      { price_low: 66000, price_high: 66200, peak_price: 66100, notional_usd: 900000, dominant_leverage: 5, distance_from_mid_pct: 4.3, magnet_strength: 22, cluster_kind: 'ABOVE_CURRENT_PRICE' },
-      { price_low: 69000, price_high: 69300, peak_price: 69150, notional_usd: 400000, dominant_leverage: 3, distance_from_mid_pct: 9.1, magnet_strength: 8, cluster_kind: 'ABOVE_CURRENT_PRICE' },
-    ],
-    long_clusters: [
-      { price_low: 62900, price_high: 63100, peak_price: 63000, notional_usd: 4100000, dominant_leverage: 10, distance_from_mid_pct: 0.6, magnet_strength: 88, cluster_kind: 'BELOW_CURRENT_PRICE' },
-      { price_low: 62000, price_high: 62200, peak_price: 62100, notional_usd: 1500000, dominant_leverage: 20, distance_from_mid_pct: 2.0, magnet_strength: 46, cluster_kind: 'BELOW_CURRENT_PRICE' },
-      { price_low: 60000, price_high: 60200, peak_price: 60100, notional_usd: 700000, dominant_leverage: 5, distance_from_mid_pct: 5.2, magnet_strength: 17, cluster_kind: 'BELOW_CURRENT_PRICE' },
-      { price_low: 58000, price_high: 58200, peak_price: 58100, notional_usd: 300000, dominant_leverage: 3, distance_from_mid_pct: 8.3, magnet_strength: 6, cluster_kind: 'BELOW_CURRENT_PRICE' },
-    ],
-    cascade_asymmetry: 0.35,
-    total_long_oi_usd: 40000000,
-    total_short_oi_usd: 30000000,
-    estimation_confidence: 0.85,
-  };
-}
-
-export function makeFlow(): LiquidityFlow {
-  return {
-    long_liquidations_usd: 50000,
-    short_liquidations_usd: 15000,
-    net_liquidation_usd: 35000,
-    event_count: 4,
-    largest_event_usd: 30000,
-    largest_event_price: 63400,
-    largest_event_side: 'LONG',
-    cascade_state: 'SUSTAINED',
-    cascade_intensity: 72.5,
+    timestamp_ms: 1700000000000,
   };
 }
 

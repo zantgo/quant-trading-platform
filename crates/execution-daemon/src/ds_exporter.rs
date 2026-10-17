@@ -96,23 +96,6 @@ pub async fn run_ds_exporter(
                             });
                             w.write_line(&sdir, "trading/trades.ndjson", &value);
                         }
-                    database_storage::TelemetryMsg::InsertLiquidationEvent {
-                        exchange,
-                        symbol,
-                        side,
-                        price,
-                        size_usd,
-                        timestamp_ms,
-                        venue_order_id,
-                    }
-                        if cfg.capture_trading => {
-                            let value = serde_json::json!({
-                                "exchange": exchange, "symbol": symbol, "side": side,
-                                "price": price, "size_usd": size_usd,
-                                "timestamp_ms": timestamp_ms, "venue_order_id": venue_order_id,
-                            });
-                            w.write_line(&sdir, "trading/liquidation_events.ndjson", &value);
-                        }
                     _ => {}
                 }
             }

@@ -10,7 +10,7 @@
 //! M20: Hyperliquid validated both sides non-empty; Bitget validated nothing;
 //! Bybit only rejected when BOTH sides were empty. No adapter sorted, and all
 //! three decoded levels with `filter_map`, so one unparseable level silently
-//! promoted a worse level to `bids[0]` -- which `OrderBookAnalysis::update`
+//! promoted a worse level to `bids[0]` -- which the mid-price reader
 //! treats as top of book. The result was a negative `spread_pct`, an inverted
 //! mid feeding the shadow candle, and wrong OFI/DWM.
 
@@ -18,8 +18,6 @@ use core_domain::normalized::{
     Exchange, NormalizedCandle, NormalizedOrderBook, NormalizedTrade, OrderBookReject, TradeSide,
 };
 use market_analyzer::candle_generator::CandleGenerator;
-use market_analyzer::indicators::order_book::OrderBookAnalysis;
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -272,48 +270,8 @@ fn zero_size_levels_are_dropped() {
 
 /// The load-bearing M20 test: end-to-end, a mis-ordered book cannot produce a
 /// negative spread.
-#[test]
-fn a_validated_book_always_yields_a_non_negative_spread() {
-    let book = NormalizedOrderBook::validated(
-        Exchange::Hyperliquid,
-        "BTC-USDT".into(),
-        // Venue delivered the best bid SECOND -- `filter_map` plus a dropped
-        // level used to make this look like a crossed book downstream.
-        vec![(dec!(98_000), dec!(5)), (dec!(100_000), dec!(1))],
-        vec![(dec!(100_500), dec!(1))],
-        1_000,
-    )
-    .expect("valid");
-
-    let mut ob = OrderBookAnalysis::new(5, 2.0);
-    ob.update(
-        &book
-            .bids
-            .iter()
-            .map(|(p, s)| (p.to_f64().unwrap(), s.to_f64().unwrap()))
-            .collect::<Vec<_>>(),
-        &book
-            .asks
-            .iter()
-            .map(|(p, s)| (p.to_f64().unwrap(), s.to_f64().unwrap()))
-            .collect::<Vec<_>>(),
-    );
-
-    let spread = ob.spread_pct().expect("spread must be present");
-    assert!(spread >= 0.0, "spread must never be negative, got {spread}");
-    assert!(spread > 0.0, "a real book has a real spread, got {spread}");
-}
-
 /// Belt-and-braces: even if a crossed book somehow reaches the analysis layer,
 /// `spread_pct` is clamped rather than going negative on the wire.
-#[test]
-fn crossed_book_at_the_analysis_layer_is_clamped() {
-    let mut ob = OrderBookAnalysis::new(5, 2.0);
-    ob.update(&[(101_000.0, 1.0)], &[(100_000.0, 1.0)]);
-    let spread = ob.spread_pct().expect("spread must be present");
-    assert!(spread >= 0.0, "spread must be clamped at 0, got {spread}");
-}
-
 #[test]
 fn empty_book_reports_the_empty_reason() {
     assert_eq!(

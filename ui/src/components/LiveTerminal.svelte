@@ -47,7 +47,6 @@
     import LinRegSlopeChart from './LinRegSlopeChart.svelte';
     import ZScoreChart from './ZScoreChart.svelte';
     import KeltnerChart from './KeltnerChart.svelte';
-    import DerivativeRibbon from './DerivativeRibbon.svelte';
     import PaneGroupHeader from './PaneGroupHeader.svelte';
     import TimeframesRail from './TimeframesRail.svelte';
     import FullscreenToolbar from './FullscreenToolbar.svelte';
@@ -115,8 +114,7 @@
         | 'rsi' | 'macd' | 'stochastic' | 'chandemo' | 'williams_r' | 'cci' | 'awesome'
         | 'obv' | 'cmf' | 'mfi' | 'force_index'
         | 'atr' | 'bbwp' | 'squeeze' | 'hv' | 'stddev_channel'
-        | 'choppiness' | 'linreg' | 'zscore' | 'keltner'
-        | 'funding' | 'open_interest' | 'oi_delta' | 'order_flow_depth' | 'spread';
+        | 'choppiness' | 'linreg' | 'zscore' | 'keltner';
 
     interface PaneDescriptor {
         chartType: ChartType;
@@ -320,11 +318,11 @@
                             {/key}
                         </div>
 
-                        {#if activeTerm.showDerivativeRibbon}
-                            {#key chartKey(activeTerm, 'derivative-ribbon')}
-                                <DerivativeRibbon slot={activeTerm.slot} />
-                            {/key}
-                        {/if}
+                        <!-- CR-10: the DerivativeRibbon pane is DELETED. It
+                             rendered mark price, index price, funding rate and
+                             the OI delta — four readings off venue streams that
+                             are not the candle, stacked into one strip whose
+                             job was to look like a ticker. -->
 
                         {#each COLLAPSED_GROUPS as group (group.title)}
                             <PaneGroupHeader title={group.title} count={group.panes.length} defaultOpen={group.defaultOpen ?? false}>

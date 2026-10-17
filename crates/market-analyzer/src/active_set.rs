@@ -29,10 +29,6 @@ pub struct ActiveSet {
     pub disabled_signals: HashSet<(String, String)>,
     pub disabled_signal_kinds: HashSet<String>,
     pub config_version: u64,
-    pub liquidity_enabled: bool,
-    pub liquidation_feed: bool,
-    pub cluster_estimation: bool,
-    pub liquidity_signals_enabled: bool,
 }
 
 impl ActiveSet {
@@ -42,10 +38,6 @@ impl ActiveSet {
             disabled_signals: HashSet::new(),
             disabled_signal_kinds: HashSet::new(),
             config_version: 1,
-            liquidity_enabled: true,
-            liquidation_feed: true,
-            cluster_estimation: true,
-            liquidity_signals_enabled: true,
         }
     }
 
@@ -53,11 +45,6 @@ impl ActiveSet {
         global: &ActivationConfig,
         instance: Option<&ActivationConfig>,
         config_version: u64,
-        // v6.10 (Phase 5 / E2): the master `[liquidity] enabled` toggle
-        // is read from the global LiquidityConfig (not the per-instance
-        // ActivationConfig) so operators can disable the entire liquidity
-        // chain via `[liquidity] enabled = false` (CA-15).
-        liquidity_config_enabled: bool,
     ) -> Self {
         let mut disabled_indicators: HashSet<String> =
             global.disabled_indicators.iter().cloned().collect();
@@ -96,27 +83,6 @@ impl ActiveSet {
             disabled_signals,
             disabled_signal_kinds,
             config_version,
-            // v6.10 (Phase 5 / E2): wire the `[liquidity] enabled` master
-            // toggle. When `false`, L1.5/L2.5/Phase 3 are all disabled
-            // and to_metrics_config reports it accurately.
-            liquidity_enabled: liquidity_config_enabled,
-            // v6.10 (Phase 5 / E3): per-instance liquidity sub-toggles use
-            // `Option<bool>`. `None` means inherit the global; `Some(v)`
-            // means force the instance value. This lets operators opt
-            // out of a sub-feature on a specific instance (e.g. disable
-            // cluster estimation on macro while keeping liquidation feed).
-            liquidation_feed: instance
-                .and_then(|i| i.liquidation_feed)
-                .or(global.liquidation_feed)
-                .unwrap_or(true),
-            cluster_estimation: instance
-                .and_then(|i| i.cluster_estimation)
-                .or(global.cluster_estimation)
-                .unwrap_or(true),
-            liquidity_signals_enabled: instance
-                .and_then(|i| i.liquidity_signals_enabled)
-                .or(global.liquidity_signals_enabled)
-                .unwrap_or(true),
         }
     }
 
@@ -202,12 +168,6 @@ impl ActiveSet {
                 .map(|(ind, kind)| (ind.clone(), kind.clone()))
                 .collect(),
             disabled_signal_kinds: self.disabled_signal_kinds.iter().cloned().collect(),
-            liquidity: core_domain::models::LiquidityActivation {
-                enabled: self.liquidity_enabled,
-                liquidation_feed: self.liquidation_feed,
-                cluster_estimation: self.cluster_estimation,
-                signals: self.liquidity_signals_enabled,
-            },
             config_version: self.config_version,
         })
     }
@@ -229,19 +189,13 @@ mod tests {
         assert!(s.disabled_indicators.is_empty());
         assert!(s.disabled_signals.is_empty());
         assert!(s.disabled_signal_kinds.is_empty());
-        assert!(s.liquidity_enabled);
-        assert!(s.liquidation_feed);
-        assert!(s.cluster_estimation);
-        assert!(s.liquidity_signals_enabled);
     }
 
     #[test]
     fn default_matches_all_enabled() {
         let s = ActiveSet::default();
-        assert_eq!(
-            s.liquidity_enabled,
-            ActiveSet::all_enabled().liquidity_enabled
-        );
+        assert_eq!(s.config_version, ActiveSet::all_enabled().config_version);
+        assert!(s.disabled_indicators.is_empty());
     }
 
     #[test]
@@ -251,18 +205,10 @@ mod tests {
         assert!(s.has_any_disabled());
     }
 
-    #[test]
-    fn liquidity_master_off_reaches_metrics_config() {
-        use config_models::ActivationConfig;
-        let global = ActivationConfig::default();
-        // Master off: pass `false` for `liquidity_config_enabled`.
-        let s = ActiveSet::from_config(&global, None, 1, false);
-        assert!(!s.liquidity_enabled, "master off must disable liquidity");
-        let cfg = s.to_metrics_config();
-        if let Some(cfg) = cfg {
-            assert!(!cfg.liquidity.enabled);
-        }
-    }
+    // CR-10: `liquidity_master_off_reaches_metrics_config` is DELETED. It
+    // proved that the `[liquidity] enabled` master switch reached
+    // `MetricsConfig`, which is the field that switch no longer has. The
+    // per-feed activation model is gone with the chain it gated.
 
     fn map_with_signals() -> std::collections::HashMap<String, NormalizedIndicatorValue> {
         use core_domain::indicator_dtos::{IndicatorSignal, SignalDirection, SignalStatus};

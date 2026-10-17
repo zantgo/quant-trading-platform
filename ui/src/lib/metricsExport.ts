@@ -39,7 +39,7 @@
 // functions below are preserved unchanged for backward compatibility
 // with the existing test suite and any external consumers.
 
-import type { AnalysisMatrix, IndicatorDto, IndicatorLifecycleStatus, IndicatorMeta, IndicatorSignal, LiquidationCluster, LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal, TimeframeTelemetry, VolumeProfileSnapshot } from '../types';
+import type { AnalysisMatrix, IndicatorDto, IndicatorLifecycleStatus, IndicatorMeta, IndicatorSignal, StateBand, StateBandMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../types';
 import { DURATIONS, tfLabel } from '../types';
 
 interface ExportPayload {
@@ -67,12 +67,11 @@ interface ExportPayload {
     alignment: Record<string, unknown> | null;
     /** Per-TF Volume Profile snapshot. */
     volume_profile: VolumeProfileExport | null;
-    /** Per-TF Liquidity flow (latest bar's liquidation events + cascade state). */
-    liquidity_flow: LiquidityFlowExport | null;
-    /** Per-TF Liquidation Cluster matrix (above/below cluster ladders). */
-    cluster_matrix: ClusterMatrixExport | null;
-    /** Per-TF Liquidity Signals array. */
-    liquidity_signals: LiquiditySignal[];
+    /**
+     * CR-10: the candle-derived band set, per TF. Replaces
+     * `liquidity_flow` / `cluster_matrix` / `liquidity_signals`.
+     */
+    state_bands: StateBandsExport | null;
     /** Per-timeframe pipeline lifecycle (INITIALIZING / LOADING / LIVE / STALE / FAILED). */
     pipeline_state: string | null;
     /** Whether the current snapshot is a completed candle (true) or a shadow/live tick (false). */
@@ -131,15 +130,12 @@ interface RiskDimensionRecord {
     evidence: string[];
 }
 
-/** Cascade telemetry surfaced under the cascade_risk dim card on the
- *  Risk page (state, intensity, asymmetry). The same numbers also live
- *  in `liquidity_flow` / `cluster_matrix`; this block groups them for
- *  the consumer who only inspects the risk section. */
-interface CascadeTelemetryExport {
-    cascade_state: string;
-    cascade_intensity: number;
-    cascade_asymmetry: number | null;
-}
+// CR-10: `CascadeTelemetryExport` is DELETED. It duplicated `cascade_state`,
+// `cascade_intensity` and `cascade_asymmetry` from `liquidity_flow` /
+// `cluster_matrix` "for the consumer who only inspects the risk section" —
+// which was the whole design: one panel's numbers copied into another panel's
+// export so a risk-section reader never had to look at the liquidity section.
+// With both sources gone there is nothing to group.
 
 interface AnalysisExport {
     symbol: string;
@@ -188,27 +184,26 @@ interface VolumeProfileExport {
     current_position: { in_va: boolean; range_pos_pct: number };
 }
 
-interface LiquidityFlowExport {
-    long_liquidations_usd: number;
-    short_liquidations_usd: number;
-    net_liquidation_usd: number;
-    event_count: number;
-    largest_event_usd: number;
-    largest_event_price: number | null;
-    largest_event_side: string | null;
-    cascade_state: string;
-    cascade_intensity: number;
-}
-
-interface ClusterMatrixExport {
-    mid_price: number;
-    cascade_asymmetry: number;
-    total_long_oi_usd: number;
-    total_short_oi_usd: number;
-    estimation_confidence: number;
-    leverage_assumptions: { source: string; buckets: number[]; weights: number[]; funding_modulation_active: boolean };
-    top_above: Array<{ peak_price: number; distance_from_mid_pct: number; notional_usd: number; magnet_strength: number; cluster_kind: string }>;
-    top_below: Array<{ peak_price: number; distance_from_mid_pct: number; notional_usd: number; magnet_strength: number; cluster_kind: string }>;
+/**
+ * CR-10's replacement for `LiquidityFlowExport` + `ClusterMatrixExport`.
+ *
+ * Note what is absent versus what it replaced: no `estimation_confidence`
+ * (nothing here is estimated), no `leverage_assumptions` (nothing here assumes a
+ * leverage curve), no `magnet_strength` (nothing here claims a zone pulls
+ * price). What is left is the volume profile's own arithmetic — point of
+ * control, value area, per-zone traded notional and buy/sell asymmetry.
+ */
+interface StateBandsExport {
+    poc_price: number;
+    value_area_high: number;
+    value_area_low: number;
+    has_profile: boolean;
+    has_bands: boolean;
+    band_count: number;
+    contributing_bins: number;
+    /** `|buy - sell| / (buy + sell)` across every bin, 0..=1. */
+    volume_asymmetry: number;
+    bands: StateBand[];
 }
 
 const ABBR: Record<string, string> = {
@@ -429,16 +424,15 @@ export interface ExportArgs {
     analysis: AnalysisMatrix | null;
     alignment: Record<string, unknown> | null;
     volumeProfile: VolumeProfileSnapshot | null;
-    liquidity: LiquidityFlow | null;
-    cluster: LiquidationClusterMatrix | null;
-    liquiditySignals: LiquiditySignal[];
+    /** CR-10: the candle-derived band set. */
+    stateBands: StateBandMatrix | null;
 }
 
 export function buildMetricsExportJson(args: ExportArgs): string {
     const {
         sourceTab = '', symbol, tfLabel, tfSecs, timestamp, markPrice, registry, tf, filters,
         analysis, alignment, volumeProfile,
-        liquidity, cluster, liquiditySignals,
+        stateBands,
     } = args;
     const inds = (tf?.indicators ?? {}) as Record<string, IndicatorDto>;
     const fibExtracted = extractFibSummary(inds);
@@ -464,15 +458,7 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         analysis: exportAnalysis(analysis),
         alignment: alignment ?? null,
         volume_profile: exportVolumeProfile(volumeProfile, markPrice),
-        liquidity_flow: exportLiquidityFlow(liquidity),
-        cluster_matrix: exportClusterMatrix(cluster),
-        liquidity_signals: (liquiditySignals ?? []).map((s) => ({
-            kind: s.kind,
-            direction: s.direction,
-            strength: s.strength,
-            confidence: s.confidence,
-            evidence: s.evidence,
-        })),
+        state_bands: exportStateBands(stateBands),
     };
 
     out.indicators = indicators;
@@ -576,55 +562,18 @@ function exportVolumeProfile(vp: VolumeProfileSnapshot | null, markPrice: number
     };
 }
 
-function exportLiquidityFlow(lf: LiquidityFlow | null): LiquidityFlowExport | null {
-    if (!lf) return null;
+function exportStateBands(sb: StateBandMatrix | null): StateBandsExport | null {
+    if (!sb) return null;
     return {
-        long_liquidations_usd: lf.long_liquidations_usd,
-        short_liquidations_usd: lf.short_liquidations_usd,
-        net_liquidation_usd: lf.net_liquidation_usd,
-        event_count: lf.event_count,
-        largest_event_usd: lf.largest_event_usd,
-        largest_event_price: lf.largest_event_price ?? null,
-        largest_event_side: lf.largest_event_side ?? null,
-        cascade_state: lf.cascade_state,
-        cascade_intensity: lf.cascade_intensity,
-    };
-}
-
-function exportClusterMatrix(cm: LiquidationClusterMatrix | null): ClusterMatrixExport | null {
-    if (!cm) return null;
-    function topSide(arr: LiquidationCluster[] | undefined, dir: 'asc' | 'desc') {
-        if (!arr) return [];
-        return [...arr]
-            .sort((a, b) => dir === 'asc' ? Math.abs(a.distance_from_mid_pct) - Math.abs(b.distance_from_mid_pct) : Math.abs(b.distance_from_mid_pct) - Math.abs(a.distance_from_mid_pct))
-            .slice(0, 3);
-    }
-    return {
-        mid_price: cm.mid_price,
-        cascade_asymmetry: cm.cascade_asymmetry,
-        total_long_oi_usd: cm.total_long_oi_usd,
-        total_short_oi_usd: cm.total_short_oi_usd,
-        estimation_confidence: cm.estimation_confidence,
-        leverage_assumptions: {
-            source: cm.leverage_assumptions.source,
-            buckets: cm.leverage_assumptions.buckets,
-            weights: cm.leverage_assumptions.weights,
-            funding_modulation_active: cm.leverage_assumptions.funding_modulation_active,
-        },
-        top_above: topSide(cm.short_clusters, 'asc').map((c) => ({
-            peak_price: c.peak_price,
-            distance_from_mid_pct: c.distance_from_mid_pct,
-            notional_usd: c.notional_usd,
-            magnet_strength: c.magnet_strength,
-            cluster_kind: c.cluster_kind,
-        })),
-        top_below: topSide(cm.long_clusters, 'asc').map((c) => ({
-            peak_price: c.peak_price,
-            distance_from_mid_pct: c.distance_from_mid_pct,
-            notional_usd: c.notional_usd,
-            magnet_strength: c.magnet_strength,
-            cluster_kind: c.cluster_kind,
-        })),
+        poc_price: sb.poc_price,
+        value_area_high: sb.value_area_high,
+        value_area_low: sb.value_area_low,
+        has_profile: sb.has_profile,
+        has_bands: sb.has_bands,
+        band_count: sb.summary.band_count,
+        contributing_bins: sb.summary.contributing_bins,
+        volume_asymmetry: sb.summary.volume_asymmetry,
+        bands: sb.bands.map((b) => ({ ...b })),
     };
 }
 
@@ -692,9 +641,7 @@ export function buildPanelExportJson(args: PanelExportArgs): string | null {
         analysis: r.analysis,
         alignment: r.alignment,
         volumeProfile: r.volumeProfile,
-        liquidity: r.liquidity,
-        cluster: r.cluster,
-        liquiditySignals: r.liquiditySignals,
+        stateBands: r.stateBands,
     });
 }
 

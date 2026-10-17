@@ -26,7 +26,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
-use config_models::{FibonacciConfig, OrderBookConfig, TimeframeConfig};
+use config_models::{FibonacciConfig, TimeframeConfig};
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{Exchange, NormalizedEvent, NormalizedTrade, TradeSide};
 use market_analyzer::analyzer;
@@ -110,16 +110,6 @@ fn spawn_analyzer_with_warm(
             None,
             // PRI-03: warmed state handover (None = cold start).
             warmed,
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-            Arc::new(RwLock::new(None)),
-            None,
-            None,
-            OrderBookConfig::default(),
             strategy,
             // Sibling latest-snapshot handles — none in this single-pipeline test.
             Vec::new(),

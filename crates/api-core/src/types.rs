@@ -148,11 +148,9 @@ pub struct ConfigResponse {
     /// REAL defaults, not one static set.
     #[serde(default)]
     pub duration_profiles: std::collections::BTreeMap<u64, config_models::IndicatorsConfig>,
-    /// v7.3: workspace liquidity config (retentions, feed toggles) —
-    /// surfaced so DIE Settings can render the true retention values and
-    /// the PME can derive data-retention facts from one source.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub liquidity: Option<config_models::LiquidityConfig>,
+    // CR-10: `liquidity: Option<LiquidityConfig>` is DELETED. The `[liquidity]`
+    // workspace section had no consumer after the chain came out, and the
+    // retention values it surfaced only ever reached the LIQ HEATMAP panel.
     /// v7.3: v7 setup-executor config — PME "Risk per trade" and TAE
     /// surfaces render the real sizing knob instead of a hardcoded 1%.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -595,22 +593,21 @@ pub struct HistoryResponse {
     pub prices: Vec<String>,
     pub candles: Vec<HistoryCandle>,
     pub indicator_history: IndicatorHistoryArrays,
-    /// v6.5: per-timeframe cluster matrices. One entry per TF slot the
-    /// history was loaded for. Empty map if the analyzer hasn't computed
-    /// the cluster yet (freshly started). Cost: ~2 KB per TF.
+    /// CR-10: `clusters` and `liquidity_flows` are deleted; `state_bands`
+    /// replaces `clusters`.
+    ///
+    /// The cluster matrix was estimated from open interest under an assumed
+    /// leverage distribution, so it could not be reproduced from a candle
+    /// archive — and this endpoint's fallback path (the retained window, used
+    /// after a daemon restart before the next completed bar) served a stored
+    /// version of it. That is the specific harm: a chart rendered an estimate
+    /// anchored to an old mid, from data no replay would ever produce.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub clusters: HashMap<String, core_domain::liquidity::LiquidationClusterMatrix>,
+    pub state_bands: HashMap<String, core_domain::state_bands::StateBandMatrix>,
     /// v6.5: per-timeframe volume profile snapshot (right-edge histogram).
     /// One entry per TF slot. Cost: ~2 KB per TF.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub volume_profiles: HashMap<String, core_domain::volume_profile::VolumeProfileSnapshot>,
-    /// Phase 0-4: per-timeframe latest `LiquidityFlow` (per-bar real
-    /// liquidation aggregates). One entry per TF slot. Cost: ~200 B
-    /// per TF. Lets the dashboard render the Metrics-tab Flow / Cluster
-    /// / Context cards immediately after a daemon restart, before the
-    /// WS delivers the next completed bar.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub liquidity_flows: HashMap<String, core_domain::liquidity::LiquidityFlow>,
 }
 
 // ─── Terminal Monitor (cross-timeframe meta-intelligence) ──────

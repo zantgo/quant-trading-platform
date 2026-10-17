@@ -13,8 +13,8 @@
     //
     // Below the ladder we render two **always-present** dedicated sections:
     //   - VOLUME PROFILE  (POC / VAH / VAL)
-    //   - LIQUIDATION MAGNETS (top 4 short + 4 long clusters by magnet strength)
-    // These pull directly from `tf.volumeProfile` and `tf.cluster` so the
+    //   - STATE BANDS (candle-derived volume zones)
+    // These pull directly from `tf.volumeProfile` and `tf.stateBands` so the
     // trader always sees concrete concrete prices, regardless of whether a
     // LevelTest signal fired (or whether the chart overlay toggle is on).
     //
@@ -22,7 +22,7 @@
     // or `$lo — $hi` range) via `resolveLevelPriceText`, so the user never
     // sees a qualitative-only label.
 
-    import type { IndicatorMeta, IndicatorSignal, TimeframeTelemetry, VolumeProfileSnapshot, LiquidationClusterMatrix, LiquidationCluster } from '../../types';
+    import type { IndicatorMeta, IndicatorSignal, StateBand, StateBandMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
     import { LEVEL_KIND_ORDER, LEVEL_KIND_META, classifyLevelKey, parseLevelLabel, resolveLevelPriceText, type LevelKind } from '../../lib/levelKind';
     import { confPct, dirColor, ageLabel } from '../../lib/scoreStyles';
     import { formatTimeframeLabel } from '../../lib/telemetry';
@@ -166,20 +166,59 @@
     );
     const vpBinCount = $derived<number>(vp?.num_bins ?? 0);
 
-    // ── Liquidation Magnets (always-present dedicated section) ──
-    const cluster = $derived<LiquidationClusterMatrix | null>(tf.cluster ?? null);
-    const topClusters = $derived.by<{ short: LiquidationCluster[]; long: LiquidationCluster[] }>(() => {
-        if (!cluster) return { short: [], long: [] };
-        const sortBy = (a: LiquidationCluster, b: LiquidationCluster) =>
-            (b.magnet_strength ?? 0) - (a.magnet_strength ?? 0);
-        return {
-            short: [...(cluster.short_clusters ?? [])].sort(sortBy).slice(0, 4),
-            long: [...(cluster.long_clusters ?? [])].sort(sortBy).slice(0, 4),
-        };
-    });
-    const clusterHasData = $derived<boolean>(
-        topClusters.short.length > 0 || topClusters.long.length > 0,
-    );
+    // ── State bands (CR-10's replacement for LIQUIDATION MAGNETS) ──
+    //
+    // The section it replaces was a header reading "top 8 of 34 clusters" plus
+    // `asym 0.42` and `conf 71%` — a confidence in an ESTIMATE, printed next
+    // to a `dominant_leverage` multiplier and a `notional_usd` figure derived
+    // from that same estimate. Its footer said so: "Estimated liquidation
+    // clusters".
+    //
+    // What replaces it has no confidence field because nothing here is
+    // estimated, no leverage multiplier because no leverage is assumed, and no
+    // notional because the candle's volume is already in the VP section above.
+
+    const bandSet = $derived<StateBandMatrix | null>(tf.stateBands ?? null);
+    const bands = $derived<StateBand[]>(bandSet?.bands ?? []);
+    const bandsHaveData = $derived<boolean>(bandSet?.has_bands === true && bands.length > 0);
+
+    /** Rounded percentile for display. A non-finite input renders `—` rather
+     *  than propagating: `Math.round(NaN)` is `NaN`, and a NaN that reaches the
+     *  DOM prints as the literal text "NaN" in the middle of a price ladder,
+     *  which is precisely the failure the em-dash rule exists to prevent. */
+    function pct(n: number | null | undefined, suffix: string = ''): string {
+        if (n == null || !Number.isFinite(n)) return '—';
+        return `${Math.round(n)}${suffix}`;
+    }
+
+    /** Direction side of a band, from its own bin's buy/sell asymmetry. The
+     *  0.05 threshold matches the heatmap primitive's: below it the zone is
+     *  balanced enough that calling it a side would be a rounding claim. */
+    function bandAsymmetryClass(b: StateBand): 'long' | 'short' | 'flat' {
+        if (b.volume_asymmetry >= 0.05) return 'long';
+        if (b.volume_asymmetry <= -0.05) return 'short';
+        return 'flat';
+    }
+
+    function basisLabel(basis: string): string {
+        switch (basis) {
+            case 'HighVolumeNode': return 'HVN';
+            case 'PointOfControl': return 'POC';
+            case 'ValueAreaEdge': return 'VA';
+            case 'SwingExtreme': return 'SWING';
+            default: return '—';
+        }
+    }
+
+    /** Band width as a multiple of the loaded candle set's ATR. Rendered as a
+     *  range label rather than a ratio, because "0.4×ATR" is only meaningful to
+     *  someone who already knows what the number is. */
+    function bandAtrLabel(mult: number): string {
+        if (!Number.isFinite(mult) || mult <= 0) return '—';
+        if (mult < 0.75) return 'narrow';
+        if (mult < 1.5) return 'medium';
+        return 'broad';
+    }
 
     function fmtUsd(n: number): string {
         if (!Number.isFinite(n)) return '—';
@@ -316,67 +355,47 @@
         </section>
     {/if}
 
-    <!-- ── Liquidation Magnets — top clusters by magnet strength ── -->
-    {#if clusterHasData}
+    <!-- ── State bands — candle-derived volume zones ── -->
+    {#if bandsHaveData}
         <section class={styles.liqSection}>
             <header class={styles.liqHeader}>
-                <span class={styles.liqTitle}>LIQUIDATION MAGNETS</span>
+                <span class={styles.liqTitle}>STATE BANDS</span>
                 <span class={styles.liqMeta}>
-                    top {topClusters.short.length + topClusters.long.length}
-                    of {(cluster?.short_clusters?.length ?? 0) + (cluster?.long_clusters?.length ?? 0)} clusters
+                    {bandSet?.summary.band_count ?? bands.length} of
+                    {bandSet?.summary.contributing_bins ?? 0} bins
                 </span>
                 <span class={styles.liqMeta}>·</span>
                 <span class={styles.liqMeta}>
-                    asym {(cluster?.cascade_asymmetry ?? 0).toFixed(2)}
-                </span>
-                <span class={styles.liqMeta}>·</span>
-                <span class={styles.liqMeta}>
-                    conf {(((cluster?.estimation_confidence ?? 0) * 100)).toFixed(0)}%
+                    asym {pct((bandSet?.summary.volume_asymmetry ?? 0) * 100, '%')}
                 </span>
             </header>
             <div class={styles.liqLadder}>
-                <!-- AUDIT-FE-L5: peak-price + leverage can collide on the
-                     shared 0.1% binning grid; include the range so the key
-                     is unique per cluster. -->
-                {#each topClusters.short as c (`s-${c.peak_price}-${c.dominant_leverage}-${c.price_low}-${c.price_high}`)}
-                    <div class="{styles.liqRow} {styles.liqRowShort ?? ''}">
-                        <span class="{styles.liqSide} {styles.liqSideShort ?? ''}">SHORT</span>
+                {#each bands as b (b.price_low)}
+                    <div class="{styles.liqRow} {bandAsymmetryClass(b) === 'long' ? (styles.liqRowLong ?? '') : (styles.liqRowShort ?? '')}">
+                        <span class="{styles.liqSide} {bandAsymmetryClass(b) === 'long' ? (styles.liqSideLong ?? '') : (styles.liqSideShort ?? '')}">
+                            {bandAsymmetryClass(b) === 'long' ? 'BUY' : bandAsymmetryClass(b) === 'short' ? 'SELL' : 'MIX'}
+                        </span>
                         <span class={styles.liqRange}>
-                            {fmtPx(c.price_low)} – {fmtPx(c.price_high)}
+                            {fmtPx(b.price_low)} – {fmtPx(b.price_high)}
                         </span>
-                        <span class={styles.liqPeak}>peak {fmtPx(c.peak_price)}</span>
-                        <span class={styles.liqLeverage}>{c.dominant_leverage}×</span>
-                        <span class={styles.liqNotional}>{fmtUsd(c.notional_usd)}</span>
-                        <span class={styles.liqMagnet} title="magnet strength">
-                            <span class={styles.liqMagnetBar} style="width: {Math.max(0, Math.min(100, c.magnet_strength ?? 0)).toFixed(0)}px"></span>
+                        <span class={styles.liqPeak}>{basisLabel(b.basis)}</span>
+                        <span class={styles.liqLeverage}>{bandAtrLabel(b.band_atr_multiple)}</span>
+                        <span class={styles.liqNotional}>{pct(b.volume_percentile)}th pct</span>
+                        <span class={styles.liqMagnet} title="intensity">
+                            <span class={styles.liqMagnetBar} style="width: {Math.max(0, Math.min(100, b.intensity_pct)).toFixed(0)}px"></span>
                         </span>
-                        <span class={styles.liqDist}>{fmtPct(c.distance_from_mid_pct)}</span>
-                    </div>
-                {/each}
-                {#each topClusters.long as c (`l-${c.peak_price}-${c.dominant_leverage}-${c.price_low}-${c.price_high}`)}
-                    <div class="{styles.liqRow} {styles.liqRowLong ?? ''}">
-                        <span class="{styles.liqSide} {styles.liqSideLong ?? ''}">LONG</span>
-                        <span class={styles.liqRange}>
-                            {fmtPx(c.price_low)} – {fmtPx(c.price_high)}
-                        </span>
-                        <span class={styles.liqPeak}>peak {fmtPx(c.peak_price)}</span>
-                        <span class={styles.liqLeverage}>{c.dominant_leverage}×</span>
-                        <span class={styles.liqNotional}>{fmtUsd(c.notional_usd)}</span>
-                        <span class={styles.liqMagnet} title="magnet strength">
-                            <span class={styles.liqMagnetBar} style="width: {Math.max(0, Math.min(100, c.magnet_strength ?? 0)).toFixed(0)}px"></span>
-                        </span>
-                        <span class={styles.liqDist}>{fmtPct(c.distance_from_mid_pct)}</span>
+                        <span class={styles.liqDist}>{pct(b.proximity_percentile, '%')} near</span>
                     </div>
                 {/each}
             </div>
             <footer class={styles.fibFooter}>
-                Timeframe: {formatTimeframeLabel(tf.barDurationSec)} · Estimated liquidation clusters (refreshed per-TF)
+                Timeframe: {formatTimeframeLabel(tf.barDurationSec)} · Volume zones from the candle set
             </footer>
         </section>
     {/if}
 
     <!-- ── Standard LevelTest accordion ── -->
-    {#if rows.length === 0 && !fibHasData && !vpHasData && !clusterHasData}
+    {#if rows.length === 0 && !fibHasData && !vpHasData && !bandsHaveData}
         <div class={styles.placeholder}>
             No active level tests. LevelTest signals fire when price trades
             into a structural level's proximity band (default 0.5% / 0.15% for pivots).

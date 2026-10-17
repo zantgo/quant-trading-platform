@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use config_models::{FibonacciConfig, OrderBookConfig, TimeframeConfig};
+use config_models::{FibonacciConfig, TimeframeConfig};
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{
     Exchange, NormalizedCandle, NormalizedEvent, NormalizedTrade, TradeSide,
@@ -125,16 +125,6 @@ async fn test_fixed_ladder_fanout_history_cap_and_broadcast() {
                     cancel,
                     None,
                     None,
-                    Arc::new(RwLock::new(None)),
-                    Arc::new(RwLock::new(None)),
-                    Arc::new(RwLock::new(None)),
-                    Arc::new(RwLock::new(None)),
-                    Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-                    Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-                    Arc::new(RwLock::new(None)),
-                    None,
-                    None,
-                    OrderBookConfig::default(),
                     strategy,
                     Vec::new(),
                     Arc::new(core_domain::LatencyTracker::default()),

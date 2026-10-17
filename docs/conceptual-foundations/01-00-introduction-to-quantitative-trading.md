@@ -146,10 +146,10 @@ For this reason, **the platform uses mid-price, not last-trade, as its reference
 | Concept | Implementation |
 |---|---|
 | Order book | `02-10-raw-data-matrix.md` (`OrderBook` event with bids/asks as `Vec<[Decimal; 2]>` (price, size) arrays, best-first) |
-| Mid-price | `02-07-metrics-matrix.md` (`mid_price`, `bid_price`, `ask_price`, `bid_size`, `ask_size`) |
-| Spread | `04-02-49-spread.md` (percentage spread, liquidity-risk input) |
-| Depth | `04-02-50-depth-bias.md` (cumulative bid/ask depth ratio) |
-| Imbalance | `04-02-48-order-flow-imbalance.md` (top-of-book bid/ask volume ratio) |
+| Mid-price | `02-07-metrics-matrix.md` (`mid_price`, `bid_price`, `ask_price`) |
+| Depth | `02-10-raw-data-matrix.md` (`OrderBook` `bids`/`asks` arrays) — **ingested, never read by the model** |
+| Spread | `02-10-raw-data-matrix.md` (derivable from top-of-book) — **ingested, never read by the model** |
+| Imbalance | `02-10-raw-data-matrix.md` (derivable from top-of-book) — **ingested, never read by the model** |
 | Slippage | `02-11-risk-matrix.md` + `08-02` Gate 5 + `03-05-02` |
 | Walk-the-book | `03-03-03-tae-layer2-execution.md` (depth check + ceiling) |
 

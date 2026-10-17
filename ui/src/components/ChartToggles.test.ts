@@ -91,8 +91,7 @@ function makeTf(slot: number) {
         showChoppiness: true,
         showLinregSlope: true,
         showZscore: true,
-        showLiqHeatmap: false,
-        heatmapLeverageTiers: [10],
+        showStateBands: false,
         showVolumeProfile: false,
     } as any;
 }
@@ -107,9 +106,9 @@ function simulateToggle(inst: InstanceState, flag: string): boolean {
 }
 
 describe('ChartToggles overlay state propagation', () => {
-    it('defaults showLiqHeatmap to false on every timeframe', () => {
+    it('defaults showStateBands to false on every timeframe', () => {
         const inst = makeInstance();
-        for (const slot of DURATIONS) expect(inst.terms[slot].showLiqHeatmap).toBe(false);
+        for (const slot of DURATIONS) expect(inst.terms[slot].showStateBands).toBe(false);
     });
 
     it('defaults showVolumeProfile to false on every timeframe', () => {
@@ -119,12 +118,12 @@ describe('ChartToggles overlay state propagation', () => {
 
     it('LIQ HEATMAP toggle flips all four timeframes in sync', () => {
         const inst = makeInstance();
-        simulateToggle(inst, 'showLiqHeatmap');
+        simulateToggle(inst, 'showStateBands');
 
-        expect(inst.terms[1].showLiqHeatmap).toBe(true);
-        expect(inst.terms[5].showLiqHeatmap).toBe(true);
-        expect(inst.terms[30].showLiqHeatmap).toBe(true);
-        expect(inst.terms[900].showLiqHeatmap).toBe(true);
+        expect(inst.terms[1].showStateBands).toBe(true);
+        expect(inst.terms[5].showStateBands).toBe(true);
+        expect(inst.terms[30].showStateBands).toBe(true);
+        expect(inst.terms[900].showStateBands).toBe(true);
     });
 
     it('VOL PROFILE toggle flips all four timeframes in sync', () => {
@@ -139,20 +138,20 @@ describe('ChartToggles overlay state propagation', () => {
 
     it('toggling LIQ HEATMAP off syncs the off state too', () => {
         const inst = makeInstance();
-        simulateToggle(inst, 'showLiqHeatmap');
-        expect(inst.terms[900].showLiqHeatmap).toBe(true);
-        simulateToggle(inst, 'showLiqHeatmap');
-        expect(inst.terms[1].showLiqHeatmap).toBe(false);
-        expect(inst.terms[900].showLiqHeatmap).toBe(false);
+        simulateToggle(inst, 'showStateBands');
+        expect(inst.terms[900].showStateBands).toBe(true);
+        simulateToggle(inst, 'showStateBands');
+        expect(inst.terms[1].showStateBands).toBe(false);
+        expect(inst.terms[900].showStateBands).toBe(false);
     });
 
     it('LIQ HEATMAP and VOL PROFILE toggles are independent', () => {
         const inst = makeInstance();
-        inst.terms[1].showLiqHeatmap = true;
+        inst.terms[1].showStateBands = true;
         // Volume profile should not be affected.
         expect(inst.terms[1].showVolumeProfile).toBe(false);
         inst.terms[1].showVolumeProfile = true;
-        expect(inst.terms[1].showLiqHeatmap).toBe(true);
+        expect(inst.terms[1].showStateBands).toBe(true);
     });
 });
 
@@ -169,34 +168,34 @@ describe('ChartToggles — fastest-active flag source (v11.12.20)', () => {
 
     it('a ladder without 1s lights and flips every active slot (regression)', () => {
         const inst = makeInstance([3, 5, 15, 30]);
-        simulateToggle(inst, 'showLiqHeatmap');
+        simulateToggle(inst, 'showStateBands');
 
         // The pill's light source flipped...
-        expect(inst.terms[3].showLiqHeatmap).toBe(true);
+        expect(inst.terms[3].showStateBands).toBe(true);
         // ...every active slot flipped...
-        expect(inst.terms[5].showLiqHeatmap).toBe(true);
-        expect(inst.terms[15].showLiqHeatmap).toBe(true);
-        expect(inst.terms[30].showLiqHeatmap).toBe(true);
+        expect(inst.terms[5].showStateBands).toBe(true);
+        expect(inst.terms[15].showStateBands).toBe(true);
+        expect(inst.terms[30].showStateBands).toBe(true);
         // ...and the inactive 1s slot was never written.
-        expect(inst.terms[1].showLiqHeatmap).toBe(false);
+        expect(inst.terms[1].showStateBands).toBe(false);
 
         // Toggling again turns every active slot off.
-        simulateToggle(inst, 'showLiqHeatmap');
-        expect(inst.terms[3].showLiqHeatmap).toBe(false);
-        expect(inst.terms[30].showLiqHeatmap).toBe(false);
+        simulateToggle(inst, 'showStateBands');
+        expect(inst.terms[3].showStateBands).toBe(false);
+        expect(inst.terms[30].showStateBands).toBe(false);
     });
 
     it('persists and restores overlay flags with a ladder without 1s', () => {
         const inst = makeInstance([3, 5, 15, 30]);
-        simulateToggle(inst, 'showLiqHeatmap');
+        simulateToggle(inst, 'showStateBands');
         saveChartOverlays('BTC-USDT', inst);
 
         const restored = makeInstance([3, 5, 15, 30]);
         applyChartOverlays('BTC-USDT', restored);
 
         // The light source reads the saved state...
-        expect(overlayRepTerm(restored)?.showLiqHeatmap).toBe(true);
-        expect(restored.terms[3].showLiqHeatmap).toBe(true);
-        expect(restored.terms[30].showLiqHeatmap).toBe(true);
+        expect(overlayRepTerm(restored)?.showStateBands).toBe(true);
+        expect(restored.terms[3].showStateBands).toBe(true);
+        expect(restored.terms[30].showStateBands).toBe(true);
     });
 });

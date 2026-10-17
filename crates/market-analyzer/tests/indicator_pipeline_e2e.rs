@@ -2180,11 +2180,13 @@ fn all_indicators_summary() {
 //
 // Regression for the "divergences never show in UI" bug. Two layers of defense:
 //
-// 1. The 9 divergence-bearing indicators (8 oscillators + oi_price_divergence)
-//    must each be capable of emitting exactly ONE `Divergence` signal with
-//    the canonical `(label, kind)` pair per `normalize_all` invocation when
-//    their corresponding `DivergenceState` (or, for OI-Price, the `delta`
-//    input) is non-trivial.
+// 1. The 8 divergence-bearing oscillators must each be capable of emitting
+//    exactly ONE `Divergence` signal with the canonical `(label, kind)` pair per
+//    `normalize_all` invocation when their corresponding `DivergenceState` is
+//    non-trivial.
+//
+//    CR-10: this was nine. `oi_price_divergence` was the ninth, and it consumed
+//    open interest — not an OHLCV field.
 //
 // 2. The `assert_no_duplicate_signal_keys` contract from the existing probe
 //    harness must be active for the divergence path. Until this test landed
@@ -2299,8 +2301,6 @@ fn build_all_oscillator_divergence_inputs(
         pivot_s2: Some(cl - 2.0),
         pivot_s3: Some(cl - 3.0),
         pivot_proximity_pct: 0.0015,
-        // oi_price_divergence lives on a dedicated derivatives pipeline;
-        // we exercise it through `normalize_oi_price_divergence` below.
         ..Default::default()
     };
     (inputs, ctx)
@@ -2481,41 +2481,4 @@ fn divergence_emission_idempotent_under_multi_bar_pipeline() {
         );
         assert_no_duplicate_signal_keys("rsi", snap);
     }
-}
-
-/// Drive the standalone `oi_price_divergence` (the 9th divergence
-/// source; lives on `crates/market-analyzer/src/indicators/normalized/derivatives.rs`)
-/// through its `|div| > 0.3` gate and assert the same `(label, kind)`
-/// uniqueness contract.
-#[test]
-fn oi_price_divergence_emission_unique_label() {
-    use market_analyzer::indicators::normalized::derivatives::normalize_oi_price_divergence;
-    // `delta > 0` (OI rising) + `ema_bias < -0.3` (price bearish) →
-    // `div = -0.7` → bear-side OI-Price divergence fires.
-    let value = normalize_oi_price_divergence(1.0, -0.5);
-    let div_signals: Vec<&IndicatorSignal> = value
-        .signals
-        .iter()
-        .filter(|s| s.kind == market_analyzer::indicators::SignalKind::Divergence)
-        .collect();
-    assert_eq!(
-        div_signals.len(),
-        1,
-        "OI-Price divergence must emit exactly 1 signal"
-    );
-    assert_eq!(div_signals[0].label, "OI_PRICE_DIVERGENCE");
-    // No duplicates within the standalone indicator's signal array.
-    assert_no_duplicate_signal_keys(
-        "oi_price_divergence",
-        &IndicatorSnapshot {
-            bar_count: 1,
-            state_label: value.state_label.clone(),
-            normalized: value.normalized,
-            confidence: value.confidence,
-            values: None,
-            signals: value.signals.clone(),
-            lifecycle_state: "Live".to_string(),
-            bars_required: 0,
-        },
-    );
 }

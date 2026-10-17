@@ -22,7 +22,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
-use config_models::{FibonacciConfig, IndicatorsConfig, OrderBookConfig, TimeframeConfig};
+use config_models::{FibonacciConfig, IndicatorsConfig, TimeframeConfig};
 use core_domain::normalized::{Exchange, NormalizedEvent, NormalizedTrade, TradeSide};
 use market_analyzer::analyzer;
 use market_analyzer::indicators::DivergenceDetector;
@@ -74,16 +74,6 @@ async fn spawn_analyzer(
             cancel,
             None,
             None,
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-            Arc::new(RwLock::new(None)),
-            None,
-            None, // heatmap_config (None)
-            OrderBookConfig::default(),
             strategy,
             // Sibling latest-snapshot handles — none in this single-pipeline test.
             Vec::new(),

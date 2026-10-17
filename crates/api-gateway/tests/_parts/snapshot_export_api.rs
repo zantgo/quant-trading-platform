@@ -88,7 +88,23 @@ async fn status_returns_default_runtime_when_unconfigured() {
     assert_eq!(json["last_snapshot_at"], serde_json::Value::Null);
     assert_eq!(json["total_snapshots_written"], 0);
     let tabs = json["tabs"].as_array().unwrap();
-    assert_eq!(tabs.len(), 9);
+    // CR-15: the exporter publishes exactly the four candle-derived panels.
+    // `risk` / `advisory` / `opportunity` / `decision_context` were strategy
+    // surfaces and P3 deleted them, so a 9-tab default would advertise five
+    // exports that can never produce a payload.
+    assert_eq!(tabs.len(), 4);
+    // In `ALL_TABS` declaration order, NOT sorted — the default is
+    // `ALL_TABS.iter().map(...)` verbatim, whereas the PUT path sorts. Both
+    // orderings are correct; they are different code paths.
+    assert_eq!(
+        tabs,
+        &vec![
+            "metrics".to_string(),
+            "mtf".to_string(),
+            "alignment".to_string(),
+            "analysis".to_string()
+        ]
+    );
 }
 
 #[tokio::test]
@@ -169,8 +185,13 @@ async fn put_config_filters_unknown_tabs_and_deduplicates() {
     let state = setup_test_state().await;
     let router = api_gateway::build_router(state);
 
+    // CR-15: `risk` is no longer a tab, so it is now filtered as one — which
+    // makes this a STRONGER test than before. It used to prove that an
+    // unknown key ("not_a_tab") is dropped while a known one survives; it now
+    // proves that a tab deleted by the model purge is rejected exactly like a
+    // typo, so a stale client cannot re-enable an export that produces nothing.
     let body = serde_json::json!({
-        "tabs": ["alignment", "not_a_tab", "risk", "alignment"]
+        "tabs": ["alignment", "not_a_tab", "risk", "alignment", "metrics"]
     });
     let req = hyper::Request::builder()
         .method("PUT")
@@ -186,7 +207,7 @@ async fn put_config_filters_unknown_tabs_and_deduplicates() {
         .iter()
         .map(|v| v.as_str().unwrap())
         .collect();
-    assert_eq!(tabs, vec!["alignment", "risk"]);
+    assert_eq!(tabs, vec!["alignment", "metrics"]);
 }
 
 #[tokio::test]
@@ -204,7 +225,23 @@ async fn put_config_empty_tabs_falls_back_to_all() {
     let resp = router.oneshot(req).await.unwrap();
     let json = body_to_json(resp).await;
     let tabs = json["tabs"].as_array().unwrap();
-    assert_eq!(tabs.len(), 9);
+    // CR-15: the exporter publishes exactly the four candle-derived panels.
+    // `risk` / `advisory` / `opportunity` / `decision_context` were strategy
+    // surfaces and P3 deleted them, so a 9-tab default would advertise five
+    // exports that can never produce a payload.
+    assert_eq!(tabs.len(), 4);
+    // In `ALL_TABS` declaration order, NOT sorted — the default is
+    // `ALL_TABS.iter().map(...)` verbatim, whereas the PUT path sorts. Both
+    // orderings are correct; they are different code paths.
+    assert_eq!(
+        tabs,
+        &vec![
+            "metrics".to_string(),
+            "mtf".to_string(),
+            "alignment".to_string(),
+            "analysis".to_string()
+        ]
+    );
 }
 
 #[tokio::test]

@@ -537,34 +537,18 @@ pub(crate) async fn populate_buffers(
     histories: &[Arc<RwLock<VecDeque<NormalizedCandle>>>],
     latests: &[Arc<RwLock<Option<MarketSnapshot>>>],
     snapshot_histories: &[Arc<RwLock<VecDeque<MarketSnapshot>>>],
-    latest_oi: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    latest_funding: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    latest_mark_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    latest_index_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    // AUDIT-AIU-051: timestamped OI history `(timestamp_secs, value)`.
-    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
-    funding_history: &Arc<RwLock<VecDeque<f64>>>,
     // PRI-08: per-duration flag — `true` for ≥60s durations (warm snapshots
     // become chart history), `false` for sub-minute durations (state-replay
     // warmup must NOT pollute the chart's `snapshot_history` or
     // `latest_snapshot`). Ascending fastest → slowest.
     warm_snapshots: Vec<bool>,
 ) {
-    // All ACTIVE durations share the same per-pair derivatives state
-    // (latest_* locks and rolling history), so the first warmed slot in
-    // ladder order carries the right restored values for them.
-    if let Some(first) = warmed.iter().flatten().next() {
-        populate_derivatives(
-            first,
-            latest_oi,
-            latest_funding,
-            latest_mark_px,
-            latest_index_px,
-            oi_history,
-            funding_history,
-        )
-        .await;
-    }
+    // CR-10: the derivatives restore is gone. Every ACTIVE duration used to
+    // share one set of per-pair locks (`latest_oi` / `latest_funding` /
+    // `latest_mark_px` / `latest_index_px` plus the rolling history), and the
+    // first warmed slot in ladder order repopulated them for all of them. With
+    // the four derivatives indicators and the cluster estimator deleted, nothing
+    // reads those locks; the locks themselves go with W5.7's config purge.
 
     for i in 0..warmed.len() {
         populate_single(
@@ -576,52 +560,6 @@ pub(crate) async fn populate_buffers(
         )
         .await;
     }
-}
-
-/// Restore derivatives locks from a warmed state. Mirrors
-/// `warm.rs::warm_derivatives_from_snapshots` on the write side — every
-/// field that the warm helper put into `derivatives_state` is reapplied
-/// to the live Arc locks here so the first WS event after boot sees
-/// non-None priors.
-async fn populate_derivatives(
-    w: &analyzer::WarmedPipelineState,
-    latest_oi: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    latest_funding: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    latest_mark_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    latest_index_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    // AUDIT-AIU-051: timestamped OI history `(timestamp_secs, value)`.
-    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
-    funding_history: &Arc<RwLock<VecDeque<f64>>>,
-) {
-    use market_analyzer::analyzer::warm::DerivativesWarmedState;
-    let d = &w.derivatives_state;
-    if d.latest_oi.is_some() {
-        *latest_oi.write().await = d.latest_oi;
-    }
-    if d.latest_funding.is_some() {
-        *latest_funding.write().await = d.latest_funding;
-    }
-    if d.latest_mark_px.is_some() {
-        *latest_mark_px.write().await = d.latest_mark_px;
-    }
-    if d.latest_index_px.is_some() {
-        *latest_index_px.write().await = d.latest_index_px;
-    }
-    if !d.oi_history.is_empty() {
-        let mut hist = oi_history.write().await;
-        hist.clear();
-        for v in &d.oi_history {
-            hist.push_back(*v);
-        }
-    }
-    if !d.funding_history.is_empty() {
-        let mut hist = funding_history.write().await;
-        hist.clear();
-        for v in &d.funding_history {
-            hist.push_back(*v);
-        }
-    }
-    let _ = std::marker::PhantomData::<DerivativesWarmedState>;
 }
 
 pub(crate) async fn populate_single(

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { emaStackState, vwapBias, iSub, iRaw, getPriceFormat } from '../lib/telemetry';
-    import type { IndicatorMap, LiquidationClusterMatrix, VolumeProfileSnapshot } from '../types';
+    import type { IndicatorMap, StateBandMatrix, VolumeProfileSnapshot } from '../types';
     import { onMount, onDestroy, untrack } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
@@ -8,7 +8,7 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { fetchIndicatorHistoryOnce, pairsFromHistory, alignedSeriesFromHistory, getCachedCandles, setCachedCandles, fillTimeGaps, buildPaintCandles, purgeCacheForKey, getResolvedHistory, lastHistoricalTime, type CandleOHLCV, type IndicatorFlatHistory } from '../lib/indicatorHistory';
     import { attachVolumeProfile, type VolumeProfilePrimitive } from '../lib/volumeProfile';
-    import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
+    import { attachStateBandHeatmap, type StateBandHeatmapPrimitive } from '../lib/stateBandHeatmap';
     import { attachFvgZones, type FvgZonesPrimitive } from '../lib/fvgZones';
     import { attachOrderBlocks, type OrderBlocksPrimitive } from '../lib/orderBlocks';
     import { makeChartCoalescer } from '../lib/chartCoalesce';
@@ -59,7 +59,7 @@
     let ichimokuSenkouBSeries: ISeriesApi<'Line'> | null = null;
     let priceLineSeries: ISeriesApi<'Line'>;
     let volumeProfilePrim: VolumeProfilePrimitive | null = null;
-    let liqHeatmapPrim: LiquidationHeatmapPrimitive | null = null;
+    let stateBandPrim: StateBandHeatmapPrimitive | null = null;
     let fvgPrim: FvgZonesPrimitive | null = null;
     let obPrim: OrderBlocksPrimitive | null = null;
     let smcMarkers: SmcMarkerController | null = null;
@@ -86,7 +86,7 @@
     /// stream hasn't yet populated `tf.cluster` / `tf.volumeProfile`
     /// (i.e. on a fresh daemon restart, before the first per-TF refresh
     /// tick fires).
-    let historyCluster: LiquidationClusterMatrix | null = $state(null);
+    let historyStateBands: StateBandMatrix | null = $state(null);
     let historyVolumeProfile: VolumeProfileSnapshot | null = $state(null);
 
     let _chartReady = $state(false);
@@ -119,13 +119,11 @@
 
         // Volume profile overlay (right-edge stacked buy/sell histogram).
         volumeProfilePrim = attachVolumeProfile(chart, candleSeries);
-        // Liquidation heatmap primitive (LIQ HEATMAP toggle, v6.5+).
-        // Renders coloured horizontal bands per cluster on the candle
-        // pane. Decoupled from the legacy per-cluster `createPriceLine`
-        // approach — the price-line path remains wired as a fallback so
-        // existing dashboards don't regress if the primitive ever fails
-        // to attach.
-        liqHeatmapPrim = attachHeatmap(chart, candleSeries);
+        // State-band heatmap (STATE BANDS toggle). Replaces the LIQ HEATMAP
+        // primitive, which drew the same horizontal geometry from an
+        // ESTIMATED liquidation-cluster matrix. These zones come from the
+        // volume profile's own bins and the candle set's swing structure.
+        stateBandPrim = attachStateBandHeatmap(chart, candleSeries);
         // SMC Fair Value Gap zone primitive (toggle-controlled).
         fvgPrim = attachFvgZones(chart, candleSeries);
         // SMC Order Block zone primitive (toggle-controlled).
@@ -424,7 +422,7 @@
           const warmEnough = warmHist ? warmHist.times.length >= 50 : false;
           if (warmHist && warmHist.times.length > 0 && warmEnough) {
                seedOverlaysFromHistory(warmHist, Math.min(warmHist.times.length, seedCountFor(curSec)));
-               historyCluster = warmHist.clusters?.[slot] as LiquidationClusterMatrix | null;
+               historyStateBands = warmHist.stateBands?.[slot] as StateBandMatrix | null;
                historyVolumeProfile = warmHist.volumeProfiles?.[slot] as VolumeProfileSnapshot | null;
                untrack(() => {
                    const warmLast = lastHistoricalTime(warmHist);
@@ -483,7 +481,7 @@
                   .then((hist) => {
                       if (cancelled || !hist) { untrack(()=>{ _bootstrapComplete = true; }); return; }
                       seedOverlaysFromHistory(hist, Math.min(hist.times.length, seedCountFor(curSec)));
-                      historyCluster = hist.clusters?.[slot] as LiquidationClusterMatrix | null;
+                      historyStateBands = hist.stateBands?.[slot] as StateBandMatrix | null;
                       historyVolumeProfile = hist.volumeProfiles?.[slot] as VolumeProfileSnapshot | null;
                       untrack(()=>{
                           const fetchedLast = lastHistoricalTime(hist);
@@ -651,11 +649,11 @@
             // and the user scrolls left for the older bars.
             untrack(()=>{
                 anchorViewportToLast(_lastHistoryTime);
-                // v6.5: capture per-TF cluster + volume profile from
-                // history (used as a fallback if the WS stream hasn't
-                // yet populated tf.cluster / tf.volumeProfile).
+                // Capture per-TF band set + volume profile from history (used
+                // as a fallback if the WS stream hasn't yet populated
+                // tf.stateBands / tf.volumeProfile).
                 const slotKey = slot; // number (duration seconds)
-                historyCluster = hist.clusters?.[slotKey] as LiquidationClusterMatrix | null;
+                historyStateBands = hist.stateBands?.[slotKey] as StateBandMatrix | null;
                 historyVolumeProfile = hist.volumeProfiles?.[slotKey] as VolumeProfileSnapshot | null;
                 _bootstrapComplete = true;
             });
@@ -867,68 +865,14 @@
         }
     });
 
-    /// Liquidation cluster levels — peak_price + boundaries for
-    /// each cluster, grouped by short (ceiling) / long (floor).
-    const liqCluster = $derived(tf?.cluster ?? historyCluster ?? null);
-    const liqVisible = $derived(tf?.showLiqHeatmap ?? false);
-
-    $effect(() => {
-        for (const line of liqLines) {
-            try { candleSeries?.removePriceLine(line); } catch (_) {}
-        }
-        liqLines = [];
-
-        const cluster = liqCluster;
-        const show = liqVisible;
-        if (!show || !cluster || !candleSeries) return;
-
-        const drawClusters = (
-            clusters: Array<{ price_low: number; price_high: number; peak_price: number; dominant_leverage: number; magnet_strength: number }>,
-            peakR: number, peakG: number, peakB: number,
-        ) => {
-            const sorted = [...clusters].sort((a, b) => (b.magnet_strength ?? 0) - (a.magnet_strength ?? 0));
-            for (const c of sorted) {
-                const mag = Math.max(0, Math.min(100, c.magnet_strength ?? 0));
-                const peakAlpha = 0.35 + (mag / 100) * 0.55;
-                const boundAlpha = peakAlpha * 0.45;
-
-                if (!isFinite(c.peak_price) || c.peak_price <= 0) continue;
-                liqLines.push(candleSeries.createPriceLine({
-                    price: c.peak_price,
-                    color: `rgba(${peakR},${peakG},${peakB},${peakAlpha.toFixed(2)})`,
-                    lineWidth: 2,
-                    lineStyle: 2,
-                    axisLabelVisible: true,
-                    title: `${c.dominant_leverage}\u00d7`,
-                }));
-
-                if (c.price_low > 0 && isFinite(c.price_low)) {
-                    liqLines.push(candleSeries.createPriceLine({
-                        price: c.price_low,
-                        color: `rgba(${peakR},${peakG},${peakB},${boundAlpha.toFixed(2)})`,
-                        lineWidth: 1,
-                        lineStyle: 3,
-                        axisLabelVisible: false,
-                        title: '',
-                    }));
-                }
-
-                if (c.price_high > 0 && isFinite(c.price_high)) {
-                    liqLines.push(candleSeries.createPriceLine({
-                        price: c.price_high,
-                        color: `rgba(${peakR},${peakG},${peakB},${boundAlpha.toFixed(2)})`,
-                        lineWidth: 1,
-                        lineStyle: 3,
-                        axisLabelVisible: false,
-                        title: '',
-                    }));
-                }
-            }
-        };
-
-        drawClusters(cluster.short_clusters ?? [], 255, 68, 68);
-        drawClusters(cluster.long_clusters ?? [], 68, 221, 68);
-    });
+    // CR-10: the liquidation-cluster PRICE-LINE fallback is DELETED.
+    //
+    // It drew one dashed line per cluster `peak_price` labelled with the
+    // cluster's `dominant_leverage` ("10×", "25×") — a price line whose title
+    // was an assumption, at a price derived from that assumption, drawn over
+    // the candle the operator was reading. The band primitive draws the same
+    // geometry as filled zones and labels nothing with a leverage number,
+    // because nothing about a candle's traded volume implies a leverage tier.
 
     $effect(() => {
         const show = tf?.showPivotPoints ?? false;
@@ -1194,14 +1138,10 @@
 
     //
     $effect(() => {
-        const visible = tf?.showLiqHeatmap ?? false;
-        if (!liqHeatmapPrim) return;
-        liqHeatmapPrim.setVisible(visible);
-        const cluster = tf?.cluster ?? historyCluster ?? null;
-        const flow = tf?.liquidity ?? null;
-        const ex = tf?.exchange ?? '';
-        const highlightTiers = tf?.heatmapLeverageTiers ?? [10];
-        liqHeatmapPrim.updateData({ cluster, flow, exchange: ex, highlightTiers });
+        const visible = tf?.showStateBands ?? false;
+        if (!stateBandPrim) return;
+        stateBandPrim.setVisible(visible);
+        stateBandPrim.updateData(tf?.stateBands ?? historyStateBands ?? null);
     });
 
     $effect(() => {

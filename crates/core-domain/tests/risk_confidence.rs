@@ -6,11 +6,10 @@
 //! `confidence = state_confidence * 100` (per the agreed fix in plan-mode).
 //!
 //! Exception per docs `03-02-12-mme-configurable-activation.md` §CA-15:
-//! `cascade_risk` emits `confidence: 0` when the liquidity feed is off
+//! `cascade_risk` emits `confidence: 0` when there is no measurement to read
 //! (no `flow` AND no `cluster`).
 
 use core_domain::analysis::AnalysisMatrix;
-use core_domain::liquidity::{CascadeState, LiquidationClusterMatrix, LiquidityFlow};
 use core_domain::market_context::MarketContext;
 use core_domain::risk::{compute_risk, RiskLevel};
 use std::collections::HashMap;
@@ -49,17 +48,15 @@ fn make_analysis(state_confidence: f64) -> AnalysisMatrix {
 #[test]
 fn confidence_propagates_from_state_confidence() {
     // state_confidence = 0.85 → expected confidence = 85.0 for every dimension
-    // EXCEPT cascade_risk, which also reads 85.0 because flow is present.
+    // EXCEPT cascade_risk, which has no arm left and therefore reports 0.0
+    // (CR-10 — see the note on `RiskMatrix::cascade_risk`).
     let analysis = make_analysis(0.85);
     let indicators = HashMap::new();
     let risk = compute_risk(
         "BTC-USDT",
         &analysis,
         &indicators,
-        None,
-        None,
         0.0,
-        &[],
         None,
         &[],
         &core_domain::risk::RiskParams::default(),
@@ -84,10 +81,7 @@ fn confidence_low_with_low_state_confidence() {
         "BTC-USDT",
         &analysis,
         &indicators,
-        None,
-        None,
         0.0,
-        &[],
         None,
         &[],
         &core_domain::risk::RiskParams::default(),
@@ -104,19 +98,18 @@ fn confidence_low_with_low_state_confidence() {
 }
 
 #[test]
-fn cascade_risk_confidence_zero_when_liquidity_off() {
-    // When flow=None AND cluster=None → cascade confidence must be 0.0
-    // (docs §CA-15: cascade_risk NO_DATA + confidence 0 when liquidity off).
+fn cascade_risk_confidence_zero_without_an_arm() {
+    // CR-10 REPLACED this test's subject. It used to read "when the liquidity
+    // feed is OFF, cascade_risk reports confidence 0" — a per-feed assertion
+    // about a feed that no longer exists. The dimension now reports 0.0
+    // unconditionally, which is the stronger and simpler claim.
     let analysis = make_analysis(0.85);
     let indicators = HashMap::new();
     let risk = compute_risk(
         "BTC-USDT",
         &analysis,
         &indicators,
-        None,
-        None,
         0.0,
-        &[],
         None,
         &[],
         &core_domain::risk::RiskParams::default(),
@@ -126,44 +119,22 @@ fn cascade_risk_confidence_zero_when_liquidity_off() {
 }
 
 #[test]
-fn cascade_risk_confidence_propagates_when_flow_present() {
-    // When flow=Some(...) → cascade confidence = state_confidence * 100.
-    let analysis = make_analysis(0.72);
-    let indicators = HashMap::new();
-    let flow = LiquidityFlow::default();
-    let risk = compute_risk(
-        "BTC-USDT",
-        &analysis,
-        &indicators,
-        Some(&flow),
-        None,
-        0.0,
-        &[],
-        None,
-        &[],
-        &core_domain::risk::RiskParams::default(),
-    );
-
-    assert!((risk.cascade_risk.confidence - 72.0).abs() < 1e-9);
-}
-
-#[test]
 fn empty_risk_matrix_keeps_50_confidence_floor() {
     // The docs §6 "Empty State" guarantees RiskMatrix::empty has score=50 and
     // confidence=50 (maximal uncertainty in the absence of data).
     let risk = core_domain::risk::RiskMatrix::empty("BTC-USDT");
     assert_eq!(risk.market_risk.confidence, 50.0);
     assert_eq!(risk.overall_risk.confidence, 50.0);
+    // CR-10: the cascade dimension has no arm left. The old assertion was
+    // `confidence == 50.0` because `RiskMatrix::empty` stamps every dimension
+    // with the same default; the live value from `compute_risk` is now 0.0
+    // (no measurement → no confidence), which is the honest reading. Both are
+    // pinned here so the schema field cannot drift silently.
     assert_eq!(risk.cascade_risk.confidence, 50.0);
 }
 
 // Keep the imports referenced so the file doesn't warn under no-unwrap.
 #[allow(dead_code)]
-fn _keep_imports(
-    ctx: MarketContext,
-    level: RiskLevel,
-    st: CascadeState,
-    _cl: LiquidationClusterMatrix,
-) {
-    let _ = (ctx, level, st);
+fn _keep_imports(ctx: MarketContext, level: RiskLevel) {
+    let _ = (ctx, level);
 }

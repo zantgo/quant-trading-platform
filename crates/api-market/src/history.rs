@@ -525,15 +525,11 @@ pub async fn serve_history(
     // the same matrices the WS broadcast already carries on each snapshot —
     // exposing them here lets the chart render overlays on first-mount
     // (before the WS delivery has happened).
-    let mut clusters = std::collections::HashMap::new();
+    let mut state_bands = std::collections::HashMap::new();
     let mut volume_profiles = std::collections::HashMap::new();
     // Phase 0-4: per-TF latest `LiquidityFlow` so the Metrics tab's
     // Flow / Cluster / Context sub-views can bootstrap immediately after
     // a daemon restart, before the WS delivers the next completed bar.
-    let mut liquidity_flows: std::collections::HashMap<
-        String,
-        core_domain::liquidity::LiquidityFlow,
-    > = std::collections::HashMap::new();
     if let Some(pair) = get_active_pair(&state, &pair_key).await {
         // v11.9: the ACTIVE pipelines (ascending fastest → slowest) keyed by
         // their derived duration label, so charts bootstrap their
@@ -544,11 +540,10 @@ pub async fn serve_history(
             slot_pipes.push((pipe.slot_label.clone(), pipe));
         }
         for (slot_label, pipe) in slot_pipes {
-            if let Ok(guard) = pipe.cluster_matrix.try_read() {
-                if let Some(m) = guard.as_ref() {
-                    clusters.insert(slot_label.clone(), m.clone());
-                }
-            }
+            // CR-10: the per-TF `cluster_matrix` handle is gone. The band set
+            // now rides the snapshot itself (built at each completed candle from
+            // the volume profile), so there is no separate handle to read — which
+            // also removes one `Arc<RwLock<...>>` per (instance x duration).
             // v11.12.24 (memory): the volume profile and the liquidity flow
             // are the two heavyweight fields the retained-history
             // projection drops (the flow's `recent_real_buckets` map alone
@@ -567,8 +562,8 @@ pub async fn serve_history(
                 if let Some(vp) = last.volume_profile.as_ref() {
                     volume_profiles.insert(slot_label.clone(), vp.clone());
                 }
-                if let Some(flow) = last.liquidity.as_ref() {
-                    liquidity_flows.insert(slot_label, flow.clone());
+                if let Some(sb) = last.state_bands.as_ref() {
+                    state_bands.insert(slot_label, sb.clone());
                 }
             }
         }
@@ -579,8 +574,7 @@ pub async fn serve_history(
         prices,
         candles,
         indicator_history,
-        clusters,
+        state_bands,
         volume_profiles,
-        liquidity_flows,
     })
 }

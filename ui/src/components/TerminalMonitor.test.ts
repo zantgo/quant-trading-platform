@@ -89,52 +89,21 @@ describe('TerminalMonitor — default active Tf is MTF (v7.0-prod D3)', () => {
     });
 });
 
-describe('TerminalMonitor — cascade alert (M-3, v6.10.11)', () => {
-    // The single-TF body renders only when the registry is non-empty.
-    function seedWithRegistry() {
-        seedInstance();
-        const app = useAppStore();
-        app.indicatorRegistry = [{
-            key: 'rsi',
-            display_name: 'RSI 14',
-            group: 'Oscillators',
-            class: 'Oscillator',
-            render: 'Pane',
-            directional: true,
-            supports_divergence: true,
-            signal_types: [],
-            default_weight: 1,
-            default_enabled: true,
-            config_params: [],
-            value_format: 'number',
-            value_source: 'indicator',
-            color: '#22c55e',
-            guide_section: 'oscillators',
-        }] as any;
-        return app.instancesMap['BTC-USDT'];
-    }
-
-    it('renders the alert from the SNAPSHOT-path liquidity with 1-decimal intensity', () => {
-        const entry = seedWithRegistry();
-        entry.terms[1].latestSnapshot = {
-            timestamp: Math.floor(Date.now() / 1000),
-            liquidity: { cascade_state: 'SUSTAINED', cascade_intensity: 72.5 },
-        } as any;
-        render(TerminalMonitor, { props: { pairKey: 'BTC-USDT' } });
-        // '1s' also appears in the MTF grid column header — the
-        // rail button renders first in DOM order.
-        fireEvent.click(screen.getAllByText('1s')[0]);
-        // M-3: snapshot source + toFixed(1) — matches the RiskPanel.
-        expect(screen.getByText(/CASCADE SUSTAINED · intensity 72\.5\/100/)).toBeTruthy();
-    });
-
-    it('does NOT render the alert from the tf-level liquidity (stale-prone source)', () => {
-        const entry = seedWithRegistry();
-        entry.terms[1].liquidity = { cascade_state: 'SUSTAINED', cascade_intensity: 90 } as any;
-        render(TerminalMonitor, { props: { pairKey: 'BTC-USDT' } });
-        // '1s' also appears in the MTF grid column header — the
-        // rail button renders first in DOM order.
-        fireEvent.click(screen.getAllByText('1s')[0]);
-        expect(screen.queryByText(/CASCADE/)).toBeNull();
-    });
-});
+// CR-10: the `TerminalMonitor — cascade alert (M-3, v6.10.11)` suite is DELETED.
+//
+// Its two tests are worth recording, because the second one was a guard against
+// a trap the first one walked into:
+//
+//   1. "renders the alert from the SNAPSHOT-path liquidity with 1-decimal
+//       intensity" — the banner read `latestSnapshot.liquidity`, not the
+//       tf-level `terms[n].liquidity`, because the latter "retains the last
+//       non-null value across shadow ticks".
+//   2. "does NOT render the alert from the tf-level liquidity (stale-prone
+//       source)" — pinned exactly that, by seeding the tf-level field and
+//       asserting the banner stayed silent.
+//
+// So a stale-value bug had been found, fixed by routing through the snapshot
+// path, and then guarded with a second test. All of that machinery existed to
+// keep one derived number fresh. With no cascade there is no number to keep
+// fresh, so the banner, the snapshot-path indirection and the staleness guard
+// are gone together rather than being left in place reading NONE forever.

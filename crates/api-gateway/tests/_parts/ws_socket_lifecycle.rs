@@ -92,15 +92,7 @@ async fn app_state() -> Arc<AppState> {
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: Default::default(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
-            cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending("T", "t"),
-            )),
             pipeline_state: Arc::new(RwLock::new(
                 core_domain::models::CandlePipelineState::Initializing,
             )),
@@ -126,12 +118,6 @@ async fn app_state() -> Arc<AppState> {
         active_secs: secs_list.clone(),
         snapshot_tx: mpsc::channel::<core_domain::normalized::NormalizedEvent>(50).0,
         cancel: CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(Default::default())),
-        funding_history: Arc::new(RwLock::new(Default::default())),
         latency_tracker: Arc::new(Default::default()),
     });
 

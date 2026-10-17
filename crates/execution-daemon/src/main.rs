@@ -1250,11 +1250,6 @@ async fn async_main() {
     // DB, WS/GUI, ./ds files).
     let (db_tx, db_rx) = mpsc::channel::<database_storage::TelemetryMsg>(TELEMETRY_QUEUE_SLOTS);
     let (ds_tx, ds_rx) = mpsc::channel::<database_storage::TelemetryMsg>(TELEMETRY_QUEUE_SLOTS);
-    // Read the liquidation-event retention window from the user's
-    // `[workspace.liquidity]` config. The legacy hardcoded `7u32` was
-    // 5x shorter than the configured 90 days and prematurely aged out
-    // event rows that operators still wanted to query.
-    let liq_retention_days = workspace.liquidity.event_retention_days.max(1);
     // BTE archive retention from [workspace.backtest].archive_depth_days.
     let archive_depth_days = workspace.backtest.archive_depth_days.max(1);
     // v11.12.24: the fan-out drops instead of applying back-pressure. With
@@ -1302,14 +1297,7 @@ async fn async_main() {
     let logger_handle = tokio::spawn({
         let pool = db_pool.clone();
         async move {
-            run_telemetry_logger(
-                pool,
-                db_rx,
-                liq_retention_days,
-                archive_depth_days,
-                session_number,
-            )
-            .await;
+            run_telemetry_logger(pool, db_rx, archive_depth_days, session_number).await;
         }
     });
 
@@ -2664,7 +2652,7 @@ async fn async_main() {
 
                 // ── act ────────────────────────────────────────────────
                 let instances = workspace.list().await;
-                let (mut entries, mut evicted, mut clusters_cleared) = (0usize, 0usize, 0usize);
+                let (mut entries, mut evicted) = (0usize, 0usize);
                 let mut over_budget_at_floor = false;
                 if governor_cfg.is_active() && tier != Tier::Normal {
                     gov::byte_budget_for(tier);
@@ -2683,12 +2671,11 @@ async fn async_main() {
                             evicted += n;
                             met = ok;
                             drop(deque);
-                            // 3. clear the derived cluster cache (the Phase 2 task
-                            //    refreshes it on its own cadence, so this is free).
-                            let mut cluster = pipe.cluster_matrix.write().await;
-                            if cluster.take().is_some() {
-                                clusters_cleared += 1;
-                            }
+                            // CR-10: step 3 — "clear the derived cluster cache"
+                            //    — is DELETED. The cluster cache was the largest
+                            //    single derived allocation in the sweep and
+                            //    nothing derives it any more, so there is
+                            //    nothing to clear.
                             if met {
                                 break 'pipelines;
                             }
@@ -2792,11 +2779,10 @@ async fn async_main() {
                     );
                     if tier != Tier::Normal {
                         eprintln!(
-                            "⚠️  Memory governor at {}%: evicted {} retained snapshot(s) to a {}-entry floor and cleared {} cluster cache(s).{} Raise [memory].high_water_pct or lower [workspace].timeframes if charts get too short.",
+                            "⚠️  Memory governor at {}%: evicted {} retained snapshot(s) to a {}-entry floor.{} Raise [memory].high_water_pct or lower [workspace].timeframes if charts get too short.",
                             tier.as_str(),
                             evicted,
                             keep,
-                            clusters_cleared,
                             if over_budget_at_floor {
                                 " STILL OVER BUDGET at the floor — every window is as short as it may go."
                             } else {

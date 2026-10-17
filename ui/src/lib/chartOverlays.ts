@@ -19,7 +19,7 @@ export const OVERLAY_PAIR_FLAGS = [
 /** Timeframe-level overlay flags managed by the ChartToggles pills
  *  (synced across all slots via `syncAll` on toggle). */
 export const OVERLAY_TF_FLAGS = [
-    'showVwap', 'showBb', 'showLiqHeatmap', 'showVolumeProfile',
+    'showVwap', 'showBb', 'showStateBands', 'showVolumeProfile',
     'showAnchoredVwap', 'showSupertrend', 'showDonchian', 'showIchimoku',
     'showSupportResistance', 'showPivotPoints', 'showFib',
     'showSmcStructure', 'showSmcLiquidity', 'showFvgZones', 'showOrderBlocks',

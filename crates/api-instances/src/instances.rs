@@ -1249,7 +1249,6 @@ pub async fn serve_get_activation(
         &workspace.activation,
         instance_cfg.as_ref(),
         workspace.config_version,
-        workspace.liquidity.enabled,
     );
 
     let mut signals: Vec<String> = active
@@ -1277,12 +1276,6 @@ pub async fn serve_get_activation(
         "disabled_indicators": indicators,
         "disabled_signals": signals,
         "disabled_signal_kinds": kinds,
-        "liquidity": {
-            "enabled": active.liquidity_enabled,
-            "liquidation_feed": active.liquidation_feed,
-            "cluster_estimation": active.cluster_estimation,
-            "signals": active.liquidity_signals_enabled,
-        },
     }))
     .into_response()
 }

@@ -20,9 +20,6 @@
     clippy::type_complexity,
     clippy::large_enum_variant
 )]
-#[path = "_parts/cluster_status_api.rs"]
-mod cluster_status_api;
-
 #[path = "_parts/history_allocation_bound.rs"]
 mod history_allocation_bound;
 

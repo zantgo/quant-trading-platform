@@ -332,79 +332,44 @@ function pickLatestCompletedSnapshot(
   return best;
 }
 
-// ── Liquidity panel payload (mirrors `LiquidityPanel.svelte`) ──────────
+// ── State-band payload (CR-10's replacement for the liquidity panel) ─────
+//
+// The panel it mirrors is deleted. The export block is NOT simply removed,
+// because an export that silently stops carrying the chart's zone geometry is
+// a quieter data loss than a stale field: a downstream reader would see a
+// well-formed envelope with the bands missing and no way to tell that the
+// absence was deliberate.
+//
+// `StateBandBlock` carries the same shape the Rust `StateBandMatrix` does, in
+// the same "null means not measured" convention the rest of the builders use.
 
-export interface LiquidityPanelFlowBlock {
+export interface StateBandExportRow {
+  price_low: number;
+  price_high: number;
+  band_atr_multiple: number;
+  volume_percentile: number;
+  proximity_percentile: number;
+  intensity_pct: number;
+  basis: string;
+  volume_asymmetry: number;
+}
+
+export interface StateBandBlock {
   available: boolean;
-  long_liquidations_usd: number;
-  short_liquidations_usd: number;
-  net_liquidation_usd: number;
-  event_count: number;
-  largest_event_usd: number;
-  largest_event_price: number | null;
-  largest_event_side: string | null;
-  cascade_state: string;
-  cascade_intensity: number;
-}
-
-export interface LiquidityPanelClusterBlock {
-  available: boolean;
-  mid_price: number;
-  cascade_asymmetry: number | null;
-  estimation_confidence: number | null;
-  total_long_oi_usd: number;
-  total_short_oi_usd: number;
-  total_short_clusters: number;
-  total_long_clusters: number;
-  leverage_assumptions: {
-    source: string;
-    buckets: number[];
-    weights: number[];
-    funding_modulation_active: boolean;
-    funding_extreme_pct: number | null;
-  };
-  short_clusters: Array<{
-    price_low: number;
-    price_high: number;
-    peak_price: number;
-    notional_usd: number;
-    dominant_leverage: number;
-    distance_from_mid_pct: number;
-    magnet_strength: number;
-    cluster_kind: string;
-  }>;
-  long_clusters: Array<{
-    price_low: number;
-    price_high: number;
-    peak_price: number;
-    notional_usd: number;
-    dominant_leverage: number;
-    distance_from_mid_pct: number;
-    magnet_strength: number;
-    cluster_kind: string;
-  }>;
-}
-
-export interface LiquidityPanelSignalBlock {
-  kind: string;
-  direction: string;
-  strength: number;
-  confidence: number;
-  evidence: string[];
-}
-
-export interface LiquidityPanelContextBlock {
-  available: boolean;
-  long_oi_usd: number;
-  short_oi_usd: number;
-  estimation_confidence_pct: number | null;
-  signals: LiquidityPanelSignalBlock[];
-}
-
-export interface LiquidityPanelBlock {
-  flow: LiquidityPanelFlowBlock | null;
-  cluster: LiquidityPanelClusterBlock | null;
-  context: LiquidityPanelContextBlock | null;
+  symbol: string | null;
+  timeframe_label: string | null;
+  timeframe_secs: number | null;
+  poc_price: number | null;
+  value_area_high: number | null;
+  value_area_low: number | null;
+  has_profile: boolean;
+  has_bands: boolean;
+  /** Strongest first by `intensity_pct`. */
+  bands: StateBandExportRow[];
+  band_count: number;
+  contributing_bins: number;
+  volume_asymmetry: number | null;
+  timestamp_ms: number | null;
 }
 
 // ── Existing helpers (kept for backwards-compat with other consumers) ───

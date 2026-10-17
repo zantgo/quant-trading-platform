@@ -222,7 +222,6 @@ pub fn compute_advisory(
     analysis: &AnalysisMatrix,
     risk: &RiskMatrix,
     opportunity: Option<&OpportunityMatrix>,
-    _cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
     sr_distance_atr: Option<f64>,
     params: &DecisionParams,
     // v9: the strategy's `l3` section (bias-lifted gate).
@@ -647,7 +646,6 @@ mod tests {
             &risk,
             None,
             None,
-            None,
             &DecisionParams::default(),
             &crate::analysis::AnalysisParams::default(),
         );
@@ -671,7 +669,6 @@ mod tests {
         let adv = compute_advisory(
             &analysis,
             &risk,
-            None,
             None,
             None,
             &DecisionParams::default(),
@@ -713,7 +710,6 @@ mod tests {
             &risk,
             None,
             None,
-            None,
             &DecisionParams::default(),
             &crate::analysis::AnalysisParams::default(),
         );
@@ -748,7 +744,6 @@ mod tests {
             &risk,
             None,
             None,
-            None,
             &DecisionParams::default(),
             &crate::analysis::AnalysisParams::default(),
         );
@@ -769,7 +764,6 @@ mod tests {
             &risk,
             None,
             None,
-            None,
             &DecisionParams::default(),
             &crate::analysis::AnalysisParams::default(),
         );
@@ -783,7 +777,6 @@ mod tests {
         let adv = compute_advisory(
             &analysis,
             &risk,
-            None,
             None,
             None,
             &DecisionParams::default(),

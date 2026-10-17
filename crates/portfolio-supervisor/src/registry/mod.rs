@@ -354,8 +354,6 @@ pub async fn add_instance(
         .map(|p| p.operational_mode.clone())
         .unwrap_or_default();
     let weight_overrides = pair_cfg.as_ref().and_then(|p| p.weight_overrides.clone());
-    let liquidity_config_first = config_guard.liquidity.clone();
-    let heatmap_config_first = config_guard.heatmap.clone();
     let api_failover_first = config_guard.api_failover;
     // CA-01…CA-15: global `[activation]` + per-instance union + version.
     let activation_first = config_guard.activation.clone();
@@ -379,7 +377,6 @@ pub async fn add_instance(
         .safety
         .to_safety_config(config_guard.safety.systemic_risk_threshold);
     // v9: the order-book surface follows the strategy's `l1.order_book`.
-    let ob_config_first = strategy_first.l1.order_book.to_order_book_config();
     drop(config_guard);
 
     let cancel = CancellationToken::new();
@@ -461,13 +458,10 @@ pub async fn add_instance(
         cancel: cancel.clone(),
         operational_mode: operational_mode.clone(),
         weight_overrides: weight_overrides.clone(),
-        liquidity_config: liquidity_config_first,
-        heatmap_config: heatmap_config_first,
         api_failover: api_failover_first,
         activation: activation_first,
         activation_instance: activation_instance_first,
         config_version: config_version_first,
-        ob_config: ob_config_first,
         strategy: strategy_first,
         buffer_size,
         stale_threshold_secs,
@@ -518,12 +512,6 @@ pub async fn add_instance(
                 .iter()
                 .map(|b| b.snapshot_history.clone())
                 .collect::<Vec<_>>(),
-            &artifacts.instance.active_pair.latest_oi,
-            &artifacts.instance.active_pair.latest_funding,
-            &artifacts.instance.active_pair.latest_mark_px,
-            &artifacts.instance.active_pair.latest_index_px,
-            &artifacts.instance.active_pair.oi_history,
-            &artifacts.instance.active_pair.funding_history,
             // PRI-08: only ≥60s durations propagate warmed snapshots to the
             // chart; sub-minute durations warm state + history only.
             active_ladder_secs
@@ -915,15 +903,12 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
 
     let operational_mode = pair_cfg.operational_mode.clone();
     let weight_overrides = pair_cfg.weight_overrides.clone();
-    let liquidity_config_recharge = config_guard.liquidity.clone();
-    let heatmap_config_recharge = config_guard.heatmap.clone();
     let api_failover_recharge = config_guard.api_failover;
     // CA-01…CA-15: global `[activation]` + per-instance union + version.
     let activation_recharge = config_guard.activation.clone();
     let activation_instance_recharge = pair_cfg.activation.clone();
     let config_version_recharge = config_guard.config_version;
     // v9 (F-04): recharge the wired order-book knobs + strategy.
-    let ob_config_recharge = config_guard.order_book.clone();
     let bound_name = pair_cfg
         .strategy
         .clone()
@@ -1023,13 +1008,10 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         cancel: cancel.clone(),
         operational_mode,
         weight_overrides,
-        liquidity_config: liquidity_config_recharge,
-        heatmap_config: heatmap_config_recharge,
         api_failover: api_failover_recharge,
         activation: activation_recharge,
         activation_instance: activation_instance_recharge,
         config_version: config_version_recharge,
-        ob_config: ob_config_recharge,
         strategy: strategy_recharge,
         buffer_size,
         stale_threshold_secs,
@@ -1086,12 +1068,6 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
                 .iter()
                 .map(|b| b.snapshot_history.clone())
                 .collect::<Vec<_>>(),
-            &artifacts.instance.active_pair.latest_oi,
-            &artifacts.instance.active_pair.latest_funding,
-            &artifacts.instance.active_pair.latest_mark_px,
-            &artifacts.instance.active_pair.latest_index_px,
-            &artifacts.instance.active_pair.oi_history,
-            &artifacts.instance.active_pair.funding_history,
             // PRI-08: only ≥60s durations propagate warmed snapshots to the
             // chart; sub-minute durations warm state + history only.
             config_guard_active_ladder_secs

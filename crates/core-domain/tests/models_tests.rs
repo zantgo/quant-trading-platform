@@ -25,6 +25,8 @@ fn sample_indicators() -> HashMap<String, NormalizedIndicatorValue> {
 #[test]
 fn test_market_snapshot_json_roundtrip() {
     let snap = MarketSnapshot {
+        // CR-10: the candle-derived heatmap bands.
+        state_bands: None,
         timeframe_label: Some("1m".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 60,
@@ -34,9 +36,6 @@ fn test_market_snapshot_json_roundtrip() {
         mid_price: dec!(50000.00),
         bid_price: dec!(49999.50),
         ask_price: dec!(50000.50),
-        bid_size: Some(dec!(1.5)),
-        ask_size: Some(dec!(2.0)),
-        funding_rate: Some(dec!(0.0001)),
         open: Some(dec!(49800.00)),
         high: Some(dec!(50200.00)),
         low: Some(dec!(49750.00)),
@@ -48,17 +47,8 @@ fn test_market_snapshot_json_roundtrip() {
         alignment: None,
         analysis: None,
         statistical_context: None,
-        open_interest: None,
-        oi_delta_pct: None,
-        oi_delta_window_secs: None,
-        mark_price: None,
-        index_price: None,
-        mark_index_spread_pct: None,
         prev_day_px: None,
-        liquidity_signals: vec![],
         metrics_config: None,
-        liquidity: None,
-        cluster: None,
         volume_profile: None,
         risk_profile: None,
         quality_envelope: None,
@@ -90,6 +80,8 @@ fn test_market_snapshot_json_roundtrip() {
 #[test]
 fn test_market_snapshot_empty_indicators() {
     let snap = MarketSnapshot {
+        // CR-10: the candle-derived heatmap bands.
+        state_bands: None,
         timeframe_label: Some("1s".to_string()),
         exchange: None,
         timeframe_secs: 0,
@@ -99,9 +91,6 @@ fn test_market_snapshot_empty_indicators() {
         mid_price: dec!(0.0),
         bid_price: dec!(0.0),
         ask_price: dec!(0.0),
-        bid_size: None,
-        ask_size: None,
-        funding_rate: None,
         open: None,
         high: None,
         low: None,
@@ -113,17 +102,8 @@ fn test_market_snapshot_empty_indicators() {
         alignment: None,
         analysis: None,
         statistical_context: None,
-        open_interest: None,
-        oi_delta_pct: None,
-        oi_delta_window_secs: None,
-        mark_price: None,
-        index_price: None,
-        mark_index_spread_pct: None,
         prev_day_px: None,
-        liquidity_signals: vec![],
         metrics_config: None,
-        liquidity: None,
-        cluster: None,
         volume_profile: None,
         risk_profile: None,
         quality_envelope: None,

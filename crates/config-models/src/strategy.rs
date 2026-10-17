@@ -137,180 +137,23 @@ pub struct L1Params {
     pub signals: L1SignalParams,
     /// Don't feed DIE-synthesized gap candles into indicator state machines.
     pub ignore_reconstructed_candles: bool,
-    pub order_book: L1OrderBookParams,
+    // CR-10: `l1.order_book` is DELETED. `depth_levels` and
+    // `imbalance_threshold` fed `OrderBookAnalysis` (gone); `wall_threshold`
+    // fed the removed cluster estimator; and both `spread_*` keys fed the
+    // deleted `spread` / `depth_bias` / `mark_index_spread` indicators.
+    //
+    // Top-of-book prices survive as the candle's `mid_price` under CH-03, but
+    // that is a CHANNEL, not a configurable analysis depth — there is nothing
+    // left for these five knobs to configure.
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L1OrderBookParams {
-    pub depth_levels: usize,
-    pub imbalance_threshold: f64,
-    pub wall_threshold: f64,
-    pub spread_warning_pct: f64,
-    pub spread_wide_threshold_pct: f64,
-}
-
-impl L1OrderBookParams {
-    /// v9: the strategy's `l1.order_book` is the single source of truth for
-    /// the depth/imbalance/wall/spread surface. `to_order_book_config` maps
-    /// it onto the runtime `OrderBookConfig` the pipelines consume.
-    pub fn to_order_book_config(&self) -> crate::OrderBookConfig {
-        crate::OrderBookConfig {
-            depth_levels: self.depth_levels,
-            imbalance_threshold: self.imbalance_threshold,
-            wall_threshold: self.wall_threshold,
-            spread_warning_pct: self.spread_warning_pct,
-            spread_wide_threshold_pct: self.spread_wide_threshold_pct,
-        }
-    }
-}
-
-impl Default for L1OrderBookParams {
-    fn default() -> Self {
-        Self {
-            depth_levels: 20,
-            imbalance_threshold: 0.3,
-            wall_threshold: 0.5,
-            spread_warning_pct: 0.1,
-            spread_wide_threshold_pct: 0.05,
-        }
-    }
-}
-
-// ─── L1.5: Derivatives Telemetry ────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L1_5AccumulatorParams {
-    pub cascade_window_candles: usize,
-    pub intensity_log_scale: f64,
-    pub baseline_no_history_usd: f64,
-    pub sig_window_events: usize,
-    pub fallback_baseline_usd: f64,
-    pub exhausted_intensity: f64,
-    pub max_buffered_events: usize,
-}
-
-impl Default for L1_5AccumulatorParams {
-    fn default() -> Self {
-        Self {
-            cascade_window_candles: 5,
-            intensity_log_scale: 20.0,
-            baseline_no_history_usd: 1000.0,
-            sig_window_events: 50,
-            fallback_baseline_usd: 500.0,
-            exhausted_intensity: 30.0,
-            max_buffered_events: 1000,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L1_5Params {
-    pub enabled: bool,
-    pub liquidation_feed: bool,
-    pub cluster_estimation: bool,
-    pub signals: bool,
-    pub mark_price_poll_ms: u64,
-    pub event_retention_days: u32,
-    pub bucket_retention_days: u32,
-    pub cluster_refresh_secs: u64,
-    pub maintenance_margin_rate: f64,
-    pub cascade_detected_zscore: f64,
-    pub cascade_sustained_events: u32,
-    pub funding_extreme_pct: f64,
-    pub magnet_activation_distance_pct: f64,
-    pub liquidity_vacuum_threshold: f64,
-    pub oi_funding_divergence_pct: f64,
-    pub min_cluster_notional_usd: f64,
-    pub signal_confidences: std::collections::HashMap<String, f64>,
-    /// The 11-kind trust axis (0–5; default 1.0). Multiplies each signal's
-    /// contribution to L5 cascade bonuses and L4 squeeze strength.
-    pub signal_weights: std::collections::HashMap<String, f64>,
-    pub accumulator: L1_5AccumulatorParams,
-    pub api_failover: L1_5FailoverParams,
-    pub per_tf_leverage: L1_5TfLeverageParams,
-}
-
-impl Default for L1_5Params {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            liquidation_feed: true,
-            cluster_estimation: true,
-            signals: true,
-            mark_price_poll_ms: 60_000,
-            event_retention_days: 90,
-            bucket_retention_days: 7,
-            cluster_refresh_secs: 0,
-            maintenance_margin_rate: 0.005,
-            cascade_detected_zscore: 2.5,
-            cascade_sustained_events: 3,
-            funding_extreme_pct: 0.0005,
-            magnet_activation_distance_pct: 0.5,
-            liquidity_vacuum_threshold: 0.3,
-            oi_funding_divergence_pct: 2.0,
-            min_cluster_notional_usd: 50_000.0,
-            signal_confidences: default_signal_confidences(),
-            signal_weights: std::collections::HashMap::new(),
-            accumulator: L1_5AccumulatorParams::default(),
-            api_failover: L1_5FailoverParams::default(),
-            per_tf_leverage: L1_5TfLeverageParams::default(),
-        }
-    }
-}
-
-fn default_signal_confidences() -> std::collections::HashMap<String, f64> {
-    let mut m = std::collections::HashMap::new();
-    m.insert("CASCADE_DETECTED".into(), 0.8);
-    m.insert("CASCADE_SUSTAINED".into(), 0.9);
-    m.insert("CASCADE_EXHAUSTED".into(), 0.7);
-    m.insert("FUNDING_EXTREME".into(), 0.95);
-    m.insert("OI_FUNDING_DIVERGENCE".into(), 0.7);
-    m.insert("LIQUIDITY_VACUUM".into(), 0.6);
-    m.insert("FUNDING_FLIP".into(), 0.75);
-    m.insert("OI_PRICE_DIVERGENCE".into(), 0.7);
-    m
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L1_5FailoverParams {
-    pub max_retries_per_call: u32,
-    pub retry_delay_seconds: u32,
-    pub max_consecutive_failures: u32,
-}
-
-impl Default for L1_5FailoverParams {
-    fn default() -> Self {
-        Self {
-            max_retries_per_call: 5,
-            retry_delay_seconds: 30,
-            max_consecutive_failures: 30,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L1_5TfLeverageParams {
-    pub enabled: bool,
-    pub buckets: Vec<u32>,
-    pub weights: Vec<f64>,
-    pub min_cluster_notional_usd: f64,
-}
-
-impl Default for L1_5TfLeverageParams {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            buckets: vec![1, 3, 5, 10, 20, 50, 100],
-            weights: vec![0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
-            min_cluster_notional_usd: 50_000.0,
-        }
-    }
-}
+// CR-10: the L1.5 strategy section (derivatives telemetry) and the
+// L2.5 section (liquidity synthesis) are DELETED. Every parameter in
+// both configured the chain CH-1 removes: the forced-close accumulator,
+// the liquidation-cluster estimator, the OI/funding/mark indicators and
+// the L5 cascade bonuses. They are removed from `StrategyConfig` as
+// fields, not merely defaulted off — a config key with no reader is a lie
+// about what the platform reads.
 
 // ─── L2: Alignment ──────────────────────────────────────────────
 
@@ -474,114 +317,6 @@ impl Default for L2States {
             unsigned: [20.0, 40.0, 60.0, 80.0],
             overall_label_bands: [20.0, 40.0],
             single_tf_confidence_score: 50.0,
-        }
-    }
-}
-
-// ─── L2.5: Liquidity Synthesis ──────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-#[derive(Default)]
-pub struct L2_5Params {
-    pub estimation: L2_5Estimation,
-    pub oi_split: L2_5OiSplit,
-    pub confidence: L2_5Confidence,
-    pub funding_modulation: L2_5FundingModulation,
-    pub signals: L2_5Signals,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L2_5Estimation {
-    pub swing_window_bars: usize,
-    pub swing_lookback: usize,
-    pub bin_size_pct: f64,
-    pub peak_halfwidth_divisor: usize,
-    pub bound_decay: f64,
-    pub ttl_secs: u64,
-}
-
-impl Default for L2_5Estimation {
-    fn default() -> Self {
-        Self {
-            swing_window_bars: 200,
-            swing_lookback: 5,
-            bin_size_pct: 0.001,
-            peak_halfwidth_divisor: 20,
-            bound_decay: 0.5,
-            ttl_secs: 300,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L2_5OiSplit {
-    /// `null` = follow `l1_5.funding_extreme_pct` (v9 F-01).
-    pub funding_anchor: Option<f64>,
-    pub funding_bias_scale: f64,
-    pub price_anchor_pct: f64,
-    pub price_bias_scale: f64,
-    pub clamp: [f64; 2],
-}
-
-impl Default for L2_5OiSplit {
-    fn default() -> Self {
-        Self {
-            funding_anchor: None,
-            funding_bias_scale: 0.3,
-            price_anchor_pct: 1.0,
-            price_bias_scale: 0.2,
-            clamp: [0.10, 0.90],
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L2_5Confidence {
-    pub oi_adequacy_anchor_usd: f64,
-    pub funding_penalty: f64,
-}
-
-impl Default for L2_5Confidence {
-    fn default() -> Self {
-        Self {
-            oi_adequacy_anchor_usd: 1_000_000.0,
-            funding_penalty: 0.3,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L2_5FundingModulation {
-    pub shift: f64,
-}
-
-impl Default for L2_5FundingModulation {
-    fn default() -> Self {
-        Self { shift: 0.05 }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct L2_5Signals {
-    pub sustained_events_this_bar: u32,
-    pub vacuum_dense_events: u32,
-    pub vacuum_dense_usd: f64,
-    pub funding_extreme_strength_slope: f64,
-}
-
-impl Default for L2_5Signals {
-    fn default() -> Self {
-        Self {
-            sustained_events_this_bar: 3,
-            vacuum_dense_events: 3,
-            vacuum_dense_usd: 50_000.0,
-            funding_extreme_strength_slope: 50.0,
         }
     }
 }
@@ -2411,9 +2146,7 @@ pub struct StrategyConfig {
     pub base: Option<String>,
     pub description: String,
     pub l1: L1Params,
-    pub l1_5: L1_5Params,
     pub l2: L2Params,
-    pub l2_5: L2_5Params,
     pub l3: L3Params,
     pub l4: L4Params,
     pub l5: L5Params,
@@ -2434,9 +2167,7 @@ impl Default for StrategyConfig {
             base: None,
             description: "The platform baseline model — reproduces v8.2 behavior exactly.".into(),
             l1: L1Params::default(),
-            l1_5: L1_5Params::default(),
             l2: L2Params::default(),
-            l2_5: L2_5Params::default(),
             l3: L3Params::default(),
             l4: L4Params::default(),
             l5: L5Params::default(),

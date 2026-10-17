@@ -174,20 +174,17 @@ export interface CandleQualityEnvelope {
     validated_at: number;
 }
 
-/** Liquidity activation subset (Phase 0/1/2/3 toggles). */
-export interface LiquidityActivation {
-    enabled: boolean;
-    liquidation_feed: boolean;
-    cluster_estimation: boolean;
-    signals: boolean;
-}
-
-/** Optional activation block surfaced from the snapshot. */
+/**
+ * Optional activation block surfaced from the snapshot.
+ *
+ * CR-10: the `liquidity` sub-block (the four Phase 0/1/2/3 feed toggles) is
+ * gone — the Rust `MetricsConfig` no longer carries it, so a client reading
+ * `config.liquidity` was reading a field that could never be populated.
+ */
 export interface MetricsConfig {
     disabled_indicators: string[];
     disabled_signals: Array<[string, string]>;
     disabled_signal_kinds: string[];
-    liquidity: LiquidityActivation;
     config_version: number;
 }
 
@@ -226,18 +223,15 @@ export interface MarketSnapshot {
     context?: MarketContext | null;
     alignment?: AlignmentMatrix | null;
     analysis?: AnalysisMatrix | null;
-    open_interest?: number | string | null;
-    oi_delta_pct?: number | string | null;
-    mark_price?: number | string | null;
-    index_price?: number | string | null;
-    mark_index_spread_pct?: number | null;
     prev_day_px?: number | string | null;
     statistical_context?: StatisticalContext | null;
-    liquidity_signals?: LiquiditySignal[];
     metrics_config?: MetricsConfig | null;
     risk_profile?: number | null;
-    liquidity?: LiquidityFlow | null;
-    cluster?: LiquidationClusterMatrix | null;
+    /**
+     * CR-10: the candle-derived band set — the heatmap slot the liquidation
+     * cluster matrix vacated, rebuilt from volume profile + loaded candles.
+     */
+    state_bands?: StateBandMatrix | null;
     /** Per-TF volume profile (audit M4: the wire field was consumed by
      *  websocket.svelte.ts but absent from this type). */
     volume_profile?: VolumeProfileSnapshot | null;
@@ -832,14 +826,14 @@ export interface TimeframeTelemetry {
     indicatorLifecycle?: IndicatorLifecycleMap;
     /** Per-TF synthesis block from the analyzer (L1 MarketContext). */
     context?: MarketContext | null;
-    /** Phase 1: per-candle liquidity flow (real liquidation events). */
-    liquidity?: LiquidityFlow;
-    /** Phase 2: estimated liquidation cluster matrix (per-TF candle cadence, 5-min TTL). */
-    cluster?: LiquidationClusterMatrix;
-    /** Phase 3: liquidity signals derived from flow + cluster. */
-    liquiditySignals?: LiquiditySignal[];
+    /**
+     * CR-10: `liquidity` / `cluster` / `liquiditySignals` are gone. The
+     * candle-derived replacement is `stateBands` below.
+     */
     /** Volume profile snapshot — per-timeframe aggregated volume distribution. */
     volumeProfile?: VolumeProfileSnapshot;
+    /** Candle-derived band set — the heatmap slot the cluster matrix vacated. */
+    stateBands?: StateBandMatrix | null;
     showEmas: boolean;
     showBb: boolean;
     showVwap: boolean;
@@ -868,23 +862,17 @@ export interface TimeframeTelemetry {
     showChoppiness: boolean;
     showLinregSlope: boolean;
     showZscore: boolean;
-    showLiqHeatmap: boolean;
+    showStateBands: boolean;
     /**
      * v7.0-prod — leverage tiers (integer × in [1, 100]) the operator
      * currently highlights on the liquidation heatmap overlay. Matching
      * clusters amplify in intensity; non-matching dim. Per-TF so that
      * micro may show one set while macro shows another.
      */
-    heatmapLeverageTiers: number[];
     showVolumeProfile: boolean;
     showWilliamsR: boolean;
     showCci: boolean;
     showForceIdx: boolean;
-    showFunding: boolean;
-    showOpenInterest: boolean;
-    showOiDelta: boolean;
-    showOrderFlowDepth: boolean;
-    showDerivativeRibbon: boolean;
     showPivotPoints: boolean;
     showSupportResistance: boolean;
     showSmcStructure: boolean;
@@ -892,7 +880,6 @@ export interface TimeframeTelemetry {
     showFvgZones: boolean;
     showOrderBlocks: boolean;
     showAnchoredVwap: boolean;
-    showSpread: boolean;
     showAwesome: boolean;
     emaFastVal: number;
     emaMediumVal: number;
@@ -1065,108 +1052,83 @@ export interface TimeframeOption {
  * enum). Older frontend code compared PascalCase strings — that was a bug;
  * these unions match the actual JSON the server emits.
  */
-export type CascadeState = 'NONE' | 'DETECTED' | 'SUSTAINED' | 'EXHAUSTED';
-export type LiquidationSide = 'LONG' | 'SHORT';
-export type ClusterKind = 'ABOVE_CURRENT_PRICE' | 'BELOW_CURRENT_PRICE' | 'AT_CURRENT_PRICE' | 'DISTANT';
-export type LeverageDistributionSource = 'DEFAULT_POWER_LAW' | 'FUNDING_ADAPTIVE' | 'CONFIG_OVERRIDE';
+// ────────────────────────────────────────────────────────────────────
+// CR-10: the forced-close type family is DELETED.
+//
+// `CascadeState`, `LiquidationSide`, `ClusterKind`,
+// `LeverageDistributionSource`, `LiquidityFlow`, `RealLiquidationBucket`,
+// `LeverageAssumptions`, `LiquidationCluster`, `LiquidationClusterMatrix`,
+// `LiquiditySignalKind`, `LiquidityDirection` and `LiquiditySignal` all
+// described the venue's forced-close stream and the liquidation-cluster matrix
+// estimated from open interest under an assumed leverage distribution. None is
+// an OHLCV field, so none survives CH-1.
+//
+// What replaces the cluster matrix's chart slot is `StateBandMatrix` below —
+// the same horizontal bands, derived from candle structure alone.
+//
+// One comment from the old block is worth preserving, because it is the reason
+// the deletion was done by type rather than by field:
+//
+//   "The frontend previously used PascalCase and silently miscategorized every
+//    incoming liquidity signal."
+//
+// A wire contract that was once spelled wrong in the client is exactly the kind
+// that survives a rename nobody re-checks. The band types below are pinned by
+// `state_band_keys_match_frontend_contract` on the Rust side for that reason.
 
-export interface LiquidityFlow {
-    long_liquidations_usd: number;
-    short_liquidations_usd: number;
-    net_liquidation_usd: number;
-    event_count: number;
-    largest_event_usd: number;
-    largest_event_price?: number;
-    largest_event_side?: LiquidationSide;
-    cascade_state: CascadeState;
-    cascade_intensity: number; // 0..100
-    /**
-     * Price-bucketed USD notional over the rolling 24h window. Keyed by
-     * packed `(bucket_index, side)` integer from the Rust accumulator.
-     * Bins follow current mid at the time the event was ingested, so
-     * bands migrate with the chart rather than being pinned to absolute
-     * dollars. Empty when no liquidations have been observed for this
-     * symbol (e.g. Hyperliquid without `hyperliquid_user_address` set).
-     */
-    recent_real_buckets?: Record<string, RealLiquidationBucket>;
-}
+/** What earned a band its place (mirrors Rust `BandBasis`). */
+export type BandBasis =
+    | 'HighVolumeNode'
+    | 'PointOfControl'
+    | 'ValueAreaEdge'
+    | 'SwingExtreme'
+    | 'Unknown';
 
-/** One observed liquidation bucket from `LiquidityFlow.recent_real_buckets`.
- * `bucket_index` is `((price / mid_at_event_time) - 1) / bucket_size_pct`,
- * rounded to int — so `+50` with `bucket_size_pct = 0.001` means "5%
- * above mid". The same `bucket_index` always maps to the same
- * approximate price position while the mid is stable. */
-export interface RealLiquidationBucket {
-    bucket_index: number;
-    side: LiquidationSide;
+/** One horizontal band: a price zone, how strongly volume traded there, and
+ * how close price is to it right now. */
+export interface StateBand {
     price_low: number;
     price_high: number;
-    peak_price: number;
-    notional_usd: number;
-    event_count: number;
-    last_updated_ms: number;
+    /** Band width as a multiple of the loaded candle set's ATR. */
+    band_atr_multiple: number;
+    /** 0..100 — this band's traded notional against all bins in the profile. */
+    volume_percentile: number;
+    /** 0..100 — how close current price is to this band. Nearest scores 100. */
+    proximity_percentile: number;
+    /** `volume_percentile × proximity_percentile / 100`. The only "strength". */
+    intensity_pct: number;
+    basis: BandBasis;
+    /** `|sell - buy| / (sell + buy)` over the band's own bin, 0..=1. */
+    volume_asymmetry: number;
 }
 
-export interface LeverageAssumptions {
-    buckets: number[];
-    weights: number[];
-    funding_modulation_active: boolean;
-    funding_extreme_pct: number;
-    source: LeverageDistributionSource;
+/** Aggregate readouts for the card's header line. */
+export interface StateBandMatrixSummary {
+    /** `|buy - sell| / (buy + sell)` across every bin. */
+    volume_asymmetry: number;
+    /** Bins that carried at least one trade. */
+    contributing_bins: number;
+    /** How many bands were emitted. */
+    band_count: number;
 }
 
-export interface LiquidationCluster {
-    price_low: number;
-    price_high: number;
-    peak_price: number;
-    notional_usd: number;
-    dominant_leverage: number;
-    distance_from_mid_pct: number;
-    cluster_kind: ClusterKind;
-    magnet_strength: number; // 0..100
-}
-
-export interface LiquidationClusterMatrix {
+/** The per-(instance, duration) candle-derived band set. */
+export interface StateBandMatrix {
     symbol: string;
-    generated_at_ms: number;
-    valid_until_ms: number;
-    mid_price: number;
-    leverage_assumptions: LeverageAssumptions;
-    short_clusters: LiquidationCluster[];
-    long_clusters: LiquidationCluster[];
-    cascade_asymmetry: number;       // [-1, +1]
-    total_long_oi_usd: number;
-    total_short_oi_usd: number;
-    estimation_confidence: number;  // 0..1
-}
-
-/**
- * Wire-format SCREAMING_SNAKE_CASE values (matches Rust `LiquiditySignalKind`).
- * The frontend previously used PascalCase and silently miscategorized every
- * incoming liquidity signal — see `LiquidityPanel.svelte` for the fix.
- */
-export type LiquiditySignalKind =
-    | 'CASCADE_DETECTED'
-    | 'CASCADE_SUSTAINED'
-    | 'CASCADE_EXHAUSTED'
-    | 'LIQUIDITY_VACUUM'
-    | 'FUNDING_EXTREME'
-    | 'OI_FUNDING_DIVERGENCE'
-    | 'MAGNET_ACTIVATED'
-    | 'CLUSTER_PRESSURE_HIGH'
-    | 'CLUSTER_FORWARD_PRESSURE'
-    | 'FUNDING_FLIP'
-    | 'OI_PRICE_DIVERGENCE';
-
-/** Wire-format LiquidityDirection (was PascalCase; old code broke styling). */
-export type LiquidityDirection = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-
-export interface LiquiditySignal {
-    kind: LiquiditySignalKind;
-    direction: LiquidityDirection;
-    strength: number;     // 0..100
-    confidence: number;   // 0..1
-    evidence: string[];
+    timeframe_label: string;
+    timeframe_secs: number;
+    /** Point of Control — the bin with the most traded notional. */
+    poc_price: number;
+    value_area_high: number;
+    value_area_low: number;
+    /** `poc > vah > val`, i.e. the profile produced a usable area. */
+    has_profile: boolean;
+    /** Enough candles survived to place bands at all. */
+    has_bands: boolean;
+    /** Strongest first by `intensity_pct`. */
+    bands: StateBand[];
+    summary: StateBandMatrixSummary;
+    timestamp_ms: number;
 }
 
 // ================================================================

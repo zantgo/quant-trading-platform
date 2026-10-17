@@ -136,15 +136,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
         fibonacci: FibonacciConfig::default(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
-        cluster_matrix: Arc::new(RwLock::new(None)),
-        cluster_status: Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-        )),
         pipeline_state: Arc::new(RwLock::new(
             core_domain::models::CandlePipelineState::Initializing,
         )),
@@ -156,12 +148,6 @@ async fn setup_app_with_instance() -> Arc<AppState> {
 
     let pair = Arc::new(ActivePair {
         symbol: PAIR_KEY.to_string(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         // v11.9 active durations; the four representative broadcast
         // channels ride on 1s/5s/30s/180s, the rest on throwaways.

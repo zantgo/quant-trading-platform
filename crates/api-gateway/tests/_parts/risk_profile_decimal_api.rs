@@ -33,7 +33,7 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
 
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90, 180, None).await;
+        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 180, None).await;
     });
 
     database_storage::risk_profile_insert(
@@ -196,7 +196,7 @@ async fn setup_override_state() -> (Arc<AppState>, String, i64) {
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90, 180, None).await;
+        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 180, None).await;
     });
 
     let profile_id = database_storage::risk_profile_insert(

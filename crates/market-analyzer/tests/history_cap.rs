@@ -155,8 +155,6 @@ fn v20_no_second_cap_exists_in_the_retention_path() {
             "INDICATORS_MAX_BARS_REQUIRED",
             "indicator floor — a window inside the cap",
         ),
-        ("OI_HISTORY_MAX", "derivatives ring, purged in P5"),
-        ("FUNDING_HISTORY_MAX", "derivatives ring, purged in P5"),
         ("REFETCH_TIMEOUT_SECS", "a timeout, not a count"),
         // Seconds, not bars. The OI sampler's window is a duration; conflating
         // it with a bar count is exactly the class of mistake CR-13 is fixing,

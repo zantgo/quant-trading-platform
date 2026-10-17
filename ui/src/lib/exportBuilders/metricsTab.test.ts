@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { makeTerms } from '../../tests/makeTerms';
 import { buildMetricsTabExport } from './metricsTab';
 import type { LayerHeaderSpec } from '../layerHeader';
-import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, VolumeProfileSnapshot, LiquidityFlow } from '../../types';
+import type { IndicatorDto, IndicatorMeta, StateBand, StateBandMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
 
 const headerSpec: LayerHeaderSpec = {
   layerNumber: 1,
@@ -66,14 +66,38 @@ function makeTf(): TimeframeTelemetry {
       momentum: { score: 0.45, confidence: 0.72, label: 'Bullish' },
       volatility: { score: 0.3, confidence: 0.65, label: 'Bearish' },
       volume: { score: 0.42, confidence: 0.68, label: 'Neutral' },
+      // `MarketContext.liquidity` is a ContextDimension — NOT the deleted
+      // `MarketSnapshot.liquidity` flow. Same name, different type.
       liquidity: { score: 0.55, confidence: 0.7, label: 'Neutral' },
     },
     indicators: {
       rsi_14: { raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'BULLISH', signals: [], values: {} },
       smc_fvg: { raw_value: 5, normalized: 0.6, confidence: 0.8, state_label: 'BULLISH', signals: [], values: {} },
-      derivatives_funding: { raw_value: 0.0001, normalized: 0, confidence: 0.5, state_label: 'NEUTRAL', signals: [], values: {} },
+      // CR-10: `derivatives_funding` is gone from the 44-indicator registry.
+      // The fixture keeps a third row so the exporter's per-indicator walk is
+      // still exercised over more than two entries.
+      choppiness: { raw_value: 52.1, normalized: 0.1, confidence: 0.6, state_label: 'NEUTRAL', signals: [], values: {} },
     } as unknown as Record<string, IndicatorDto>,
   } as unknown as TimeframeTelemetry;
+}
+
+function makeBandsFixture(): StateBandMatrix {
+  const b = (low: number, high: number, basis: StateBand['basis'], vp: number, pp: number, asym: number) => ({
+    price_low: low, price_high: high, band_atr_multiple: 0.5,
+    volume_percentile: vp, proximity_percentile: pp,
+    intensity_pct: (vp * pp) / 100, basis, volume_asymmetry: asym,
+  });
+  return {
+    symbol: 'BTC-USDT', timeframe_label: '1s', timeframe_secs: 60,
+    poc_price: 63390, value_area_high: 63770, value_area_low: 63010,
+    has_profile: true, has_bands: true,
+    bands: [
+      b(63120, 63250, 'HighVolumeNode', 96, 88, 0.62),
+      b(63510, 63680, 'PointOfControl', 78, 71, -0.34),
+    ],
+    summary: { volume_asymmetry: 0.21, contributing_bins: 48, band_count: 2 },
+    timestamp_ms: 1700000000000,
+  };
 }
 
 describe('buildMetricsTabExport', () => {
@@ -82,8 +106,7 @@ describe('buildMetricsTabExport', () => {
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -109,8 +132,7 @@ describe('buildMetricsTabExport', () => {
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -123,8 +145,7 @@ describe('buildMetricsTabExport', () => {
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -141,8 +162,7 @@ describe('buildMetricsTabExport', () => {
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -159,8 +179,7 @@ describe('buildMetricsTabExport', () => {
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -187,8 +206,7 @@ describe('buildMetricsTabExport', () => {
       tf: makeTf(),
       registry,
       volumeProfile: vp,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -198,21 +216,46 @@ describe('buildMetricsTabExport', () => {
     expect('in_va' in p.structural_anchors.volume_profile).toBe(false);
   });
 
-  it('emits liquidity_panel block (Flow / Cluster / Context)', () => {
+  it('emits a state_bands block whose unavailable shape is all-null, not absent', () => {
+    // CR-10's replacement for the `liquidity_panel` presence test. The key
+    // point it inherited and still makes: an export consumer must be able to
+    // tell "no bands measured" from "this exporter predates bands", and only
+    // `available: false` with every field null does that. A missing key cannot.
     const p = JSON.parse(buildMetricsTabExport({
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
     }));
-    expect(p.liquidity_panel).toBeDefined();
-    expect(p.liquidity_panel.flow).toBeNull();
-    expect(p.liquidity_panel.cluster).toBeNull();
-    expect(p.liquidity_panel.context).toBeDefined();
+    expect(p.state_bands).toBeDefined();
+    expect(p.state_bands.available).toBe(false);
+    expect(p.state_bands.bands).toEqual([]);
+    expect(p.state_bands.poc_price).toBeNull();
+    // The structural-anchors slot carries the same source, and must be null
+    // rather than a zeroed summary when nothing was measured.
+    expect(p.structural_anchors.state_bands).toBeNull();
+  });
+
+  it('emits the band rows verbatim, strongest first, when bands ARE measured', () => {
+    const bands = makeBandsFixture();
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: null,
+      stateBands: bands,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.state_bands.available).toBe(true);
+    expect(p.state_bands.band_count).toBe(bands.summary.band_count);
+    expect(p.state_bands.bands).toHaveLength(bands.bands.length);
+    expect(p.state_bands.bands[0].price_low).toBe(bands.bands[0].price_low);
+    expect(p.structural_anchors.state_bands.band_count).toBe(bands.summary.band_count);
+    expect(p.structural_anchors.state_bands.strongest.basis).toBe(bands.bands[0].basis);
   });
 
   it('indicator rows carry rich lifecycle state_display (not hardcoded null)', () => {
@@ -220,8 +263,7 @@ describe('buildMetricsTabExport', () => {
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -250,8 +292,7 @@ describe('buildMetricsTabExport', () => {
       tf: tf as never,
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -270,8 +311,7 @@ describe('buildMetricsTabExport', () => {
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -297,8 +337,7 @@ describe('buildMetricsTabExport', () => {
       tf: tfWithSignals,
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
@@ -332,8 +371,7 @@ it('omits missing-DTO indicators from rows but counts them neutral in confluence
     tf,
     registry: wideRegistry,
     volumeProfile: null,
-    liquidity: null,
-    cluster: null,
+    stateBands: null,
     symbol: 'BTC-USDT',
     markPrice: 63390,
     headerSpec,
@@ -371,8 +409,7 @@ it('EventOnly normalization mode renders N/A like the screen (available:false)',
     tf,
     registry: eventRegistry,
     volumeProfile: null,
-    liquidity: null,
-    cluster: null,
+    stateBands: null,
     symbol: 'BTC-USDT',
     markPrice: 63390,
     headerSpec,
@@ -396,8 +433,7 @@ it('WARMING rows render the norm placeholder (never 0.00)', () => {
     tf,
     registry,
     volumeProfile: null,
-    liquidity: null,
-    cluster: null,
+    stateBands: null,
     symbol: 'BTC-USDT',
     markPrice: 63390,
     headerSpec,
@@ -424,8 +460,7 @@ it('legacy state fallback mirrors the screen (NO SIGNAL / AWAITING DATA / —)',
     tf,
     registry,
     volumeProfile: null,
-    liquidity: null,
-    cluster: null,
+    stateBands: null,
     symbol: 'BTC-USDT',
     markPrice: 63390,
     headerSpec,
@@ -438,7 +473,7 @@ it('legacy state fallback mirrors the screen (NO SIGNAL / AWAITING DATA / —)',
   expect(funding.state_display).toBe('—'); // state_label '--'
 });
 
-it('micro_volume_profile + micro_cascade_alert mirror the anchors strip inputs', () => {
+it('micro_volume_profile mirrors the anchors strip inputs', () => {
   const vp: VolumeProfileSnapshot = {
     symbol: 'BTC-USDT',
     timeframe_label: '1m',
@@ -458,9 +493,7 @@ it('micro_volume_profile + micro_cascade_alert mirror the anchors strip inputs',
     registry,
     volumeProfile: null, // active TF has no VP
     microVolumeProfile: vp,
-    liquidity: null, // active TF has no flow
-    microLiquidity: { cascade_state: 'DETECTED', cascade_intensity: 41, long_liquidations_usd: 0, short_liquidations_usd: 0, net_liquidation_usd: 0, event_count: 0, largest_event_usd: 0, largest_event_price: null, largest_event_side: null } as unknown as LiquidityFlow,
-    cluster: null,
+    stateBands: null, // CR-10: no bands measured on either TF
     symbol: 'BTC-USDT',
     markPrice: 63390,
     headerSpec,
@@ -468,8 +501,15 @@ it('micro_volume_profile + micro_cascade_alert mirror the anchors strip inputs',
   expect(p.structural_anchors.volume_profile).toBeNull();
   expect(p.structural_anchors.micro_volume_profile.poc_price).toBe(63200);
   expect(p.structural_anchors.micro_volume_profile.current_position_label).toBe('INSIDE VALUE AREA');
-  expect(p.structural_anchors.cascade_alert).toBeNull();
-  expect(p.structural_anchors.micro_cascade_alert).toEqual({ state: 'DETECTED', intensity: 41 });
+  // CR-10: this test used to close by asserting the cascade banner's parity —
+  // `cascade_alert` null on the active TF, `micro_cascade_alert`
+  // `{ state: 'DETECTED', intensity: 41 }` from the micro flow. The banner is
+  // deleted and so are both keys, so the parity claim is now the band block's:
+  // with no bands on either TF, the strip's summary must be null rather than a
+  // zeroed object.
+  expect(p.structural_anchors.state_bands).toBeNull();
+  expect('cascade_alert' in p.structural_anchors).toBe(false);
+  expect('micro_cascade_alert' in p.structural_anchors).toBe(false);
 });
 
 // ── EMA Ribbon — single source of truth across the export body ──
@@ -508,8 +548,7 @@ describe('body.ema — Metrics tab export body block', () => {
       tf,
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 64000,
       headerSpec,
@@ -530,8 +569,7 @@ describe('body.ema — Metrics tab export body block', () => {
       tf,
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 64000,
       headerSpec,
@@ -558,8 +596,7 @@ describe('body.ema — Metrics tab export body block', () => {
       tf,
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 64000,
       headerSpec,
@@ -577,8 +614,7 @@ describe('body.ema — Metrics tab export body block', () => {
       tf: makeTf(),
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 64000,
       headerSpec,
@@ -603,8 +639,7 @@ describe('meta envelope — does NOT carry ema', () => {
       tf,
       registry,
       volumeProfile: null,
-      liquidity: null,
-      cluster: null,
+      stateBands: null,
       symbol: 'BTC-USDT',
       markPrice: 64000,
       headerSpec,

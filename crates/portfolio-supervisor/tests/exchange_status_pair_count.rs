@@ -109,18 +109,7 @@ fn build_stub_instance(
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: FibonacciConfig::default(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
-        cluster_matrix: Arc::new(RwLock::new(None)),
-        cluster_status: Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending(
-                "TEST-USD",
-                &core_domain::duration_label(secs),
-            ),
-        )),
         pipeline_state: Arc::new(RwLock::new(
             core_domain::models::CandlePipelineState::Initializing,
         )),
@@ -140,12 +129,6 @@ fn build_stub_instance(
         active_secs: active_secs.clone(),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: tokio_util::sync::CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
@@ -464,18 +447,7 @@ fn build_stub_instance_v2(
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: FibonacciConfig::default(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
-        cluster_matrix: Arc::new(RwLock::new(None)),
-        cluster_status: Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending(
-                "TEST-USD",
-                &core_domain::duration_label(secs),
-            ),
-        )),
         pipeline_state: Arc::new(RwLock::new(
             core_domain::models::CandlePipelineState::Initializing,
         )),
@@ -494,12 +466,6 @@ fn build_stub_instance_v2(
         active_secs: active_secs.clone(),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: tokio_util::sync::CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 

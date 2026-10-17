@@ -1,5 +1,4 @@
 pub mod duration_profile;
-pub mod liquidity_profile;
 pub mod models;
 pub use models::*;
 pub mod strategy;
@@ -310,10 +309,6 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub intervals: IntervalsConfig,
     #[serde(default)]
-    pub liquidity: LiquidityConfig,
-    #[serde(default)]
-    pub heatmap: HeatmapConfig,
-    #[serde(default)]
     pub api_failover: ApiFailoverConfig,
     #[serde(default)]
     pub activation: ActivationConfig,
@@ -327,11 +322,6 @@ pub struct WorkspaceConfig {
     /// state is the honest signal of "no structural levels near price".
     #[serde(default)]
     pub opportunity_matrix: OpportunityMatrixConfig,
-    /// Order-book depth analysis knobs (v9 F-04: the `[order_book]` TOML
-    /// surface — previously the runtime hardcoded
-    /// `OrderBookConfig::default()` in the pipeline constructor).
-    #[serde(default)]
-    pub order_book: OrderBookConfig,
     /// Schema version counter — incremented on every successful POST /api/config.
     #[serde(default)]
     pub config_version: u64,
@@ -393,12 +383,9 @@ impl Default for WorkspaceConfig {
             safety: SafetyConfig::default(),
             fees: FeesConfig::default(),
             intervals: IntervalsConfig::default(),
-            liquidity: LiquidityConfig::default(),
-            heatmap: HeatmapConfig::default(),
             api_failover: ApiFailoverConfig::default(),
             activation: ActivationConfig::default(),
             opportunity_matrix: OpportunityMatrixConfig::default(),
-            order_book: OrderBookConfig::default(),
             config_version: 1,
             leverage: LeverageConfig::default(),
             defaults: DefaultsConfig::default(),
@@ -1172,65 +1159,14 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
     }
     // Workspace-level indicator defaults — same guards as per-instance.
     validate_indicators_config(&ws.indicators, "workspace.indicators.")?;
-    // Liquidity / heatmap / candle-buffer numeric guards
-    {
-        let liq = &ws.liquidity;
-        if !(liq.maintenance_margin_rate.is_finite()
-            && liq.maintenance_margin_rate > 0.0
-            && liq.maintenance_margin_rate <= 1.0)
-        {
-            return Err(ConfigError::InvalidNumeric {
-                detail: format!(
-                    "[workspace.liquidity].maintenance_margin_rate = {} (must be in (0,1])",
-                    liq.maintenance_margin_rate
-                ),
-            });
-        }
-        if liq.bucket_retention_days == 0 {
-            return Err(ConfigError::InvalidNumeric {
-                detail: format!(
-                    "[workspace.liquidity].bucket_retention_days = {} (must be >0)",
-                    liq.bucket_retention_days
-                ),
-            });
-        }
-        // 0 = "synchronize with TF cadence" (valid default, see default_cluster_refresh_secs).
-        if liq.cluster_refresh_secs != 0 && liq.cluster_refresh_secs < 1 {
-            return Err(ConfigError::InvalidNumeric {
-                detail: format!(
-                    "[workspace.liquidity].cluster_refresh_secs = {} (must be 0 or >=1)",
-                    liq.cluster_refresh_secs
-                ),
-            });
-        }
-        if !(liq.min_cluster_notional_usd.is_finite() && liq.min_cluster_notional_usd >= 0.0) {
-            return Err(ConfigError::InvalidNumeric {
-                detail: format!(
-                    "[workspace.liquidity].min_cluster_notional_usd = {} (must be >=0)",
-                    liq.min_cluster_notional_usd
-                ),
-            });
-        }
-    }
-    {
-        let hm = &ws.heatmap;
-        if !(hm.bucket_size_pct.is_finite()
-            && hm.bucket_size_pct > 0.0
-            && hm.bucket_size_pct <= 1.0)
-        {
-            return Err(ConfigError::InvalidNumeric {
-                detail: format!(
-                    "[workspace.heatmap].bucket_size_pct = {} (must be in (0,1])",
-                    hm.bucket_size_pct
-                ),
-            });
-        }
-        if hm.retention_secs == 0 {
-            return Err(ConfigError::InvalidNumeric {
-                detail: "[workspace.heatmap].retention_secs = 0 (must be >0)".to_string(),
-            });
-        }
-    }
+    // CR-10: the `[workspace.liquidity]` and `[workspace.heatmap]` numeric
+    // guards are DELETED with their config sections. They validated
+    // `maintenance_margin_rate` (the assumed leverage curve for the cluster
+    // estimator), `bucket_retention_days`, `cluster_refresh_secs`,
+    // `min_cluster_notional_usd`, `bucket_size_pct` and `retention_secs` —
+    // every one a knob for a chain that no longer exists. A validator for a
+    // deleted key is a validator that will accept its reintroduction.
+
     Ok(())
 }
 

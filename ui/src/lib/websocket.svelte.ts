@@ -337,32 +337,23 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     const avgVol = num(snapshot.average_volume);
     if (avgVol != null) tf.avgVolText = avgVol.toFixed(2);
 
-    if (snapshot.liquidity && typeof snapshot.liquidity === 'object') {
-        tf.liquidity = snapshot.liquidity;
-    }
-    if (snapshot.cluster && typeof snapshot.cluster === 'object') {
-        tf.cluster = snapshot.cluster;
+    // CR-10: `liquidity`, `cluster` and `liquidity_signals` are gone. Their
+    // assignment block carried two audit fixes worth recording, because both
+    // were about a shadow frame overwriting an authoritative value:
+    //
+    //  * "the backend zeroes the array on the live path; reassigning
+    //    unconditionally wiped the LiquidityPanel signal list at up to 4 Hz
+    //    between candle closes."
+    //  * "serde omits the field entirely when empty, so the branch above can
+    //    never observe the authoritative-empty state."
+    //
+    // Both are now moot for a structural reason rather than a behavioural one:
+    // there is no field to distinguish "empty" from "absent" any more.
+    if (snapshot.state_bands && typeof snapshot.state_bands === 'object') {
+        tf.stateBands = snapshot.state_bands;
     }
     if (snapshot.volume_profile && typeof snapshot.volume_profile === 'object') {
         tf.volumeProfile = snapshot.volume_profile;
-    }
-    if (Array.isArray(snapshot.liquidity_signals)) {
-        // Shadow frames always carry an empty list (the backend zeroes the
-        // array on the live path). Reassigning unconditionally wiped the
-        // LiquidityPanel signal list at up to 4 Hz between candle closes.
-        // Completed frames are the authoritative source (empty or not);
-        // shadow frames only overwrite when they actually carry signals.
-        if (snapshot.liquidity_signals.length > 0 || isCompletedFrame) {
-            tf.liquiditySignals = snapshot.liquidity_signals;
-        }
-    } else if (isCompletedFrame) {
-        // Audit fix (M2): serde omits `liquidity_signals` entirely when
-        // the list is empty (`skip_serializing_if = "Vec::is_empty"`), so
-        // the branch above can never observe the authoritative-empty
-        // state. A completed frame WITHOUT the field means "no active
-        // signals" — clear the carried-forward list, otherwise stale
-        // CASCADE_DETECTED rows persisted next to a NONE cascade badge.
-        tf.liquiditySignals = [];
     }
     if (snapshot.indicator_lifecycle && typeof snapshot.indicator_lifecycle === 'object') {
         // Per-key merge of the indicator lifecycle map. The backend always

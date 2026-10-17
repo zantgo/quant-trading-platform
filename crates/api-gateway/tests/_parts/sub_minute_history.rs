@@ -72,15 +72,7 @@ async fn build_router_with_snapshots(
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: FibonacciConfig::default(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
-        cluster_matrix: Arc::new(RwLock::new(None)),
-        cluster_status: Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-        )),
         pipeline_state: Arc::new(RwLock::new(
             core_domain::models::CandlePipelineState::Initializing,
         )),
@@ -110,12 +102,6 @@ async fn build_router_with_snapshots(
         active_secs: config_models::SUPPORTED_DURATIONS.to_vec(),
         snapshot_tx: mpsc::channel::<core_domain::normalized::NormalizedEvent>(50).0,
         cancel: CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
@@ -189,6 +175,15 @@ async fn build_router_with_snapshots(
     (api_gateway::build_router(state.clone()), state)
 }
 
+fn bands(
+    symbol: &str,
+    label: &str,
+    secs: u64,
+    mid: f64,
+) -> core_domain::state_bands::StateBandMatrix {
+    core_domain::state_bands::StateBandMatrix::empty(symbol, label, secs, mid)
+}
+
 fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
     let close = rust_decimal::Decimal::from_f64_retain(close_val).unwrap_or_default();
     let open = rust_decimal::Decimal::from_f64_retain(close_val - 5.0).unwrap_or_default();
@@ -197,6 +192,8 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
     let bid = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap_or_default();
     let ask = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap_or_default();
     MarketSnapshot {
+        // CR-10: the candle-derived heatmap bands.
+        state_bands: None,
         timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: secs,
@@ -206,15 +203,6 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
         mid_price: close,
         bid_price: bid,
         ask_price: ask,
-        bid_size: None,
-        ask_size: None,
-        funding_rate: None,
-        open_interest: None,
-        oi_delta_pct: None,
-        oi_delta_window_secs: None,
-        mark_price: None,
-        index_price: None,
-        mark_index_spread_pct: None,
         prev_day_px: None,
         open: Some(open),
         high: Some(high),
@@ -228,10 +216,7 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
         alignment: None,
         analysis: None,
         risk_profile: None,
-        liquidity: None,
-        cluster: None,
         volume_profile: None,
-        liquidity_signals: vec![],
         metrics_config: None,
         quality_envelope: None,
         pipeline_state: core_domain::models::CandlePipelineState::default(),
@@ -855,7 +840,7 @@ async fn volume_profile_and_liquidity_bootstrap_from_latest_snapshot() {
             num_bins: 2,
             timestamp_ms: 0,
         });
-        newest_full.liquidity = Some(core_domain::liquidity::LiquidityFlow::default());
+        newest_full.state_bands = Some(bands(PAIR_KEY, "1s", 1, 65_002.0));
         let seed: Vec<MarketSnapshot> = vec![
             make_snapshot(1, 1_718_000_001, 65000.0),
             make_snapshot(1, 1_718_000_002, 65001.0),
@@ -890,10 +875,19 @@ async fn volume_profile_and_liquidity_bootstrap_from_latest_snapshot() {
             body.get("volume_profiles").is_some(),
             "volume_profiles must still be served: {body:?}"
         );
+        // CR-10: `liquidity_flows` is replaced by `state_bands` — the same
+        // per-TF overlay slot, derived from candle structure instead of the
+        // forced-close stream. It follows `volume_profiles`' bootstrap rule
+        // exactly: the value is read from `latest_snapshot`, and the map is
+        // present only when something was found (an empty map is skipped).
         assert!(
-            body.get("liquidity_flows").is_some(),
-            "liquidity_flows must still be served: {body:?}"
+            body.get("state_bands").is_some(),
+            "state_bands must be served from latest_snapshot: {body:?}"
         );
+        let sb = body["state_bands"]["1s"]["poc_price"]
+            .as_f64()
+            .expect("band set poc_price");
+        assert_eq!(sb, 65_002.0, "the LIVE frame is the source, not the window");
         let vps = body["volume_profiles"]
             .as_object()
             .expect("volume_profiles map");
@@ -913,10 +907,9 @@ async fn overlay_bootstrap_falls_back_to_the_retained_window() {
         // Unprojected seed + NO `latest_snapshot` (a sub-minute pipeline
         // before its first completed close) — the retained window must still
         // answer, so the response shape is unchanged for that window.
-        let mut seed: Vec<MarketSnapshot> = (0..2)
+        let seed: Vec<MarketSnapshot> = (0..2)
             .map(|i| make_snapshot(1, 1_718_000_001 + i, 65000.0))
             .collect();
-        seed[1].liquidity = Some(core_domain::liquidity::LiquidityFlow::default());
 
         let (_router, state) = build_router_with_snapshots(1, seed).await;
         let addr = serve_for(state.clone()).await;
@@ -931,14 +924,22 @@ async fn overlay_bootstrap_falls_back_to_the_retained_window() {
             .await
             .expect("json");
 
+        // CR-10 CORRECTED this test's claim. It used to assert that the
+        // in-memory retained window supplies the overlay payload. It does not,
+        // and did not: `history_projection()` drops `volume_profile` and
+        // `liquidity` alike, so the window has never been a source for these —
+        // the sources are `latest_snapshot` (the live frame) and the DB
+        // columns the projection reads back through `query_latest_snapshot`.
+        //
+        // `state_bands` follows that same rule rather than inventing a third
+        // behaviour: it is absent here, exactly as `volume_profiles` is.
         assert!(
-            body.get("liquidity_flows").is_some(),
-            "the fallback to snapshot_history.back() must keep the key present: {body:?}"
+            body.get("volume_profiles").is_none(),
+            "the projected window is not an overlay source (pre-existing rule)"
         );
-        let flows = body["liquidity_flows"].as_object().expect("map");
         assert!(
-            !flows.is_empty(),
-            "with an empty latest_snapshot the retained window supplies the flow"
+            body.get("state_bands").is_none(),
+            "state_bands follows volume_profiles: no source ⇒ no key: {body:?}"
         );
     })
     .await

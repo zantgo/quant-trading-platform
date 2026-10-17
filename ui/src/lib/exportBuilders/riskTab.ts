@@ -9,7 +9,7 @@
 // therefore stripped from the export too — `summary_counts` carries the
 // per-level distribution for data consumers.
 
-import type { RiskMatrix, RiskDimension, RiskLevel, LiquidityFlow, LiquidationClusterMatrix } from '../../types';
+import type { RiskMatrix, RiskDimension, RiskLevel } from '../../types';
 import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 
@@ -31,17 +31,21 @@ export interface RiskSummaryCountsBlock {
   extreme:  { label: string; count: number };
 }
 
-export interface RiskCascadeExtras {
-  state_label: string;
-  /** Null when no flow telemetry is present — mirrors the panel hiding the
-   *  Intensity field (RiskPanel.svelte) instead of rendering `0.0`. */
-  intensity_display: string | null;
-  asymmetry_sign: string;
-  asymmetry_magnitude_pct: number | null;
-  asymmetry_description: string | null;
-  /** The exact badge sentence the screen renders, e.g. "↑35.0% (short squeeze)". */
-  asymmetry_display: string | null;
-}
+// CR-10: `RiskCascadeExtras` is DELETED.
+//
+// It decorated the `cascade_risk` dimension with the forced-close flow's state
+// and intensity plus the cluster matrix's `cascade_asymmetry`, and it did so
+// carefully: the ±0.3 dead-band, the SHORT_SQUEEZE_RISK / LONG_SQUEEZE_RISK
+// vocabulary, the exact badge sentence the screen rendered, and a documented
+// "null when no flow telemetry is present — mirrors the panel hiding the
+// Intensity field instead of rendering 0.0" rule.
+//
+// All of that precision was in service of not showing a `0.0` for a
+// measurement that was never taken. `cascade_asymmetry` in particular was the
+// cluster estimator's one-sidedness between an ASSUMED long and short open
+// interest, described to the operator as squeeze risk. With no arm behind the
+// dimension there is nothing to decorate, so `cascade_extras` is deleted rather
+// than pinned to its null case forever.
 
 export interface RiskDimensionExport {
   name: string;
@@ -67,7 +71,6 @@ export interface RiskDimensionExport {
   weight_mark_pct: number;
   is_cascade_dim: boolean;
   not_active: boolean;
-  cascade_extras: RiskCascadeExtras | null;
   /** v6.11: execution-friction gauge on the Execution Risk dimension —
    *  ATR(14) ÷ top-of-book spread. `null` when absent (all other dims). */
   execution_extras: { volatility_to_spread_ratio: number | null } | null;
@@ -225,54 +228,8 @@ function buildSummaryCounts(risk: RiskMatrix | null): RiskSummaryCountsBlock {
   return counts;
 }
 
-function buildCascadeExtras(
-  flow: LiquidityFlow | null,
-  cluster: LiquidationClusterMatrix | null,
-): RiskCascadeExtras | null {
-  // The panel renders the cascade section only when flow or cluster exists
-  // (RiskPanel.svelte) — emit null instead of placeholder values.
-  if (!flow && !cluster) return null;
-  const asym = cluster?.cascade_asymmetry;
-  const sign = asym != null && asym > 0 ? '+' : asym != null && asym < 0 ? '-' : '';
-  // The screen renders the magnitude as a percentage: `(asym * 100).toFixed(1)`.
-  const magnitude = asym != null ? Math.abs(asym) * 100 : null;
-  // v2026-08: display-band parity with LiquidityPanel / metricsTab — the
-  // ±0.3 dead-band (03-02-11 L4/L5 threshold) and the canonical
-  // SHORT_SQUEEZE_RISK / LONG_SQUEEZE_RISK vocabulary.
-  const description =
-    asym == null
-      ? null
-      : asym > 0.3
-        ? 'SHORT_SQUEEZE_RISK'
-        : asym < -0.3
-          ? 'LONG_SQUEEZE_RISK'
-          : 'NEUTRAL';
-  const display =
-    asym == null
-      ? null
-      : asym > 0.3
-        ? `↑${(asym * 100).toFixed(1)}% (SHORT_SQUEEZE_RISK)`
-        : asym < -0.3
-          ? `↓${(Math.abs(asym) * 100).toFixed(1)}% (LONG_SQUEEZE_RISK)`
-          : '0.0% (NEUTRAL)';
-  return {
-    state_label:
-      !flow?.cascade_state || String(flow.cascade_state).toUpperCase() === 'NONE'
-        ? '—'
-        : flow.cascade_state,
-    intensity_display:
-      flow?.cascade_intensity != null ? flow.cascade_intensity.toFixed(1) : null,
-    asymmetry_sign: sign,
-    asymmetry_magnitude_pct: magnitude,
-    asymmetry_description: description,
-    asymmetry_display: display,
-  };
-}
-
 function buildDimensionsBlock(
   risk: RiskMatrix | null,
-  flow: LiquidityFlow | null,
-  cluster: LiquidationClusterMatrix | null,
 ): RiskDimensionExport[] {
   if (!risk) {
     // Mirror the screen's awaiting placeholder cards (name + weight +
@@ -296,7 +253,6 @@ function buildDimensionsBlock(
       bar_pct: 0,
       weight_mark_pct: Math.round(def.weight * 100),
       is_cascade_dim: def.isCascade,
-      cascade_extras: def.isCascade ? buildCascadeExtras(flow, cluster) : null,
       execution_extras: null,
     }));
   }
@@ -342,7 +298,6 @@ function buildDimensionsBlock(
     bar_pct: Math.min(dim?.score ?? 0, 100),
     weight_mark_pct: Math.round(def.weight * 100),
     is_cascade_dim: def.isCascade,
-    cascade_extras: def.isCascade ? buildCascadeExtras(flow, cluster) : null,
     execution_extras:
       def.key === 'execution_risk' && dim?.volatility_to_spread_ratio != null
         ? { volatility_to_spread_ratio: dim.volatility_to_spread_ratio }
@@ -383,8 +338,7 @@ function buildInterpretationFull(risk: RiskMatrix | null): string | null {
 
 export interface RiskTabInputs {
   risk: RiskMatrix | null;
-  flow: LiquidityFlow | null;
-  cluster: LiquidationClusterMatrix | null;
+  // CR-10: `flow` / `cluster` are gone — see the `RiskCascadeExtras` note.
   symbol: string;
   exchange?: string;
   tfSecs?: number | null;
@@ -439,7 +393,7 @@ export function buildRiskTabExport(args: RiskTabInputs): string {
     header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'SUMMARY' },
     hero,
     summary_counts: buildSummaryCounts(risk),
-    dimensions: buildDimensionsBlock(risk, args.flow, args.cluster),
+    dimensions: buildDimensionsBlock(risk),
     interpretation_full: buildInterpretationFull(risk),
     disclosure,
     awaiting_dimensions_text: 'Awaiting risk assessment — this dimension will populate once market data stabilizes.',

@@ -4,18 +4,16 @@
 // This is the critical data path; operations must be non-blocking.
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use config_models::FibonacciConfig;
-use config_models::OrderBookConfig;
 use config_models::QualityConfig;
 use config_models::StrategyConfig;
 use config_models::TimeframeConfig;
-use config_models::{HeatmapConfig, LiquidityConfig};
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 
 use crate::candle_generator::CandleGenerator;
@@ -25,13 +23,11 @@ use crate::indicators::{
     detect_pattern, Adx, AnchoredVwap, Aroon, Atr, AwesomeOscillator, Bbwp, BollingerBands,
     Candlestick, CandlestickConfig, Cci, ChandeMO, Choppiness, Cmf, DivergenceDetector, Donchian,
     Ema, FibonacciRange, ForceIndex, HistoricalVolatility, HullMA, Ichimoku, Keltner, LinRegSlope,
-    Macd, Mfi, Obv, OrderBookAnalysis, ParabolicSar, PivotMethod, PivotPoints, Rsi,
-    SeriesDivergence, SmartMoney, SqueezeMomentum, StdDevChannel, Stochastic, Supertrend,
-    VolumeProfile, WilliamsR, ZScore,
+    Macd, Mfi, Obv, ParabolicSar, PivotMethod, PivotPoints, Rsi, SeriesDivergence, SmartMoney,
+    SqueezeMomentum, StdDevChannel, Stochastic, Supertrend, VolumeProfile, WilliamsR, ZScore,
 };
 use crate::sr_engine::SrRoleTracker;
 use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
-use core_domain::liquidity::LiquidationClusterMatrix;
 use core_domain::models::{
     CandlePipelineState, CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity,
 };
@@ -102,28 +98,8 @@ pub struct TimeframePipeline {
     pub divergence_detector: Arc<tokio::sync::Mutex<DivergenceDetector>>,
     pub sr_tracker: Arc<tokio::sync::Mutex<SrRoleTracker>>,
     pub fibonacci: FibonacciConfig,
-    /// Latest Open Interest (shared across timeframes, updated by WS OI events).
-    pub latest_oi: Arc<RwLock<Option<Decimal>>>,
-    /// Latest Funding Rate (shared across timeframes, updated by WS funding events).
-    pub latest_funding: Arc<RwLock<Option<Decimal>>>,
-    /// Latest Mark Price (shared across timeframes, updated by mark events).
-    pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
-    /// Latest Index Price (shared across timeframes).
-    pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
     /// Active indicator/signal activation set (from config).
     pub active_set: crate::active_set::ActiveSet,
-    /// Latest LiquidationClusterMatrix **per-timeframe** (Phase 2). Updated
-    /// by the per-TF cluster refresh task at the TF's own candle cadence.
-    /// The analyzer reads this and attaches it to each completed snapshot
-    /// as `MarketSnapshot.cluster`, so every TF chart in the dashboard
-    /// shows clusters at its own horizon (micro=fast-magnet, macro=slow-magnet).
-    pub cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-    /// Per-TF cluster-refresh status snapshot. Sibling to `cluster_matrix`
-    /// so the `/api/liquidity/cluster-status` handler can distinguish
-    /// "no data yet" (Pending) from "refresh task failed and is silently
-    /// retrying" (Skipped with reason) — without this, the LIQ HEATMAP
-    /// overlay can appear empty for minutes with no operator feedback.
-    pub cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
     /// Per-TF pipeline lifecycle state. Transitions per
     /// [03-01-06](../docs/engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md)
     /// DCP-01 … DCP-15. Read by `run_single` to populate
@@ -164,27 +140,10 @@ pub struct ActivePair {
     pub active_secs: Vec<u64>,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
-    /// Latest Open Interest (shared across all timeframes, updated by WS events).
-    pub latest_oi: Arc<RwLock<Option<Decimal>>>,
-    /// Latest Funding Rate (shared across all timeframes, updated by WS funding events).
-    pub latest_funding: Arc<RwLock<Option<Decimal>>>,
-    /// Latest Mark Price (shared across all timeframes, updated by mark events).
-    pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
-    /// Latest Index Price (shared across all timeframes).
-    pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
-    /// Rolling OI history — `(timestamp_secs, value)` samples, time-bounded
-    /// to a 3600 s window (AUDIT-AIU-051). Promoted from a
-    /// per-`run_single` local so warmup can restore historical samples and
-    /// the first candle after boot has `OI Delta` math anchored to real
-    /// data. Each TF pipeline owns a clone of this at spawn; the window is
-    /// evaluated per-TF against each TF's own candle cadence.
-    pub oi_history: Arc<RwLock<VecDeque<(u64, f64)>>>,
     /// Rolling funding-rate history (shared across all timeframes) —
     /// bounded to 8 samples. Restored from history at boot so
     /// `OI_FUNDING_DIVERGENCE` and `FUNDING_FLIP` have non-zero
     /// priors instead of firing on the first funding event post-boot.
-    pub funding_history: Arc<RwLock<VecDeque<f64>>>,
-    /// Cross-cutting latency telemetry (ingest skew, observation loop,
     /// heartbeat) for the DIE observation path.
     pub latency_tracker: core_domain::SharedLatencyTracker,
 }
@@ -800,29 +759,6 @@ pub async fn run_single(
     cancel: CancellationToken,
     candle_forward: Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
     warmed: Option<WarmedPipelineState>,
-    latest_oi: Arc<RwLock<Option<Decimal>>>,
-    latest_funding: Arc<RwLock<Option<Decimal>>>,
-    latest_mark_px: Arc<RwLock<Option<Decimal>>>,
-    latest_index_px: Arc<RwLock<Option<Decimal>>>,
-    // Per-TF rolling OI history `(timestamp_secs, value)` — time-bounded to
-    // a 3600 s window (AUDIT-AIU-051). Each run_single owns a per-TF clone
-    // of the pair-level deque; warmup pre-seeds it and live WS events
-    // mutate it via `read_derivative_snapshot_state`.
-    oi_history: Arc<RwLock<VecDeque<(u64, f64)>>>,
-    // Per-pair shared rolling funding-rate history (bounded to 8).
-    funding_history: Arc<RwLock<VecDeque<f64>>>,
-    // Per-timeframe cluster-matrix handle (Phase 2). Each TF pipeline
-    // owns its own `Arc<RwLock<...>>`, populated by the per-TF cluster
-    // refresh task spawned in `registry/pipelines.rs::spawn_tasks`.
-    // Distinct from the cross-instance shared state used by L4/L5, which
-    // reads the micro TF's cluster.
-    cluster_matrix: Arc<RwLock<Option<LiquidationClusterMatrix>>>,
-    liquidity_config: Option<LiquidityConfig>,
-    // Heatmap bucketing config (Block B). Optional so callers that
-    // don't need it (e.g. legacy tests) can pass `None` and fall
-    // back to default 0.1% / 24h bucketing.
-    heatmap_config: Option<HeatmapConfig>,
-    ob_config: OrderBookConfig,
     // v9: the effective strategy (patch-resolved). The synthesis derives
     // its L4 opportunity params and the shared L6 DecisionParams from it.
     // Owned (cloned once per pipeline spawn) so callers never wrestle
@@ -1250,87 +1186,10 @@ pub async fn run_single(
     let mut live_bar: u32 = 0;
     let mut prev_bar_state = PreviousBarState::default();
     let mut last_pivot_count: usize = 0;
-    let mut last_cascade_state: core_domain::liquidity::CascadeState =
-        core_domain::liquidity::CascadeState::None;
     let mut prev_mtf_score: Option<f64> = None;
     let mut prev_regime: Option<core_domain::analysis::MarketRegime> = None;
     let mut prev_volume_dim: Option<f64> = None;
     let mut prev_bias: Option<core_domain::analysis::MarketBias> = None;
-
-    // OI delta tracking: rolling 3600 s time window of OI values
-    // `(timestamp_secs, value)` (AUDIT-AIU-051). Sourced from the per-TF
-    // `oi_history` clone so the bootstrap warmup can pre-seed it with
-    // historical samples. The shared lock is read in
-    // `read_derivative_snapshot_state` (which also appends the live sample
-    // with its timestamp) and replaced by the warmup seeding path during
-    // `populate_buffers`.
-    let oi_history: Arc<RwLock<VecDeque<(u64, f64)>>> = oi_history;
-    let funding_history: Arc<RwLock<VecDeque<f64>>> = funding_history;
-
-    // v9: the strategy's `l1_5` section drives the liquidity pipeline
-    // (legacy `[workspace.liquidity]`/`[heatmap]` are the parse fallback).
-    let eff_liq = crate::liquidity_params::effective_liquidity(
-        liquidity_config.as_ref(),
-        heatmap_config.as_ref(),
-        &strategy.l1_5,
-    );
-
-    // Phase 1: real liquidation event accumulator. Per-candle aggregation
-    // produces a `LiquidityFlow` on every completed bar.
-    //
-    // Constructor pulls cascade-detection knobs from the optional
-    // `liquidity_config` so operator overrides in `[workspace.liquidity]`
-    // (cascade_detected_zscore, cascade_sustained_events) actually take
-    // effect — the legacy `LiquidityEventAccumulator::new` defaults were
-    // hardcoded `2.5 / 5 / 3`.
-    //
-    // Block B (heatmap bucketing): the heatmap knobs come from the
-    // optional `heatmap_config` (defaults to 0.1% / 24h). When the
-    // heatmap is disabled in config, bucketing is a no-op but the
-    // accumulator keeps the existing per-bar aggregation.
-    let acc_tuning = core_domain::liquidity::AccumulatorTuning {
-        baseline_no_history_usd: eff_liq.accumulator.baseline_no_history_usd,
-        intensity_log_scale: eff_liq.accumulator.intensity_log_scale,
-        fallback_baseline_usd: eff_liq.accumulator.fallback_baseline_usd,
-        exhausted_intensity: eff_liq.accumulator.exhausted_intensity,
-    };
-    let mut liquidity_acc = match (Some(&eff_liq.cfg), eff_liq.heatmap.as_ref()) {
-        (Some(cfg), Some(hc)) if hc.enabled => {
-            core_domain::liquidity::LiquidityEventAccumulator::with_full_config(
-                &symbol,
-                eff_liq.accumulator.max_buffered_events.max(1),
-                cfg.cascade_detected_zscore,
-                eff_liq.accumulator.cascade_window_candles.max(1),
-                cfg.cascade_sustained_events,
-                hc.bucket_size_pct,
-                hc.retention_secs,
-            )
-            .with_tuning(acc_tuning.clone())
-        }
-        (Some(cfg), _) => core_domain::liquidity::LiquidityEventAccumulator::with_config(
-            &symbol,
-            eff_liq.accumulator.max_buffered_events.max(1),
-            cfg.cascade_detected_zscore,
-            eff_liq.accumulator.cascade_window_candles.max(1),
-            cfg.cascade_sustained_events,
-        )
-        .with_tuning(acc_tuning.clone()),
-        (None, Some(hc)) if hc.enabled => {
-            core_domain::liquidity::LiquidityEventAccumulator::with_full_config(
-                &symbol,
-                eff_liq.accumulator.max_buffered_events.max(1),
-                2.5,
-                eff_liq.accumulator.cascade_window_candles.max(1),
-                3,
-                hc.bucket_size_pct,
-                hc.retention_secs,
-            )
-            .with_tuning(acc_tuning.clone())
-        }
-        (None, _) => {
-            core_domain::liquidity::LiquidityEventAccumulator::new(&symbol).with_tuning(acc_tuning)
-        }
-    };
 
     let mut candle_gen = CandleGenerator::new(
         &symbol,
@@ -1371,9 +1230,15 @@ pub async fn run_single(
     // the charts. Larger recoveries belong to the bootstrap path.
     const MAX_GAP_FILL_BARS: u64 = 120;
 
-    let mut order_book_analysis =
-        OrderBookAnalysis::new(ob_config.depth_levels, ob_config.wall_threshold);
-    let spread_wide_threshold_pct = ob_config.spread_wide_threshold_pct;
+    // CR-10 / CH-1: the order-book ANALYSIS accumulator is deleted. Its products
+    // were `order_flow_imbalance`, `spread` and `depth_bias` (readings), plus
+    // the `bid_size` / `ask_size` envelope fields (also readings).
+    //
+    // What is NOT deleted is the book itself. `shadow_bid` / `shadow_ask` still
+    // arrive on every book event, and `mid_price` is still the mid of book —
+    // because that is how sub-minute candles are constructed, and a channel that
+    // builds a candle is ingestion, not a reading. The rule is the boundary, not
+    // the socket.
 
     let mut shadow_bid = Decimal::ZERO;
     let mut shadow_ask = Decimal::ZERO;
@@ -1444,17 +1309,9 @@ pub async fn run_single(
     let mut carried_structure =
         CarriedStructure::from_snapshot(latest_snapshot.read().await.as_ref());
 
-    let oi_delta_window_secs =
-        config_models::liquidity_profile::oi_delta_window_secs(timeframe_secs);
-    let oi_sample_every_secs = (oi_delta_window_secs / 8).clamp(1, 60);
-    let mut oi_sampler =
-        tokio::time::interval(std::time::Duration::from_secs(oi_sample_every_secs));
-    oi_sampler.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
     enum LoopAction {
         Process(NormalizedEvent),
         StaleCheck,
-        SampleOi,
         Shutdown,
     }
 
@@ -1464,11 +1321,6 @@ pub async fn run_single(
             _ = cancel.cancelled() => {
                 println!("🛑 Analysis Task: {} ({}) cancelled, shutting down.", symbol, slot_label);
                 LoopAction::Shutdown
-            }
-            // AUDIT-M1: own interval, NOT `stale_check` (whose interval
-            // scales with the duration) and NOT the candle cadence.
-            _ = oi_sampler.tick() => {
-                LoopAction::SampleOi
             }
             _ = stale_check.tick() => {
                 LoopAction::StaleCheck
@@ -1486,15 +1338,21 @@ pub async fn run_single(
 
         let event = match action {
             LoopAction::Shutdown => break,
-            // AUDIT-M1: append one OI sample and continue. This is the only
-            // writer of `oi_history`, and it must fire on a wall-clock cadence
-            // EVERY duration can use -- otherwise a duration whose sampler
-            // interval exceeds its own window can never hold two samples.
-            LoopAction::SampleOi => {
-                let now_secs = core_domain::LatencyTracker::now_ms() / 1000;
-                sample_oi_window(&oi_history, &latest_oi, now_secs).await;
-                continue;
-            }
+            // CR-10: `LoopAction::SampleOi` is gone with the OI sampler. The
+            // sampler existed to feed `normalize_oi_delta` a window of open
+            // interest samples, and neither the reader nor the reader's only
+            // consumer exist any more.
+            //
+            // Worth recording what this cost to fix. AUDIT-M1 found the sampler
+            // rode `stale_check.tick()`, whose interval is `timeframe_secs / 2`,
+            // so the 1h slot sampled every 30 minutes against a 3600 s window: a
+            // slot that samples less often than its own window can never hold two
+            // samples, so the delta stayed `None` on exactly the slow durations
+            // the window existed for. Underneath, one deque was shared by every
+            // duration and pruned to each duration's own window, so the 1s slot's
+            // 60 s prune truncated the 1h column — `n == 0` in 76 of 76 reads.
+            // Three bugs, one root cause, and the honest fix is not to make the
+            // sampler correct: it is to delete it.
             LoopAction::StaleCheck => {
                 let now_ms = core_domain::LatencyTracker::now_ms();
 
@@ -1526,6 +1384,12 @@ pub async fn run_single(
                         // dragging EMA/RSI into the "reacting to price that
                         // isn't there" distortion. Fall back to the last
                         // trade close instead.
+                        // Freshness guard for the book-derived price. `mid_price`
+                        // is still the mid of book — it is how sub-minute candles
+                        // are constructed, which is ingestion, not a reading —
+                        // but it is only authoritative while the last book event
+                        // sits inside the grace window (AUDIT-ILS-09: the budget
+                        // scales with this candle's interval).
                         let ob_fresh =
                             last_ob_ms > 0 && now_ms.saturating_sub(last_ob_ms) <= grace_period_ms;
                         let mid =
@@ -1718,8 +1582,6 @@ pub async fn run_single(
                             last_completed_start_ms,
                             now_ms,
                             &fib_config,
-                            &liquidity_config,
-                            spread_wide_threshold_pct,
                             &history,
                             &mut volume_history,
                             &mut close_history,
@@ -1744,17 +1606,7 @@ pub async fn run_single(
                             &mut prev_regime,
                             &mut prev_volume_dim,
                             &mut prev_bias,
-                            &mut last_cascade_state,
-                            &mut liquidity_acc,
-                            &latest_oi,
-                            &latest_funding,
-                            &latest_mark_px,
-                            &latest_index_px,
-                            &oi_history,
-                            &funding_history,
-                            &order_book_analysis,
                             &cross_tf_snapshots,
-                            &cluster_matrix,
                             &indicator_lifecycle,
                             &pipeline_state_handle,
                             &latest_snapshot,
@@ -2147,6 +1999,9 @@ pub async fn run_single(
             }
         }
 
+        // CR-10: `OpenInterest`, `FundingRate` and `MarkPrice` reach the
+        // pipeline and are dropped here. They are decoded and persisted by DIE;
+        // no candle-state value may be derived from them.
         match event {
             NormalizedEvent::Trade(ref trade) => {
                 shadow_exchange = Some(trade.exchange);
@@ -2664,8 +2519,6 @@ pub async fn run_single(
                         last_completed_start_ms,
                         now_ms,
                         &fib_config,
-                        &liquidity_config,
-                        spread_wide_threshold_pct,
                         &history,
                         &mut volume_history,
                         &mut close_history,
@@ -2690,17 +2543,7 @@ pub async fn run_single(
                         &mut prev_regime,
                         &mut prev_volume_dim,
                         &mut prev_bias,
-                        &mut last_cascade_state,
-                        &mut liquidity_acc,
-                        &latest_oi,
-                        &latest_funding,
-                        &latest_mark_px,
-                        &latest_index_px,
-                        &oi_history,
-                        &funding_history,
-                        &order_book_analysis,
                         &cross_tf_snapshots,
-                        &cluster_matrix,
                         &indicator_lifecycle,
                         &pipeline_state_handle,
                         &latest_snapshot,
@@ -2739,22 +2582,6 @@ pub async fn run_single(
                     let now_ms = core_domain::LatencyTracker::now_ms();
                     if now_ms.saturating_sub(last_shadow_broadcast_ms) >= shadow_throttle_ms {
                         last_shadow_broadcast_ms = now_ms;
-                        let ob_fresh =
-                            last_ob_ms > 0 && now_ms.saturating_sub(last_ob_ms) <= grace_period_ms;
-                        let ob_bid_size = if ob_fresh {
-                            order_book_analysis
-                                .best_bid_size()
-                                .and_then(Decimal::from_f64_retain)
-                        } else {
-                            None
-                        };
-                        let ob_ask_size = if ob_fresh {
-                            order_book_analysis
-                                .best_ask_size()
-                                .and_then(Decimal::from_f64_retain)
-                        } else {
-                            None
-                        };
                         broadcast_live_snapshot(
                             &broadcast_tx,
                             &symbol,
@@ -2762,8 +2589,6 @@ pub async fn run_single(
                             shadow_exchange,
                             shadow_bid,
                             shadow_ask,
-                            ob_bid_size,
-                            ob_ask_size,
                             &slot_label,
                             &ema_fast,
                             &ema_medium,
@@ -2822,20 +2647,10 @@ pub async fn run_single(
                     shadow_ask = best_ask.0;
                 }
 
-                // Update order book depth analysis
-                {
-                    let bids_f64: Vec<(f64, f64)> = book
-                        .bids
-                        .iter()
-                        .map(|(p, s)| (p.to_f64().unwrap_or(0.0), s.to_f64().unwrap_or(0.0)))
-                        .collect();
-                    let asks_f64: Vec<(f64, f64)> = book
-                        .asks
-                        .iter()
-                        .map(|(p, s)| (p.to_f64().unwrap_or(0.0), s.to_f64().unwrap_or(0.0)))
-                        .collect();
-                    order_book_analysis.update(&bids_f64, &asks_f64);
-                }
+                // CR-10: the order-book DEPTH analysis call is GONE. The book
+                // still stamps `shadow_bid` / `shadow_ask` — top-of-book is
+                // the candle's price under CH-1 (see CH-03), and that is the
+                // only book-derived value the model reads.
 
                 if candle_gen.current_candle.is_some() {
                     let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
@@ -2860,22 +2675,6 @@ pub async fn run_single(
                     let now_ms = core_domain::LatencyTracker::now_ms();
                     if now_ms.saturating_sub(last_shadow_broadcast_ms) >= shadow_throttle_ms {
                         last_shadow_broadcast_ms = now_ms;
-                        let ob_fresh =
-                            last_ob_ms > 0 && now_ms.saturating_sub(last_ob_ms) <= grace_period_ms;
-                        let ob_bid_size = if ob_fresh {
-                            order_book_analysis
-                                .best_bid_size()
-                                .and_then(Decimal::from_f64_retain)
-                        } else {
-                            None
-                        };
-                        let ob_ask_size = if ob_fresh {
-                            order_book_analysis
-                                .best_ask_size()
-                                .and_then(Decimal::from_f64_retain)
-                        } else {
-                            None
-                        };
                         broadcast_live_snapshot(
                             &broadcast_tx,
                             &symbol,
@@ -2883,8 +2682,6 @@ pub async fn run_single(
                             shadow_exchange,
                             shadow_bid,
                             shadow_ask,
-                            ob_bid_size,
-                            ob_ask_size,
                             &slot_label,
                             &ema_fast,
                             &ema_medium,
@@ -2937,57 +2734,30 @@ pub async fn run_single(
                 shadow_prev_day_px = Some(ctx.prev_day_px);
             }
 
-            NormalizedEvent::OpenInterest(ref oi) => {
-                let mut guard = latest_oi.write().await;
-                *guard = Some(oi.oi);
-            }
+            // CR-10: `OpenInterest`, `FundingRate` and `MarkPrice` are
+            // IGNORED at the model boundary. They are still decoded by DIE
+            // and the forced-close stream below is still persisted verbatim
+            // — the venue feeds are real and the telemetry tables are
+            // honest — but no candle-state value is derived from any of
+            // them, which is the whole point of CH-1. Deleting the arms
+            // outright is the durable form of that: a future edit has to
+            // re-add the arm AND argue for the reading.
 
-            NormalizedEvent::FundingRate(ref fr) => {
-                let mut guard = latest_funding.write().await;
-                *guard = Some(fr.rate);
-            }
-
-            NormalizedEvent::MarkPrice(ref mp) => {
-                let mut mark_guard = latest_mark_px.write().await;
-                *mark_guard = Some(mp.mark_px);
-                if let Some(idx) = mp.index_px {
-                    let mut idx_guard = latest_index_px.write().await;
-                    *idx_guard = Some(idx);
-                }
-            }
-
-            // Phase 1 hook: Liquidation events are also persisted to DB via
-            // the telemetry channel. The flow aggregation happens here in a
-            // later phase (Phase 1 + accumulator) but persisting the raw events
-            // now means we have data ready when the flow logic lands.
-            NormalizedEvent::Liquidation(ref liq) => {
-                let side_str = match liq.side {
-                    core_domain::normalized::LiquidationSide::Long => "LONG",
-                    core_domain::normalized::LiquidationSide::Short => "SHORT",
-                };
-                let size_usd = liq.price.to_f64().unwrap_or(0.0) * liq.size.to_f64().unwrap_or(0.0);
-                send_telemetry(
-                    &telemetry_tx,
-                    database_storage::TelemetryMsg::InsertLiquidationEvent {
-                        exchange: liq.exchange,
-                        symbol: liq.symbol.clone(),
-                        side: side_str.to_string(),
-                        price: liq.price.to_f64().unwrap_or(0.0),
-                        size_usd,
-                        timestamp_ms: liq.timestamp_ms,
-                        venue_order_id: liq.venue_order_id.clone(),
-                    },
-                );
-                // Phase 1: feed the per-candle aggregator. This drives the
-                // `LiquidityFlow` attached to the next completed snapshot.
-                // CA-15: the `liquidation_feed` sub-toggle drops the feed at
-                // the L1.5 boundary — events are still persisted raw (DIE
-                // ingestion continues unchanged) but never aggregated, so
-                // the flow stays empty and cascade detection stays silent.
-                if active_set.liquidation_feed {
-                    liquidity_acc.record_event(liq.clone());
-                }
-            }
+            // CR-10: the forced-close arm is DELETED, persistence included.
+            //
+            // It is tempting to keep the `liquidation_events` row — the venue
+            // published it, and an honest telemetry table is a good thing. But
+            // keeping it means keeping the write path, the retention prune,
+            // the DS mirror, the table and the bucket table it fed, all of
+            // which exist only to serve a chain with no reader. That is the
+            // "honest but inert" trap P4 already hit once with the candle
+            // buffer: infrastructure kept alive by nothing.
+            //
+            // The venue still DECODES these frames — the adapter is unchanged
+            // and the socket still carries the topic, because removing the
+            // subscription is a venue-parity change with its own blast radius.
+            // What is gone is everything downstream of decode.
+            NormalizedEvent::Liquidation(_) => {}
 
             NormalizedEvent::Status {
                 exchange,
@@ -2999,6 +2769,15 @@ pub async fn run_single(
                     slot_label, exchange, status, message
                 );
             }
+
+            // CR-10: the model boundary. These three arrive on the same channel
+            // as trades and are deliberately inert — see the note above the
+            // match. Listing them explicitly (rather than a `_` catch-all) is
+            // what makes a future re-add a visible act instead of a silent
+            // restoration.
+            NormalizedEvent::OpenInterest(_)
+            | NormalizedEvent::FundingRate(_)
+            | NormalizedEvent::MarkPrice(_) => {}
         }
     }
 }
@@ -3046,8 +2825,6 @@ async fn synthesize_completed_candle(
     last_completed_ms: Option<u64>,
     now_ms: u64,
     fib_config: &FibonacciConfig,
-    liquidity_config: &Option<LiquidityConfig>,
-    spread_wide_threshold_pct: f64,
     history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
     volume_history: &mut VecDeque<Decimal>,
     // v6.11: rolling 300-close window backing the L1 `price_trend_sharpe`.
@@ -3078,17 +2855,10 @@ async fn synthesize_completed_candle(
     prev_regime: &mut Option<core_domain::analysis::MarketRegime>,
     prev_volume_dim: &mut Option<f64>,
     prev_bias: &mut Option<core_domain::analysis::MarketBias>,
-    last_cascade_state: &mut core_domain::liquidity::CascadeState,
-    liquidity_acc: &mut core_domain::liquidity::LiquidityEventAccumulator,
-    latest_oi: &Arc<RwLock<Option<Decimal>>>,
-    latest_funding: &Arc<RwLock<Option<Decimal>>>,
-    latest_mark_px: &Arc<RwLock<Option<Decimal>>>,
-    latest_index_px: &Arc<RwLock<Option<Decimal>>>,
-    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
-    funding_history: &Arc<RwLock<VecDeque<f64>>>,
-    order_book_analysis: &OrderBookAnalysis,
+    // CR-10: `funding_history` is gone from this signature. It was the last
+    // reader — the funding-rate indicator it fed is deleted, so the ring it
+    // was threading through `run_single` for 30+ call sites has no consumer.
     cross_tf_snapshots: &[Arc<RwLock<Option<MarketSnapshot>>>],
-    cluster_matrix: &Arc<RwLock<Option<LiquidationClusterMatrix>>>,
     indicator_lifecycle: &Arc<RwLock<IndicatorLifecycleMap>>,
     pipeline_state_handle: &Arc<RwLock<CandlePipelineState>>,
     latest_snapshot: &Arc<RwLock<Option<MarketSnapshot>>>,
@@ -3099,7 +2869,7 @@ async fn synthesize_completed_candle(
     strategy: &StrategyConfig,
 ) -> (MarketSnapshot, CarriedStructure) {
     // Freshness guard for the order-book-backed envelope fields
-    // (`mid_price` mid-of-book, `bid_size`/`ask_size` top-of-book depth).
+    // (`mid_price` mid-of-book). CR-10 removed the depth fields.
     // Same AUDIT-V8-002 semantics as the doji-fill path: the book is only
     // authoritative while the last book event sits inside the grace window.
     // AUDIT-ILS-09: scale the staleness budget to this candle's interval.
@@ -3494,9 +3264,6 @@ async fn synthesize_completed_candle(
         active_set,
     );
 
-    // Read derivative state for prev_bar_state snapshot.
-    let prev_fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
-
     // ── Save current bar's indicator values for next bar's cross-over detection ──
     *prev_bar_state = PreviousBarState {
         rsi: final_rsi.map(|d| d.to_f64().unwrap_or(0.0)),
@@ -3574,8 +3341,6 @@ async fn synthesize_completed_candle(
         williams_r: wr_reading.map(|d| d.to_f64().unwrap_or(0.0)),
         cci: cci_reading.map(|d| d.to_f64().unwrap_or(0.0)),
         psar_sar: psar_reading.map(|d| d.sar.to_f64().unwrap_or(0.0)),
-        funding_rate: prev_fund_f,
-        cascade_state: Some(*last_cascade_state),
     };
 
     // Stamp signal freshness (age in completed bars).
@@ -3586,63 +3351,34 @@ async fn synthesize_completed_candle(
     // boost, stale-signal drop, strength-bucket classification.
     apply_l1_signal_params(&mut indicators, &strategy.l1);
 
-    // Inject Derivatives Data indicators (OI & Funding Rate).
-    // Reads from the per-pair shared `oi_history` and
-    // `funding_history` Arc locks, which the bootstrap
-    // path pre-seeds from historical snapshots and live
-    // WS events keep mutating. `candle_close_sec` is the
-    // window anchor for the per-duration OI delta.
-    let oi_delta_window_secs =
-        config_models::liquidity_profile::oi_delta_window_secs(timeframe_secs);
-    let deriv = read_derivative_snapshot_state(
-        latest_oi,
-        latest_funding,
-        latest_mark_px,
-        latest_index_px,
-        oi_history,
-        funding_history,
-        oi_delta_window_secs,
-        candle_close_sec,
-    )
-    .await;
-    let DerivativeSnapshot {
-        oi: oi_f,
-        funding: fund_f,
-        mark_px: mark_f,
-        index_px: _idx_f,
-        spread_pct,
-        oi_delta: oi_delta_f,
-        oi_delta_pct: oi_delta_pct_f,
-        prev_oi_delta: prev_oi_delta_f,
-        oi_anchor_span_secs,
-    } = deriv;
-    // AUDIT-AIU-074: unify the funding "extreme" definition
-    // between the indicator and liquidity layers.
-    let funding_extreme_pct = liquidity_config
-        .as_ref()
-        .map(|c| c.funding_extreme_pct)
-        .unwrap_or(0.0005);
-    inject_derivatives_indicators(
-        &mut indicators,
-        oi_f,
-        fund_f,
-        oi_delta_f,
-        mark_f,
-        spread_pct,
-        prev_oi_delta_f,
-        oi_delta_window_secs,
-        funding_extreme_pct,
-    );
-
-    // Inject order book depth analysis indicators
-    inject_orderbook_indicators(
-        &mut indicators,
-        order_book_analysis,
-        spread_wide_threshold_pct,
-    );
-    // AUDIT-H2: the order-book injection above can attach wall signals to
-    // `order_flow_imbalance` after `build_indicator_map` ran its denylist
-    // filter — re-apply so no disabled kind/pair reaches the wire here.
+    // CR-10 / CH-1: the derivatives snapshot read is GONE, along with the two
+    // injectors below.
+    //
+    // `read_derivative_snapshot_state` read open interest, funding, mark and
+    // index off five shared Arc handles and produced eight values. Every
+    // consumer of those eight was a non-candle indicator or a non-candle
+    // envelope field (`open_interest`, `oi_delta_pct`, `funding_rate`,
+    // `mark_price`, `index_price`, `mark_index_spread_pct`).
+    //
+    // The handles themselves survive this phase because the L2.5 cluster
+    // subsystem still reads them (W5.3); when that goes, so do they. The
+    // `candle_close_sec` window anchor goes with them, and with it the per-pair
+    // OI delta rate — which was, on the evidence of AUDIT-M1, never correct
+    // anyway: the sampler rode a tick whose interval was half the duration, so
+    // the 1h slot sampled every 30 minutes against a 3600 s window and could
+    // never hold two samples.
+    //
+    // Every indicator they produced — `open_interest`, `oi_delta`,
+    // `funding_rate`, `oi_price_divergence`, `mark_index_spread`,
+    // `order_flow_imbalance`, `spread`, `depth_bias` — was computed from a
+    // venue feed that is not OHLCV. Every
+    // indicator they produced — `open_interest`, `oi_delta`, `funding_rate`,
+    // `oi_price_divergence`, `mark_index_spread`, `order_flow_imbalance`,
+    // `spread`, `depth_bias` — was computed from a venue feed that is not OHLCV.
+    //
+    // AUDIT-H2's re-application of the signal denylist is still needed: SMC event
+    // indicators attach their signals after `build_indicator_map` ran the
+    // filter, so the call stays.
     active_set.filter_map_signals(&mut indicators);
 
     // Compute quantitative decision-support context.
@@ -3680,6 +3416,9 @@ async fn synthesize_completed_candle(
     let pipeline_is_live = current_state == CandlePipelineState::Live;
 
     let this_snapshot_for_synth = MarketSnapshot {
+        // CR-10: the synth-pass snapshot carries no heatmap. The band set is
+        // built at the end of this function, once the volume profile exists.
+        state_bands: None,
         timeframe_label: Some(slot_label.to_string()),
         exchange: shadow_exchange,
         timeframe_secs,
@@ -3693,27 +3432,11 @@ async fn synthesize_completed_candle(
         },
         bid_price: shadow_bid,
         ask_price: shadow_ask,
-        bid_size: if ob_fresh {
-            order_book_analysis
-                .best_bid_size()
-                .and_then(Decimal::from_f64_retain)
-        } else {
-            None
-        },
-        ask_size: if ob_fresh {
-            order_book_analysis
-                .best_ask_size()
-                .and_then(Decimal::from_f64_retain)
-        } else {
-            None
-        },
-        funding_rate: fund_f.and_then(Decimal::from_f64_retain),
-        open_interest: oi_f.and_then(Decimal::from_f64_retain),
-        oi_delta_pct: oi_delta_pct_f.and_then(Decimal::from_f64_retain),
-        oi_delta_window_secs: Some(oi_anchor_span_secs.unwrap_or(oi_delta_window_secs)),
-        mark_price: *latest_mark_px.read().await,
-        index_price: *latest_index_px.read().await,
-        mark_index_spread_pct: spread_pct,
+        // CR-10 / CH-1: `funding_rate`, `open_interest`, `oi_delta_pct`,
+        // `oi_delta_window_secs`, `mark_price`, `index_price` and
+        // `mark_index_spread_pct` are DELETED from the envelope. Each is a
+        // verbatim venue feed value or a difference of two, and none can be
+        // recomputed from a candle archive.
         prev_day_px: shadow_prev_day_px,
         open: Some(completed.open),
         high: Some(completed.high),
@@ -3737,11 +3460,8 @@ async fn synthesize_completed_candle(
         indicators: indicators.clone(),
         alignment: None,
         analysis: None,
-        liquidity_signals: vec![],
         metrics_config: None,
         risk_profile: None,
-        liquidity: None,
-        cluster: None,
         volume_profile: None,
         quality_envelope: Some(quality_envelope.clone()),
     };
@@ -3809,118 +3529,19 @@ async fn synthesize_completed_candle(
     let cross_refs: Vec<(u64, &MarketSnapshot)> =
         cross_tf_snaps.iter().map(|(secs, s)| (*secs, s)).collect();
 
-    let cluster_guard = cluster_matrix.read().await.clone();
-    // Block B: feed the latest mid into the accumulator
-    // before flushing so the buckets are anchored to the
-    // most recent mark. `latest_mark_px` is the upstream
-    // shared state updated by `MarkPrice` events.
-    let mid_for_buckets = latest_mark_px.read().await.and_then(|m| m.to_f64());
-    if let Some(m) = mid_for_buckets {
-        liquidity_acc.set_mid(m);
-    }
-    let flush_now_ms = core_domain::LatencyTracker::now_ms();
-    let liquidity_flow = liquidity_acc.flush_to_flow(flush_now_ms);
-    *last_cascade_state = liquidity_flow.cascade_state;
-    // Thread configured signal thresholds from
-    // `[workspace.liquidity]` instead of using the
-    // hardcoded defaults inside `SignalInput::default()`.
-    let funding_extreme_pct = liquidity_config
-        .as_ref()
-        .map(|c| c.funding_extreme_pct)
-        .unwrap_or(0.0005);
-    let magnet_activation_distance_pct = liquidity_config
-        .as_ref()
-        .map(|c| c.magnet_activation_distance_pct)
-        .unwrap_or(0.5);
-    let oi_funding_divergence_pct = liquidity_config
-        .as_ref()
-        .map(|c| c.oi_funding_divergence_pct)
-        .unwrap_or(2.0);
-    // Vacuum depth band: low/high are the configured
-    // threshold and its reciprocal. Legacy hardcoded
-    // `0.5 / 2.0` is the `threshold = 0.5` case.
-    let (vacuum_low, vacuum_high) = liquidity_config
-        .as_ref()
-        .map(|c| {
-            let t = c.liquidity_vacuum_threshold.max(0.01);
-            (t, 1.0 / t)
-        })
-        .unwrap_or((0.5, 2.0));
-    let liquidity_signals =
-        core_domain::liquidity::derive_liquidity_signals(&core_domain::liquidity::SignalInput {
-            flow: Some(&liquidity_flow),
-            cluster: cluster_guard.as_ref(),
-            funding_rate: fund_f.unwrap_or(0.0),
-            oi_delta_pct: oi_delta_f
-                .map(|d| {
-                    if oi_f.unwrap_or(1.0).max(1.0).abs() > 1e-9 {
-                        d / oi_f.unwrap_or(1.0).max(1.0) * 100.0
-                    } else {
-                        0.0
-                    }
-                })
-                .unwrap_or(0.0),
-            price_bias: indicators
-                .get("ema_stack")
-                .map(|v| v.normalized)
-                .unwrap_or(0.0),
-            prev_funding_rate: prev_bar_state.funding_rate,
-            prev_cascade_state: prev_bar_state.cascade_state,
-            funding_extreme_pct,
-            magnet_activation_distance_pct,
-            oi_funding_divergence_pct,
-            liquidity_vacuum_depth_low: vacuum_low,
-            liquidity_vacuum_depth_high: vacuum_high,
-            book_depth_ratio: indicators
-                .get("depth_bias")
-                .map(|v| v.raw_value)
-                .filter(|v| v.is_finite() && *v > 0.0),
-            // AUDIT-AIU-055/057: thread the configured
-            // cluster-notional floor and per-signal
-            // confidences.
-            min_cluster_notional_usd: liquidity_config
-                .as_ref()
-                .map(|c| c.min_cluster_notional_usd)
-                .unwrap_or(100_000.0),
-            thresholds: core_domain::liquidity::SignalThresholds {
-                sustained_events_this_bar: strategy.l2_5.signals.sustained_events_this_bar,
-                vacuum_dense_events: strategy.l2_5.signals.vacuum_dense_events,
-                vacuum_dense_usd: strategy.l2_5.signals.vacuum_dense_usd,
-                funding_extreme_strength_slope: strategy
-                    .l2_5
-                    .signals
-                    .funding_extreme_strength_slope,
-            },
-            signal_confidences: liquidity_config
-                .as_ref()
-                .map(|c| {
-                    let sc = &c.signal_confidences;
-                    core_domain::liquidity::SignalConfidences {
-                        cascade_detected: sc.cascade_detected,
-                        cascade_sustained: sc.cascade_sustained,
-                        cascade_exhausted: sc.cascade_exhausted,
-                        funding_extreme: sc.funding_extreme,
-                        oi_funding_divergence: sc.oi_funding_divergence,
-                        liquidity_vacuum: sc.liquidity_vacuum,
-                        funding_flip: sc.funding_flip,
-                        oi_price_divergence: sc.oi_price_divergence,
-                    }
-                })
-                .unwrap_or_default(),
-        });
-
-    // CA-15 (audit fix): the `[activation]` sub-toggles were parsed but
-    // never applied at runtime. Master `enabled=false` ⇒ L1.5/L2.5/Phase-3
-    // absent from the snapshot (`liquidity`/`cluster`/`liquidity_signals`
-    // → None/empty); `liquidity_signals_enabled=false` ⇒ the LiquidityFlow
-    // and cluster stay present but LiquiditySignal emission is suppressed.
-    let liquidity_active = active_set.liquidity_enabled;
-    let emitted_liquidity_signals: Vec<core_domain::liquidity::LiquiditySignal> =
-        if liquidity_active && active_set.liquidity_signals_enabled {
-            liquidity_signals
-        } else {
-            Vec::new()
-        };
+    // CR-10 / CH-1: the forced-close flow, the liquidation cluster and the
+    // L2.5 liquidity-signal derivation are GONE, together with the five
+    // thresholds the derivation read out of `[workspace.liquidity]`
+    // (`funding_extreme_pct`, `magnet_activation_distance_pct`,
+    // `oi_funding_divergence_pct`, and the `liquidity_vacuum_threshold` band).
+    // Their inputs were a forced-close flow, a cluster estimated from open
+    // interest under an assumed leverage distribution, the funding rate, the
+    // open-interest delta, and an order-book depth ratio — not one of them an
+    // OHLCV field.
+    //
+    // What replaces them is `state_bands`, derived from candle structure
+    // alone. It is computed per duration in `synthesize_completed_candle`
+    // above and published on `MarketSnapshot.state_bands`.
 
     // CR-15: the L4 opportunity, L5 risk and L6 advisory params are strategy
     // parameters. MME no longer reads them — the strategy layer is not run in
@@ -3988,6 +3609,24 @@ async fn synthesize_completed_candle(
         sil_engine.run_monte_carlo(close_f, atr_val);
     }
 
+    // CR-10: the heatmap's replacement. `StateBandMatrix` is built from the
+    // volume profile above plus the loaded candle set's ATR and its swing
+    // extremes — every input an archive reproduces. The liquidation cluster it
+    // replaces needed open interest and an assumed leverage distribution, so no
+    // replay could ever have checked it.
+    // The band widths are expressed in ATR, and the swing extremes come from the
+    // SR tracker — both already running on this candle, so neither introduces a
+    // second definition of a number the pipeline already computes.
+    let atr_for_bands = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+    let swing_extremes_for_bands = collect_swing_extremes(&*sr_tracker);
+    let state_bands = volume_profile_snapshot.as_ref().map(|vp| {
+        core_domain::state_bands::build_state_bands(
+            vp,
+            atr_for_bands,
+            &swing_extremes_for_bands,
+            core_domain::LatencyTracker::now_ms(),
+        )
+    });
     let completed_snapshot = MarketSnapshot {
         timeframe_label: Some(slot_label.to_string()),
         exchange: shadow_exchange,
@@ -4002,27 +3641,11 @@ async fn synthesize_completed_candle(
         },
         bid_price: shadow_bid,
         ask_price: shadow_ask,
-        bid_size: if ob_fresh {
-            order_book_analysis
-                .best_bid_size()
-                .and_then(Decimal::from_f64_retain)
-        } else {
-            None
-        },
-        ask_size: if ob_fresh {
-            order_book_analysis
-                .best_ask_size()
-                .and_then(Decimal::from_f64_retain)
-        } else {
-            None
-        },
-        funding_rate: fund_f.and_then(Decimal::from_f64_retain),
-        open_interest: oi_f.and_then(Decimal::from_f64_retain),
-        oi_delta_pct: oi_delta_pct_f.and_then(Decimal::from_f64_retain),
-        oi_delta_window_secs: Some(oi_anchor_span_secs.unwrap_or(oi_delta_window_secs)),
-        mark_price: *latest_mark_px.read().await,
-        index_price: *latest_index_px.read().await,
-        mark_index_spread_pct: spread_pct,
+        // CR-10 / CH-1: `funding_rate`, `open_interest`, `oi_delta_pct`,
+        // `oi_delta_window_secs`, `mark_price`, `index_price` and
+        // `mark_index_spread_pct` are DELETED from the envelope. Each is a
+        // verbatim venue feed value or a difference of two, and none can be
+        // recomputed from a candle archive.
         prev_day_px: shadow_prev_day_px,
         open: Some(completed.open),
         high: Some(completed.high),
@@ -4047,20 +3670,12 @@ async fn synthesize_completed_candle(
         alignment: Some(synthesis.alignment),
         analysis: Some(synthesis.analysis),
         risk_profile: None,
-        // CA-15: master `[liquidity] enabled = false` ⇒ the liquidity
-        // payloads are absent from the snapshot (disabled ≡ absent).
-        liquidity: if liquidity_active {
-            Some(liquidity_flow)
-        } else {
-            None
-        },
-        cluster: if liquidity_active {
-            cluster_matrix.read().await.clone()
-        } else {
-            None
-        },
         volume_profile: volume_profile_snapshot,
-        liquidity_signals: emitted_liquidity_signals,
+        // CR-10: `liquidity`, `cluster` and `liquidity_signals` are deleted from
+        // the snapshot. The heatmap's replacement is `stateBands`, built from the
+        // volume profile above — POC/VAH/VAL, the bin widths, and the swing
+        // extremes of the loaded candle set.
+        state_bands: state_bands.clone(),
         metrics_config: active_set.to_metrics_config(),
         quality_envelope: Some(quality_envelope.clone()),
     };
@@ -4130,381 +3745,28 @@ async fn synthesize_completed_candle(
 
     (completed_snapshot, carried)
 }
-
-/// Snapshot of the latest WS / poller state for derivatives + order book
-/// telemetry. Shared between the shadow (live-tick) and completed-candle
-/// paths so the indicators surface as soon as the upstream source
-/// produces data — instead of waiting for the next completed candle
-/// close. Without this helper the WARMING-placeholder suppression
-/// (Phase 2 of the metrics fix) would leave derivatives / OB rows stuck
-/// at `--/--/Loading` for up to one full candle duration after the WS
-/// push arrives, which on Bitget is misleading (HL is fine because its
-/// poller only ticks every 60 s anyway).
-struct DerivativeSnapshot {
-    oi: Option<f64>,
-    funding: Option<f64>,
-    mark_px: Option<f64>,
-    /// Captured for completeness; the spread math uses `mark_px` /
-    /// `index_px` directly via `spread_pct`.
-    index_px: Option<f64>,
-    spread_pct: Option<f64>,
-    /// ABSOLUTE OI change over the anchor window, in the venue's OI units.
-    /// This is what `normalize_oi_delta` consumes — it thresholds an
-    /// absolute count ("500 contracts over a 1 h window = 500/h"), so this
-    /// value must NOT be percent-ized.
-    oi_delta: Option<f64>,
-    /// AUDIT-M1-SCALE: the SAME change expressed as a PERCENT of the anchor
-    /// sample, which is what `MarketSnapshot.oi_delta_pct` is named for.
-    ///
-    /// The two contracts collided on one field: the snapshot published the
-    /// absolute delta under a `_pct` name, so a 1.04e6 change on a 3.31e9
-    /// OI (0.03 % in reality) surfaced as "1039234 %" to the UI chip and the
-    /// decision layer. AUDIT-M1 made the value reachable at all — before the
-    /// sampler fix the slow-duration window always returned `None`, which
-    /// masked the scale bug — so the fix is to publish both, from one place.
-    oi_delta_pct: Option<f64>,
-    /// Previous bar's OI delta — for the ZeroLineCross transition detector
-    /// (AUDIT-AIU-039).
-    prev_oi_delta: Option<f64>,
-    /// AUDIT-M1: the ACTUAL span the delta was measured over (`now - oldest
-    /// surviving sample`), which is what the wire field must publish rather
-    /// than the configured upper bound.
-    oi_anchor_span_secs: Option<u64>,
-}
-
-/// True 1-hour window in seconds for the OI delta (AUDIT-AIU-051). The
-/// previous implementation capped the deque at 60 *samples*, so at a 15 s TF
-/// the "1h" delta was really 15 minutes, and at a 5 m TF it was 5 hours.
-/// AUDIT-M1: append the current OI to the per-duration history and prune to the
-/// duration's window.
-///
-/// Called on a timer rather than at candle close, so the window is populated at
-/// every cadence. Idempotent within the rate limit: an unchanged OI at a later
-/// timestamp is still a legitimate sample (the delta is what matters, and a flat
-/// OI should read as a zero delta, not as "no data").
-async fn sample_oi_window(
-    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
-    latest_oi: &Arc<RwLock<Option<Decimal>>>,
-    now_secs: u64,
-) {
-    let Some(oi) = latest_oi.read().await.and_then(|o| o.to_f64()) else {
-        return;
-    };
-    let mut hist = oi_history.write().await;
-    hist.push_back((now_secs, oi));
-    // AUDIT-M1-SHARED: prune to the RETENTION (the widest window any active
-    // duration can ask for), never to a single duration's window.
-    //
-    // This deque is shared by every duration of the pair, but each duration
-    // resolves a DIFFERENT `oi_delta_window_secs` (60 s .. 3600 s). Pruning to
-    // the caller's own window let the fastest duration dictate global
-    // retention: the 1s slot's 60 s prune destroyed the 1h slot's 3600 s of
-    // history, so the slow columns could never hold two samples. Retention is
-    // now uniform and each reader selects its own window WITHOUT mutating.
-    //
-    // The duplicate-skip that used to guard growth is gone: skipping an
-    // unchanged reading means a FLAT OI never grows the deque past one entry,
-    // so `n < 2` and the delta stays `None` — a flat market reported no delta
-    // instead of a zero delta. A flat OI is information.
-    let cutoff = now_secs.saturating_sub(OI_HISTORY_RETENTION_SECS);
-    while hist.front().map(|(t, _)| *t < cutoff).unwrap_or(false) {
-        hist.pop_front();
-    }
-    // Drop out-of-order entries at the tail (WS push after a clock-sync edge).
-    while hist.back().map(|(t, _)| *t > now_secs).unwrap_or(false) {
-        hist.pop_back();
-    }
-}
-
-/// AUDIT-M1-SHARED: retention of the shared OI deque.
-///
-/// `liquidity_profile::oi_delta_window_secs` resolves to 3600 for every
-/// duration >= 300 s, so 3600 s is the widest window any reader can ask for.
-/// Kept as a named constant because the sampler prunes to it and the readers
-/// bound their own selection by their (narrower) window.
-const OI_HISTORY_RETENTION_SECS: u64 = 3600;
-
-async fn read_derivative_snapshot_state(
-    latest_oi: &Arc<RwLock<Option<Decimal>>>,
-    latest_funding: &Arc<RwLock<Option<Decimal>>>,
-    latest_mark_px: &Arc<RwLock<Option<Decimal>>>,
-    latest_index_px: &Arc<RwLock<Option<Decimal>>>,
-    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
-    funding_history: &Arc<RwLock<VecDeque<f64>>>,
-    oi_delta_window_secs: u64, // v11.10: per-duration window
-    now_secs: u64,
-) -> DerivativeSnapshot {
-    let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
-    let fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
-    let mark_f = latest_mark_px.read().await.and_then(|m| m.to_f64());
-    let idx_f = latest_index_px.read().await.and_then(|i| i.to_f64());
-    let spread_pct = match (mark_f, idx_f) {
-        (Some(m), Some(i)) if i > 0.0 => Some((m - i) / i * 100.0),
-        _ => None,
-    };
-    // AUDIT-AIU-051: OI history is now `(timestamp_secs, value)` and the
-    // window is a TRUE time window — v11.10 resolves it per duration
-    // (`liquidity_profile::oi_delta_window_secs`); each TF owns a deque
-    // clone pruned and anchored at its own window.
-    // AUDIT-M1: this function READS the window; it no longer appends.
-    //
-    // Appending here is what made the delta unreachable at slow cadences: the
-    // only sample was written at candle close, so on a 4h pipeline the prior
-    // sample was 4 h old and the 1 h cutoff pruned it, leaving `n == 1` and
-    // `(None, None)` forever. `sample_oi_window` now owns the append on a
-    // timer, so this is a pure read of an already-populated, already-pruned
-    // window.
-    // AUDIT-M1: the ACTUAL span the delta is measured over, which is
-    // `now - oldest surviving sample`. The configured window is an upper bound;
-    // publishing it made the wire field a fiction whenever the window was not
-    // yet full (e.g. a 5m TF with a 3600 s window, a fresh process, or any
-    // period with a feed gap). Every consumer -- the UI chip and the decision
-    // layer -- read that fiction.
-    let mut actual_anchor_span_secs: Option<u64> = None;
-    let mut oi_delta_pct_f: Option<f64> = None;
-    let (oi_delta_f, prev_oi_delta_f) = match oi_f {
-        Some(cur) => {
-            // AUDIT-M1-SHARED: this read is NON-DESTRUCTIVE.
-            //
-            // It used to take a write lock and prune the shared deque down to
-            // THIS duration's window, which meant the 1s slot (60 s) truncated
-            // the deque for every other duration on the pair, and the 1h slot
-            // read whatever the 1s slot happened to leave behind. Select the
-            // samples inside this duration's window without touching the deque;
-            // the sampler owns retention (and prunes to the widest window).
-            let hist = oi_history.read().await;
-            // Ignore samples stamped in the future (a WS push racing a
-            // clock-sync edge) rather than mutating the shared deque.
-            let cutoff = now_secs.saturating_sub(oi_delta_window_secs);
-            let in_window: Vec<(u64, f64)> = hist
-                .iter()
-                .copied()
-                .filter(|(t, _)| *t >= cutoff && *t <= now_secs)
-                .collect();
-            let n = in_window.len();
-            if let (Some((anchor_t, anchor_v)), Some((_, _current))) =
-                (in_window.first(), in_window.last())
-            {
-                actual_anchor_span_secs = Some(now_secs.saturating_sub(*anchor_t));
-                // delta = current value minus the oldest value inside the
-                // window.
-                let delta = cur - anchor_v;
-                // AUDIT-M1-SCALE: percent of the anchor sample, for the wire
-                // field that is named `_pct`. Guarded on a positive anchor so
-                // a zero/absent OI level cannot produce inf or NaN.
-                if *anchor_v > 0.0 {
-                    oi_delta_pct_f = Some(delta / anchor_v * 100.0);
-                }
-                // Previous bar's delta = second-newest sample vs the same
-                // anchor (for the zero-line transition detector).
-                let prev_delta = if n >= 3 {
-                    in_window.get(n - 2).map(|(_, v)| v - anchor_v)
-                } else {
-                    None
-                };
-                (Some(delta), prev_delta)
-            } else {
-                (None, None)
-            }
-        }
-        None => (None, None),
-    };
-
-    // Append current funding rate to the shared rolling funding_history
-    // (bounded to 8 samples; mirrors warm.rs::FUNDING_HISTORY_MAX). The
-    // deque is fed sequentially so future OHLC divergences can compute
-    // historical funding-rate deltas for the L2.5 divergence detector.
-    if let Some(cur) = fund_f {
-        let mut hist = funding_history.write().await;
-        hist.push_back(cur);
-        if hist.len() > 8 {
-            hist.pop_front();
-        }
-    }
-
-    DerivativeSnapshot {
-        oi: oi_f,
-        funding: fund_f,
-        mark_px: mark_f,
-        index_px: idx_f,
-        spread_pct,
-        oi_delta: oi_delta_f,
-        oi_delta_pct: oi_delta_pct_f,
-        prev_oi_delta: prev_oi_delta_f,
-        oi_anchor_span_secs: actual_anchor_span_secs,
-    }
-}
-
-/// Inject Derivatives Data (OI & Funding) normalized indicator entries into
-/// the snapshot indicator map. Called after the main indicator map is
-/// built. Public for testability — the integration tests in
-/// `crates/market-analyzer/tests/integration/` exercise this helper
-/// directly with synthetic WS event payloads to verify HL and Bitget
-/// produce identical indicator map shapes.
-pub fn inject_derivatives_indicators(
-    indicators: &mut HashMap<String, NormalizedIndicatorValue>,
-    oi: Option<f64>,
-    funding: Option<f64>,
-    oi_delta: Option<f64>,
-    mark_px: Option<f64>,
-    spread_pct: Option<f64>,
-    prev_oi_delta: Option<f64>,
-    // AUDIT-M1-HORIZON: the CONFIGURED window, which is the measurement
-    // BASIS the OI thresholds are defined against.
-    //
-    // These two are NOT interchangeable. `normalize_oi_delta` divides by the
-    // window to get a per-hour rate and fires above 500/h. Feeding it the
-    // ACTUAL span makes the rate explode on a young pipeline: with a 51 s span
-    // a 1.04e6 change became 73.4M/h, saturating `normalized` at 1.0 and
-    // latching `OI_RISING` on every fresh slot. The configured window is the
-    // stable horizon the thresholds were authored against; the actual span is
-    // published on the wire for transparency only.
-    oi_configured_window_secs: u64,
-    // AUDIT-AIU-074: unified funding "extreme" threshold from config.
-    funding_extreme_pct: f64,
-) {
-    use crate::indicators::normalized::derivatives;
-
-    // Open Interest
-    if let Some(o) = oi {
-        indicators.insert(
-            "open_interest".into(),
-            derivatives::normalize_open_interest(o),
-        );
-    }
-
-    // OI Delta, normalised to a per-hour RATE over the ACTUAL measured span.
-    if let Some(delta) = oi_delta {
-        indicators.insert(
-            "oi_delta".into(),
-            derivatives::normalize_oi_delta(
-                delta,
-                prev_oi_delta,
-                // AUDIT-M1-HORIZON: the configured horizon, NOT the actual
-                // span — see the parameter note. The actual span stays on the
-                // wire via `MarketSnapshot.oi_delta_window_secs`.
-                oi_configured_window_secs,
-            ),
-        );
-    }
-
-    // Funding Rate (non-directional gate)
-    if let Some(f) = funding {
-        indicators.insert(
-            "funding_rate".into(),
-            derivatives::normalize_funding_rate(f, funding_extreme_pct),
-        );
-    }
-
-    // OI-Price Divergence
-    if let (Some(_o), Some(delta)) = (oi, oi_delta) {
-        let ema_bias = indicators
-            .get("ema_stack")
-            .map(|v| v.normalized)
-            .unwrap_or(0.0);
-        indicators.insert(
-            "oi_price_divergence".into(),
-            derivatives::normalize_oi_price_divergence(delta, ema_bias),
-        );
-    }
-
-    // Mark-Index Spread (Phase 0: derivatives telemetry activation).
-    // Positive spread = mark premium (perp trades above index, bullish bias).
-    // Negative spread = perp discount (bearish bias). Wide spread signals
-    // market stress and is a leading indicator of forced liquidations.
-    if let Some(spread) = spread_pct {
-        indicators.insert(
-            "mark_index_spread".into(),
-            derivatives::normalize_mark_index_spread(spread, mark_px),
-        );
-    }
-}
-
-/// Inject Order Book Depth Analysis normalized indicator entries into the
-/// snapshot indicator map. Called after the main indicator map is built.
-/// Public for testability (see `inject_derivatives_indicators`).
-pub fn inject_orderbook_indicators(
-    indicators: &mut HashMap<String, NormalizedIndicatorValue>,
-    ob: &OrderBookAnalysis,
-    spread_wide_threshold_pct: f64,
-) {
-    use crate::indicators::normalized::derivatives;
-
-    // Order Flow Imbalance
-    if let Some(ofi) = ob.order_flow_imbalance() {
-        indicators.insert(
-            "order_flow_imbalance".into(),
-            derivatives::normalize_order_flow_imbalance(ofi),
-        );
-    }
-
-    // Spread (non-directional gate)
-    // AUDIT-AIU-001: `spread_pct` is ALREADY a percentage (order_book.rs
-    // computes (ask-bid)/mid*100). The previous `* 100.0` double-scaled the
-    // value, making a real 0.015% spread render as 1.5% and firing
-    // SPREAD_WIDE on every snapshot, which permanently inflated the
-    // execution-risk dimensions in the Risk Matrix (core-domain/risk.rs).
-    if let Some(spread) = ob.spread_pct() {
-        indicators.insert(
-            "spread".into(),
-            derivatives::normalize_spread(spread, spread_wide_threshold_pct),
-        );
-    }
-
-    // Depth Bias (bid depth / ask depth ratio)
-    if let Some(ratio) = ob.depth_imbalance_ratio(1.0) {
-        if ratio.is_finite() {
-            indicators.insert(
-                "depth_bias".into(),
-                derivatives::normalize_depth_bias(ratio),
-            );
-        }
-    }
-
-    // Wall signals: attach to order_flow_imbalance entry if it exists
-    if let Some(ref wall) = ob.wall_detected() {
-        use crate::indicators::normalized::{
-            IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
-        };
-        match wall.as_str() {
-            "BID_WALL" => {
-                if let Some(ofier) = indicators.get_mut("order_flow_imbalance") {
-                    ofier.signals.push(IndicatorSignal {
-                        kind: SignalKind::Threshold,
-                        direction: SignalDirection::Bullish,
-                        status: SignalStatus::Active,
-                        label: "BID_WALL".to_string(),
-                        strength: 0.8,
-                        age_bars: 0,
-                        strength_label: "STRONG".to_string(),
-                        points: None,
-                    });
-                }
-            }
-            "ASK_WALL" => {
-                if let Some(ofier) = indicators.get_mut("order_flow_imbalance") {
-                    ofier.signals.push(IndicatorSignal {
-                        kind: SignalKind::Threshold,
-                        direction: SignalDirection::Bearish,
-                        status: SignalStatus::Active,
-                        label: "ASK_WALL".to_string(),
-                        strength: 0.8,
-                        age_bars: 0,
-                        strength_label: "STRONG".to_string(),
-                        points: None,
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
 /// Derive current support/resistance levels from swing pivots, updating the
 /// role-reversal tracker with the latest levels and candle close. Swing highs
 /// act as resistance, swing lows as support; the tracker flips a level's role
 /// when a candle closes decisively beyond it. Returns the current role-adjusted
 /// `(support_levels, resistance_levels)` for normalization.
+/// The swing extremes the SR tracker currently holds, as prices.
+///
+/// CR-10: these feed `StateBandMatrix`. They are the tracker's own levels, not a
+/// recomputed set — the SR engine is already a candle-derived extreme detector
+/// and re-deriving them here would give the model two definitions of "swing".
+pub(crate) fn collect_swing_extremes(sr: &SrRoleTracker) -> Vec<f64> {
+    let mut out: Vec<f64> = sr
+        .get_all_levels()
+        .iter()
+        .map(|l| l.price)
+        .filter(|p| p.is_finite() && *p > 0.0)
+        .collect();
+    out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    out.dedup();
+    out
+}
+
 pub(crate) fn update_sr_levels(
     tracker: &mut SrRoleTracker,
     pivots: &[crate::indicators::PivotPoint],
@@ -5369,8 +4631,6 @@ pub(super) fn build_completed_snapshot_from_readings(
         williams_r: readings.wr_reading.map(|d| d.to_f64().unwrap_or(0.0)),
         cci: readings.cci_reading.map(|d| d.to_f64().unwrap_or(0.0)),
         psar_sar: readings.psar_reading.map(|d| d.sar.to_f64().unwrap_or(0.0)),
-        funding_rate: None,
-        cascade_state: None,
     };
     let _ = prev_bar_state; // future cross-bar detection hook
 
@@ -5391,6 +4651,9 @@ pub(super) fn build_completed_snapshot_from_readings(
         timeframe_secs,
         timestamp: candle.start_time_ms / 1000,
         symbol: symbol.to_string(),
+        // CR-10: the synthetic doji / idle / gap-fill frames carry no heatmap —
+        // there is no volume profile at this point in the path.
+        state_bands: None,
         is_completed: Some(true),
         mid_price: candle.close,
         bid_price: shadow_bid,
@@ -5400,15 +4663,6 @@ pub(super) fn build_completed_snapshot_from_readings(
         // bid/ask size on doji/idle/gap-fill frames (the warm path fixed
         // this exact bug; this path had not). These synthetic frames have
         // no order-book snapshot — depth is honestly `None`.
-        bid_size: None,
-        ask_size: None,
-        funding_rate: None,
-        open_interest: None,
-        oi_delta_pct: None,
-        oi_delta_window_secs: None,
-        mark_price: None,
-        index_price: None,
-        mark_index_spread_pct: None,
         prev_day_px: None,
         open: Some(candle.open),
         high: Some(candle.high),
@@ -5433,10 +4687,7 @@ pub(super) fn build_completed_snapshot_from_readings(
         alignment: None,
         analysis: None,
         risk_profile: None,
-        liquidity: None,
-        cluster: None,
         volume_profile: readings.volume_profile_snapshot.clone(),
-        liquidity_signals: vec![],
         metrics_config: active_set.to_metrics_config(),
         quality_envelope: Some(CandleQualityEnvelope {
             // 02-03 §4: synthetic gap-fill candles carry the −20 penalty
@@ -5468,10 +4719,6 @@ fn broadcast_live_snapshot(
     exchange: Option<Exchange>,
     bid_price: Decimal,
     ask_price: Decimal,
-    // Top-of-book depth sizes (None when the book is stale/empty — shadow
-    // frames never carry candle volume as depth, 02-07 §2.1 semantics).
-    ob_bid_size: Option<Decimal>,
-    ob_ask_size: Option<Decimal>,
     slot_label: &str,
     ema_fast: &Ema,
     ema_medium: &Ema,
@@ -5691,19 +4938,12 @@ fn broadcast_live_snapshot(
         timeframe_secs,
         timestamp: candle.start_time_ms / 1000,
         symbol: symbol.to_string(),
+        // CR-10: the candle-derived heatmap bands.
+        state_bands: None,
         is_completed: Some(is_completed),
         mid_price: candle.close,
         bid_price,
         ask_price,
-        bid_size: ob_bid_size,
-        ask_size: ob_ask_size,
-        funding_rate: None,
-        open_interest: None,
-        oi_delta_pct: None,
-        oi_delta_window_secs: None,
-        mark_price: None,
-        index_price: None,
-        mark_index_spread_pct: None,
         prev_day_px,
         open: Some(candle.open),
         high: Some(candle.high),
@@ -5735,11 +4975,8 @@ fn broadcast_live_snapshot(
         indicators,
         alignment: None,
         analysis: None,
-        liquidity_signals: vec![],
         metrics_config: None,
         risk_profile: None,
-        liquidity: None,
-        cluster: None,
         volume_profile: None,
         quality_envelope: None,
     };
@@ -5815,7 +5052,6 @@ mod lifecycle_tests {
     use super::build_indicator_lifecycle_map;
     use crate::indicators::NormalizedIndicatorValue;
     use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
-    use core_domain::HISTORY_CAP;
     use std::collections::HashMap;
 
     /// A WARMING placeholder mirrors the one the normalizer inserts for

@@ -54,10 +54,10 @@ function syncAll(fn: (tf: any) => void) {
         (pair as any)[key] = !(pair as any)[key];
     }
 
-    function toggleLiqHeatmap() {
+    function toggleStateBands() {
         if (!rep) return;
-        const v = !rep.showLiqHeatmap;
-        syncAll(tf => { tf.showLiqHeatmap = v; });
+        const v = !rep.showStateBands;
+        syncAll(tf => { tf.showStateBands = v; });
     }
 
     function toggleVolumeProfile() {
@@ -129,12 +129,6 @@ function syncAll(fn: (tf: any) => void) {
         if (!rep) return;
         const v = !rep.showOrderBlocks;
         syncAll(tf => { tf.showOrderBlocks = v; });
-    }
-
-    function toggleRibbon() {
-        if (!rep) return;
-        const v = !rep.showDerivativeRibbon;
-        syncAll(tf => { tf.showDerivativeRibbon = v; });
     }
 
     /// v6.7: fills in the previously-empty pills for the registers'
@@ -230,12 +224,10 @@ function syncAll(fn: (tf: any) => void) {
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>
-        <button class="{styles.togglePill} {styles.liqHeatmapPill} {rep?.showLiqHeatmap ? styles.active : ''}"
-            onclick={toggleLiqHeatmap}>LIQ LEVELS</button>
+        <button class="{styles.togglePill} {styles.stateBandsPill} {rep?.showStateBands ? styles.active : ''}"
+            onclick={toggleStateBands}>STATE BANDS</button>
         <button class="{styles.togglePill} {styles.volumeProfilePill} {rep?.showVolumeProfile ? styles.active : ''}"
             onclick={toggleVolumeProfile}>VOL PROFILE</button>
-        <button class="{styles.togglePill} {styles.derivativeRibbonPill} {rep?.showDerivativeRibbon ? styles.active : ''}"
-            onclick={toggleRibbon}>DERIVATIVES</button>
     </div>
 </div>
 {/if}

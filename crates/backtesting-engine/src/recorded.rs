@@ -136,6 +136,8 @@ fn snap_to_market(symbol: &str, rec: &RecordedSnapshot) -> core_domain::models::
         bid_price: mid,
         ask_price: mid,
         close: rec.close.and_then(Decimal::from_f64_retain),
+        // CR-10: the candle-derived heatmap bands.
+        state_bands: None,
         ..core_domain::models::MarketSnapshot::default()
     };
     // CR-15: only the analysis (model) column is restored. The opportunity /
@@ -524,12 +526,8 @@ fn max_drawdown(points: &[(i64, f64)]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_domain::analysis::{
-        AnalysisMatrix, MarketBias, OpportunityProfile, OpportunityType, PriceRange, SetupQuality,
-        TradeViability,
-    };
+    use core_domain::analysis::{AnalysisMatrix, MarketBias};
     use core_domain::models::MarketSnapshot;
-    use core_domain::risk::{RiskDimension, RiskLevel, RiskState};
     use rust_decimal_macros::dec;
 
     fn long_snapshot(ts: u64, mid: f64) -> MarketSnapshot {

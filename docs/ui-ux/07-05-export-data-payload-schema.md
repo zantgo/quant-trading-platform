@@ -150,23 +150,15 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
       "current_position_label": "INSIDE VALUE AREA",
       "range_pos_pct": 48.18
     },
-    "liquidity": {
-      "oi_long_pct": 57, "oi_short_pct": 43,
-      "cascade_state": "SUSTAINED", "cascade_intensity": 72.5,
-      "cascade_intensity_display": "73",
-      "cascade_state_label": "SUSTAINED",
-      "cascade_asymmetry": 0.35, "cascade_asymmetry_sign": "+",
-      "cascade_asymmetry_magnitude_pct": 35.0,
-      "cascade_asymmetry_description": "short_squeeze_risk",
-      "estimation_confidence": 0.85, "estimation_confidence_pct": 85,
-      "total_short_clusters": 4, "total_long_clusters": 4,
-      "top_short": [
-        { "peak_price": 63900, "price_low": 63800, "price_high": 63950, "notional_usd": 3200000,
-          "dominant_leverage": 10, "distance_from_mid_pct": 0.8, "magnet_strength": 82, "cluster_kind": "ABOVE_CURRENT_PRICE" }
-      ],
-      "top_long": [ ]
+    "state_bands": {
+      "band_count": 3, "contributing_bins": 48,
+      "poc_price": 63390, "value_area_high": 63770, "value_area_low": 63010,
+      "volume_asymmetry": 0.21,
+      "strongest": {
+        "price_low": 63120, "price_high": 63250,
+        "intensity_pct": 84.5, "basis": "HighVolumeNode"
+      }
     },
-    "cascade_alert": { "state": "SUSTAINED", "intensity": 72.5 },
     "micro_volume_profile": {
       "poc_price": 63300, "value_area_high": 63700, "value_area_low": 63000,
       "total_volume": 12500, "range_low": 62800, "range_high": 63900,
@@ -176,8 +168,7 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
       "buy_sell_bias": 0.0976,
       "current_position_label": "INSIDE VALUE AREA",
       "range_pos_pct": 48.18
-    },
-    "micro_cascade_alert": { "state": "SUSTAINED", "intensity": 72.5 }
+    }
   },
   "indicators": [
     {
@@ -241,42 +232,44 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
       "confidence_pct": 40, "age_bars": 2
     }
   ],
-  "liquidity_panel": {
-    "flow": {
-      "available": true,
-      "long_liquidations_usd": 50000, "short_liquidations_usd": 15000,
-      "net_liquidation_usd": 35000, "event_count": 4,
-      "largest_event_usd": 30000, "largest_event_price": 63400, "largest_event_side": "LONG",
-      "cascade_state": "SUSTAINED", "cascade_intensity": 72.5
-    },
-    "cluster": {
-      "available": true, "mid_price": 63390, "cascade_asymmetry": 0.35,
-      "estimation_confidence": 0.85,
-      "total_long_oi_usd": 40000000, "total_short_oi_usd": 30000000,
-      "total_short_clusters": 4, "total_long_clusters": 4,
-      "leverage_assumptions": {
-        "source": "FUNDING_ADAPTIVE", "buckets": [1,3,5,10,20,50,100],
-        "weights": [0.05,0.1,0.2,0.3,0.2,0.1,0.05],
-        "funding_modulation_active": true, "funding_extreme_pct": 0.0005
-      },
-      "short_clusters": [ ], "long_clusters": [ ]
-    },
-    "context": {
-      "available": true, "long_oi_usd": 40000000, "short_oi_usd": 30000000,
-      "estimation_confidence_pct": 85, "signals": []
-    }
+  "state_bands": {
+    "available": true,
+    "symbol": "BTC-USDT", "timeframe_label": "1s", "timeframe_secs": 60,
+    "poc_price": 63390, "value_area_high": 63770, "value_area_low": 63010,
+    "has_profile": true, "has_bands": true,
+    "band_count": 3, "contributing_bins": 48, "volume_asymmetry": 0.21,
+    "timestamp_ms": 1700000000000,
+    "bands": [
+      {
+        "price_low": 63120, "price_high": 63250, "band_atr_multiple": 0.5,
+        "volume_percentile": 96, "proximity_percentile": 88,
+        "intensity_pct": 84.48, "basis": "HighVolumeNode", "volume_asymmetry": 0.62
+      }
+    ]
   }
 }
 ```
+
+`state_bands` replaces `liquidity_panel`. The two are not renamed equivalents: the old block carried a forced-close flow, an open-interest split, a leverage-assumption curve and an `estimation_confidence` on top of that estimate, and its `cluster.short_clusters` / `long_clusters` rows each carried a `dominant_leverage` and a `magnet_strength`. Every one of those described something that was ASSUMED rather than read off the candle.
+
+The replacement carries only arithmetic the candle supports — where volume traded, how close price is, which side of the trade it fell on. Note what is absent rather than merely renamed:
+
+- no `estimation_confidence` / `_pct` — nothing here is estimated;
+- no `leverage_assumptions` (`source`, `buckets`, `weights`, `funding_modulation_active`, `funding_extreme_pct`) — no leverage curve is assumed;
+- no `dominant_leverage` per row — no leverage is inferred;
+- no `magnet_strength` / `distance_from_mid_pct` / `cluster_kind` — a zone's traded volume is not a claim that it attracts price;
+- no `cascade_*` family anywhere in the envelope — there is no forced-close stream.
+
+`available: false` with every field null is the honest "nothing measured" shape and is deliberately NOT the same as a missing key: a consumer must be able to tell "no bands on this TF" from "this exporter predates bands".
 
 Notes:
 - `display_name` is the registry display name exactly as rendered (`RSI (14)`).
 - Signal `display_label` mirrors the on-screen badge (`CRO·2`, `DIV·3` — `·` separator only when age > 0).
 - WARMING entries render `raw_display: "--"` with `raw: null` — never a fabricated `0.00`. The one exception is the onoff family (squeeze): the screen's onoff branch runs before the warming check, so a warming squeeze renders `"OFF"` in both places. Normalized cells for WARMING rows and for non-Directional modes (`normalization_mode` ≠ `Directional`, e.g. the EventOnly Hull MA) emit `normalized_available: false` + a `normalized_reason` (`warming` / `context_only`) — the screen renders `--` / `N/A`.
 - `state_display` mirrors the State column incl. `Warming (5/14)`, `SILENT`, `WAITING FEED ⏳`, `AWAITING DATA` and the pending-candle `⦿` suffix. When no lifecycle map is present the legacy heuristic mirrors the screen exactly (`AWAITING DATA` for WARMING, `SILENT` for Conditional/DataOnly rows without signals, `—` for empty labels).
-- Liquidity ladder clusters (`top_short` / `top_long`) are the **top-4 by magnet strength** — the same selection as the anchors-strip ladder and the Levels facet "Liquidation Magnets".
+- **`structural_anchors.state_bands`** is the band's SUMMARY (count, contributing bins, POC, value area, overall asymmetry, and the single strongest row) — it backs the Structural Anchors strip tile, which renders a ladder rather than a table. The full row set is in the top-level `state_bands.bands`. Both read the same `StateBandMatrix`.
 - `fibonacci.status` and `volume_profile.current_position_label` are the canonical sentences also rendered by the strip and the Levels facet (`lib/structuralStrings.ts`).
-- **`micro_volume_profile` / `micro_cascade_alert`** mirror the Structural Anchors strip's Volume Profile tile and the Tier-1 cascade banner, both of which are anchored to the **micro** timeframe regardless of the active TF. `volume_profile` / `cascade_alert` mirror the active-TF values (Levels facet / strip liquidity tile). Both the banner and `micro_cascade_alert` read the **snapshot-path** micro liquidity (v6.10.11) — the tf-level field retains stale values across shadow ticks.
+- **`micro_volume_profile`** mirrors the Structural Anchors strip's Volume Profile tile, which is anchored to the **micro** timeframe regardless of the active TF; `volume_profile` mirrors the active-TF value (Levels facet / strip tile). The Tier-1 cascade banner it used to sit next to is deleted, and with it `cascade_alert` and `micro_cascade_alert`.
 - **L1 five-dimension synthesis (v6.10.11).** The `market_context` block carries the five dimensions (trend / momentum / volatility / volume / liquidity) with the same score + confidence + label values; the per-TF overall score and regime label surface in the Metrics LayerHeader headline.
 - **Group-confluence counts (v6.10.13, M-7).** The `group_confluence` cards report the TF's RAW signal breakdown (unfiltered bull/bear/inactive counts — they are an explicit summary). The interactive facet badges and the strip's "N signals" badge are filter-aware; the group cards are intentionally not.
 - Derived strings (`fibonacci.status`, `price_vs_gp_pct`, VP position label, `age_bars_display`) are computed from the **active TF's `priceText`** — the same price the screen uses. `meta.current_price` remains the freshest price across the ACTIVE slots (v11.2).
@@ -343,7 +336,7 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
   "signals_by_kind": { "Divergence": [], "Crossover": [ ] },
   "divergences": [ ],
   "levels": [ ],
-  "liquidity_panel": { "flow": null, "cluster": null, "context": { "available": true, "signals": [] } },
+  "state_bands": { "available": false, "symbol": null, "poc_price": null, "bands": [], "band_count": 0, "contributing_bins": 0, "volume_asymmetry": null, "timestamp_ms": null },
   "cross_tf_tables": {
     "signals": [
       { "kind": "Threshold",
@@ -381,7 +374,7 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
       "timestamp": 1753950000, "pipeline_state": "LIVE", "is_completed": true,
       "context": null,
       "fibonacci_summary": { "present": true, "gp_top": 64050, "gp_bottom": 62600, "swing_direction": "BULL SWING", "status": "INSIDE GP (-8.97% from center)", "ext_1618": 65500, "ext_2618": 67200, "retracement_coefficients": { } },
-      "volume_profile": null, "liquidity_cluster": null, "liquidity_flow": null,
+      "volume_profile": null, "state_bands": null,
       "indicators": [
         {
           "key": "rsi", "period": 14, "display_name": "RSI (14)",
@@ -529,7 +522,7 @@ The v7.0 payload shapes are **not** backwards compatible with the legacy kitchen
 - The **MTF** export added a top-level `filter_state` block + per-row `visible` flags (v7.0-verify); the single-TF **Metrics** export later gained the same top-level `filter_state` block (payload rows stay the unfiltered superset) so each tab's on-screen row set is reconstructible.
 - A single `meta.current_price` replaced the multiple price mirrors.
 - Screen sentences are exposed as `*_display` fields alongside raw numerics.
-- Ladder clusters are canonicalized to top-4 by magnet strength everywhere (strip, Levels facet, export).
+- Band rows are emitted in the backend's order — strongest first by `intensity_pct` — and every surface (strip tile, Levels facet, export) preserves that order rather than re-sorting.
 - Empty/null states mirror the screen placeholders exactly (`"—"`, `null`, `AWAITING` / `NO DATA` tokens) — the export never fabricates values the screen does not show.
 
 ---

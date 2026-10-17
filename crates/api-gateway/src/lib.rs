@@ -42,9 +42,7 @@ pub use api_core::{
 
 pub use api_analytics::{analytics, backtest, trades};
 pub use api_instances::{config, instances, keys, profiles, session, strategies};
-pub use api_market::{
-    cluster_status, connection_quality, history, monitor, overview, snapshot_export,
-};
+pub use api_market::{connection_quality, history, monitor, overview, snapshot_export};
 pub use api_system::{account, clock, dashboard, data_quality, exchange_status, system};
 
 /// Re-assembles the four handler groups under the historical `handlers::`
@@ -53,9 +51,7 @@ pub use api_system::{account, clock, dashboard, data_quality, exchange_status, s
 pub mod handlers {
     pub use api_analytics::{analytics, backtest, trades};
     pub use api_instances::{config, instances, keys, profiles, session, strategies};
-    pub use api_market::{
-        cluster_status, connection_quality, history, monitor, overview, snapshot_export,
-    };
+    pub use api_market::{connection_quality, history, monitor, overview, snapshot_export};
     pub use api_system::{account, clock, dashboard, data_quality, exchange_status, system};
 }
 
@@ -107,10 +103,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/connection-quality",
             get(handlers::connection_quality::get_connection_quality),
-        )
-        .route(
-            "/api/liquidity/cluster-status",
-            get(handlers::cluster_status::serve_cluster_status),
         )
         .route("/api/overview", get(handlers::overview::serve_overview))
         .route(

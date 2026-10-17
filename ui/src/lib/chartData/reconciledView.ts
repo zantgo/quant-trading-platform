@@ -30,7 +30,7 @@ export interface RawResponse {
     prices?: string[];
     candles?: RawHistoryCandle[];
     indicator_history?: RawHistory | null;
-    clusters?: Record<string, unknown>;
+    stateBands?: Record<string, unknown>;
     volume_profiles?: Record<string, unknown>;
 }
 
@@ -87,7 +87,7 @@ export function normalizeHistoryForStore(raw: RawResponse): IndicatorFlatHistory
         candles,
         candleReconstructed,
         prices: raw.prices ?? undefined,
-        clusters: raw.clusters ?? undefined,
+        stateBands: raw.stateBands ?? undefined,
         volumeProfiles: raw.volume_profiles ?? undefined,
         fetchedAtMs: Date.now(),
     };
@@ -163,8 +163,8 @@ export function reconcile(
         for (const arr of Object.values(merged.values)) arr.splice(0, trim);
     }
 
-    // Merge clusters/volumeProfiles from live if historical missing them
-    if (!merged.clusters && live.clusters) merged.clusters = live.clusters;
+    // Merge stateBands/volumeProfiles from live if historical missing them
+    if (!merged.stateBands && live.stateBands) merged.stateBands = live.stateBands;
     if (!merged.volumeProfiles && live.volumeProfiles) merged.volumeProfiles = live.volumeProfiles;
 
     return merged;
@@ -184,7 +184,7 @@ function cloneHistory(h: IndicatorFlatHistory): IndicatorFlatHistory {
         },
         candleReconstructed: h.candleReconstructed ? [...h.candleReconstructed] : undefined,
         prices: h.prices ? [...h.prices] : undefined,
-        clusters: h.clusters ? { ...h.clusters } : undefined,
+        stateBands: h.stateBands ? { ...h.stateBands } : undefined,
         volumeProfiles: h.volumeProfiles ? { ...h.volumeProfiles } : undefined,
         fetchedAtMs: h.fetchedAtMs,
     };

@@ -104,31 +104,16 @@
 
 ---
 
-## DERIVATIVES DATA (8 indicators)
-
-| # | Filename | Key | Display Name | Class | Dir | Div | Signals | Doc File |
-|---|---|-----|-------------|-------|-----|-----|---------|----------|
-| 44 | `04-02-44-open-interest.md` | `open_interest` | Open Interest | Hybrid | N (Gate) | — | Threshold | [04-02-44-open-interest.md](04-02-44-open-interest.md) |
-| 45 | `04-02-45-oi-delta.md` | `oi_delta` | OI Delta | Leading | Y | — | Threshold, ZeroLineCross | [04-02-45-oi-delta.md](04-02-45-oi-delta.md) |
-| 46 | `04-02-46-funding-rate.md` | `funding_rate` | Funding Rate | Hybrid | N (Gate) | — | Threshold | [04-02-46-funding-rate.md](04-02-46-funding-rate.md) |
-| 47 | `04-02-47-oi-price-divergence.md` | `oi_price_divergence` | OI-Price Divergence | Leading | Y | — | Divergence | [04-02-47-oi-price-divergence.md](04-02-47-oi-price-divergence.md) |
-| 48 | `04-02-48-order-flow-imbalance.md` | `order_flow_imbalance` | Order Flow Imbalance | Leading | Y | — | Threshold | [04-02-48-order-flow-imbalance.md](04-02-48-order-flow-imbalance.md) |
-| 49 | `04-02-49-spread.md` | `spread` | Spread | Hybrid | N (Gate) | — | Threshold | [04-02-49-spread.md](04-02-49-spread.md) |
-| 50 | `04-02-50-depth-bias.md` | `depth_bias` | Depth Bias | Leading | Y | — | Threshold | [04-02-50-depth-bias.md](04-02-50-depth-bias.md) |
-| 51 | `04-02-51-mark-index-spread.md` | `mark_index_spread` | Mark-Index Spread | Hybrid | N (Gate) | — | Threshold | [04-02-51-mark-index-spread.md](04-02-51-mark-index-spread.md) |
-
----
-
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Authoritative Registry Entries | 52 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 5 Regime + 4 Institutional + 8 Derivatives) |
-| Files in this directory | 53 (52 entries + this master index) |
-| Directional (scoring contributors) | 42 |
-| Non-Directional Gates | 10 (Volume, RVOL, ATR, BBWP, Hist. Volatility, Choppiness, Open Interest, Funding Rate, Spread, Mark-Index Spread) |
+| Authoritative Registry Entries | 44 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 5 Regime + 4 Institutional) |
+| Files in this directory | 45 (44 entries + this master index) |
+| Directional (scoring contributors) | 38 |
+| Non-Directional Gates | 6 (Volume, RVOL, ATR, BBWP, Hist. Volatility, Choppiness) |
 | Divergence-Bearing Indicators (`supports_divergence: true`) | 8 (RSI, Stochastic, Chande MO, MACD, OBV, Chaikin MF, Money Flow Idx, TTM Squeeze) |
-| Total Signal-Kind × Indicator Declarations | **101** — one per `(indicator, SignalKind)` pair **as the registry declares them**, so one indicator that declares `Threshold` five times contributes five. The per-row `Signals` cell above shows the *distinct* kinds, because a repeated kind inside one row is a statement about zones, not about the row. Per-SignalKind breakdown: `BandTouch` 4, `Breakout` 9, `CompressionRelease` 4, `Crossover` 10, `Divergence` 9, `LevelTest` 14, `PatternForming` 3, `StackChange` 1, `Threshold` 22, `TrendFlip` 10, `VolumeClimax` 2, `ZeroLineCross` 13. Sum-check: 101 = 101 ✓ |
+| Total Signal-Kind × Indicator Declarations | **92** — one per `(indicator, SignalKind)` pair **as the registry declares them**, so one indicator that declares `Threshold` five times contributes five. The per-row `Signals` cell above shows the *distinct* kinds, because a repeated kind inside one row is a statement about zones, not about the row. Per-SignalKind breakdown: `BandTouch` 4, `Breakout` 9, `CompressionRelease` 4, `Crossover` 10, `Divergence` 8, `LevelTest` 14, `PatternForming` 3, `StackChange` 1, `Threshold` 15, `TrendFlip` 10, `VolumeClimax` 2, `ZeroLineCross` 12. Sum-check: 92 = 92 ✓ |
 | SignalKind Types | 12 (BandTouch, Breakout, CompressionRelease, Crossover, Divergence, LevelTest, PatternForming, StackChange, Threshold, TrendFlip, VolumeClimax, ZeroLineCross) |
 
 <!-- END GENERATED: registry -->

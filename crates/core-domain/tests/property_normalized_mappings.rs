@@ -300,19 +300,6 @@ fn adx_normalization_continuous_at_25_and_40() {
 // ─────────────────── AUDIT-AIU-024: mark-index spread gate ───────────────────
 
 #[test]
-fn mark_index_spread_normalized_always_zero() {
-    // AUDIT-AIU-024: ContextOnly gate — `normalized` must be 0.0 even in
-    // the extreme band.
-    for spread in [-2.0, -0.5, 0.0, 0.5, 2.0] {
-        let v = market_analyzer::indicators::normalized::derivatives::normalize_mark_index_spread(
-            spread,
-            Some(64000.0),
-        );
-        assert_eq!(v.normalized, 0.0);
-    }
-}
-
-#[test]
 fn squeeze_on_is_coiling() {
     use market_analyzer::indicators::squeeze::MomentumDirection;
     let v = NormalizationEngine::normalize_squeeze(true, false, 0.0, MomentumDirection::Flat);

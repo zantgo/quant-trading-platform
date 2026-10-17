@@ -56,13 +56,12 @@ fn group_label(g: IndicatorGroup) -> &'static str {
         IndicatorGroup::Structure => "STRUCTURE",
         IndicatorGroup::Regime => "REGIME",
         IndicatorGroup::Institutional => "INSTITUTIONAL",
-        IndicatorGroup::DerivativesData => "DERIVATIVES DATA",
     }
 }
 
 /// Group order as it appears in the index — the registry is a flat slice, so the
 /// document order is declared here rather than inferred from the slice.
-const GROUP_ORDER: [IndicatorGroup; 8] = [
+const GROUP_ORDER: [IndicatorGroup; 7] = [
     IndicatorGroup::Trend,
     IndicatorGroup::Momentum,
     IndicatorGroup::Volume,
@@ -70,7 +69,6 @@ const GROUP_ORDER: [IndicatorGroup; 8] = [
     IndicatorGroup::Structure,
     IndicatorGroup::Regime,
     IndicatorGroup::Institutional,
-    IndicatorGroup::DerivativesData,
 ];
 
 fn class_label(m: &IndicatorMeta) -> &'static str {
@@ -183,7 +181,6 @@ fn generate() -> String {
         .map(|g| {
             let n = INDICATORS.iter().filter(|m| m.group == *g).count();
             let label = match g {
-                IndicatorGroup::DerivativesData => "Derivatives",
                 IndicatorGroup::Institutional => "Institutional",
                 IndicatorGroup::Volatility => "Volatility",
                 IndicatorGroup::Structure => "Structure",
@@ -289,7 +286,7 @@ fn apply_region(text: &str, generated: &str) -> String {
     let mut out = String::with_capacity(text.len() + generated.len());
     out.push_str(&text[..begin]);
     out.push_str(BEGIN);
-    out.push_str("\n");
+    out.push('\n');
     out.push_str(generated);
     out.push_str(END);
     out.push_str(&text[end + END.len()..]);

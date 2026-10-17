@@ -22,7 +22,7 @@ import { reconcile, normalizeHistoryForStore } from './chartData/reconciledView'
 ///   "<indicatorKey>"                 — single-raw indicators (rsi, cci, obv, ...)
 ///   "<indicatorKey>.<subKey>"        — sub-keyed indicators (macd.line, keltner.upper, ...)
 ///   "candles.<ohlc>"                 — candle data: 'candles.open', 'candles.high', 'candles.low', 'candles.close', 'candles.volume'
-///   "clusters"                       — LiquidationClusterMatrix[]
+///   "stateBands"                     — StateBandMatrix[] (candle-derived)
 ///   "volumeProfiles"                 — VolumeProfileSnapshot[]
 ///   "prices"                         — legacy flat price series (string[]) for endpoints
 ///                                     that don't emit structured candles
@@ -38,7 +38,7 @@ export interface IndicatorFlatHistory {
     /// persistent candle cache (see `setCachedCandles`).
     candleReconstructed?: Array<string | undefined>;
     prices?: string[];
-    clusters?: Record<string, unknown>;
+    stateBands?: Record<string, unknown>;
     volumeProfiles?: Record<string, unknown>;
     fetchedAtMs: number;
 }
@@ -111,8 +111,8 @@ export function fetchIndicatorHistoryOnce(
                 if (hist) {
                     if (live && live.times.length > 0) {
                         if (hist.times.length === 0) {
-                            if (hist.clusters || hist.volumeProfiles) {
-                                live.clusters = hist.clusters ?? live.clusters;
+                            if (hist.stateBands || hist.volumeProfiles) {
+                                live.stateBands = hist.stateBands ?? live.stateBands;
                                 live.volumeProfiles = hist.volumeProfiles ?? live.volumeProfiles;
                             }
                             return live;
@@ -578,7 +578,7 @@ interface RawResponse {
     prices?: string[];
     candles?: RawHistoryCandle[];
     indicator_history?: RawHistory | null;
-    clusters?: Record<string, unknown>;
+    stateBands?: Record<string, unknown>;
     volume_profiles?: Record<string, unknown>;
 }
 
@@ -646,7 +646,7 @@ function normalizeHistory(raw: RawResponse): IndicatorFlatHistory {
         candles,
         candleReconstructed,
         prices: raw.prices ?? undefined,
-        clusters: raw.clusters ?? undefined,
+        stateBands: raw.stateBands ?? undefined,
         volumeProfiles: raw.volume_profiles ?? undefined,
         fetchedAtMs: Date.now(),
     };

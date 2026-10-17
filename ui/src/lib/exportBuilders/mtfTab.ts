@@ -13,16 +13,16 @@
 //   - top-level signals_by_kind, divergences, levels (cross-TF aggregates)
 //   - meta.timeframes list (removes the timeframe_secs=0 ambiguity)
 
-import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, IndicatorGroup, IndicatorClass, SignalDirection, SignalStatus, VolumeProfileSnapshot, LiquidationClusterMatrix, LiquidityFlow, MarketContext } from '../../types';
+import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, IndicatorGroup, IndicatorClass, SignalDirection, SignalStatus, VolumeProfileSnapshot, StateBandMatrix, MarketContext } from '../../types';
 import { DURATIONS, tfLabel } from '../../types';
-import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type LiquidityPanelBlock } from './shared';
+import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type StateBandBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { GROUP_META } from '../groupMeta';
 import { type FilterState } from '../filtering';
 import { fibStatusString, vpPositionLabel } from '../structuralStrings';
 import { classifyDivergence, type DivergenceSubKind } from '../divergence';
 import { classifyLevelKey, parseLevelLabel, resolveLevelPriceText, LEVEL_KIND_ORDER, type LevelKind } from '../levelKind';
-import { buildGroupConfluence as buildGroupConfluenceShared, buildSignalsByKind, buildDivergences, buildLevels, buildLiquidityPanelBlock, type GroupConfluenceRow, type IndicatorSignalExport, type DivergenceRow, type LevelRow } from './metricsTab';
+import { buildGroupConfluence as buildGroupConfluenceShared, buildSignalsByKind, buildDivergences, buildLevels, buildStateBandBlock, type GroupConfluenceRow, type IndicatorSignalExport, type DivergenceRow, type LevelRow } from './metricsTab';
 
 /// v11.9: labels are derived duration strings ("1s".."1d").
 export type MtfSlotLabel = string;
@@ -46,8 +46,9 @@ export interface MtfTimeframeEntry {
     retracement_coefficients: Record<string, number | null> | null;
   };
   volume_profile: Record<string, unknown> | null;
-  liquidity_cluster: Record<string, unknown> | null;
-  liquidity_flow: Record<string, unknown> | null;
+  /** CR-10: the candle-derived band set, per duration. Replaces the
+   *  `liquidity_cluster` / `liquidity_flow` pair. */
+  state_bands: Record<string, unknown> | null;
   indicators: MtfPerTimeframeIndicator[];
 }
 
@@ -131,7 +132,7 @@ export interface MtfPayload {
   signals_by_kind: Record<string, IndicatorSignalExport[]>;
   divergences: DivergenceRow[];
   levels: LevelRow[];
-  liquidity_panel: LiquidityPanelBlock;
+  state_bands: StateBandBlock;
   timeframes: MtfTimeframeEntry[];
   /** Audit G-3: the three cross-TF tables exactly as the screen renders
    *  them (MtfView.svelte:574-775) — per-TF direction tallies, per-TF
@@ -621,8 +622,7 @@ function buildTimeframeEntry(
     context: ctx as unknown as Record<string, unknown> | null,
     fibonacci_summary: fibSummary,
     volume_profile: (tf.volumeProfile ?? null) as Record<string, unknown> | null,
-    liquidity_cluster: (tf.cluster ?? null) as Record<string, unknown> | null,
-    liquidity_flow: (tf.liquidity ?? null) as Record<string, unknown> | null,
+    state_bands: (tf.stateBands ?? null) as Record<string, unknown> | null,
     indicators: exportIndicators,
   };
 }
@@ -911,13 +911,11 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     markPrice,
   );
 
-  // Liquidity panel — processed through the shared Metrics builder so the
-  // MTF payload carries the exact same shape/null semantics as the
-  // single-TF Metrics export (flow/cluster/context with `available` flags).
-  const liquidityPanel: LiquidityPanelBlock = buildLiquidityPanelBlock(
-    (timeframes[0]?.liquidity_flow as LiquidityFlow | null) ?? null,
-    (timeframes[0]?.liquidity_cluster as LiquidationClusterMatrix | null) ?? null,
-    [],
+  // State bands — processed through the shared Metrics builder so the MTF
+  // payload carries the exact same shape/null semantics as the single-TF
+  // Metrics export (`available` flag, null-means-not-measured).
+  const stateBands: StateBandBlock = buildStateBandBlock(
+    (timeframes[0]?.state_bands as StateBandMatrix | null) ?? null,
   );
 
   const payload: MtfPayload = {
@@ -930,7 +928,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     signals_by_kind: signalsByKind,
     divergences,
     levels,
-    liquidity_panel: liquidityPanel,
+    state_bands: stateBands,
     timeframes,
     cross_tf_tables: buildCrossTfTables(slotDefs, args.registry),
   };
@@ -939,5 +937,3 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
 
 // Silence unused-import warnings — these types are still re-exported for downstream tests.
 export type { VolumeProfileSnapshot as _VolumeProfileSnapshot };
-export type { LiquidationClusterMatrix as _LiquidationClusterMatrix };
-export type { LiquidityFlow as _LiquidityFlow };

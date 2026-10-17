@@ -531,7 +531,6 @@ pub async fn run_cli_backtest(
         &workspace.activation,
         None,
         workspace.config_version,
-        workspace.liquidity.enabled,
     );
     let specs: Vec<backtesting_engine::historical::SymbolSpec> = symbols
         .iter()

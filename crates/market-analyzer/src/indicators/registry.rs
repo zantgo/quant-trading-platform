@@ -21,7 +21,6 @@ pub enum IndicatorGroup {
     Structure,
     Regime,
     Institutional,
-    DerivativesData,
 }
 
 /// Predictive class (leading vs confirming).
@@ -38,39 +37,42 @@ pub enum IndicatorClass {
 /// exempt from the candle count gate and appear the moment their data
 /// source produces a reading.
 ///
-/// The variant drives four sites in the analyzer:
+/// The variant drives two sites in the analyzer:
 ///
 ///   1. `bars_needed(key)` in `crates/market-analyzer/src/analyzer/normalize.rs`
-///      — `CandleBased` honors `bars_required`; everything else returns 0 so
-///      the `map.retain(|key, _| ready(key))` gate at the end of
-///      `build_indicator_map` doesn't evict a never-populated WS / event
-///      entry.
+///      — `CandleBased` honors `bars_required`; `EventDriven` returns 0 so the
+///      `map.retain(|key, _| ready(key))` gate at the end of
+///      `build_indicator_map` doesn't evict a never-populated event entry.
 ///   2. The WARMING fill block in
 ///      `crates/market-analyzer/src/indicators/normalized/all.rs` — the fill
-///      is skipped for non-`CandleBased` entries so we never publish a
+///      is skipped for `EventDriven` entries so we never publish a
 ///      `raw_value = 0.0` placeholder for an indicator whose contract is
-///      "emit a value only when an event / WS message arrives".
-///   3. The `data_source` field is serialized to the frontend registry
-///      endpoint so future UI affordances (e.g. "Awaiting feed" badge) can
-///      distinguish WS-fed rows from candle-warmup rows.
-///   4. Bootstrap warmup (v6.6+). `DerivativesWs` indicators' `oi_history`
-///      and `funding_history` rolling buffers ARE replayed from historical
-///      `MarketSnapshot` rows on disk via
-///      `warm.rs::warm_derivatives_from_snapshots`, so `OI Delta` /
-///      `OI_FUNDING_DIVERGENCE` / `FUNDING_FLIP` have non-zero priors at
-///      boot. The orderbook-derived trio (`OrderBook` indicators) has no
-///      historical source — those still surface via the
-///      `DerivativeRibbon`'s `CONNECTING · AWAITING BOOK` status until the
-///      first WS depth tick. This split mirrors the inherent asymmetry
-///      that perpetual futures are persisted on every snapshot but raw
-///      orderbook depth is not.
+///      "emit a value only when an event arrives".
+///
+///   3. (CR-10) the third site — "distinguish WS-fed rows from candle-warmup
+///      rows" in the frontend — is gone with the variants it served.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 pub enum IndicatorDataSource {
+    /// OHLCV candles. The only source a reading may declare.
     #[default]
     CandleBased,
-    OrderBook,
-    DerivativesWs,
     /// Event-driven (BOS / CHoCH / FVG / order block / liquidity sweep).
+    ///
+    /// An event is still candle-derived — BOS, CHoCH, FVG and sweeps are all
+    /// detected in the OHLCV series. The variant exists because those readings
+    /// need no warmup, not because they need a feed.
+    ///
+    /// CR-10 / CH-1: `OrderBook` and `DerivativesWs` are DELETED. Every reading
+    /// is computed from OHLCV, so a reading that *needs* an order book, open
+    /// interest, funding or mark/index cannot be declared at all. The variants
+    /// existing at all were the permission slip — an indicator could name a
+    /// non-candle feed and be registered legitimately.
+    ///
+    /// The order-book CHANNEL stays (see `network-adapters`): it is how
+    /// sub-minute candles are constructed. A channel that builds a candle is
+    /// ingestion, not a reading. What is gone is the ability to publish a number
+    /// derived from it directly.
+    ///
     /// No candle warmup — the first reading appears the moment an event is
     /// detected in the running window. `bars_required` is still meaningful
     /// for the lifecycle's `Loading → Live` transition (the calculator needs
@@ -223,9 +225,20 @@ use IndicatorNormalizationMode::*;
 use RenderKind::*;
 use SignalKind::*;
 
-/// The authoritative indicator manifest — 52 entries across 8 groups.
-/// (Ichimoku and Pivot Points are documented in the guides; the comment
-/// claiming they were "intentionally omitted" predates their inclusion.)
+/// The authoritative indicator manifest — **44 entries across 7 groups**.
+///
+/// CR-10 purged the eight non-candle entries. `open_interest`, `oi_delta`,
+/// `funding_rate`, `oi_price_divergence`, `order_flow_imbalance`, `spread`,
+/// `depth_bias` and `mark_index_spread` were all computed from a venue feed
+/// that is not OHLCV — open interest, funding, the order book, mark/index. Under
+/// charter rule CH-1 they could not be readings at all, and a reading that cannot
+/// be recomputed from a candle archive can never be validated by replaying
+/// history.
+///
+/// The `DerivativesData` group is therefore **empty and deleted**: it existed to
+/// hold exactly those eight. Ichimoku and Pivot Points are documented in the
+/// guides; the comment claiming they were "intentionally omitted" predates their
+/// inclusion.
 pub const INDICATORS: &[IndicatorMeta] = &[
     // ─────────── TREND ───────────
     IndicatorMeta {
@@ -1307,181 +1320,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         signal_capability: SignalCapability::Conditional,
     },
     // ─────────── DERIVATIVES DATA (Phase 11) ───────────
-    IndicatorMeta {
-        key: "open_interest",
-        display_name: "Open Interest",
-        group: DerivativesData,
-        class: Hybrid,
-        render: Pane,
-        directional: false,
-        supports_divergence: false,
-        signal_types: &[Threshold],
-        default_weight: 1.0,
-        default_enabled: true,
-        config_params: &["oi_lookback"],
-        value_format: "decimals2",
-        value_source: "raw",
-        color: "#ffab40",
-        guide_section: "35",
-        doc_file: "04-02-44-open-interest.md",
-        bars_required: 1,
-        data_source: Some(IndicatorDataSource::DerivativesWs),
-        updates_on_shadow: false,
-        // Non-directional gate: `normalized` is contractually 0.0; OI Delta
-        // and OI-Price Divergence carry the directional signal. See
-        // docs/engines/market-monitoring-engine/indicators/04-02-44-open-interest.md
-        normalization_mode: Some(ContextOnly),
-        signal_capability: SignalCapability::DataOnly,
-    },
-    IndicatorMeta {
-        key: "oi_delta",
-        display_name: "OI Delta",
-        group: DerivativesData,
-        class: Leading,
-        render: Pane,
-        directional: true,
-        supports_divergence: false,
-        signal_types: &[Threshold, ZeroLineCross],
-        default_weight: 1.0,
-        default_enabled: true,
-        config_params: &["oi_delta_window"],
-        value_format: "decimals2",
-        value_source: "raw",
-        color: "#ff6e40",
-        guide_section: "35",
-        doc_file: "04-02-45-oi-delta.md",
-        bars_required: 1,
-        data_source: Some(IndicatorDataSource::DerivativesWs),
-        normalization_mode: None,
-        updates_on_shadow: false,
-        signal_capability: SignalCapability::DataOnly,
-    },
-    IndicatorMeta {
-        key: "funding_rate",
-        display_name: "Funding Rate",
-        group: DerivativesData,
-        class: Hybrid,
-        render: Pane,
-        directional: false,
-        supports_divergence: false,
-        signal_types: &[Threshold],
-        default_weight: 1.0,
-        default_enabled: true,
-        config_params: &["funding_extreme_pct"],
-        // Raw is the per-8h decimal (0.0001 = 0.01%) — a fraction, not a
-        // percentage. `percent4` renders `raw × 100` with 4 decimals
-        // ("0.0100%"); the old `percent1` rendered the unscaled decimal
-        // with a % sign, understating every reading 100× ("0.0%").
-        value_format: "percent4",
-        value_source: "raw",
-        color: "#00e676",
-        guide_section: "36",
-        doc_file: "04-02-46-funding-rate.md",
-        bars_required: 1,
-        data_source: Some(IndicatorDataSource::DerivativesWs),
-        updates_on_shadow: false,
-        // Non-directional gate: `normalized` is contractually 0.0; the
-        // raw funding rate value + extreme label carry the signal. See
-        // docs/engines/market-monitoring-engine/indicators/04-02-46-funding-rate.md
-        normalization_mode: Some(ContextOnly),
-        signal_capability: SignalCapability::DataOnly,
-    },
-    IndicatorMeta {
-        key: "oi_price_divergence",
-        display_name: "OI-Price Divergence",
-        group: DerivativesData,
-        class: Leading,
-        render: Marker,
-        directional: true,
-        supports_divergence: false,
-        signal_types: &[Divergence],
-        default_weight: 1.0,
-        default_enabled: true,
-        config_params: &[],
-        value_format: "decimals2",
-        value_source: "raw",
-        color: "#ff5252",
-        guide_section: "35",
-        doc_file: "04-02-47-oi-price-divergence.md",
-        bars_required: 1,
-        data_source: Some(IndicatorDataSource::DerivativesWs),
-        normalization_mode: None,
-        updates_on_shadow: false,
-        signal_capability: SignalCapability::Conditional,
-    },
     // ─────────── ORDER BOOK DEPTH (Phase 2) ───────────
-    IndicatorMeta {
-        key: "order_flow_imbalance",
-        display_name: "Order Flow Imbalance",
-        group: DerivativesData,
-        class: Leading,
-        render: Pane,
-        directional: true,
-        supports_divergence: false,
-        signal_types: &[Threshold],
-        default_weight: 1.0,
-        default_enabled: true,
-        config_params: &[],
-        value_format: "decimals2",
-        value_source: "raw",
-        color: "#ff6d00",
-        guide_section: "37",
-        doc_file: "04-02-48-order-flow-imbalance.md",
-        bars_required: 1,
-        data_source: Some(IndicatorDataSource::OrderBook),
-        normalization_mode: None,
-        updates_on_shadow: false,
-        signal_capability: SignalCapability::DataOnly,
-    },
-    IndicatorMeta {
-        key: "spread",
-        display_name: "Spread",
-        group: DerivativesData,
-        class: Hybrid,
-        render: Pane,
-        directional: false,
-        supports_divergence: false,
-        signal_types: &[Threshold],
-        default_weight: 1.0,
-        default_enabled: true,
-        config_params: &[],
-        value_format: "percent1",
-        value_source: "raw",
-        color: "#f48fb1",
-        guide_section: "37",
-        doc_file: "04-02-49-spread.md",
-        bars_required: 1,
-        data_source: Some(IndicatorDataSource::OrderBook),
-        updates_on_shadow: false,
-        // Non-directional gate: `normalized` is contractually 0.0; the
-        // widening/tight label carries the signal. See
-        // docs/engines/market-monitoring-engine/indicators/04-02-49-spread.md
-        normalization_mode: Some(ContextOnly),
-        signal_capability: SignalCapability::DataOnly,
-    },
-    IndicatorMeta {
-        key: "depth_bias",
-        display_name: "Depth Bias",
-        group: DerivativesData,
-        class: Leading,
-        render: Pane,
-        directional: true,
-        supports_divergence: false,
-        signal_types: &[Threshold],
-        default_weight: 1.0,
-        default_enabled: true,
-        config_params: &[],
-        value_format: "decimals2",
-        value_source: "raw",
-        color: "#18ffff",
-        guide_section: "37",
-        doc_file: "04-02-50-depth-bias.md",
-        bars_required: 1,
-        data_source: Some(IndicatorDataSource::OrderBook),
-        normalization_mode: None,
-        updates_on_shadow: false,
-        signal_capability: SignalCapability::DataOnly,
-    },
     // ── MARK-INDEX SPREAD (cross-cuts derivatives + orderbook telemetry) ──
     // Injected by `analyzer::inject_derivatives_indicators` from
     // `latest_mark_px` / `latest_index_px`. Until v6.6 it was emitted into
@@ -1489,29 +1328,6 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     // filtered it out via `filterRegistry`. Tagging it here makes it
     // visible to the dashboard (Raw column = spread %, Norm column = N/A
     // because `normalization_mode = ContextOnly`).
-    IndicatorMeta {
-        key: "mark_index_spread",
-        display_name: "Mark-Index Spread",
-        group: DerivativesData,
-        class: Hybrid,
-        render: Pane,
-        directional: false,
-        supports_divergence: false,
-        signal_types: &[Threshold],
-        default_weight: 1.0,
-        default_enabled: true,
-        config_params: &[],
-        value_format: "percent1",
-        value_source: "raw",
-        color: "#e91e63",
-        guide_section: "35",
-        doc_file: "04-02-51-mark-index-spread.md",
-        bars_required: 1,
-        data_source: Some(DerivativesWs),
-        normalization_mode: Some(ContextOnly),
-        updates_on_shadow: false,
-        signal_capability: SignalCapability::DataOnly,
-    },
     // ── PRICE-TREND SHARPE (L1 regime statistical proof) ──
     // Annualized Sharpe of price log returns over the trailing 300-bar
     // window. Computed by the pipeline from the rolling `close_history`
@@ -1677,22 +1493,31 @@ mod tests {
     }
 
     /// AUDIT-AIU-125: the registry manifest is a normative contract —
-    /// `03-02-01-mme-overview-spec.md` §Registry and `03-02-12` CA-14
-    /// declare "52 indicators / 12 SignalKinds / 101 signal-kind
-    /// declarations", and the Metrics dashboard's indicator table is
-    /// registry-driven. Deleting an entry (or its signal_types) would
-    /// previously pass CI silently while violating the contract.
+    /// The Metrics dashboard's indicator table is registry-driven, so the
+    /// registry is a contract: deleting an entry (or its `signal_types`) must
+    /// fail here rather than pass CI silently.
+    ///
+    /// CR-10 moved the count from 52 to **44**. The eight removed entries were
+    /// all computed from a venue feed that is not OHLCV, which charter rule
+    /// CH-1 forbids — and a reading that cannot be recomputed from a candle
+    /// archive can never be validated by replaying history. This pin and
+    /// `04-03-00-new-indicators-index.md` are generated from the same source,
+    /// so they cannot drift apart.
     #[test]
     fn registry_cardinality_matches_the_documented_contract() {
         assert_eq!(
             INDICATORS.len(),
-            52,
-            "registry must declare exactly 52 indicators (03-02-01 §Registry); a registry edit must update the docs + this pin together"
+            44,
+            "CR-10: the registry declares exactly 44 candle-only indicators; a \
+             registry edit must update the docs + this pin together"
         );
+        // CR-10: 101 -> 92. The nine removed signal-kind declarations belonged
+        // to the eight purged entries; `oi_price_divergence` declared two.
         let declared: usize = INDICATORS.iter().map(|m| m.signal_types.len()).sum();
         assert_eq!(
-            declared, 101,
-            "registry must declare exactly 101 signal-kind entries (03-02-01 §Registry / 03-02-12 CA-14)"
+            declared, 92,
+            "CR-10: the registry declares exactly 92 signal-kind entries across the \
+             44 candle-only indicators"
         );
         let kinds: std::collections::HashSet<String> = INDICATORS
             .iter()
@@ -1721,7 +1546,6 @@ mod tests {
             (IndicatorGroup::Structure, 5),
             (IndicatorGroup::Regime, 5),
             (IndicatorGroup::Institutional, 4),
-            (IndicatorGroup::DerivativesData, 8),
         ]
         .into_iter()
         .collect();
@@ -1736,8 +1560,8 @@ mod tests {
         }
         assert_eq!(
             group_counts.values().sum::<usize>(),
-            52,
-            "group counts must sum to 52"
+            44,
+            "CR-10: group counts must sum to 44 — the 44 candle-only indicators"
         );
     }
 
@@ -1751,35 +1575,43 @@ mod tests {
     #[test]
     fn test_directional_and_gate_counts() {
         let gates = INDICATORS.iter().filter(|m| !m.directional).count();
-        // atr, bbwp, hv, volume, rvol, choppiness, funding_rate, spread,
-        // open_interest, mark_index_spread
-        assert_eq!(
-            gates, 10,
-            "expected 10 non-directional gate indicators (added mark_index_spread)"
-        );
+        // atr, bbwp, hv, volume, rvol, choppiness
+        //
+        // CR-10 removed four of the ten: funding_rate, spread, open_interest and
+        // mark_index_spread were all non-candle.
+        assert_eq!(gates, 6, "CR-10: 6 non-directional gate indicators remain");
     }
 
-    /// Regression: `mark_index_spread` is injected by
-    /// `inject_derivatives_indicators` but had no registry entry — the
-    /// Metrics Indicators table filtered it out via `filterRegistry`
-    /// and the row was invisible. After adding the entry the dashboard
-    /// shows the spread %, Norm column = `N/A` (ContextOnly).
+    /// CR-10 inverted this regression.
+    ///
+    /// The original test existed because `mark_index_spread` was computed by
+    /// the derivatives injector but had no registry entry, so the Metrics table
+    /// filtered it out and the row was invisible. The fix was to register it.
+    ///
+    /// The real defect was one level up: an indicator fed by mark/index prices
+    /// was being computed at all. CH-1 forbids it, so the injector is gone
+    /// (P5) and the entry with it. The test now asserts the absence, because an
+    /// "is it registered?" check cannot fail any more — there is nothing to
+    /// register.
     #[test]
-    fn mark_index_spread_is_registered_with_derivatives_data_source() {
-        let m = get("mark_index_spread").expect("mark_index_spread registered");
-        assert_eq!(
-            m.data_source,
-            Some(IndicatorDataSource::DerivativesWs),
-            "mark_index_spread must declare data_source = DerivativesWs so the WARMING fill is suppressed"
-        );
-        assert_eq!(
-            m.normalization_mode,
-            Some(IndicatorNormalizationMode::ContextOnly),
-            "mark_index_spread is a non-directional context gate"
-        );
-        assert_eq!(m.group, IndicatorGroup::DerivativesData);
-        assert_eq!(m.value_format, "percent1");
-        assert_eq!(m.value_source, "raw");
+    fn no_indicator_declares_a_non_candle_data_source() {
+        for key in [
+            "mark_index_spread",
+            "spread",
+            "depth_bias",
+            "order_flow_imbalance",
+            "open_interest",
+            "oi_delta",
+            "funding_rate",
+            "oi_price_divergence",
+        ] {
+            assert!(
+                get(key).is_none(),
+                "CR-10 / CH-1: `{key}` is computed from a non-OHLCV feed and must \
+                 not be registered. A candle archive cannot reproduce it, so replay \
+                 can never validate it."
+            );
+        }
     }
 
     #[test]
@@ -1882,12 +1714,15 @@ mod tests {
             .collect();
         assert_eq!(
             ctx_only.len(),
-            10,
-            "10 context-only gate indicators expected"
+            6,
+            "CR-10: 6 context-only gate indicators remain"
         );
         assert!(
-            ctx_only.contains(&"mark_index_spread"),
-            "mark_index_spread must be in the ContextOnly bucket"
+            !ctx_only.iter().any(|k| k.contains("mark_index")
+                || k.contains("spread")
+                || k.contains("open_interest")
+                || k.contains("funding")),
+            "CR-10: no non-candle indicator may sit in the ContextOnly bucket"
         );
         assert_eq!(
             event_only.len(),

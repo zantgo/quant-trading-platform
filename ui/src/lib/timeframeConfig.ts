@@ -41,7 +41,6 @@ export interface TimeframeConfigDraft {
     /// v7.0-prod — per-TF operator-selected leverage tiers (each ∈ [1, 100]).
     /// Drives the `LiquidationHeatmapPrimitive.clusterInHighlight` matcher.
     /// Default seed is `[10]` (see `defaultTermDraft` in `WorkspaceSettings`).
-    heatmapLeverageTiers: number[];
 }
 
 export function applyTimeframeConfig(tf: TimeframeTelemetry, term: TimeframeConfigDraft): void {
@@ -71,18 +70,10 @@ export function applyTimeframeConfig(tf: TimeframeTelemetry, term: TimeframeConf
     tf.atrMultiplierVal = term.atrMultiplier; tf.atrTargetRRVal = term.atrTargetRR;
     tf.volumeAvgPeriodVal = term.volumeAvgPeriod;
     tf.rvolInstitutionalVal = term.rvolInstitutional; tf.rvolClimaxVal = term.rvolClimax;
-    // v7.0-prod — per-TF heatmap leverage tier persistence. The PriceChart
-    // $effect forwards this list to `LiquidationHeatmapPrimitive.updateData`
-    // so the overlay intensifies the operator-selected tiers.
-    if (Array.isArray(term.heatmapLeverageTiers)) {
-        tf.heatmapLeverageTiers = [
-            ...new Set(
-                term.heatmapLeverageTiers.filter(
-                    (t) => Number.isInteger(t) && t >= 1 && t <= 100
-                )
-            )
-        ].sort((a, b) => a - b);
-    }
+    // CR-10: the per-TF heatmap leverage-tier persistence is DELETED. It
+    // existed so the operator could pick which liquidation-leverage buckets
+    // the overlay brightened — a control over an ASSUMED leverage curve. There
+    // is no leverage curve to choose tiers from any more.
     // Intentionally NOT clearing latestSnapshot, priceText, or indicators —
     // see module doc.
 }

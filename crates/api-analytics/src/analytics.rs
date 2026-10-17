@@ -426,7 +426,6 @@ pub async fn serve_backtest_run(
             &workspace.activation,
             None,
             workspace.config_version,
-            workspace.liquidity.enabled,
         );
         let fib_config = workspace.fibonacci.clone();
         let safety = backtesting_engine::historical::SafetyParams {

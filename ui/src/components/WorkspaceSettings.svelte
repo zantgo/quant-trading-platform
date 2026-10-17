@@ -7,7 +7,6 @@
     import { activeDurations, overlayRepTerm } from '../lib/terms';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
-    import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
     import SettingsSaveButton, { type SettingsSaveState } from './SettingsSaveButton.svelte';
     import ExportDataButton from './ExportDataButton.svelte';
     import ConfigSourceChip from './ConfigSourceChip.svelte';
@@ -94,7 +93,6 @@
         squeezeKcPeriod: number; squeezeKcAtrMult: number;
         atrMultiplier: number; atrTargetRR: number;
         volumeAvgPeriod: number; rvolInstitutional: number; rvolClimax: number;
-        heatmapLeverageTiers: number[];
     }
 
     function defaultTermDraft(): TermDraft {
@@ -116,7 +114,6 @@
             squeezeKcPeriod: 20, squeezeKcAtrMult: 1.5,
             atrMultiplier: 2.0, atrTargetRR: 2.5,
             volumeAvgPeriod: 20, rvolInstitutional: 1.5, rvolClimax: 3.0,
-            heatmapLeverageTiers: [10],
         };
     }
 
@@ -232,9 +229,6 @@
 
     function applyTermToTelemetry(term: TermDraft, tf: TimeframeTelemetry) {
         applyTimeframeConfig(tf, term);
-        if (tf.heatmapLeverageTiers != null) {
-            tf.heatmapLeverageTiers = [...(term.heatmapLeverageTiers ?? [10])];
-        }
     }
 
     function buildIndicators(term: TermDraft): Record<string, number | number[]> {
@@ -263,7 +257,6 @@
             atr_multiplier_coefficient: term.atrMultiplier, atr_target_rr_ratio: term.atrTargetRR,
             volume_average_period: term.volumeAvgPeriod,
             rvol_threshold_institutional: term.rvolInstitutional, rvol_threshold_climax: term.rvolClimax,
-            heatmap_leverage_tiers: term.heatmapLeverageTiers,
         };
     }
 
@@ -516,7 +509,6 @@
 
     function updateSlotLeverageTiers(slot: TfSlot, next: number[]) {
         const cleaned = Array.from(new Set(next.filter((t) => Number.isInteger(t) && t >= 1 && t <= 100))).sort((a, b) => a - b);
-        tfDraft[slot].heatmapLeverageTiers = cleaned;
     }
 
     export function buildExport(): string {
@@ -833,10 +825,10 @@
                 {#each slotOrder as slot (slot)}
                     <div class={styles.heatmapCard}>
                         <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[slot]}</h4>
-                        <LiquidationHeatmapTierPicker
-                            tiers={tfDraft[slot].heatmapLeverageTiers}
-                            onChange={(next) => updateSlotLeverageTiers(slot, next)}
-                        />
+                        <!-- CR-10: the heatmap leverage-tier picker is DELETED.
+                             It let the operator choose which assumed leverage
+                             buckets the liquidation overlay brightened. There
+                             is no assumed leverage curve to choose from. -->
                     </div>
                 {/each}
             </div>

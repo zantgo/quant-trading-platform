@@ -13,7 +13,6 @@ pub mod bybit_live;
 pub mod bybit_rest;
 pub mod diagnostics;
 pub mod historical_fetch;
-pub mod hl_derivatives_poller;
 pub mod http;
 pub mod hyperliquid;
 pub mod hyperliquid_historical_fetch;

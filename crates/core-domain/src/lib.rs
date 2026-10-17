@@ -13,9 +13,9 @@ pub mod indicator_dtos;
 pub mod jsonrpc;
 pub mod jsonrpc_methods;
 pub mod latency;
-pub mod liquidity;
 pub mod market_context;
 pub mod models;
+pub mod state_bands;
 pub use models::{
     duration_from_label, duration_label, duration_label_upper, is_supported_duration,
     slot_label_for, HISTORY_CAP, SUPPORTED_DURATIONS,

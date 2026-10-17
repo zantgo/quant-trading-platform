@@ -1,4 +1,3 @@
-use rust_decimal::prelude::ToPrimitive;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -131,10 +130,9 @@ use crate::instance::{Instance, TimeframeBuffers};
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
 use config_models::{
-    ApiFailoverConfig, FibonacciConfig, HeatmapConfig, IntervalsConfig, LiquidityConfig,
-    OperationalMode, OrderBookConfig, SafetyConfig, StrategyConfig, TimeframeConfig,
+    ApiFailoverConfig, FibonacciConfig, IntervalsConfig, OperationalMode, SafetyConfig,
+    StrategyConfig, TimeframeConfig,
 };
-use core_domain::liquidity::{ClusterRefreshStatus, ClusterStatusSnapshot};
 use core_domain::models::{CandlePipelineState, MarketSnapshot};
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
 use database_storage;
@@ -195,17 +193,8 @@ pub struct PipelineContext {
     pub operational_mode: OperationalMode,
     #[allow(dead_code)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
-    pub liquidity_config: LiquidityConfig,
-    /// API-failover tolerance knobs (derivatives poller disable threshold).
+    /// API-failover tolerance knobs.
     pub api_failover: ApiFailoverConfig,
-    /// Heatmap bucketing configuration (Block B). Independent from
-    /// `liquidity_config` so the bucket aggregation can be disabled
-    /// without affecting the rest of the liquidity pipeline. See
-    /// `config_models::HeatmapConfig`.
-    pub heatmap_config: HeatmapConfig,
-    /// v9 (F-04): order-book depth knobs — the `[order_book]` TOML surface
-    /// (previously the pipeline hardcoded `OrderBookConfig::default()`).
-    pub ob_config: OrderBookConfig,
     /// v9: the effective strategy (patch-resolved).
     pub strategy: StrategyConfig,
     /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
@@ -285,58 +274,18 @@ pub async fn build_pipelines(
         .map(|_| Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new())))
         .collect();
 
-    // Per-TF cluster-matrix handles (Phase 2). Each TF pipeline gets its
-    // own handle so the dashboard charts can show clusters at their own
-    // horizons. Populated by the cluster refresh tasks spawned below;
-    // read by `run_single` on every candle close.
-    let cluster_matrices: Vec<
-        Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-    > = (0..n).map(|_| Arc::new(RwLock::new(None))).collect();
-
-    // Per-TF cluster-refresh status handles (sibling to the matrix handles).
-    // The refresh task writes to both on every tick; the
-    // `/api/liquidity/cluster-status` endpoint reads these so the UI can
-    // distinguish "no data yet" (Pending) from "refresh task failed"
-    // (Skipped with reason) — without this distinction the LIQ HEATMAP can
-    // appear empty for minutes at boot with zero operator feedback.
-    let cluster_statuses: Vec<Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>> = (0..n)
-        .map(|i| {
-            Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending(
-                    ctx.pair_key.as_str(),
-                    &core_domain::duration_label(active_secs[i]),
-                ),
-            ))
-        })
-        .collect();
-
     // v6.10 (Phase 5 / E1): build the real ActiveSet from config instead
     // of the default all-enabled set. Global `[activation]` + per-instance
-    // `[instances.*.activation]` union (CA-06: disabled ≡ absent), with
-    // the `[liquidity] enabled` master switch folded in (CA-15). This is
-    // the single production call-site — the pipeline structs below, the
-    // run_single tasks, and the cluster-refresh spawn all read from it.
-    // v9: the strategy's `l1_5` section is the single source of truth for
-    // the liquidity pipeline (legacy `[workspace.liquidity]`/`[heatmap]`
-    // remain only as the parse fallback).
-    let eff_liq = market_analyzer::liquidity_params::effective_liquidity(
-        Some(&ctx.liquidity_config),
-        Some(&ctx.heatmap_config),
-        &ctx.strategy.l1_5,
-    );
-
-    let mut active_set = market_analyzer::active_set::ActiveSet::from_config(
+    // `[instances.*.activation]` union (CA-06: disabled ≡ absent).
+    //
+    // CR-10: the `[liquidity] enabled` master switch used to be folded in
+    // here (CA-15) and four per-instance L1.5 sub-toggles were written on top
+    // of the result. All five are gone with the chain they gated.
+    let active_set = market_analyzer::active_set::ActiveSet::from_config(
         &ctx.activation,
         ctx.activation_instance.as_ref(),
         ctx.config_version,
-        eff_liq.cfg.enabled,
     );
-    // v9: the strategy's L1.5 sub-toggles override the legacy
-    // `[activation]`-derived state.
-    active_set.liquidity_enabled = eff_liq.cfg.enabled;
-    active_set.liquidation_feed = eff_liq.cfg.liquidation_feed;
-    active_set.cluster_estimation = eff_liq.cfg.cluster_estimation;
-    active_set.liquidity_signals_enabled = eff_liq.cfg.signals;
 
     // v11.9: per-duration pipelines, built over the ACTIVE set then moved
     // into the `ActivePair.pipelines` vec (duration-ordered).
@@ -351,13 +300,7 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
             active_set: active_set.clone(),
-            cluster_matrix: cluster_matrices[i].clone(),
-            cluster_status: cluster_statuses[i].clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
             tf_leverage_config: Arc::new(ctx.ladder_cfgs[i].leverage.clone()),
@@ -372,12 +315,6 @@ pub async fn build_pipelines(
         active_secs: active_secs.clone(),
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))), // AUDIT-AIU-051: (timestamp_secs, value)
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: state.latency_tracker.clone(),
     });
 
@@ -390,7 +327,7 @@ pub async fn build_pipelines(
         &active_secs,
         &ctx.fib_config,
         &cancel,
-        ctx.start_gate.as_ref().map(|rx| rx.clone()),
+        ctx.start_gate.clone(),
         &broadcast_txs,
         &histories,
         &latests,
@@ -400,19 +337,11 @@ pub async fn build_pipelines(
         warmed_states,
         ctx.exchange_choice,
         ctx.quote,
-        ctx.liquidity_config.clone(),
-        ctx.heatmap_config.clone(),
         ctx.api_failover,
-        // v9: wired order-book config + the effective strategy.
-        ctx.ob_config.clone(),
         ctx.strategy.clone(),
-        &cluster_matrices,
-        &cluster_statuses,
         ctx.buffer_size,
         // AUDIT-H7: configured stale threshold (CB-04/ILS-07).
         ctx.stale_threshold_secs,
-        // CA-15: L2.5 `cluster_estimation` toggle from the ActiveSet.
-        active_set.cluster_estimation,
     )
     .await;
 
@@ -468,33 +397,19 @@ async fn spawn_tasks(
     warmed_states: Option<&[analyzer::WarmedPipelineState]>,
     exchange_choice: ExchangeChoice,
     quote: Currency,
-    liquidity_config: LiquidityConfig,
-    heatmap_config: HeatmapConfig,
-    api_failover: ApiFailoverConfig,
-    // v9: wired order-book config + the effective strategy.
-    ob_config: OrderBookConfig,
+    // CR-10: `api_failover` reached the HL derivatives poller's restart policy. With
+    // the poller gone the knob has no consumer here, but it is still a live
+    // workspace setting for the WebSocket supervisor, so it stays on the struct
+    // and is deliberately not threaded into `spawn_tasks`.
+    #[allow(unused_variables)] api_failover: ApiFailoverConfig,
+    // v9: the effective strategy.
     strategy: StrategyConfig,
-    cluster_matrices: &[Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>],
-    cluster_statuses: &[Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>],
     buffer_size: usize,
     // AUDIT-H7: `[candle_buffer] stale_threshold_secs` (CB-04/ILS-07) —
     // threaded into run_single (was hardcoded 300 inside the analyzer).
     stale_threshold_secs: u64,
-    // CA-15: `[activation] cluster_estimation` (union of global +
-    // per-instance). `false` => the L2.5 refresh loop is not spawned.
-    cluster_estimation: bool,
 ) {
     let n = active_secs.len();
-    // v9: the strategy's `l1_5` section is the single source of truth for
-    // the liquidity pipeline (legacy sections remain only as the fallback
-    // baked into the EffectiveLiquidity resolver).
-    let eff_liq = market_analyzer::liquidity_params::effective_liquidity(
-        Some(&liquidity_config),
-        Some(&heatmap_config),
-        &strategy.l1_5,
-    );
-    let liquidity_config = eff_liq.cfg.clone();
-    let _ = eff_liq;
 
     // One event channel per ACTIVE duration (fastest → slowest).
     // v11.12 FIX: this was hardcoded `for _ in 0..10` — a pre-v11.9
@@ -675,31 +590,11 @@ async fn spawn_tasks(
         let a_telemetry = state.telemetry_tx.clone();
         let a_cancel = cancel.clone();
         let a_fib = fib_config.clone();
-        let a_latest_oi = active_pair.latest_oi.clone();
-        let a_latest_funding = active_pair.latest_funding.clone();
-        let a_latest_mark = active_pair.latest_mark_px.clone();
-        let a_latest_index = active_pair.latest_index_px.clone();
         // Derivatives-warmup history locks. Bootstrapped from prior
         // `market_snapshots` rows by `populate_buffers` (or default-empty
         // on cold DB).
-        // AUDIT-AIU-051: each TF pipeline gets its OWN clone of the
-        // timestamped OI history so the 3600 s delta window is evaluated
-        // against that TF's candle cadence (a shared deque would let a
-        // fast TF's frequent samples dominate a slow TF's delta).
-        let a_oi_history: Arc<RwLock<VecDeque<(u64, f64)>>> =
-            Arc::new(RwLock::new(active_pair.oi_history.read().await.clone()));
-        let a_funding_history = active_pair.funding_history.clone();
-        let a_liquidity_config = eff_liq.cfg.clone();
-        let a_heatmap_config = eff_liq.heatmap.clone();
-        // v9: capture the wired order-book config + strategy for the
-        // moved closure.
-        let a_ob_config = ob_config.clone();
+        // v9: capture the strategy for the moved closure.
         let a_strategy = strategy.clone();
-        // Per-TF cluster-matrix handle (Phase 2, per-TF refactor). Each TF
-        // pipeline owns its own `Arc<RwLock<...>>` so every chart in the
-        // dashboard sees the cluster at its own horizon. See
-        // `compute_cluster_for_tf` for the per-TF history lookback.
-        let a_cluster_matrix = cluster_matrices[i].clone();
         let a_latency = active_pair.latency_tracker.clone();
         let a_quality = state.platform.read().await.quality.clone();
         let a_reliability = state.reliability.clone();
@@ -777,16 +672,6 @@ async fn spawn_tasks(
                 a_cancel,
                 candle_fwd,
                 warmed,
-                a_latest_oi,
-                a_latest_funding,
-                a_latest_mark,
-                a_latest_index,
-                a_oi_history,
-                a_funding_history,
-                a_cluster_matrix,
-                Some(a_liquidity_config),
-                a_heatmap_config,
-                a_ob_config,
                 a_strategy,
                 cross_tf_snapshots,
                 a_latency,
@@ -1175,625 +1060,28 @@ async fn spawn_tasks(
         }
     });
 
-    // Phase 0: HL derivatives poller (mark price + OI + funding).
-    // ONLY Hyperliquid needs this: it has no public open-interest/funding
-    // stream, so mark/OI/funding must be polled from `metaAndAssetCtxs`.
-    // Bitget AND Bybit both push mark price, open interest and funding rate
-    // natively on their WS ticker channels (Bitget `ticker`, Bybit `tickers`),
-    // so spawning the HL poller for either would poll a Hyperliquid REST URL
-    // for a market that isn't there — at best 404-ing every cycle, at worst
-    // silently feeding the wrong venue's numbers. This gate is therefore an
-    // exact `== Hyperliquid`, not an inequality.
-    if liquidity_config.enabled && exchange_choice == ExchangeChoice::Hyperliquid {
-        let hl_info_url = state
-            .ws_url
-            .replace("wss://", "https://")
-            .replace("ws://", "http://")
-            .replace("/ws", "/info");
-        let poller_raw = venue_coin.to_string();
-        let poller_internal = internal_symbol.to_string();
-        let poller_tx = std::sync::Arc::new(active_pair.snapshot_tx.clone());
-        let poller_cancel = cancel.clone();
-        let poll_ms = liquidity_config.mark_price_poll_ms;
-        // HIP-3: `metaAndAssetCtxs` is per-dex, so a market on a
-        // builder-deployed dex must be polled on its own dex or the lookup
-        // silently finds nothing.
-        let poller_dex = exchange_choice.hyperliquid_dex(&poller_raw);
-        network_adapters::adapters::hl_derivatives_poller::spawn_hl_derivatives_poller(
-            poller_raw,
-            poller_internal,
-            hl_info_url,
-            poller_tx,
-            poller_cancel,
-            poll_ms,
-            api_failover.max_consecutive_failures,
-            poller_dex,
-        );
-    }
-
-    // Phase 2: per-timeframe Liquidation cluster-matrix refresh tasks
-    // (one per TF). Each runs at the TF's own candle cadence — sub-second
-    // TFs refresh at sub-second intervals (matching the cadence of every
-    // other MME indicator/signal). The cluster matrix is **per-TF**: the
-    // micro chart shows the fastest-magnet cluster, the macro chart shows
-    // the slow-magnet cluster, with a different price-history lookback
-    // per TF (200 candles of *that* TF, not just micro).
+    // CR-10: the HL derivatives poller is DELETED.
     //
-    // First refresh is **immediate** at startup (no 5-min delay). Each
-    // tick prints the outcome (N short + M long clusters, elapsed ms) so
-    // operators can see at a glance whether the cluster refresh is alive.
-    // CA-15: the L2.5 refresh loop additionally requires the per-instance
-    // `cluster_estimation` toggle (union of global `[activation]` and
-    // `[instances.*.activation]`) — when disabled, no task spawns and the
-    // `cluster` field stays absent from the snapshot (CA-06 semantics).
-    if liquidity_config.enabled && cluster_estimation {
-        let pair_str = pair_key.to_string();
-        type ClusterRefreshHandle<'a> = (
-            u64,
-            &'a Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-            &'a Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
-            u64,
-        );
-        // One refresh handle-set per ACTIVE duration (fastest → slowest).
-        let per_tf_handles: Vec<ClusterRefreshHandle<'_>> = (0..n)
-            .map(|i| {
-                (
-                    active_secs[i],
-                    &cluster_matrices[i],
-                    &cluster_statuses[i],
-                    active_secs[i],
-                )
-            })
-            .collect();
-        for (tf_key, handle, status_handle, tf_secs) in per_tf_handles {
-            let slot_label = core_domain::duration_label(tf_key);
-            // v6.10 (Phase 2 / B5): per-TF kill switch. Read
-            // `tf_leverage_config.enabled` from the active pipeline; if false,
-            // skip this TF entirely (no spawn, no cluster field on snapshot).
-            let tf_leverage_enabled = active_pair
-                .pipeline_for_secs(tf_key)
-                .map(|p| p.tf_leverage_config.enabled)
-                .unwrap_or(true);
-            if !tf_leverage_enabled {
-                println!(
-                    "⏭  Cluster Refresh: {} {} skipped (per-TF leverage.enabled=false)",
-                    pair_str, &slot_label,
-                );
-                write_cluster_status(
-                    status_handle,
-                    ClusterRefreshStatus::Skipped,
-                    Some("per-TF leverage.enabled=false".to_string()),
-                    None,
-                )
-                .await;
-                continue;
-            }
-            // Cadence resolution:
-            //   - `cluster_refresh_secs == 0` → synchronize with TF candle cadence
-            //   - any value > 0                → operator override (≥ 1 s)
-            // The default is 0 (== TF cadence) since v6.5; the legacy 300 s default
-            // was too long for an opt-in chart overlay that users expect to react to
-            // observed price action. PRI-07: the cadence adapts to the slot's
-            // CONFIGURED duration — nothing is hardcoded to 60/180/300/900.
-            let configured = liquidity_config.cluster_refresh_secs;
-            // v11.10: decoupled per-duration refresh cadence. `0` (the
-            // config default) resolves to the canonical table — sub-minute
-            // durations refresh every few seconds, long horizons every few
-            // minutes — instead of riding the TF's own candle cadence. A
-            // nonzero `[workspace.liquidity].cluster_refresh_secs` still
-            // overrides for every duration.
-            let cadence_secs = if configured == 0 {
-                config_models::liquidity_profile::refresh_cadence_secs(tf_secs)
-            } else {
-                configured.max(1)
-            };
-            println!(
-                "🌀 Cluster Refresh: {} {} started ({}s cadence, first fire immediate)",
-                pair_str, &slot_label, cadence_secs,
-            );
-            let pair_log = pair_str.clone();
-            let handle = handle.clone();
-            let status_handle = status_handle.clone();
-            let active_pair_clone = active_pair.clone();
-            let refresh_config = liquidity_config.clone();
-            // v9: strategy-derived estimator overrides (L2.5 + per-TF
-            // leverage), frozen per spawned task. v11.10: the estimator
-            // geometry is scaled per duration via `liquidity_profile` —
-            // every ACTIVE duration gets its own frozen row.
-            let cluster_overrides = ClusterOverrides::for_duration(&strategy, tf_key);
-            let cancel_for_refresh = cancel.clone();
-            let exchange_for_refresh = exchange_choice;
-            let slot_label = slot_label.clone();
-            tokio::spawn(async move {
-                // AUDIT-AIU-116: consecutive-skip counter. Every `Skipped`
-                // tick keeps the LAST successful matrix in the handle, so a
-                // dead OI feed would serve a stale estimate anchored to an
-                // old mid indefinitely. After `MAX_CONSECUTIVE_SKIPS`
-                // consecutive failures the handle is cleared (cluster → None
-                // on the wire, the heatmap/panel degrade to placeholders)
-                // instead of silently showing stale data as current.
-                const MAX_CONSECUTIVE_SKIPS: u32 = 3;
-                let mut consecutive_skips: u32 = 0;
-                // ── First fire: immediate (don't wait one tick) ──
-                let started = std::time::Instant::now();
-                match compute_cluster_for_tf(
-                    &active_pair_clone,
-                    tf_key,
-                    &refresh_config,
-                    exchange_for_refresh,
-                    &cluster_overrides,
-                )
-                .await
-                {
-                    Ok(matrix) => {
-                        consecutive_skips = 0;
-                        let n_short = matrix.short_clusters.len();
-                        let n_long = matrix.long_clusters.len();
-                        let mid = matrix.mid_price;
-                        let oi = matrix.total_long_oi_usd + matrix.total_short_oi_usd;
-                        println!(
-                            "✅ Cluster Refresh: {} {} mid={:.2} OI=${:.0} → {} short + {} long clusters (first fire, {}ms)",
-                            pair_log,
-                            &slot_label,
-                            mid,
-                            oi,
-                            n_short,
-                            n_long,
-                            started.elapsed().as_millis(),
-                        );
-                        write_cluster_status(
-                            &status_handle,
-                            ClusterRefreshStatus::Ok,
-                            None,
-                            Some(matrix.clone()),
-                        )
-                        .await;
-                        *handle.write().await = Some(matrix);
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "⚠️  Cluster Refresh: {} {} first fire skipped: {}",
-                            pair_log, &slot_label, e,
-                        );
-                        write_cluster_status(
-                            &status_handle,
-                            ClusterRefreshStatus::Skipped,
-                            Some(e.to_string()),
-                            None,
-                        )
-                        .await;
-                    }
-                }
-
-                // PRI-07 (v6.10.7): candle-aligned refresh. The interval is
-                // phase-locked to the TF's epoch boundaries (interval_at)
-                // instead of a free-running timer, so the cluster matrix is
-                // recomputed at candle-close instants — the same cadence the
-                // chart's completed candles use. The first tick lands on the
-                // next boundary; the immediate first-fire above still gives
-                // the overlay data at startup.
-                let start = core_domain::LatencyTracker::now_ms();
-                let next_boundary = (start / (cadence_secs * 1000) + 1) * cadence_secs * 1000;
-                let first_delay = next_boundary.saturating_sub(start);
-                let mut interval = tokio::time::interval_at(
-                    tokio::time::Instant::now() + std::time::Duration::from_millis(first_delay),
-                    std::time::Duration::from_secs(cadence_secs),
-                );
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                loop {
-                    tokio::select! {
-                        biased;
-                        _ = cancel_for_refresh.cancelled() => {
-                            println!(
-                                "🛑 Cluster Refresh: {} {} cancelled, shutting down.",
-                                pair_log,
-                                &slot_label,
-                            );
-                            break;
-                        }
-                        _ = interval.tick() => {}
-                    }
-                    let started = std::time::Instant::now();
-                    match compute_cluster_for_tf(
-                        &active_pair_clone,
-                        tf_key,
-                        &refresh_config,
-                        exchange_for_refresh,
-                        &cluster_overrides,
-                    )
-                    .await
-                    {
-                        Ok(matrix) => {
-                            consecutive_skips = 0;
-                            let n_short = matrix.short_clusters.len();
-                            let n_long = matrix.long_clusters.len();
-                            let mid = matrix.mid_price;
-                            let oi = matrix.total_long_oi_usd + matrix.total_short_oi_usd;
-                            println!(
-                                "✅ Cluster Refresh: {} {} mid={:.2} OI=${:.0} → {} short + {} long clusters ({}ms)",
-                                pair_log,
-                                &slot_label,
-                                mid,
-                                oi,
-                                n_short,
-                                n_long,
-                                started.elapsed().as_millis(),
-                            );
-                            write_cluster_status(
-                                &status_handle,
-                                ClusterRefreshStatus::Ok,
-                                None,
-                                Some(matrix.clone()),
-                            )
-                            .await;
-                            *handle.write().await = Some(matrix);
-                        }
-                        Err(e) => {
-                            consecutive_skips += 1;
-                            // AUDIT-M18-SPAM: warn on every tick up to the
-                            // threshold, then go quiet and report only the
-                            // transition into the cleared state.
-                            //
-                            // Previously this printed unconditionally, so a
-                            // slot whose OI feed never arrives logged on EVERY
-                            // refresh for the life of the process — and the
-                            // counter kept climbing past the threshold it was
-                            // being compared against, printing the
-                            // self-contradicting "skip 7 of 3". A slow duration
-                            // whose derivatives poller has not populated the
-                            // symbol is exactly this case, so the noise was on a
-                            // normal path, not a rare one.
-                            if consecutive_skips < MAX_CONSECUTIVE_SKIPS {
-                                eprintln!(
-                                    "⚠️  Cluster Refresh: {} {} skipped this tick: {} (skip {} of {})",
-                                    pair_log, &slot_label, e, consecutive_skips, MAX_CONSECUTIVE_SKIPS,
-                                );
-                            } else if consecutive_skips == MAX_CONSECUTIVE_SKIPS {
-                                eprintln!(
-                                    "⚠️  Cluster Refresh: {} {} skipped {} consecutive ticks (last: {}) — \
-                                     further skips will not be logged; the matrix stays cleared until \
-                                     the feed recovers",
-                                    pair_log, slot_label, MAX_CONSECUTIVE_SKIPS, e,
-                                );
-                            }
-                            write_cluster_status(
-                                &status_handle,
-                                ClusterRefreshStatus::Skipped,
-                                Some(e.to_string()),
-                                None,
-                            )
-                            .await;
-                            if consecutive_skips >= MAX_CONSECUTIVE_SKIPS {
-                                // AUDIT-AIU-116: the feed has been down for
-                                // several refresh cycles — drop the stale
-                                // matrix so the wire carries `cluster: None`
-                                // and the frontend degrades to placeholders
-                                // instead of showing an estimate anchored to
-                                // an outdated mid.
-                                let mut guard = handle.write().await;
-                                if guard.is_some() {
-                                    println!(
-                                        "🕸️  Cluster Refresh: {} {} cleared stale matrix after {} consecutive skips",
-                                        pair_log,
-                                        &slot_label,
-                                        consecutive_skips,
-                                    );
-                                }
-                                *guard = None;
-                            }
-                        }
-                    }
-                }
-            });
-        }
-    }
+    // Hyperliquid has no public open-interest or funding stream, so the platform
+    // polled `/info {"type":"metaAndAssetCtxs"}` for mark, OI and funding — and
+    // Bitget and Bybit pushed the same three natively on their WS ticker
+    // channels. The poller fed the four non-candle indicators and the
+    // liquidation-cluster estimator; with both gone there is nothing to poll.
+    //
+    // The gating comment it replaced was careful and correct, and it is worth
+    // keeping in the record: the poller was `== Hyperliquid`, never an
+    // inequality, because spawning it for Bitget or Bybit would poll a
+    // Hyperliquid URL for a market that is not there — at best 404 every cycle,
+    // at worst silently feed the wrong venue's numbers. That reasoning dies with
+    // the poller.
 }
 
-/// Discriminated failure modes for the cluster refresh task. The error
-/// variant tells the operator (or the diagnostic log) **exactly why** the
-/// cluster matrix could not be recomputed this tick, so a missing cluster
-/// on the chart is debuggable from the logs alone.
-#[derive(Debug)]
-pub enum ClusterRefreshError {
-    /// No snapshot has been produced for this TF yet (DIE → MME warm-up).
-    NoSnapshotYet,
-    /// `mid_price <= 0.0` is unphysical — usually means the snapshot's
-    /// OHLC fields are NaN or empty.
-    InvalidMidPrice(f64),
-    /// `open_interest` is missing or non-positive. The carrier depends on
-    /// the active exchange (Hyperliquid: REST poller on a 60 s cadence;
-    /// Bitget: `ticker` channel carrying `holdingAmount`). The variant
-    /// carries the exchange so the message can be templated correctly.
-    NoOpenInterest { exchange: ExchangeChoice },
-    /// TF candle history has fewer than 5 bars; cluster estimation needs
-    /// swing-low/high seeds which require non-trivial history.
-    InsufficientHistory(usize),
-}
-
-impl std::fmt::Display for ClusterRefreshError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ClusterRefreshError::NoSnapshotYet => {
-                write!(f, "no snapshot yet (DIE → MME warm-up still in progress)")
-            }
-            ClusterRefreshError::InvalidMidPrice(p) => {
-                write!(f, "invalid mid_price ({}); non-positive or NaN", p)
-            }
-            ClusterRefreshError::NoOpenInterest { exchange } => match exchange {
-                ExchangeChoice::Hyperliquid => write!(
-                    f,
-                    "no open_interest yet (HL derivatives poller hasn't populated this symbol)"
-                ),
-                ExchangeChoice::Bitget => write!(
-                    f,
-                    "no open_interest yet (Bitget ticker channel hasn't delivered holdingAmount)"
-                ),
-                ExchangeChoice::Bybit => write!(
-                    f,
-                    "no open_interest yet (Bybit tickers topic hasn't delivered openInterestValue)"
-                ),
-            },
-            ClusterRefreshError::InsufficientHistory(n) => write!(
-                f,
-                "insufficient history ({} bars; need ≥5 for swing-low/high seeds)",
-                n
-            ),
-        }
-    }
-}
-
-/// v9: strategy-derived overrides for the cluster estimator (L2.5 +
-/// per-TF leverage). `Default` reproduces the v8.2 hardcoded geometry.
-#[derive(Debug, Clone)]
-pub struct ClusterOverrides {
-    pub estimation: core_domain::liquidity::ClusterEstimationParams,
-    /// v11.10: per-duration OI-delta window (replaces the fixed 1-hour
-    /// constant in the analyzer's snapshot build).
-    pub oi_delta_window_secs: u64,
-    pub oi_split: core_domain::liquidity::ClusterOiSplitParams,
-    pub confidence: core_domain::liquidity::ClusterConfidenceParams,
-    pub funding_mod_shift: f64,
-    /// Strategy `l1_5.per_tf_leverage` — when `enabled`, replaces the
-    /// pipeline's per-TF leverage config.
-    pub per_tf_leverage: Option<config_models::L1_5TfLeverageParams>,
-}
-
-impl Default for ClusterOverrides {
-    fn default() -> Self {
-        Self {
-            estimation: core_domain::liquidity::ClusterEstimationParams::default(),
-            oi_delta_window_secs: 3600,
-            oi_split: core_domain::liquidity::ClusterOiSplitParams::default(),
-            confidence: core_domain::liquidity::ClusterConfidenceParams::default(),
-            funding_mod_shift: 0.05,
-            per_tf_leverage: None,
-        }
-    }
-}
-
-impl ClusterOverrides {
-    /// Build from the bound strategy's `l2_5` + `l1_5` sections.
-    pub fn from_strategy(strategy: &config_models::StrategyConfig) -> Self {
-        let l2_5 = &strategy.l2_5;
-        Self {
-            estimation: core_domain::liquidity::ClusterEstimationParams {
-                swing_window_bars: l2_5.estimation.swing_window_bars,
-                swing_lookback: l2_5.estimation.swing_lookback,
-                bin_size_pct: l2_5.estimation.bin_size_pct,
-                peak_halfwidth_divisor: l2_5.estimation.peak_halfwidth_divisor,
-                bound_decay: l2_5.estimation.bound_decay,
-                ttl_secs: l2_5.estimation.ttl_secs,
-            },
-            oi_split: core_domain::liquidity::ClusterOiSplitParams {
-                funding_anchor: l2_5.oi_split.funding_anchor,
-                funding_bias_scale: l2_5.oi_split.funding_bias_scale,
-                price_anchor_pct: l2_5.oi_split.price_anchor_pct / 100.0,
-                price_bias_scale: l2_5.oi_split.price_bias_scale,
-                clamp: l2_5.oi_split.clamp,
-            },
-            confidence: core_domain::liquidity::ClusterConfidenceParams {
-                oi_adequacy_anchor_usd: l2_5.confidence.oi_adequacy_anchor_usd,
-                funding_penalty: l2_5.confidence.funding_penalty,
-            },
-            funding_mod_shift: l2_5.funding_modulation.shift,
-            per_tf_leverage: Some(strategy.l1_5.per_tf_leverage.clone()),
-            oi_delta_window_secs: 3600,
-        }
-    }
-}
-
-impl ClusterOverrides {
-    /// v11.10: per-duration geometry — the strategy's `l2_5`/`l1_5` base
-    /// scaled by the `liquidity_profile` row for `tf_secs` (fast durations
-    /// run finer bins, tighter magnet/anchor distances and faster bound
-    /// decay; see `config_models::liquidity_profile`). The percent→fraction
-    /// conversion of `price_anchor_pct` is preserved exactly as in
-    /// [`Self::from_strategy`].
-    pub fn for_duration(strategy: &config_models::StrategyConfig, tf_secs: u64) -> Self {
-        let mut this = Self::from_strategy(strategy);
-        let g =
-            config_models::liquidity_profile::for_duration(tf_secs, &strategy.l2_5, &strategy.l1_5);
-        this.estimation.swing_lookback = g.swing_lookback;
-        this.estimation.bin_size_pct = g.bin_size_pct;
-        this.estimation.peak_halfwidth_divisor = g.peak_halfwidth_divisor;
-        this.estimation.bound_decay = g.bound_decay;
-        this.oi_split.price_anchor_pct = g.price_anchor_pct / 100.0;
-        this.oi_delta_window_secs = g.oi_delta_window_secs;
-        this
-    }
-}
-
-/// Compute a cluster matrix for one specific timeframe slot. Each TF sees
-/// the same OI/funding (shared at ActivePair level) but a different
-/// price-history lookback — the last 200 candles of its own TF. This gives
-/// the micro chart the fastest-magnet cluster and the macro chart the
-/// slow-magnet cluster, matching the multi-TF synthesis model.
-///
-/// `pub` (not `pub(crate)`) so the integration tests under `tests/`
-/// can drive it without instantiating the full pipeline machinery.
-pub async fn compute_cluster_for_tf(
-    active_pair: &Arc<analyzer::ActivePair>,
-    tf_secs: u64,
-    config: &config_models::LiquidityConfig,
-    exchange: ExchangeChoice,
-    overrides: &ClusterOverrides,
-) -> Result<core_domain::liquidity::LiquidationClusterMatrix, ClusterRefreshError> {
-    use core_domain::liquidity::{estimate_clusters, ClusterEstimateInput};
-
-    // 1. Pull latest snapshot from the TF we are computing for.
-    let tf_snapshot = tf_latest_snapshot(active_pair, tf_secs).await;
-    let tf_snapshot = match tf_snapshot {
-        Some(s) => s,
-        None => return Err(ClusterRefreshError::NoSnapshotYet),
-    };
-    let mid = match tf_snapshot.mid_price.to_f64() {
-        Some(p) if p > 0.0 => p,
-        Some(p) => return Err(ClusterRefreshError::InvalidMidPrice(p)),
-        None => return Err(ClusterRefreshError::InvalidMidPrice(0.0)),
-    };
-    let funding = tf_snapshot
-        .funding_rate
-        .and_then(|d| d.to_f64())
-        .unwrap_or(0.0);
-
-    // 2. Get OI from the snapshot. OI is pair-level (shared at ActivePair
-    //    level), not per-TF.
-    let oi = tf_snapshot
-        .open_interest
-        .and_then(|d| d.to_f64())
-        .unwrap_or(0.0);
-    if oi <= 0.0 {
-        return Err(ClusterRefreshError::NoOpenInterest { exchange });
-    }
-
-    // 3. Build price history (last 200 candles of *this* TF, not micro).
-    let history_arc = match tf_history(active_pair, tf_secs) {
-        Some(h) => h,
-        None => return Err(ClusterRefreshError::NoSnapshotYet),
-    };
-    let history_handle = history_arc.read().await;
-    // v9: the window is the strategy's `l2_5.estimation.swing_window_bars`.
-    let price_history: Vec<f64> = history_handle
-        .iter()
-        .rev()
-        .take(overrides.estimation.swing_window_bars.max(5))
-        .filter_map(|c| c.close.to_f64())
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    drop(history_handle);
-
-    if price_history.len() < 5 {
-        return Err(ClusterRefreshError::InsufficientHistory(
-            price_history.len(),
-        ));
-    }
-
-    // 4. Compute. v6.10 (Phase 2 / B5): pull leverage_buckets / leverage_weights
-    //    / min_cluster_notional_usd from the per-TF `TfLeverageConfig` on the
-    //    active pipeline, replacing the hardcoded legacy distribution.
-    //    v9: the strategy's `l1_5.per_tf_leverage` (when enabled) replaces
-    //    the pipeline config.
-    let tf_cfg = active_pair
-        .pipeline_for_secs(tf_secs)
-        .map(|p| p.tf_leverage_config.as_ref().clone())
-        .unwrap_or_default();
-    let (buckets, weights, min_notional) = match overrides.per_tf_leverage.as_ref() {
-        Some(pl) if pl.enabled => (
-            pl.buckets.clone(),
-            pl.weights.clone(),
-            pl.min_cluster_notional_usd,
-        ),
-        _ => (
-            tf_cfg.buckets.clone(),
-            tf_cfg.weights.clone(),
-            tf_cfg.min_cluster_notional_usd,
-        ),
-    };
-    let symbol = tf_snapshot.symbol.clone();
-    let input = ClusterEstimateInput {
-        symbol: &symbol,
-        mid_price: mid,
-        price_history: &price_history,
-        // AUDIT-F: the long-OI price bias looks back a wall-clock-consistent
-        // span on every duration. `oi_delta_window_secs` is already resolved
-        // per-duration and is the same horizon the derivatives layer uses for
-        // this pipeline, so the two agree by construction.
-        price_horizon_bars: (config_models::liquidity_profile::oi_delta_window_secs(tf_secs)
-            / tf_secs.max(1))
-        .max(1) as usize,
-        total_oi_usd: oi,
-        funding_rate: funding,
-        long_oi_pct: None,
-        maintenance_margin_rate: config.maintenance_margin_rate,
-        funding_extreme_pct: config.funding_extreme_pct,
-        funding_modulation_active: true,
-        leverage_buckets: &buckets,
-        leverage_weights: &weights,
-        min_cluster_notional_usd: min_notional,
-        estimation: overrides.estimation.clone(),
-        oi_split: overrides.oi_split.clone(),
-        confidence: overrides.confidence.clone(),
-        funding_mod_shift: overrides.funding_mod_shift,
-    };
-    Ok(estimate_clusters(&input))
-}
-
-/// Helper: read the latest snapshot from one ACTIVE duration.
-async fn tf_latest_snapshot(
-    active_pair: &Arc<analyzer::ActivePair>,
-    tf_secs: u64,
-) -> Option<core_domain::models::MarketSnapshot> {
-    let pipe = active_pair.pipeline_for_secs(tf_secs)?;
-    pipe.latest_snapshot.read().await.clone()
-}
-
-/// Helper: get a reference to the history `VecDeque` of one ACTIVE duration.
-fn tf_history(
-    active_pair: &Arc<analyzer::ActivePair>,
-    tf_secs: u64,
-) -> Option<Arc<RwLock<std::collections::VecDeque<core_domain::normalized::NormalizedCandle>>>> {
-    active_pair
-        .pipeline_for_secs(tf_secs)
-        .map(|p| p.history.clone())
-}
-
-/// Write the cluster-status snapshot for one TF slot after a refresh tick.
-/// Always updates `last_refresh_attempt_ms`; on success also bumps
-/// `last_success_ms` and clears `last_skip_reason`; on skip carries the
-/// reason string forward so the operator can hover the UI pill to see why.
-async fn write_cluster_status(
-    handle: &Arc<RwLock<ClusterStatusSnapshot>>,
-    status: ClusterRefreshStatus,
-    skip_reason: Option<String>,
-    matrix: Option<core_domain::liquidity::LiquidationClusterMatrix>,
-) {
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    let mut guard = handle.write().await;
-    guard.last_refresh_attempt_ms = now_ms;
-    guard.status = status;
-    match (status, matrix) {
-        (ClusterRefreshStatus::Ok, Some(m)) => {
-            guard.last_success_ms = Some(now_ms);
-            guard.last_skip_reason = None;
-            guard.cluster_count_short = m.short_clusters.len();
-            guard.cluster_count_long = m.long_clusters.len();
-            guard.mid_price = m.mid_price;
-            guard.ttl_remaining_ms = (m.valid_until_ms as i64) - (now_ms as i64);
-        }
-        _ => {
-            // Skip / pending — leave cluster counts and mid_price as-is
-            // (still reflects the last successful matrix if any) but
-            // record the skip reason string so the operator can hover
-            // the UI pill to see why.
-            guard.last_skip_reason = skip_reason;
-        }
-    }
-}
+// CR-10: `tf_latest_snapshot`, `tf_history` and the cluster-status writer are
+// DELETED. The first two were the per-duration readers the cluster-refresh task
+// used to pull history and current price; the third wrote the status the
+// `/api/liquidity/cluster-status` endpoint served. All three lost their only
+// caller when the refresh task went, and a helper with no caller is just a
+// second copy of the accessor it wraps.
 
 fn uuid_v4_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};

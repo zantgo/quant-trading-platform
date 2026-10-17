@@ -93,13 +93,17 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         momentum: dim.clone(),
         volatility: dim.clone(),
         volume: dim.clone(),
-        liquidity: dim.clone(),
+        // `MarketContext.liquidity` is a ContextDimension — NOT the deleted
+        // `MarketSnapshot.liquidity` flow. Same name, different type.
+        liquidity: ContextDimension::neutral(),
         regime: "TRENDING".into(),
         overall_score: 50,
         overall_label: "BULLISH".into(),
     };
 
     MarketSnapshot {
+        // CR-10: the candle-derived heatmap bands.
+        state_bands: None,
         timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 60,
@@ -109,9 +113,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         mid_price: dec!(50000.0),
         bid_price: dec!(49995.0),
         ask_price: dec!(50005.0),
-        bid_size: Some(dec!(1.5)),
-        ask_size: Some(dec!(2.0)),
-        funding_rate: Some(dec!(0.0001)),
         open: Some(dec!(49800.0)),
         high: Some(dec!(50200.0)),
         low: Some(dec!(49750.0)),
@@ -122,19 +123,10 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         context: Some(context),
         alignment: Some(AlignmentMatrix::empty("BTC-USDT")),
         analysis: Some(AnalysisMatrix::empty("BTC-USDT")),
-        open_interest: Some(dec!(15000000.0)),
-        oi_delta_pct: Some(dec!(500000.0)),
-        oi_delta_window_secs: None,
-        mark_price: Some(dec!(50002.0)),
-        index_price: Some(dec!(50000.0)),
-        mark_index_spread_pct: Some(0.004),
         prev_day_px: Some(dec!(49500.0)),
         statistical_context: None,
-        liquidity_signals: vec![],
         metrics_config: None,
         risk_profile: Some(1),
-        liquidity: None,
-        cluster: None,
         volume_profile: None,
         quality_envelope: Some(CandleQualityEnvelope {
             quality_score: 95.0,

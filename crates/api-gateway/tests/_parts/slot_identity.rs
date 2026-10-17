@@ -37,15 +37,7 @@ fn make_pipe(secs: u64, tx: broadcast::Sender<MarketSnapshot>) -> TimeframePipel
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: FibonacciConfig::default(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
-        cluster_matrix: Arc::new(RwLock::new(None)),
-        cluster_status: Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
-        )),
         pipeline_state: Arc::new(RwLock::new(
             core_domain::models::CandlePipelineState::Initializing,
         )),
@@ -93,12 +85,6 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         active_secs: active_secs.clone(),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(50).0,
         cancel: CancellationToken::new(),
-        latest_oi: Arc::new(RwLock::new(None)),
-        latest_funding: Arc::new(RwLock::new(None)),
-        latest_mark_px: Arc::new(RwLock::new(None)),
-        latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
     });
 
@@ -307,6 +293,8 @@ async fn timeframe_label_round_trips_through_wire_payload() {
     // stamps it; the WS emission must surface that label on the outer
     // JSON-RPC params.
     let snap = MarketSnapshot {
+        // CR-10: the candle-derived heatmap bands.
+        state_bands: None,
         timeframe_label: Some("5m".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 300,
@@ -316,15 +304,6 @@ async fn timeframe_label_round_trips_through_wire_payload() {
         mid_price: rust_decimal::Decimal::from(1),
         bid_price: rust_decimal::Decimal::from(1),
         ask_price: rust_decimal::Decimal::from(1),
-        bid_size: None,
-        ask_size: None,
-        funding_rate: None,
-        open_interest: None,
-        oi_delta_pct: None,
-        oi_delta_window_secs: None,
-        mark_price: None,
-        index_price: None,
-        mark_index_spread_pct: None,
         prev_day_px: None,
         open: None,
         high: None,
@@ -336,12 +315,9 @@ async fn timeframe_label_round_trips_through_wire_payload() {
         alignment: None,
         analysis: None,
         risk_profile: None,
-        liquidity: None,
-        cluster: None,
         volume_profile: None,
         statistical_context: None,
         context: None,
-        liquidity_signals: vec![],
         metrics_config: None,
         quality_envelope: None,
         pipeline_state: core_domain::models::CandlePipelineState::default(),

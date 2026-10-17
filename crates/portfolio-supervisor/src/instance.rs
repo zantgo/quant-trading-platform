@@ -304,24 +304,7 @@ impl Instance {
                     market_analyzer::sr_engine::SrRoleTracker::new(0.003),
                 )),
                 fibonacci: config_models::FibonacciConfig::default(),
-                latest_oi: Arc::new(RwLock::new(None)),
-                latest_funding: Arc::new(RwLock::new(None)),
-                latest_mark_px: Arc::new(RwLock::new(None)),
-                latest_index_px: Arc::new(RwLock::new(None)),
                 active_set: Default::default(),
-                // Per-TF cluster-matrix handle (Phase 2). Empty by default;
-                // tests don't exercise cluster refresh so leaving this as
-                // None is fine.
-                cluster_matrix: Arc::new(RwLock::new(None)),
-                // Per-TF cluster-refresh status snapshot (sibling to
-                // `cluster_matrix`). Tests don't exercise refresh, so we
-                // initialize as Pending with empty fields.
-                cluster_status: Arc::new(RwLock::new(
-                    core_domain::liquidity::ClusterStatusSnapshot::pending(
-                        &format!("{}-{}", pair.0, pair.1),
-                        &core_domain::duration_label(secs),
-                    ),
-                )),
                 pipeline_state: Arc::new(RwLock::new(
                     core_domain::models::CandlePipelineState::Initializing,
                 )),
@@ -347,12 +330,6 @@ impl Instance {
             active_secs: active_secs.clone(),
             snapshot_tx: tokio::sync::mpsc::channel::<NormalizedEvent>(8).0,
             cancel: cancel.clone(),
-            latest_oi: Arc::new(RwLock::new(None)),
-            latest_funding: Arc::new(RwLock::new(None)),
-            latest_mark_px: Arc::new(RwLock::new(None)),
-            latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))), // AUDIT-AIU-051: (timestamp_secs, value)
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
             latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         });
 

@@ -34,11 +34,12 @@
     import LinRegSlopeChart from './LinRegSlopeChart.svelte';
     import ZScoreChart from './ZScoreChart.svelte';
     import KeltnerChart from './KeltnerChart.svelte';
-    import FundingChart from './FundingChart.svelte';
-    import OpenInterestChart from './OpenInterestChart.svelte';
-    import OiDeltaChart from './OiDeltaChart.svelte';
-    import OrderFlowDepthChart from './OrderFlowDepthChart.svelte';
-    import SpreadChart from './SpreadChart.svelte';
+    // CR-10: the fullscreen modal's five derivative chart panes are DELETED.
+    // `FundingChart`, `OpenInterestChart`, `OiDeltaChart`,
+    // `OrderFlowDepthChart` and `SpreadChart` each rendered one non-candle
+    // reading off a venue stream. They were reachable from the modal's
+    // chart-type union, which is why that union loses five members too — an
+    // empty branch in a type union is a route that resolves to a blank pane.
 
     const app = useAppStore();
     let triggerScreenshot = $state<(() => void) | null>(null);
@@ -128,16 +129,6 @@
                 <ZScoreChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'keltner'}
                 <KeltnerChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'funding'}
-                <FundingChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'open_interest'}
-                <OpenInterestChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'oi_delta'}
-                <OiDeltaChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'order_flow_depth'}
-                <OrderFlowDepthChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'spread'}
-                <SpreadChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {/if}
         </div>
         <FullscreenToolbar onScreenshot={handleScreenshot} onClose={handleClose} />

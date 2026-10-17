@@ -24,7 +24,6 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
                 )
             })
             .collect(),
-        liquidity: Some(current_config.liquidity.clone()),
         minimal_tae: Some(current_config.minimal_tae.clone()),
         analytics: Some(current_config.analytics.clone()),
         risk_limits: Some(current_config.risk_limits.clone()),
