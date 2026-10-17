@@ -2,7 +2,7 @@
 //!
 //! The daemon was OOM-killed by the kernel at ~1.8–2.1 GB RSS on a 2.8 GB
 //! host. Root cause: `TimeframePipeline.snapshot_history` retained up to
-//! `HIST_BUFFER_MAX = 1000` **full** completed `MarketSnapshot`s per
+//! `HISTORY_CAP = 500` **full** completed `MarketSnapshot`s per
 //! (instance × duration). A completed frame carries eight synthesis
 //! matrices, the cluster matrix, the liquidity flow (whose
 //! `recent_real_buckets` map alone reaches 2 000 entries at the shipped
@@ -307,24 +307,26 @@ fn projection_is_at_most_a_fifth_of_the_full_frame() {
     );
 }
 
-// ── Pin #4: retention is rolled at candle_buffer.size (500) ───────
+// ── Pin #4: retention is rolled at the one cap (500) ───────────────
 
-/// Guards the number against the `[candle_buffer].size` default the
-/// `CandleBufferConfig` serde default supplies, and against the documented
-/// `SNAPSHOT_HISTORY_MAX` ceiling.
+/// CR-13: this used to compare the retention default against
+/// `CandleBufferConfig::default().size` — a setting that is now deleted — and
+/// against a `SNAPSHOT_HISTORY_MAX` ceiling of 1000. Both are gone; the number
+/// has one source. `history_cap.rs` is the enforcement; this is the in-place
+/// guard that the wiring still points at the right constant.
 #[test]
-fn retention_matches_the_documented_candle_buffer_tier() {
+fn retention_is_the_one_cap() {
     let hb_ref = hb(500, 512 * 1024 * 1024);
     hb_ref.configure(budget::DEFAULT_SNAPSHOT_HISTORY_RETENTION, 0);
-    assert_eq!(hb_ref.retention(), 500);
+    assert_eq!(hb_ref.retention(), core_domain::HISTORY_CAP);
     assert_eq!(
         budget::DEFAULT_SNAPSHOT_HISTORY_RETENTION,
-        config_models::CandleBufferConfig::default().size,
-        "retention default must equal the [candle_buffer].size serde default"
+        core_domain::HISTORY_CAP,
+        "the retention default must BE the cap, not a number beside it"
     );
-    // Retention can never exceed the absolute in-memory cap.
+    // Retention can never exceed the cap, whatever a caller asks for.
     hb_ref.configure(99_999, 0);
-    assert_eq!(hb_ref.retention(), budget::SNAPSHOT_HISTORY_MAX);
+    assert_eq!(hb_ref.retention(), core_domain::HISTORY_CAP);
 }
 
 #[test]

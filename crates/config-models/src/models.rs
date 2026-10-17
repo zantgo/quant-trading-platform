@@ -143,19 +143,19 @@ fn default_candle_duration() -> u64 {
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandleBufferConfig {
-    /// Canonical rolling buffer length — the **historical warmup depth**
-    /// (CB-01/CB-08): every ≥ 1-minute pipeline starts with exactly this
-    /// many candles fetched from the exchange REST endpoint, and every
-    /// per-timeframe in-memory buffer (`NormalizedCandle` history,
-    /// `MarketSnapshot` history) is rolled at exactly this many entries
-    /// (CB-03). The three candle numbers are **independent tiers**:
-    /// `INDICATORS_MAX_BARS_REQUIRED = 300` (indicator calculation floor),
-    /// this `size` (default **500**, the internet warmup), and
-    /// `HIST_BUFFER_MAX = 1000` (absolute in-memory cap — never more than
-    /// 1000 candles, sub-minute and above-minute, same behavior).
-    #[serde(default = "default_candle_buffer_size")]
-    pub size: usize,
-
+    // CR-13: the `size` setting is DELETED.
+    //
+    // There is no operator-tunable depth any more. The number an operator used
+    // to set here was not the number that applied: the warmup fetched `size`
+    // candles, the live path then trimmed to `HIST_BUFFER_MAX = 1000`, and the
+    // retained snapshot window was bounded separately again — three numbers,
+    // one question, and no way to tell from the config which one bound.
+    // Everything now resolves to `core_domain::HISTORY_CAP = 500`.
+    //
+    // A `size` key left in an existing `config.toml` is ignored rather than
+    // rejected, on the same grounds as `analysis_limit` below: refusing to
+    // start because a file carries a key this build no longer has would take
+    // down a workspace over a setting that now has exactly one legal value.
     /// Seconds without a completed candle before the pipeline transitions
     /// `LIVE → STALE` (DCP-05) or before an indicator in `Loading` escalates
     /// to `Failed` (ILS-06 / ILS-09).
@@ -222,7 +222,6 @@ pub struct CandleBufferConfig {
 impl Default for CandleBufferConfig {
     fn default() -> Self {
         Self {
-            size: default_candle_buffer_size(),
             stale_threshold_secs: default_stale_threshold_secs(),
             fetch_timeout_ms: default_fetch_timeout_ms(),
             sub_minute_skip_historical: default_sub_minute_skip_historical(),
@@ -230,10 +229,6 @@ impl Default for CandleBufferConfig {
             warm_concurrency: default_warm_concurrency(),
         }
     }
-}
-
-fn default_candle_buffer_size() -> usize {
-    500
 }
 
 /// v11.14.1 — bounded parallel warm replay; see
@@ -263,9 +258,11 @@ fn default_sub_minute_skip_historical() -> bool {
 }
 
 /// Migration helper: legacy `analysis_limit` keys (the previous per-instance
-/// field) are silently ignored after v6.5. The canonical number is
-/// `candle_buffer.size`. This function reports whether the operator has any
-/// stale keys so the daemon can log a one-shot warning at startup.
+/// field) are silently ignored after v6.5, as is `candle_buffer.size` since
+/// CR-13. Neither has a replacement an operator can tune — the cap is
+/// `core_domain::HISTORY_CAP` — so there is nothing to migrate *to*, only keys
+/// to stop honouring. This function reports whether the operator has any stale
+/// keys so the daemon can log a one-shot warning at startup.
 pub fn detect_legacy_analysis_limit_keys(raw_toml: &str) -> bool {
     raw_toml.contains("analysis_limit")
 }

@@ -13,7 +13,7 @@ use market_analyzer::analyzer;
 use market_analyzer::indicators::DivergenceDetector;
 
 #[tokio::test]
-async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
+async fn test_fixed_ladder_fanout_history_cap_and_broadcast() {
     tokio::time::timeout(tokio::time::Duration::from_secs(30), async {
         let symbol = "ZZZ".to_string();
         let pair_key = "Hyperliquid-ZZZ".to_string();
@@ -40,8 +40,8 @@ async fn test_fixed_ladder_fanout_history_cap_100_and_broadcast() {
         // legacy "cap 100" was the natural data bound of 30s candles over
         // the simulated 50-minute window; the fixed ladder's 1s slot
         // legitimately produces more, and the real invariant is the
-        // HIST_BUFFER_MAX trim).
-        let cap = analyzer::HIST_BUFFER_MAX;
+        // HISTORY_CAP trim).
+        let cap = core_domain::HISTORY_CAP;
         let histories: [Arc<RwLock<VecDeque<NormalizedCandle>>>; 10] = std::array::from_fn(|_| {
             Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
                 120,

@@ -1365,11 +1365,6 @@ fn validate_platform(platform: &PlatformConfig) -> Result<()> {
             ),
         });
     }
-    if platform.candle_buffer.size == 0 {
-        return Err(ConfigError::InvalidNumeric {
-            detail: "[candle_buffer].size = 0 (must be >0)".into(),
-        });
-    }
     Ok(())
 }
 

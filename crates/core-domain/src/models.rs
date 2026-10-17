@@ -44,6 +44,38 @@ impl Default for LiquidityActivation {
     }
 }
 
+/// CR-13 — the one history cap.
+///
+/// Every rolling series this platform retains is bounded by this number and
+/// nothing else: the per-duration candle buffer, the warmup fetch depth, the
+/// retained snapshot window, and the archive series the CLI serves. When the
+/// bound is reached the **oldest** entry is evicted, so the window is exactly
+/// this length.
+///
+/// It is a `const`, not a setting, and that is the point. There were once three
+/// numbers governing the candle universe — an indicator floor (300), a warmup
+/// depth (500) and an absolute in-memory cap (1000) — with an operator-tunable
+/// setting among them. An operator reading a config that says "500" had no way
+/// to know two other ceilings sat at 1000, or which one bound first, and a
+/// deployment could be configured so that the number an operator set was not the
+/// number that applied. CR-3 had argued they answered different questions;
+/// the decision to have **no** operator-tunable cap removes the question.
+///
+/// Two things survive as windows *inside* this bound rather than caps of their
+/// own:
+///
+/// - **Tier A (300 bars)** — what must be retained for percentile, slope and
+///   derivative work. It sits below the indicator calculation floor, so an
+///   indicator that emits at 300 bars has all of its own input retained.
+/// - **The 50-entry eviction floor** — the point at which byte-budget eviction
+///   stops, so a chart always has something to render. Tier D (leg records) is
+///   `O(1)`, never charged and never evicted.
+///
+/// Sub-minute durations are included without exception. A 1s pipeline retains
+/// 500 one-second candles and a 4h pipeline retains 500 four-hour candles;
+/// the cap is on *entries*, not on duration.
+pub const HISTORY_CAP: usize = 500;
+
 /// v11.9: duration-keyed timeframe identity. A timeframe IS its duration
 /// in seconds — there are no named slots. The supported pool is the closed
 /// 14-duration set below; activation is any subset of 1..=14 durations.

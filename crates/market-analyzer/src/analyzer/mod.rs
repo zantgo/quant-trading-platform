@@ -38,11 +38,12 @@ use core_domain::models::{
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
 use core_domain::statistics::{StatisticsConfig, StatisticsEngine};
 use core_domain::volume_profile::{VolumeProfileBin, VolumeProfileSnapshot};
+use core_domain::HISTORY_CAP;
 
 pub mod history_budget;
 pub mod normalize;
 pub mod warm;
-pub use warm::{warm_indicators_for_timeframe, WarmedPipelineState, HIST_BUFFER_MAX};
+pub use warm::{warm_indicators_for_timeframe, WarmedPipelineState};
 
 /// M2 (production audit): fire-and-forget telemetry with a bounded drop
 /// policy. The 10k-slot channel is drained serially by the SQLite logger;
@@ -85,7 +86,7 @@ fn classify_sequence(prev_start_ms: Option<u64>, start_ms: u64) -> SequenceInteg
 /// historical warmup depth. Used as the higher-tier system-gate (Layer 2) —
 /// the pipeline transitions `Loading → Live` when the buffer reaches this
 /// count. Independent of the indicator floor (`INDICATORS_MAX_BARS_REQUIRED
-/// = 300`) and the absolute cap (`HIST_BUFFER_MAX = 1000`). Default 500.
+/// = 300`) and the absolute cap (`HISTORY_CAP = 500`). Default 500.
 pub const DEFAULT_BUFFER_SIZE: usize = 500;
 
 pub struct TimeframePipeline {
@@ -757,7 +758,7 @@ pub fn derive_pipeline_state_with_staleness(
 ///
 /// Every completed-candle path in `run_single` (real close, force-close,
 /// stale-gap Doji fill, idle-bucket heartbeat Doji, reconnect-gap Doji) used
-/// to inline the same `push_back` + `while len > HIST_BUFFER_MAX { pop_front }`
+/// to inline the same `push_back` + `while len > HISTORY_CAP { pop_front }`
 /// pair, retaining up to **1000 full** snapshots per (instance × duration).
 /// A completed frame is ~120 KB of heap (measured: 54.9 KB JSON), and
 /// `/api/history` reads only `timestamp`, OHLCV, `quality_envelope
@@ -1792,7 +1793,7 @@ pub async fn run_single(
                             // `forced.clone()` fed fib/pivots/S-R a different
                             // close than the indicator state.
                             hist.push_back(live.clone());
-                            while hist.len() > HIST_BUFFER_MAX {
+                            while hist.len() > HISTORY_CAP {
                                 hist.pop_front();
                             }
                         }
@@ -2134,14 +2135,14 @@ pub async fn run_single(
         };
 
         {
-            // Rolling live-runtime cap. The same `HIST_BUFFER_MAX = 1000`
+            // Rolling live-runtime cap. The same `HISTORY_CAP = 500`
             // is applied to all 4 TF slots and both supported exchanges
             // (Hyperliquid + Bitget) — the pipeline is exchange-agnostic.
             // See `crates/market-analyzer/tests/hist_buffer_cap_uniformity.rs`
             // for the regression pins and `crates/market-analyzer/src/analyzer/warm.rs`
             // for the matching warmup-side trim.
             let mut hist = history.write().await;
-            while hist.len() > HIST_BUFFER_MAX {
+            while hist.len() > HISTORY_CAP {
                 hist.pop_front();
             }
         }
@@ -2716,7 +2717,7 @@ pub async fn run_single(
                     {
                         let mut hist = history.write().await;
                         hist.push_back(completed.clone());
-                        while hist.len() > HIST_BUFFER_MAX {
+                        while hist.len() > HISTORY_CAP {
                             hist.pop_front();
                         }
                     }
@@ -5814,6 +5815,7 @@ mod lifecycle_tests {
     use super::build_indicator_lifecycle_map;
     use crate::indicators::NormalizedIndicatorValue;
     use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
+    use core_domain::HISTORY_CAP;
     use std::collections::HashMap;
 
     /// A WARMING placeholder mirrors the one the normalizer inserts for

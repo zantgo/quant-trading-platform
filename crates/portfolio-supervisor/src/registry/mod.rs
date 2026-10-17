@@ -412,7 +412,9 @@ pub async fn add_instance(
     // previous per-instance `analysis_limit` field and the historical
     // NON_SUBMIN_SEED_FLOOR = 1000 hardcode.
     let candle_buffer = state.platform.read().await.candle_buffer.clone();
-    let buffer_size = candle_buffer.size;
+    // CR-13: one cap. The warmup fetch and the rolling window are the same
+    // number, so there is no longer a configured depth to pass down.
+    let buffer_size = core_domain::HISTORY_CAP;
     let stale_threshold_secs = candle_buffer.stale_threshold_secs;
     let fetch_timeout_ms = candle_buffer.fetch_timeout_ms;
     let sub_minute_skip_historical = candle_buffer.sub_minute_skip_historical;
@@ -958,7 +960,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     // Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     // Single source of truth for the rolling window length.
     let candle_buffer = state.platform.read().await.candle_buffer.clone();
-    let buffer_size = candle_buffer.size;
+    // CR-13: one cap. The warmup fetch and the rolling window are the same
+    // number, so there is no longer a configured depth to pass down.
+    let buffer_size = core_domain::HISTORY_CAP;
     let stale_threshold_secs = candle_buffer.stale_threshold_secs;
     let fetch_timeout_ms = candle_buffer.fetch_timeout_ms;
     let sub_minute_skip_historical = candle_buffer.sub_minute_skip_historical;

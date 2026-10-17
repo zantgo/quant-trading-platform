@@ -829,7 +829,7 @@ async fn async_main() {
 
     // AUDIT-V7-300 (08-08 §CB-01): one-shot startup warning for stale
     // legacy `analysis_limit` keys — the canonical number is
-    // `candle_buffer.size` and stale keys are silently ignored.
+    // `candle_buffer.size`, `analysis_limit` and other stale keys are silently ignored.
     if let Ok(raw_toml) = std::fs::read_to_string("config.toml") {
         if config_models::detect_legacy_analysis_limit_keys(&raw_toml) {
             eprintln!(
@@ -853,11 +853,13 @@ async fn async_main() {
     // v11.12.24 (memory): configure the retained-snapshot retention depth and
     // the process-wide byte budget BEFORE any pipeline is built, so the boot
     // warm seed is charged against the same budget as every live close.
-    // Retention is the documented `[candle_buffer] size` tier (CB-03);
-    // `max_snapshot_history_bytes` is the global safety valve (0 disables
+    //
+    // CR-13: retention is no longer a setting. It is `core_domain::HISTORY_CAP`,
+    // the same number the candle buffer and the warmup fetch use.
+    // `max_snapshot_history_bytes` remains the global safety valve (0 disables
     // byte-budget eviction, leaving the per-duration cap alone).
     market_analyzer::analyzer::history_budget::configure(
-        platform.candle_buffer.size,
+        core_domain::HISTORY_CAP,
         platform.candle_buffer.max_snapshot_history_bytes,
     );
     println!(

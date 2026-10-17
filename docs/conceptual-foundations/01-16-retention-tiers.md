@@ -36,18 +36,31 @@ These quantities are **different tiers of one resource**, not competing names fo
 relationship is an invariant, and it is checked at startup:
 
 ```
-INDICATORS_MAX_BARS_REQUIRED (300) <= TIER_A (300) <= BUDGET.retention (500)
-                                                    <= candle_buffer.size (500)
-                                                    <= HIST_BUFFER_MAX (1000)
+INDICATORS_MAX_BARS_REQUIRED (300) <= TIER_A (300) <= HISTORY_CAP (500)
+                                          >= BUDGET.retention  (500, derived)
+                                          >= warmup fetch depth (500, derived)
+                                          >= SNAPSHOT_HISTORY_FLOOR (50, the
+                                             eviction floor — a floor, not a cap)
 ```
 
 | Quantity | Question it answers | Value |
 |---|---|---|
 | `bars_required` (max) | How many bars must an indicator **receive** before it may emit? | 300 |
 | **Tier A** | How many bars must be **retained** for percentile, slope, derivative? | **300** |
-| `Budget.retention` | How deep is the **retained snapshot window**? | 500 |
-| `candle_buffer.size` | How deep is the **warmup fetch**? | 500 |
-| `HIST_BUFFER_MAX` | What is the absolute in-memory **cap**? | 1000 |
+| `SNAPSHOT_HISTORY_FLOOR` | How far may byte-budget eviction shrink a window before it stops? | 50 |
+| **`HISTORY_CAP`** | **How deep is anything at all?** | **500** |
+
+**CR-13 — there is one number, not five.** The table once listed three
+independent quantities for the same question: a warmup depth an operator could
+set, an absolute cap set higher, and a retained-window depth that happened to
+match the first. The hard cap was **1000**, twice the value an operator was told
+they were configuring. `HISTORY_CAP` in `core-domain` is now the only bound, it
+is a `const`, and the warmup fetch, the rolling candle deque and the retained
+snapshot window all derive from it. Tier A (300) and the eviction floor (50) are
+windows *inside* it.
+
+The cap is on **entries**, not on duration, and includes sub-minute durations
+without exception: a 1s pipeline retains 500 one-second candles.
 
 > **Tier A was 250 bars and was corrected to 300.** See
 > [`change-requests.md`](01-17-change-requests.md) CR-1. Tier A at 250 sat **below** the indicator
@@ -164,7 +177,11 @@ false statement about the market produced by a resource decision. That is precis
 
 ## Independent settings
 
-`candle_buffer.size` and the snapshot retention window are **separate settings**. Both default to
+(CR-13 supersedes the separation this note described. `candle_buffer.size` and the
+snapshot retention window are **one quantity** now, not two settings that
+happened to agree — and neither is a setting.)
+
+The note that follows recorded the old position. Both defaulted to
 500; that is a coincidence of defaults, not a shared knob.
 
 | Setting | Measures | Must not change because |

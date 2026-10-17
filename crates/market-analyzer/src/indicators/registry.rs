@@ -1555,7 +1555,7 @@ pub fn all() -> Vec<IndicatorMeta> {
 /// holds at least this many bars (300 = the L1 `price_trend_sharpe` window).
 /// This is the **indicator-tier floor** — one of three independent candle
 /// numbers: 300 here (calculation minimum), `[candle_buffer] size` (default
-/// 500, the historical warmup), and `HIST_BUFFER_MAX` (1000, the absolute
+/// 500, the historical warmup), and the one cap `HISTORY_CAP` (500, the absolute
 /// in-memory cap — never more than 1000 candles, sub-minute and
 /// above-minute, same behavior). Used as the lower-tier mathematical-gate
 /// (Layer 1); the higher-tier system-gate (Layer 2) is `[candle_buffer]

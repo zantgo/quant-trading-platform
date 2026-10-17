@@ -98,13 +98,22 @@ invalidate_on = "direction_flip"
 [workspace.candles]
 duration_seconds = 60
 
-# Canonical candle-buffer tiers (CB-01) — three independent numbers:
-#   300 = INDICATORS_MAX_BARS_REQUIRED  (indicator calculation floor)
-#   500 = [candle_buffer] size          (historical warmup fetched from REST)
-#   1000 = HIST_BUFFER_MAX              (absolute in-memory cap, sub-minute
-#                                        and above-minute, same behavior)
+# The one history cap (CR-13).
+#
+#   500 = core_domain::HISTORY_CAP — the historical warmup fetched from REST,
+#         the rolling per-duration buffer, and the retained snapshot window.
+#         Sub-minute and above-minute alike. Not tunable: there is no setting
+#         to change it, and a `size =` key left here from an older build is
+#         ignored rather than honoured.
+#
+# Two windows live inside that 500 and are not caps of their own:
+#   300 = INDICATORS_MAX_BARS_REQUIRED — what an indicator needs retained for
+#         percentile / slope / derivative work. It is a window, not a ceiling.
+#   50  = the byte-budget eviction floor, below which shedding stops.
+#
+# Tier D (leg records) is O(1), never charged against the budget and never
+# evicted.
 [candle_buffer]
-size = 500
 # v11.14.1: how many durations may run their indicator warm-up replay at once.
 # The replay is CPU-bound (500 candles x 52 indicators per duration) and runs
 # off the async workers, so raising this shortens an instance spawn; the

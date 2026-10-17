@@ -6,8 +6,8 @@
 //! Why this exists: the daemon was OOM-killed by the kernel at ~1.8–2.1 GB
 //! RSS on a 2.8 GB host. The cause was retention, not a leak — every
 //! (instance × duration) pipeline kept a rolling window of up to
-//! `HIST_BUFFER_MAX = 1000` **full** completed `MarketSnapshot`s. A
-//! completed frame carries eight synthesis matrices, the cluster matrix,
+//! `HISTORY_CAP = 500` **full** completed `MarketSnapshot`s. A
+//! completed frame carries its synthesis matrices, the cluster matrix,
 //! the liquidity flow (whose `recent_real_buckets` map alone reaches 2 000
 //! entries at the shipped 24 h retention), a 100-bin volume profile, the
 //! 52-entry lifecycle map and per-indicator signals — measured at 54.9 KB
@@ -17,11 +17,10 @@
 //! candle ever closes.
 //!
 //! Two mechanisms, layered:
-//!   1. [`crate::analyzer::warm::HIST_BUFFER_MAX`] still caps the *candle*
-//!      deque, but the *snapshot* window is now rolled at
-//!      `[candle_buffer].size` (500) — the depth CB-02 has always
-//!      documented — and every retained frame is stored as the
-//!      `history_projection()` subset (`/api/history` reads nothing else).
+//!   1. [`core_domain::HISTORY_CAP`] caps the *candle* deque AND the retained
+//!      snapshot window at the same number (CR-13 unified what were three),
+//!      and every retained frame is stored as the `history_projection()`
+//!      subset (`/api/history` reads nothing else).
 //!   2. This module caps the **total** across every pipeline. When the
 //!      global weight crosses `max_snapshot_history_bytes` the oldest
 //!      entries are evicted, so a workspace with many instances degrades
@@ -42,15 +41,13 @@ use std::sync::OnceLock;
 
 use core_domain::models::MarketSnapshot;
 
-/// Default per-(instance × duration) retained-entry cap. Equals
-/// `config_models::default_candle_buffer_size()` — duplicated as a literal
-/// so this module has no dependency on `config-models`, and pinned by
-/// `snapshot_history_retention.rs`.
-pub const DEFAULT_SNAPSHOT_HISTORY_RETENTION: usize = 500;
-
-/// Absolute ceiling on the retained count, mirroring `HIST_BUFFER_MAX` so
-/// no deployment can be configured above the documented 1 000-candle tier.
-pub const SNAPSHOT_HISTORY_MAX: usize = 1000;
+/// Default per-(instance x duration) retained-entry cap.
+///
+/// CR-13: both this and the absolute ceiling it used to be paired with
+/// (`SNAPSHOT_HISTORY_MAX = 1000`) are now the single `core_domain::HISTORY_CAP`.
+/// There is no longer a default and a ceiling to confuse, and no deployment can
+/// be configured above the documented tier because there is no knob.
+pub const DEFAULT_SNAPSHOT_HISTORY_RETENTION: usize = core_domain::HISTORY_CAP;
 
 /// Default process-wide budget: **512 MiB** (`[candle_buffer]
 /// .max_snapshot_history_bytes`).
@@ -96,7 +93,7 @@ fn budget() -> &'static Budget {
 impl Budget {
     pub fn new(retention: usize, max_bytes: usize) -> Self {
         Self {
-            retention: AtomicUsize::new(retention.clamp(1, SNAPSHOT_HISTORY_MAX)),
+            retention: AtomicUsize::new(retention.clamp(1, core_domain::HISTORY_CAP)),
             max_bytes: AtomicUsize::new(max_bytes),
             usage: AtomicUsize::new(0),
             eviction_streak: AtomicUsize::new(0),
@@ -105,8 +102,10 @@ impl Budget {
     }
 
     pub fn configure(&self, retention: usize, max_bytes: usize) {
-        self.retention
-            .store(retention.clamp(1, SNAPSHOT_HISTORY_MAX), Ordering::Relaxed);
+        self.retention.store(
+            retention.clamp(1, core_domain::HISTORY_CAP),
+            Ordering::Relaxed,
+        );
         self.max_bytes.store(max_bytes, Ordering::Relaxed);
     }
 
@@ -302,7 +301,7 @@ impl Budget {
 /// Configure retention depth and the process-wide byte budget. Called once
 /// at boot from the daemon with `[candle_buffer]` values; safe to call
 /// again (a config reload re-applies). `retention` is clamped to
-/// `1..=SNAPSHOT_HISTORY_MAX`; `max_bytes` of 0 disables byte-budget
+/// `1..=core_domain::HISTORY_CAP`; `max_bytes` of 0 disables byte-budget
 /// eviction entirely, leaving only the per-pipeline retention cap.
 pub fn configure(retention: usize, max_bytes: usize) {
     budget().configure(retention, max_bytes);
@@ -548,7 +547,7 @@ mod tests {
     fn defaults_are_documented_values() {
         assert_eq!(DEFAULT_SNAPSHOT_HISTORY_RETENTION, 500);
         assert_eq!(DEFAULT_MAX_SNAPSHOT_HISTORY_BYTES, 536_870_912);
-        assert_eq!(SNAPSHOT_HISTORY_MAX, 1000);
+        assert_eq!(core_domain::HISTORY_CAP, 500);
         assert_eq!(SNAPSHOT_HISTORY_FLOOR, 50);
     }
 
@@ -585,7 +584,7 @@ mod tests {
         configure(0, 0);
         assert_eq!(retention(), 1);
         configure(99_999, 0);
-        assert_eq!(retention(), SNAPSHOT_HISTORY_MAX);
+        assert_eq!(retention(), core_domain::HISTORY_CAP);
         configure(500, 0);
         assert_eq!(retention(), 500);
     }

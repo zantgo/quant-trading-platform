@@ -158,7 +158,7 @@ async fn collect_candles(
     //
     // Cross-references:
     //   - `crates/market-analyzer/tests/hist_buffer_cap_uniformity.rs`
-    //     pins the uniform `HIST_BUFFER_MAX = 1000` cap across all TFs.
+    //     pins the uniform `HISTORY_CAP = 500` cap across all TFs.
     //   - `crates/market-analyzer/src/analyzer/warm.rs` — the cap constant
     //     and the matching warmup-side trim.
     //   - `docs/engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md`
