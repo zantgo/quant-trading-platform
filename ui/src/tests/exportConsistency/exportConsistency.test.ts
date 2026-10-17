@@ -18,7 +18,6 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, render } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import AlignmentPanel from '../../components/AlignmentPanel.svelte';
-import AnalysisPanel from '../../components/AnalysisPanel.svelte';
 import TerminalMonitor from '../../components/TerminalMonitor.svelte';
 import GeneralDashboard from '../../components/GeneralDashboard.svelte';
 import { useAppStore } from '../../state.svelte';
@@ -131,95 +130,6 @@ describe('export consistency — Alignment tab', () => {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Risks tab
-// ─────────────────────────────────────────────────────────────────────────
-
-describe('export consistency — Analysis tab', () => {
-  it('exports the exact signal lean hero, decomposed signals, assessments, per-TF grid, interpretation and rationale', async () => {
-    const c = await renderPanelAndExport(AnalysisPanel, {}, seedRichInstance);
-    const p = c.payload;
-
-    // Body block.
-    expect(p.body.bias).toBe('Bullish');
-    expect(p.body.market_regime).toBe('TrendingBull');
-    expect(p.body.market_quality).toBe('Good');
-    expect(p.body.cycle_phase).toBe('MARKUP');
-
-    // Signal lean hero — identical sentences.
-    expect(p.signal_lean_hero.label_html).toBe('Net bullish (2↑ vs 1↓)');
-    expectInDomAndJson(c, 'Net bullish (2↑ vs 1↓)');
-    expect(p.signal_lean_hero.meta_html).toBe('2.0:1 signal ratio');
-    expectInDomAndJson(c, '2.0:1 signal ratio');
-    expect(p.signal_lean_hero.tone).toBe('bull');
-
-    // Lean chip label (export payload only — the on-screen chip was
-    // removed; the hero above carries the same info).
-    expect(p.signals.lean.label).toBe('Net bullish · 2↑ vs 1↓');
-
-    // Decomposed signals — same rows as the screen grid squares.
-    expect(p.signals.list).toHaveLength(3);
-    expect(p.signals.list.map((s: { timeframe: string }) => s.timeframe)).toEqual(['1S', '5S', '3M']);
-    const micro = p.signals.list[0];
-    expect(micro.bucket).toBe('supporting');
-    expect(micro.score).toBe(62);
-    expect(micro.score_display).toBe('+62');
-    expect(micro.regime).toBe('TRENDING');
-    expect(micro.signals_count).toBe(3);
-    expectInDomAndJson(c, '+62');
-    expectInDomAndJson(c, 'TRENDING');
-
-    // Qualitative assessment.
-    expect(p.qualitative_assessment.trend).toBe('Healthy');
-    expectInDomAndJson(c, 'Healthy');
-    expect(p.qualitative_assessment.cycle_phase).toBe('MARKUP');
-    expectInDomAndJson(c, 'MARKUP');
-    // v6.12: per-card dimension-score badges + export parity
-    // (v6.13: rounded-integer + '%' screen format mirrored exactly).
-    expect(p.qualitative_assessment.trend_score_display).toBe('77%');
-    expectInDomAndJson(c, '77%');
-    expect(p.qualitative_assessment.momentum_score_display).toBe('83%');
-    expectInDomAndJson(c, '83%');
-    expect(p.qualitative_assessment.structure_score_display).toBe('81%');
-    expectInDomAndJson(c, '81%');
-    expect(p.qualitative_assessment.volatility_score_display).toBe('55%');
-    expectInDomAndJson(c, '55%');
-    expect(p.qualitative_assessment.volume_score_display).toBe('79%');
-    expectInDomAndJson(c, '79%');
-
-    // Per-timeframe alignment — the on-screen gauge grid moved to the
-    // Alignment tab (v7.4); the export keeps the raw per-TF payload, so
-    // these are JSON-only assertions now.
-    expect(p.per_timeframe_alignment).toHaveLength(14);
-    const microTf = p.per_timeframe_alignment[0];
-    expect(microTf.active).toBe(true);
-    expect(microTf.trend_display).toBe('+0.45');
-    expect(c.jsonText).toContain('+0.45');
-    expect(microTf.overall_display).toBe('+1.0');
-    expect(microTf.regime).toBe('TRENDING');
-    expect(p.per_timeframe_alignment[6].regime).toBe('RANGE');
-
-    // Interpretation + rationale.
-    expectInDomAndJson(c, 'Price is making higher highs');
-    // v6.15: the raw rationale line no longer renders on screen — the
-    // evidence is the structured grid below the interpretation; the full
-    // rationale sentence still ships in the JSON export.
-    expect(c.jsonText).toContain('The market is in a healthy uptrend');
-    // v7.4: the Overall Score renders as a signed integer (+31), never a
-    // misleading "31 / 100" percentage.
-    expect(c.dom).toContain('+31');
-    expect(c.dom).toContain('(Bullish)');
-    expect(c.dom).toContain('14 timeframes aligned');
-    expectJsonNumberRenderedAsDom(c, '83.3%', 83.3);
-    expectJsonNumberRenderedAsDom(c, '33.0', 33.0);
-
-    // v6.10.21: representative traceability — the matrix's own pinned
-    // inputs (per-slot last-writer-wins proof) beat the micro-map fallback.
-    expect(p.representative_bbwp).toBeCloseTo(83.3, 1);
-    expect(p.representative_adx).toBeCloseTo(33.0, 1);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Recommendation tab
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('export consistency — Metrics tab (single-TF Micro)', () => {
@@ -560,10 +470,11 @@ describe('export consistency — meta envelope across every panel tab', () => {
     // Alignment / Analysis. CR-15: Opportunities, Risks and Recommendation are
     // gone — those panels rendered strategy verdicts and were deleted, so the
     // envelope parity check covers four panels instead of seven.
+    // CR-14 removed `AnalysisPanel` with `AnalysisMatrix`, so the envelope
+    // parity check covers three panel surfaces instead of four.
     capture((await renderPanelAndExport(AlignmentPanel, { pairKey: PAIR }, seedRichInstance)).payload);
-    capture((await renderPanelAndExport(AnalysisPanel, {}, seedRichInstance)).payload);
 
-    expect(metas).toHaveLength(4);
+    expect(metas).toHaveLength(3);
     const tabs = metas.map((m) => m.source_tab).sort();
 
     // 1. meta.pair — the FULL exchange-symbol everywhere (never bare base).

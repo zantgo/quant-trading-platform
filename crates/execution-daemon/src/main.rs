@@ -2122,6 +2122,26 @@ async fn async_main() {
 
                         let instances = tae_workspace.list().await;
                         for inst in instances {
+                            // W3.5 / CR-15: an OBSERVE instance is not executed
+                            // at all. It used to fall through to the executor with
+                            // `dispatch: false` — "ghost evaluation", so the radar
+                            // could show would-be setups. Nothing consumes that
+                            // radar any more (the strategy surfaces it fed are
+                            // deleted), and the ghost path was not free: it read
+                            // every buffer, built a TickContext, and ran intake
+                            // gates whose only output was discarded.
+                            //
+                            // Skipping the instance is the honest form of "no
+                            // dispatch". Gating on `dispatch` and then doing all
+                            // the work anyway meant the loop claimed to be
+                            // observing while running the decision layer in
+                            // reverse.
+                            if inst.execution_mode().await
+                                == config_models::ExecutionMode::Observe
+                            {
+                                continue;
+                            }
+
                             let symbol = inst.symbol();
 
                             // Gather the latest completed snapshot of each TF.
@@ -2213,13 +2233,13 @@ async fn async_main() {
 
                             let candle_ts = snaps.iter().map(|s| s.timestamp).max().unwrap_or(0);
 
-                            // v7.1+: Observe instances are market-monitoring
-                            // only — no fills processing. The setup executor
-                            // still evaluates in ghost mode (`dispatch: false`)
-                            // so the radar can show would-be setups, but it
-                            // never dispatches orders for them.
-                            let is_observe = inst.execution_mode().await
-                                == config_models::ExecutionMode::Observe;
+                            // W3.5: observe instances never reach this point —
+                            // they are skipped at the top of the loop. `dispatch`
+                            // is therefore always true here, and is kept as an
+                            // explicit argument so the executor's contract (it
+                            // must never be handed a live order from a caller
+                            // that has not checked) is unchanged.
+                            let is_observe = false;
 
                             // BTE v8 parity: the per-tick session body lives
                             // in `run_tick` — the SAME function the backtest

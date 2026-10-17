@@ -1,12 +1,10 @@
 // v11.2 — export builders follow the ACTIVE slot ladder:
 //   • mtfTab's `meta.timeframes` (the doc-gate G17-watched list) and the
 //     per-TF `timeframes[]` block emit the ACTIVE slots' display names,
-//   • analysisTab's per-timeframe order array follows the active slots,
 //   • shared.ts snapshot pickers walk the active slots only.
 import { describe, expect, it } from 'vitest';
 import { makeTerms } from '../../tests/makeTerms';
 import { buildMtfExportJson } from './mtfTab';
-import { buildAnalysisTabExport } from './analysisTab';
 import { buildPriceBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, AlignmentMatrix } from '../../types';
@@ -72,28 +70,6 @@ describe('buildMtfExportJson — activeDurations', () => {
             terms: makeTerms(),
         }));
         expect(p.meta.timeframes).toEqual(DURATIONS.map((s) => tfLabel(s)));
-    });
-});
-
-describe('buildAnalysisTabExport — activeDurations', () => {
-    it('per_timeframe_alignment follows the active slot order', () => {
-        const alignment = {
-            timeframe_alignments: [
-                { timeframe: '1S', trend_score: 10, momentum_score: 10, overall_score: 10, regime: 'TRENDING', active_signals: 0, price: 1 },
-                { timeframe: '30S', trend_score: 20, momentum_score: 20, overall_score: 20, regime: 'RANGE', active_signals: 0, price: 1 },
-            ],
-        } as unknown as AlignmentMatrix;
-        const p = JSON.parse(buildAnalysisTabExport({
-            analysis: null,
-            alignment,
-            symbol: 'BTC-USDT',
-            markPrice: 63390,
-            headerSpec,
-            terms: makeTerms(),
-            activeDurations: [30, 1],
-        }));
-        expect(p.per_timeframe_alignment.map((r: { name: string }) => r.name)).toEqual(['30S', '1S']);
-        expect(p.per_timeframe_alignment).toHaveLength(2);
     });
 });
 

@@ -459,6 +459,8 @@ pub fn compute_overview(
                 // so the column keeps its documented range.
                 score: (mtf_score + 100.0) / 2.0,
                 bias: "NO_DATA".to_string(),
+                // Nothing was measured, so the confidence that would qualify this
+                // placeholder is 0.0 — a consumer can see it is not a reading.
                 confidence: 0.0,
                 regime: "NO_DATA".to_string(),
                 risk_level: risk_level_for(symbol).to_string(),
@@ -667,7 +669,6 @@ pub fn compute_overview(
     // `confidence: 0.0` — "nothing was measured" — which is the whole point of
     // carrying a confidence: a consumer can see that this number is a placeholder
     // rather than a reading. P10 replaces it with the axis-derived substitute.
-    let cascade_count = 0usize;
     let cascade_score = params.cascade_index_fallback;
     let cascade_risk = RiskDimension {
         score: cascade_score,
@@ -684,6 +685,8 @@ pub fn compute_overview(
         },
         // L7-B (v6.10.13): the fraction must scale to 0-100 (`×100`) —
         // the legacy `count / total.min(1)` yielded ≈1% for every sample.
+        // Nothing was measured, so the confidence that would qualify this
+        // placeholder is 0.0 — a consumer can see it is not a reading.
         confidence: 0.0,
         ..RiskDimension::default()
     };

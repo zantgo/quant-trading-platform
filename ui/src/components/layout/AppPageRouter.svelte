@@ -10,7 +10,6 @@
     import LiveTerminal from '../LiveTerminal.svelte';
     import TerminalMonitor from '../TerminalMonitor.svelte';
     import AlignmentPanel from '../AlignmentPanel.svelte';
-    import AnalysisPanel from '../AnalysisPanel.svelte';
     import GeneralDashboard from '../GeneralDashboard.svelte';
     import InstancePicker from '../InstancePicker.svelte';
     import UnifiedSettings from '../UnifiedSettings.svelte';
@@ -44,7 +43,7 @@
     // $inspect('router.activePair', activePair);
 
     // Per-symbol WS state, derived once per render. The instance tabs
-    // (`TerminalMonitor`, `AlignmentPanel`, `AnalysisPanel`) all read this
+    // (`TerminalMonitor`, `AlignmentPanel`) all read this
     // to feed the `LayerHeader` status pill (live / stale / error).
     const activeWss = $derived<WsState | undefined>(wssMap[activeTab]);
 
@@ -89,8 +88,6 @@
                     <TerminalMonitor pairKey={activeTab} wssState={activeWss} />
                 {:else if activePair.currentView === 'alignment'}
                     <AlignmentPanel pairKey={activeTab} wssState={activeWss} />
-                {:else if activePair.currentView === 'analysis'}
-                    <AnalysisPanel wssState={activeWss} />
                 {/if}
             {:else}
                 <InstancePicker {onrequestConfirm} {errorMessage} />

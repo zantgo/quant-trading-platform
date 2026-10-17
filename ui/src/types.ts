@@ -947,11 +947,11 @@ export interface TimeframeTelemetry {
 /**
  * CR-15: `opportunity`, `risk` and `recommendation` are gone. Each was a view
  * over an L4/L5/L6 strategy matrix, none of which the wire carries any more.
- * `analysis` stays for now — it is dissolved with the axes in P10, when the
- * separate States tab replaces it (P13), so deleting it here would leave a gap
- * in the sub-tab row rather than a narrowing.
+ * `analysis` is gone with CR-14: it rendered `AnalysisMatrix`, which the
+ * dissolved model does not have. The States tab (P13) is the replacement, and it
+ * is a new tab rather than a rename.
  */
-export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'analysis' | 'settings' | 'costs' | 'ledger';
+export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'settings' | 'costs' | 'ledger';
 
 export interface InstanceState {
     symbol: string;

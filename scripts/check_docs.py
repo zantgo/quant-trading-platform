@@ -800,14 +800,13 @@ def check_g13_appendix_a_fields():
 # come from the ```json fences in 07-05; code-side keys come from the
 # TypeScript interfaces in ui/src/lib/exportBuilders/*.ts (7 MME tabs +
 # shared) and ui/src/types.ts.
-# CR-15: `opportunityTab.ts`, `riskTab.ts` and `recommendationTab.ts` were
-# deleted along with the matrices they exported. The remaining builders are the
-# model's own views.
+# CR-15 deleted `opportunityTab.ts`, `riskTab.ts` and `recommendationTab.ts`;
+# CR-14 deleted `analysisTab.ts` with `AnalysisMatrix`. The remaining builders are
+# the model's own views.
 G17_MME_BUILDERS = [
     "metricsTab.ts",
     "mtfTab.ts",
     "alignmentTab.ts",
-    "analysisTab.ts",
     "shared.ts",
 ]
 # Literal-built payload keys that never appear as interface members

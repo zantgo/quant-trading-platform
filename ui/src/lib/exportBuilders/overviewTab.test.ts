@@ -23,24 +23,8 @@ const tf = {
   priceText: '63006.0',
 } as unknown as InstanceState['terms'][number];
 
-function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
-  return {
-    symbol: 'BTC-USDC',
-    directional_guidance: 'Neutral',
-    confidence_assessment: 25,
-    final_recommendation: 'Neutral bias.',
-    strategy_environment: 'MeanReversion',
-    market_stance: 'Cautious',
-    ...overrides,
-  } as unknown as AdvisoryMatrix;
-}
-
 function makeAnalysis(bias = 'Neutral'): AnalysisMatrix {
   return { symbol: 'BTC-USDC', bias, market_quality: 'Average' } as unknown as AnalysisMatrix;
-}
-
-function makeRisk(score: number): RiskMatrix {
-  return { overall_risk: { score, level: 'Moderate', state: 'Stable', confidence: 44, evidence: [] } } as unknown as RiskMatrix;
 }
 
 function makeAlignment(overrides: Record<string, unknown> = {}): AlignmentMatrix {

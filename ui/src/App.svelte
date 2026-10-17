@@ -60,14 +60,10 @@
     // wire no longer carries. What remains is the model's own read — the
     // per-duration layers (L1–L3).
     //
-    // `analysis` is still here and still dissolved-pending: it goes when the
-    // separate States tab replaces it (P13), so that change is one swap rather
-    // than a deletion followed by an insertion.
     const SUB_TABS: { view: CurrentView; label: string }[] = [
         { view: 'terminal',    label: 'Charts' },
         { view: 'monitor',     label: 'Metrics' },
         { view: 'alignment',   label: 'Alignment' },
-        { view: 'analysis',    label: 'Analysis' },
     ];
 
     const activePair = $derived.by(() => {

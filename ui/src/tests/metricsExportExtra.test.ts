@@ -199,21 +199,6 @@ function makeTf() {
         } as any;
     }
 
-    function makeRisk() {
-        return {
-            symbol: 'BTC-USDT',
-            market_risk: { score: 35, level: 'LOW', state: 'STABLE', confidence: 80, evidence: ['low vol regime'] },
-            volatility_risk: { score: 45, level: 'MODERATE', state: 'INCREASING', confidence: 80, evidence: ['vol expanding', 'range compress'] },
-            structure_risk: { score: 25, level: 'LOW', state: 'STABLE', confidence: 80, evidence: [] },
-            momentum_risk: { score: 20, level: 'LOW', state: 'STABLE', confidence: 80, evidence: [] },
-            signal_risk: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80, evidence: [] },
-            execution_risk: { score: 25, level: 'LOW', state: 'STABLE', confidence: 80, evidence: [] },
-            execution_liquidity_risk: { score: 15, level: 'VERY_LOW', state: 'STABLE', confidence: 80, evidence: [] },
-            cascade_risk: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80, evidence: [] },
-            overall_risk: { score: 28, level: 'LOW', state: 'STABLE', confidence: 80, evidence: [] },
-        } as any;
-    }
-
     function makeOpportunity() {
         return {
             symbol: 'BTC-USDT',
@@ -255,26 +240,6 @@ function makeTf() {
         } as any;
     }
 
-    function makeAdvisory() {
-        return {
-            symbol: 'BTC-USDT',
-            directional_guidance: 'Long',
-            market_stance: 'Constructive',
-            strategy_environment: 'TrendFollowing',
-            entry_guidance: 'Pullback',
-            exit_guidance: 'TrendWeakening',
-            protection_strategy: 'StructureBased',
-            target_strategy: 'ResistanceBased',
-            stop_loss_distance_pct: 0.0085,
-            confidence_assessment: 73,
-            trade_readiness: 'READY',
-            entry_danger: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80 },
-            environment_favorability: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80, evidence: [] },
-            cascade_risk_score: 25,
-            final_recommendation: 'Watch for pullback to GP zone',
-        } as any;
-    }
-
     function makeRegistry() {
         return [
             { key: 'rsi', display_name: 'RSI', group: 'Momentum', class: 'Hybrid', directional: true, supports_divergence: true, signal_types: [], default_weight: 1, default_enabled: true, config_params: [], value_format: 'decimals2', value_source: 'sub:', color: '#fff', guide_section: '' },
@@ -306,22 +271,11 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             tf: makeTf(),
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
             analysis: makeAnalysis(),
-            risk: makeRisk(),
             alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: makeAdvisory(),
             volumeProfile: makeTf().volumeProfile,
             liquidity: makeTf().liquidity,
             cluster: makeTf().cluster,
             liquiditySignals: makeTf().liquiditySignals,
-            decisionContext: {
-                score: 75.2,
-                bias: 'Bullish',
-                trade_readiness: 'READY',
-                expected_reward_risk_ratio: 1.79,
-                contributing_indicators: ['rsi', 'macd'],
-                entry_danger: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80 },
-            },
         });
         const obj = JSON.parse(json);
 
@@ -366,15 +320,11 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             tf: { indicators: {} } as any,
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
             analysis: null,
-            risk: null,
             alignment: null,
-            opportunity: null,
-            advisory: null,
             volumeProfile: null,
             liquidity: null,
             cluster: null,
             liquiditySignals: [],
-            decisionContext: null,
         });
         const obj = JSON.parse(json);
         // CR-15: `opportunity` / `advisory` / `risk` are absent from the payload
@@ -399,15 +349,11 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             tf,
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
             analysis: null,
-            risk: null,
             alignment: null,
-            opportunity: null,
-            advisory: null,
             volumeProfile: null,
             liquidity: null,
             cluster: null,
             liquiditySignals: [],
-            decisionContext: null,
         });
         const obj = JSON.parse(json);
         const fib = obj.indicators.find((i: any) => i.key === '__fibonacci_summary__');
@@ -440,15 +386,11 @@ describe('metricsExport — per-tab EXPORT DATA wiring', () => {
             tf: baseTf(),
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
             analysis: null,
-            risk: null,
             alignment: null,
-            opportunity: null,
-            advisory: null,
             volumeProfile: null,
             liquidity: null,
             cluster: null,
             liquiditySignals: [],
-            decisionContext: null,
             ...overrides,
         };
     }
@@ -472,14 +414,7 @@ describe('metricsExport — per-tab EXPORT DATA wiring', () => {
             pairKey: 'BTC-USDT',
             resolvers: baseResolvers({
                 analysis: { symbol: 'BTC-USDT', bias: 'Bullish' } as any,
-                risk: makeRisk(),
                 alignment: { mtf_overall_score: 12 } as any,
-                advisory: makeAdvisory(),
-                opportunity: makeOpportunity(),
-                decisionContext: {
-                    trade_readiness: 'READY',
-                    entry_danger: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80 },
-                },
             }),
         });
         const obj = JSON.parse(json as string);
@@ -738,15 +673,11 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
             tf: fullTf(),
             filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
             analysis: makeAnalysis(),
-            risk: makeRisk(),
             alignment: null,
-            opportunity: makeOpportunity(),
-            advisory: makeAdvisory(),
             volumeProfile: fullTf().volumeProfile,
             liquidity: fullTf().liquidity,
             cluster: fullTf().cluster,
             liquiditySignals: fullTf().liquiditySignals,
-            decisionContext: null,
         });
         const obj = JSON.parse(json);
         expect(obj.analysis.market_phase).toBe('Markup');

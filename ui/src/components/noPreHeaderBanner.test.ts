@@ -14,7 +14,6 @@
 import { cleanup, render } from '@testing-library/svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import AlignmentPanel from './AlignmentPanel.svelte';
-import AnalysisPanel from './AnalysisPanel.svelte';
 import { useAppStore } from '../state.svelte';
 import type { AlignmentMatrix, AnalysisMatrix, DecisionContext, InstanceState, OpportunityMatrix, RiskDimension, RiskMatrix } from '../types';
 
@@ -70,22 +69,17 @@ describe('chrome invariant — no text sits above the LayerHeader', () => {
             // Render every panel in turn. Each panel mounts the LayerHeader
             // as the first painted child; the document's full text content
             // must not contain the legacy phrase. OpportunitiesPanel is
-            // deliberately excluded from this loop — the user's later
-            // The three per-pair panels that render a LayerHeader.
+            // The per-pair panels that render a LayerHeader.
             //
             // CR-15: `RiskPanel` and `RecommendationPanel` were in this list
             // and are gone — both were deleted, since each rendered a strategy
-            // verdict. The invariant still has three panels to check, which is
-            // what it is for: a new panel must not grow a pre-header banner.
-            const panels = [
-                AlignmentPanel,
-                AnalysisPanel,
-            ];
+            // verdict, and CR-14 removed `AnalysisPanel` with `AnalysisMatrix`.
+            // One panel remains, which is the point: a new panel must not grow a
+            // pre-header banner.
+            const panels = [AlignmentPanel];
             let found = false;
             for (const Panel of panels) {
-                const props = Panel === AnalysisPanel
-                    ? {}
-                    : { pairKey: 'BTC-USDT' };
+                const props = { pairKey: 'BTC-USDT' };
                 const { unmount } = render(Panel as any, { props });
                 if (document.body.textContent && phrase.test(document.body.textContent)) {
                     found = true;
