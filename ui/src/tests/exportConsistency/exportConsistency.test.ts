@@ -558,7 +558,6 @@ describe('export consistency — Overview tab', () => {
         instance_count: 3,
         active_symbols: ['BTC-USDT'],
         breadth_pct: 42,
-        systemic_risk_score: 12,
         alignment_distribution: {
           STRONG_BULL_MTF: 1,
           WEAK_BULL_MTF: 1,

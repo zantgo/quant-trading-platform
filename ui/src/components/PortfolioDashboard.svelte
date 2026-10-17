@@ -42,7 +42,6 @@
         safety_state: string;
         safety_context: string;
         consecutive_losses: Record<string, number>;
-        systemic_risk_score: number;
         lifecycle: string;
         exposure: {
             gross_exposure: string;
@@ -403,7 +402,6 @@
                     peak_equity: portfolio?.peak_equity ?? null,
                     max_drawdown_pct: portfolio?.max_drawdown_pct ?? null,
                     daily_pnl: portfolio?.daily_pnl ?? null,
-                    systemic_risk_score: portfolio?.systemic_risk_score ?? null,
                 };
         }
         return buildEngineExport('portfolio', safeSection, mode ?? null, data);
@@ -520,7 +518,6 @@
                             <div class={local.overviewStat}><span class={local.overviewLabel}>Peak Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.peak_equity)}</span></div>
                             <div class={local.overviewStat}><span class={local.overviewLabel}>Daily PnL</span><span class="{local.overviewValue} {pnlClass(portfolio.daily_pnl)}">{signedUsd(portfolio.daily_pnl)}</span></div>
                             <div class={local.overviewStat}><span class={local.overviewLabel}>Max Drawdown</span><span class="{local.overviewValue} {styles.neg}">{fmtPct(portfolio.max_drawdown_pct)}</span></div>
-                            <div class={local.overviewStat}><span class={local.overviewLabel}>Systemic Risk</span><span class="{local.overviewValue} {Number(portfolio.systemic_risk_score) > 50 ? styles.warn : ''}">{fmtNum(portfolio.systemic_risk_score)}</span></div>
                         </div>
                         <div class={local.sessionBar}>
                             <button class="{styles.btn} {styles.btnGhost}" onclick={sessionReset} disabled={resetting || ghost}>

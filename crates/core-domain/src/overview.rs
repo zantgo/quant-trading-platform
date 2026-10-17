@@ -116,10 +116,6 @@ pub struct OverviewMatrix {
     /// cascade_risk scores, 0..100).
     #[serde(default)]
     pub cascade_risk_index: RiskDimension,
-    /// Market-wide danger index consumed by the PME safety veto.
-    /// Formula: `0.6 * high_pct + 0.4 * sync_penalty`.
-    #[serde(default)]
-    pub systemic_risk_score: f64,
     /// Continuous signed breadth percentage ∈ [-100, 100].
     #[serde(default)]
     pub breadth_pct: f64,
@@ -182,7 +178,6 @@ impl OverviewMatrix {
             market_synchronization: SyncLevel::HighlyFragmented,
             market_health: HealthLevel::Neutral,
             cascade_risk_index: RiskDimension::default(),
-            systemic_risk_score: 0.0,
             breadth_pct: 0.0,
             low_coverage: false,
             alignment_distribution: HashMap::new(),
@@ -205,7 +200,7 @@ pub struct InstanceMeta {
     pub timeframe_label: String,
     pub is_active: bool,
     /// CR-15: per-symbol `RiskMatrix.overall_risk.score`, the aggregate the L7
-    /// risk distribution / risk_environment / systemic_risk_score bin on.
+    /// risk distribution / risk_environment bin on.
     ///
     /// The L5 matrix is strategy and no longer exists, so this is `None` for
     /// every rank until P10 derives the axis-based substitute. It is
@@ -214,7 +209,7 @@ pub struct InstanceMeta {
     pub overall_risk: Option<f64>,
     /// v6.10.19 (P7): per-TF-window `(weight, risk)` pairs (micro 0.1 /
     /// fast 0.2 / slow 0.3 / macro 0.4) feeding the TF-decayed
-    /// `high_pct` and `systemic_risk_score` — a transient MICRO risk
+    /// `high_pct` — a transient MICRO risk
     /// spike contributes at most 10% to the systemic path, so the PME
     /// safety veto stays anchored to macro stability. Empty for legacy
     /// callers → the systemic path falls back to `overall_risk`.
@@ -545,39 +540,12 @@ pub fn compute_overview(
         / total_measured
         * 100.0;
 
-    // v6.10.19 (P7): TF-decayed systemic high-share — weights discount
-    // high-frequency Micro-tier volatility so a transient 60s risk spike
-    // contributes at most 10% to the PME safety veto. Falls back to the
-    // plain per-symbol mean when the daemon did not supply windows.
-    let systemic_high_pct = {
-        let mut weight_sum = 0.0;
-        let mut weighted_high = 0.0;
-        for meta in instances.iter().filter(|i| i.is_active) {
-            if meta.risk_windows.is_empty() {
-                // CR-15: only a MEASURED risk may contribute weight. This used
-                // to add 1.0 unconditionally, so an instance whose L5 matrix
-                // does not exist contributed to the denominator with nothing in
-                // the numerator — an unmeasured instance silently counted as
-                // measured-and-safe.
-                if meta.overall_risk.is_some_and(|r| r >= 70.0) {
-                    weight_sum += 1.0;
-                    weighted_high += 1.0;
-                }
-            } else {
-                for (w, risk) in &meta.risk_windows {
-                    weight_sum += w;
-                    if *risk >= 70.0 {
-                        weighted_high += w;
-                    }
-                }
-            }
-        }
-        if weight_sum <= 0.0 {
-            0.0
-        } else {
-            weighted_high / weight_sum * 100.0
-        }
-    };
+    // CR-18: the TF-decayed systemic high-share is DELETED with
+    // `systemic_risk_score`. It existed only to be `0.4`-weighted against a
+    // `sync_penalty` array of hand-picked values, and its "per-duration decay"
+    // was a 14-element constant table (`tf_decay`) with no derivation from
+    // candles — a tuned weight dressed as a measurement. It is now dead code and
+    // is removed rather than left to rot behind an unused binding.
 
     // risk_environment per spec §2.3 (v6.10.16 FIX-O3): bins on the MEAN
     // per-asset overall risk — an environment where every asset sits in
@@ -613,41 +581,11 @@ pub fn compute_overview(
         "LOW_RISK"
     };
 
-    // systemic_risk_score = 0.6 * high_pct + 0.4 * sync_penalty.
-    // Bug-fix #10: the legacy `sync_penalty` was only computed when
-    // `global_bias` was Bearish or StrongBearish — a synchronized bull
-    // market produced `sync_penalty = 0.0`, understating the systemic
-    // risk for a perfectly correlated long-everything environment.
-    // We now apply the sync penalty for any directional bias
-    // (StrongBullish, Bullish, Neutral, Bearish, StrongBearish) with
-    // a magnitude that scales with directional strength. A
-    // StrongBullish synchronized market is just as risky (correlated
-    // longs unwind together on the next catalyst) as a StrongBearish
-    // one.
-    // v6.10 (Phase 6 / F5): `sync_penalty` is restricted to BEARISH /
-    // STRONG_BEARISH global market biases per the spec table at
-    // `docs/matrices/02-09-overview-matrix.md` lines 165-170. The previous
-    // implementation applied a `directional_intensity` multiplier (0/0.3/0.7/1.0)
-    // to ALL directional biases; the canonical spec restricts the penalty
-    // to bearish regimes only. For Bullish / StrongBullish / Mixed /
-    // Neutral we emit `sync_penalty = 0` regardless of sync level; the
-    // `high_pct` term still contributes to `SystemicRisk`.
-    let directional_intensity: f64 = match global_bias {
-        GlobalBias::StrongBearish | GlobalBias::Bearish => 1.0,
-        _ => 0.0,
-    };
-    let sync_penalty = directional_intensity
-        * match sync {
-            SyncLevel::HighlySynchronized => params.sync_penalty[0],
-            SyncLevel::Synchronized => params.sync_penalty[1],
-            SyncLevel::Mixed => params.sync_penalty[2],
-            SyncLevel::Fragmented => params.sync_penalty[3],
-            SyncLevel::HighlyFragmented => params.sync_penalty[4],
-        };
-    // v6.10.19 (P7): the systemic path uses the TF-DECAYED high-share —
-    // the safety veto must not fire on a micro-tier noise spike.
-    let systemic_risk_score = params.systemic_high_weight * systemic_high_pct
-        + params.systemic_sync_weight * sync_penalty;
+    // CR-18: `systemic_risk_score` is DELETED. It was an MME number whose only
+    // consumer was the PME safety veto — a layer observe mode never reaches — and
+    // its formula was `0.6 * high_pct + 0.4 * sync_penalty`, i.e. two tuned
+    // constants over a re-bucketed breadth number. MME should not compute a number
+    // for an engine that cannot see it. See `01-22` §"The redundancy rule".
 
     // market_health per spec §3.4: POOR when HIGH_RISK, then bias-based
     let health = if risk_environment == "HIGH_RISK" {
@@ -743,7 +681,6 @@ pub fn compute_overview(
         market_synchronization: sync,
         market_health: health,
         cascade_risk_index: cascade_risk,
-        systemic_risk_score,
         breadth_pct,
         // Bug-fix #15: `low_coverage` was hardcoded to `false` on every
         // call, so the dashboard never knew when the overview was
@@ -859,12 +796,10 @@ mod tests {
             &[],
             &OverviewParams::default(),
         );
-        assert_eq!(
-            o.systemic_risk_score, 0.0,
-            "CR-15: PME's safety veto reads this field, so it is worth stating \
-             plainly — with no risk signal the veto does not fire. Paper and live \
-             are WIP and not selectable, which is why the boundary is drawn here."
-        );
+        // CR-18: there is no `systemic_risk_score` to assert any more. It was
+        // deleted because it was an MME number computed solely for the PME safety
+        // veto — a layer observe mode never reaches — from two tuned constants
+        // over a re-bucketed breadth figure.
     }
 
     #[test]

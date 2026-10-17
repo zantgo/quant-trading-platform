@@ -609,7 +609,6 @@ export interface OverviewMatrix {
     cascade_risk_index?: RiskDimension;
     /// v6.9+ — Market-wide danger index consumed by the PME safety
     /// veto. `0.6 × high_pct + 0.4 × sync_penalty`.
-    systemic_risk_score?: number;
     /// v6.11+ — Count of assets per `AlignmentMatrix.mtf_overall_label`
     /// (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` /
     /// `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`). Mirrors

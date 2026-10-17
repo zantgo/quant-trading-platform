@@ -2268,10 +2268,14 @@ async fn async_main() {
                             };
                             let overview = tae_overview.read().await.clone();
                             let breadth_pct = overview.as_ref().map(|o| o.breadth_pct).unwrap_or(0.0);
-                            let systemic_risk = overview
-                                .as_ref()
-                                .map(|o| o.systemic_risk_score)
-                                .unwrap_or(0.0);
+                            // CR-18: `systemic_risk_score` is gone. The TAE
+                            // intake gate receives no MME systemic-risk number —
+                            // observe mode does not run the TAE loop at all, and
+                            // the score itself was `0.6 * high_pct + 0.4 *
+                            // sync_penalty`, i.e. two tuned constants over a
+                            // re-bucketed breadth figure. Pass `0.0` so the gate
+                            // fails OPEN rather than inheriting a fabricated risk.
+                            let systemic_risk = 0.0_f64;
                             let (market_filter_allows, block_reason) =
                                 portfolio_supervisor::strategy_gates::evaluate_intake_gates(
                                     &strategy_now,

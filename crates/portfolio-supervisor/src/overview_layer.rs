@@ -9,7 +9,6 @@ pub fn compute_portfolio_overview_matrix(
     exposure: &ExposureMatrix,
     capital: &CapitalMatrix,
     safety_state: SafetyState,
-    systemic_risk_score: f64,
     peak_equity: Decimal,
     consecutive_losses: &HashMap<String, u32>,
     drawdown_limit_pct: f64,
@@ -31,7 +30,6 @@ pub fn compute_portfolio_overview_matrix(
             .unwrap_or_default(),
         peak_equity,
         safety_state,
-        systemic_risk_score,
         consecutive_losses: consecutive_losses.clone(),
         position_count: positions.len() as u32,
     }

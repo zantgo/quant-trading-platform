@@ -33,7 +33,6 @@ const portfolioPayload = {
     safety_state: 'NORMAL',
     safety_context: 'Normal risk mode.',
     consecutive_losses: { 'BTC-USDC': 0 },
-    systemic_risk_score: 21.4,
     lifecycle: 'RUNNING',
     exposure: {
         gross_exposure: '310.00',

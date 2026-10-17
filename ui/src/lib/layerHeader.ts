@@ -467,7 +467,12 @@ export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): Lay
     };
 }
 
-// L7 — Overview (system-wide). `systemic_risk_score = 0` is green.
+// L7 — Overview (system-wide).
+//
+// CR-18: the `Sys risk` chip is REMOVED. It read `systemic_risk_score`, an MME
+// number whose only consumer was the PME safety veto — a layer observe mode never
+// reaches — computed as `0.6 * high_pct + 0.4 * sync_penalty` over two tuned
+// constants. The chip rendered a number the model could not stand behind.
 // Status is sourced from the L7 fetch state (live when fresh, stale
 // after >2× polling interval, error when the last attempt failed).
 /**
@@ -505,7 +510,6 @@ export function buildL7OverviewHeader(
 ): LayerHeaderSpec {
     const bias = overview?.global_market_bias ?? null;
     const health = overview?.market_health ?? null;
-    const risk = overview?.systemic_risk_score ?? null;
     const count = overview?.instance_count ?? null;
     const sync = overview?.market_synchronization ?? null;
 
@@ -547,7 +551,6 @@ export function buildL7OverviewHeader(
         },
         meta: [
             chip('Instances', count, count, null, true),
-            chip('Sys risk', risk, risk, riskDangerColor, false, { zeroIsGood: true }),
             chip('Sync', sync ? prettifyEnum(sync) : null, null, () => COLORS.textMuted),
         ],
         status,

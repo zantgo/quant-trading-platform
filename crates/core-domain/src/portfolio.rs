@@ -119,7 +119,6 @@ pub struct PortfolioOverviewMatrix {
     pub drawdown_limit_pct: Decimal,
     pub peak_equity: Decimal,
     pub safety_state: SafetyState,
-    pub systemic_risk_score: f64,
     pub consecutive_losses: HashMap<String, u32>,
     pub position_count: u32,
 }

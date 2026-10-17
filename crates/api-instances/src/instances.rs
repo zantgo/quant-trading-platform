@@ -764,14 +764,6 @@ pub async fn serve_get_portfolio(
                 dec!(0)
             };
 
-            let systemic_risk_score = state
-                .overview
-                .read()
-                .await
-                .as_ref()
-                .map(|o| o.systemic_risk_score)
-                .unwrap_or(0.0);
-
             let lifecycle_state = {
                 let lc = inst.lifecycle.read().await;
                 lc.state.as_str().to_string()
@@ -798,7 +790,6 @@ pub async fn serve_get_portfolio(
                     "safety_state": safety_state.as_str(),
                     "safety_context": context,
                     "consecutive_losses": losses_map,
-                    "systemic_risk_score": systemic_risk_score,
                     "lifecycle": lifecycle_state,
                     "exposure": {
                         "gross_exposure": exposure.gross_exposure.to_string(),
