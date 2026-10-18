@@ -25,7 +25,7 @@ fn signal_at(i: usize) -> Signal {
         kind: SignalKind::Divergence,
         at_bar: i,
         anchor: 67_000.0 + i as f64,
-        subtype: Some("Bullish".into()),
+        subtype: Some(core_domain::indicator_dtos::SignalKind::Divergence),
     }
 }
 
@@ -86,7 +86,7 @@ fn a_signal_is_always_one_of_three_variants() {
         kind: SignalKind::Divergence,
         at_bar: 482,
         anchor: 67_120.5,
-        subtype: Some("Bullish".into()),
+        subtype: Some(core_domain::indicator_dtos::SignalKind::Divergence),
     };
     assert!(d.is_event());
     assert!(!d.is_event() == false);

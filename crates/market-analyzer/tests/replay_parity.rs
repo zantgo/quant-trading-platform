@@ -156,6 +156,7 @@ fn state_at(closes: &[f64], bar: usize, secs: u64) -> TimeframeState {
         target_stable: true,
         available_at_bar: bar,
         direction_history: direction_history(&history),
+        axis_signals: no_signals(),
     })
 }
 
@@ -212,12 +213,18 @@ fn parity_every_bar_of_an_incremental_replay_matches_a_warm_read_at_that_bar() {
 #[test]
 fn parity_consensus_and_stability_are_derived_identically_on_both_paths() {
     let series = closes(90);
-    let mut warm_axes =
-        market_analyzer::model::assemble_axes(&readings_at(&series, 89), Some(Stage::Mid));
+    let mut warm_axes = market_analyzer::model::assemble_axes(
+        &readings_at(&series, 89),
+        Some(Stage::Mid),
+        &no_signals(),
+    );
     let mut replay_axes = Vec::new();
     for bar in 0..=89 {
-        replay_axes =
-            market_analyzer::model::assemble_axes(&readings_at(&series, bar), Some(Stage::Mid));
+        replay_axes = market_analyzer::model::assemble_axes(
+            &readings_at(&series, bar),
+            Some(Stage::Mid),
+            &no_signals(),
+        );
     }
     assert_eq!(warm_axes.len(), replay_axes.len());
     for (a, b) in warm_axes.iter().zip(replay_axes.iter()) {
@@ -262,4 +269,10 @@ fn parity_the_state_is_bit_identical_when_replayed_twice() {
         serde_json::to_string(&a).unwrap(),
         serde_json::to_string(&b).unwrap()
     );
+}
+
+/// An axis-signal history with nothing observable — the right input for a test
+/// that is about axis *values*, not about the typed signal history.
+fn no_signals() -> [Vec<core_domain::axes::Signal>; 4] {
+    [Vec::new(), Vec::new(), Vec::new(), Vec::new()]
 }

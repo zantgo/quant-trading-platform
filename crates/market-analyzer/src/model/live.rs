@@ -26,7 +26,7 @@ use core_domain::axes::{AxisId, AxisValue, Domain, Readiness, Stage, TimeframeSt
 use core_domain::indicator_dtos::{NormalizedIndicatorValue, SignalKind};
 use core_domain::models::MarketSnapshot;
 
-use crate::model::{assemble_timeframe_state, Reading, TimeframeInput};
+use crate::model::{assemble_timeframe_state, Reading, SignalsByAxis, TimeframeInput};
 
 /// Which domain a signed value on `axis` carries when the registry does not
 /// declare one.
@@ -135,6 +135,86 @@ fn progression_stage_of(value: &NormalizedIndicatorValue) -> Option<Stage> {
     Stage::from_label(&value.state_label)
 }
 
+/// The typed signals each axis can observe, grouped by the axis that filed them.
+///
+/// A signal is filed under the axis of the **reading that produced it** — the
+/// same axis it already contributed its value to — so `readings[]` and the
+/// axis `position` can never disagree about which indicator filed what.
+///
+/// Ordering is `(at_bar, indicator key)`, so the array is oldest-first and
+/// deterministic for one set of candles (CH-8).
+fn signals_by_axis(
+    snapshot: &MarketSnapshot,
+    readings: &[Reading],
+    current_bar: usize,
+) -> SignalsByAxis {
+    let mut by_axis: SignalsByAxis = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    // `(source, kind, at_bar)` — the part of the canonical event identity that
+    // is resolvable from a single snapshot. The full identity (01-15) also
+    // names the subject and the timeframe; those are the axis slot and the
+    // anchor, which the caller already separates.
+    let mut filed: BTreeSet<(String, SignalKind, usize)> = BTreeSet::new();
+
+    for reading in readings {
+        let Some(value) = snapshot.indicators.get(&reading.producer) else {
+            continue;
+        };
+        let slot = match reading.axis {
+            AxisId::Direction => 0,
+            AxisId::Momentum => 1,
+            AxisId::Structure => 2,
+            AxisId::Progression => 3,
+        };
+
+        for sig in &value.signals {
+            // `age_bars` is how long ago it fired; `at_bar` is absolute. A
+            // signal older than the retention window is not observable, so it is
+            // not filed — the cap is a retention rule, not a silent drop.
+            let age = sig.age_bars as usize;
+            if age >= core_domain::axes::READINGS_CAP {
+                continue;
+            }
+            let at_bar = current_bar.saturating_sub(age);
+            // Event identity is `(source, kind, subject, anchor, timeframe)`
+            // (01-15) and is counted **exactly once**. Two indicators firing
+            // the same kind on the same bar are two facts; the SAME indicator
+            // reporting the SAME kind on the SAME bar twice is one fact
+            // reported twice, and filing it twice would let one divergence
+            // inflate the axis history (C/Q4).
+            if !filed.insert((reading.producer.clone(), sig.kind, at_bar)) {
+                continue;
+            }
+            by_axis[slot].push(core_domain::axes::Signal::Event {
+                kind: core_domain::axes::model_signal_kind(sig.kind),
+                at_bar,
+                anchor: value.raw_value,
+                // Typed, not a string: the pipeline kind is preserved verbatim
+                // alongside the structural kind it reduced to (V-108).
+                subtype: Some(sig.kind),
+            });
+        }
+    }
+
+    for slot in by_axis.iter_mut() {
+        // Stable within a bar, so two indicators firing on the same bar have a
+        // defined relative order rather than whatever the HashMap yielded.
+        slot.sort_by(|a, b| {
+            let ka = event_bar(a);
+            let kb = event_bar(b);
+            ka.cmp(&kb)
+                .then_with(|| format!("{a:?}").cmp(&format!("{b:?}")))
+        });
+    }
+    by_axis
+}
+
+fn event_bar(signal: &core_domain::axes::Signal) -> usize {
+    match signal {
+        core_domain::axes::Signal::Event { at_bar, .. } => *at_bar,
+        _ => usize::MAX,
+    }
+}
+
 /// Assemble a duration's `TimeframeState` from its live snapshot.
 pub fn timeframe_state_from_snapshot(
     snapshot: &MarketSnapshot,
@@ -148,6 +228,9 @@ pub fn timeframe_state_from_snapshot(
         .iter()
         .find(|r| r.axis == AxisId::Progression)
         .and_then(|r| r.value.as_stage());
+    // Computed before `readings` is moved into the input below.
+    let current_bar = (snapshot.timestamp as usize).saturating_sub(1);
+    let axis_signals = signals_by_axis(snapshot, &readings, current_bar);
 
     let identity = core_domain::axes::TimeframeIdentity {
         instance_id: instance_id.to_string(),
@@ -197,6 +280,7 @@ pub fn timeframe_state_from_snapshot(
         target_stable: false,
         available_at_bar: snapshot.timestamp as usize,
         direction_history: direction_values,
+        axis_signals,
     })
 }
 

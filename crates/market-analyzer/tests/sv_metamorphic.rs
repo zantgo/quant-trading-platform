@@ -337,7 +337,7 @@ fn cq4_one_event_seen_through_three_axes_is_still_one_event() {
             true,
         ),
     ];
-    let axes = assemble_axes(&readings, Some(Stage::Early));
+    let axes = assemble_axes(&readings, Some(Stage::Early), &no_signals());
     assert_eq!(axes.len(), 4);
 
     assert_eq!(
@@ -377,4 +377,10 @@ fn cq4_removing_a_reading_never_invents_information() {
         (ov - 0.2).abs() < 1e-12,
         "and the survivor is its own value"
     );
+}
+
+/// An axis-signal history with nothing observable — the right input for a test
+/// that is about axis *values*, not about the typed signal history.
+fn no_signals() -> [Vec<core_domain::axes::Signal>; 4] {
+    [Vec::new(), Vec::new(), Vec::new(), Vec::new()]
 }

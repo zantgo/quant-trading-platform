@@ -135,19 +135,43 @@ pub struct TimeframeInput {
     /// The direction value's recent history, oldest first. The stability measure
     /// counts *observations of the direction*, not bars (01-13 I42).
     pub direction_history: Vec<f64>,
+    /// The typed signals each axis can observe, oldest first, one slot per
+    /// [`AxisId`] in `AxisId::ALL` order.
+    ///
+    /// Separate from `readings` because they answer different questions: a
+    /// `Reading` is *one indicator's contribution to one axis*; a
+    /// `Signal` is *a dated occurrence*. Collapsing them is what left
+    /// `readings[]` empty on the live path (V-201).
+    pub axis_signals: SignalsByAxis,
 }
+
+/// The typed signals a duration's indicators have observable, grouped by the
+/// axis that filed them.
+///
+/// `at_bar` is absolute (the bar the signal fired on), so this is history, not
+/// "what happened on the current bar" — a signal with `age_bars = 3` on the
+/// current bar is filed at `current_bar - 3`.
+pub type SignalsByAxis = [Vec<core_domain::axes::Signal>; 4];
 
 /// Assemble the four axes from the readings.
 ///
 /// **Diagnostics never votes** and the stage is *set* rather than voted: an
 /// ordinal cannot be averaged, and the leg owns that decision already (W10.2).
+///
+/// `axis_signals` populates each axis's typed signal history. It was
+/// `Vec::new()` — hardcoded empty — for the whole of P10 step 1, which meant a
+/// published `TimeframeState` claimed an axis had *no* observable signal
+/// history while every gate passed, because the gates asserted on the
+/// assembler's inputs rather than on what the assembler emitted (V-201, M8).
 pub fn assemble_axes(
     readings: &[Reading],
     progression_stage: Option<core_domain::axes::Stage>,
+    axis_signals: &SignalsByAxis,
 ) -> Vec<AxisState> {
     AxisId::ALL
         .iter()
-        .map(|axis| {
+        .enumerate()
+        .map(|(i, axis)| {
             let members: Vec<&Reading> = readings.iter().filter(|r| r.axis == *axis).collect();
             let value = reduce_axis(*axis, &members, progression_stage);
             let readiness = if members.iter().all(|r| r.inputs_complete) && !members.is_empty() {
@@ -155,13 +179,17 @@ pub fn assemble_axes(
             } else {
                 Readiness::Dashed
             };
-            AxisState {
+            let mut state = AxisState {
                 axis: *axis,
                 position: value.clone(),
                 size: value,
                 readiness,
                 readings: Vec::new(),
+            };
+            for signal in &axis_signals[i] {
+                state.push_reading(signal.clone());
             }
+            state
         })
         .collect()
 }
@@ -324,7 +352,11 @@ fn input_direction_history(input: &TimeframeInput) -> Vec<f64> {
 
 /// Assemble a whole `TimeframeState`.
 pub fn assemble_timeframe_state(input: TimeframeInput) -> TimeframeState {
-    let axes = assemble_axes(&input.readings, input.progression_stage);
+    let axes = assemble_axes(
+        &input.readings,
+        input.progression_stage,
+        &input.axis_signals,
+    );
     let consensus = consensus_of(&axes);
     let stability = stability_of(&input_direction_history(&input));
     TimeframeState {

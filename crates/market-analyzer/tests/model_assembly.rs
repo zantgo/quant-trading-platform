@@ -110,6 +110,7 @@ fn state_for(
             target_stable: true,
             available_at_bar: 500,
             direction_history: vec![0.4, 0.42, 0.41, -0.3, -0.31],
+            axis_signals: no_signals(),
         });
     state.events.active_count = events;
     state
@@ -359,7 +360,11 @@ fn collect_keys(value: &serde_json::Value) -> Vec<String> {
 
 #[test]
 fn diagnostics_is_not_an_axis_and_never_votes() {
-    let axes = assemble_axes(&readings_for(0.4, 1.0), Some(core_domain::axes::Stage::Mid));
+    let axes = assemble_axes(
+        &readings_for(0.4, 1.0),
+        Some(core_domain::axes::Stage::Mid),
+        &no_signals(),
+    );
     assert_eq!(axes.len(), 4, "exactly four axes");
     let ids: Vec<AxisId> = axes.iter().map(|a| a.axis).collect();
     assert_eq!(
@@ -384,7 +389,11 @@ fn diagnostics_is_not_an_axis_and_never_votes() {
 
 #[test]
 fn consensus_counts_defined_axes_and_names_the_weakest() {
-    let mut axes = assemble_axes(&readings_for(0.4, 1.0), Some(core_domain::axes::Stage::Mid));
+    let mut axes = assemble_axes(
+        &readings_for(0.4, 1.0),
+        Some(core_domain::axes::Stage::Mid),
+        &no_signals(),
+    );
     // Make one axis incomplete.
     axes[1].readiness = Readiness::Dashed;
     let consensus = consensus_of(&axes);
@@ -526,4 +535,10 @@ fn cross_pair_handles_an_empty_workspace_without_inventing_numbers() {
     assert_eq!(empty.coverage.complete_pair_count, 0);
     assert!(empty.asset_ranking.is_empty());
     assert_eq!(empty.progression.mode, None, "no mode, not a default stage");
+}
+
+/// An axis-signal history with nothing observable — the right input for a test
+/// that is about axis *values*, not about the typed signal history.
+fn no_signals() -> [Vec<core_domain::axes::Signal>; 4] {
+    [Vec::new(), Vec::new(), Vec::new(), Vec::new()]
 }

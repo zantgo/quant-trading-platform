@@ -185,9 +185,16 @@ fn the_two_deleted_confidence_fields_are_already_gone_from_the_axes() {
             true,
         )],
         None,
+        &no_signals(),
     );
     let payload = serde_json::to_string(&axes).expect("serialises");
     assert!(!payload.contains("confidence"), "the axes carry readiness");
     assert!(payload.contains("readiness"));
     assert!(axes[0].readiness == core_domain::axes::Readiness::Solid);
+}
+
+/// An axis-signal history with nothing observable — the right input for a test
+/// that is about axis *values*, not about the typed signal history.
+fn no_signals() -> [Vec<core_domain::axes::Signal>; 4] {
+    [Vec::new(), Vec::new(), Vec::new(), Vec::new()]
 }

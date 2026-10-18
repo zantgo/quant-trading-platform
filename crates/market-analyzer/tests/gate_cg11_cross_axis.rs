@@ -87,7 +87,7 @@ fn cg11_a_divergence_can_feed_several_axes_without_being_duplicated() {
             true,
         ),
     ];
-    let axes = assemble_axes(&readings, None);
+    let axes = assemble_axes(&readings, None, &no_signals());
     assert_eq!(axes.len(), 4, "four axes, always");
 
     let structure = axes.iter().find(|a| a.axis == AxisId::Structure).unwrap();
@@ -231,4 +231,10 @@ fn cg11_the_journal_bound_does_not_change_the_counting_rule() {
         j.active_of_kind(EventKind::Divergence).len(),
         "at the bound, one identity per active event"
     );
+}
+
+/// An axis-signal history with nothing observable — the right input for a test
+/// that is about axis *values*, not about the typed signal history.
+fn no_signals() -> [Vec<core_domain::axes::Signal>; 4] {
+    [Vec::new(), Vec::new(), Vec::new(), Vec::new()]
 }

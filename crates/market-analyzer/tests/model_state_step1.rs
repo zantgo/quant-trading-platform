@@ -34,6 +34,7 @@ fn snapshot_with_model_state() -> MarketSnapshot {
             true,
         )],
         None,
+        &no_signals(),
     );
     MarketSnapshot {
         symbol: "BTC-USDT".into(),
@@ -191,4 +192,10 @@ fn step1_the_assembled_state_is_built_from_the_snapshot_itself() {
             axis.axis.label()
         );
     }
+}
+
+/// An axis-signal history with nothing observable — the right input for a test
+/// that is about axis *values*, not about the typed signal history.
+fn no_signals() -> [Vec<core_domain::axes::Signal>; 4] {
+    [Vec::new(), Vec::new(), Vec::new(), Vec::new()]
 }

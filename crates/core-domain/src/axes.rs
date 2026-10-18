@@ -311,10 +311,15 @@ pub enum Readiness {
     Dashed,
 }
 
+/// How many bars of typed signal history each axis retains (V-95q).
+///
+/// A **declared constant**, not a field, and not configurable: the plan calls
+/// for one retention number, and a second cap is how a second cap arrives.
+pub const READINGS_CAP: usize = 50;
+
 impl AxisState {
     /// Push one signal onto the history, trimming to [`READINGS_CAP`].
     pub fn push_reading(&mut self, signal: Signal) {
-        const READINGS_CAP: usize = 50;
         self.readings.push(signal);
         if self.readings.len() > READINGS_CAP {
             let excess = self.readings.len() - READINGS_CAP;
@@ -324,7 +329,17 @@ impl AxisState {
 }
 
 /// Why a signal was emitted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// This is the **model's** signal vocabulary — six kinds, each a structural
+/// fact about the price path. It is deliberately *not* the same enum as
+/// [`crate::indicator_dtos::SignalKind`], which is the twelve-kind vocabulary of
+/// the indicator pipeline. Conflating the two is what produced the P10 defect
+/// where the live assembler matched the DTO enum against the literal
+/// `LevelTouch` — a variant of **this** enum — so the filter matched nothing on
+/// any snapshot and `model_state.levels` was permanently empty (V-106).
+///
+/// [`model_signal_kind`] is the only sanctioned bridge between them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignalKind {
     Threshold,
@@ -333,6 +348,36 @@ pub enum SignalKind {
     CenterlineCross,
     LevelTouch,
     StateChange,
+}
+
+/// Reduce a pipeline signal kind to the model's structural vocabulary.
+///
+/// **Total.** Every one of the twelve [`crate::indicator_dtos::SignalKind`]
+/// variants is decided here, so a new pipeline kind fails to compile at the call
+/// site rather than silently producing no model signal.
+///
+/// The reduction is coarse on purpose: the model records *what kind of structural
+/// fact* occurred, and the finer pipeline kind is preserved verbatim on
+/// [`Signal::Event::subtype`]. Nothing is lost, and nothing is guessed.
+pub const fn model_signal_kind(kind: crate::indicator_dtos::SignalKind) -> SignalKind {
+    use crate::indicator_dtos::SignalKind as K;
+    match kind {
+        // One-to-one: already structural.
+        K::Divergence => SignalKind::Divergence,
+        K::Threshold => SignalKind::Threshold,
+        K::ZeroLineCross => SignalKind::ZeroLineCross,
+        K::Crossover => SignalKind::CenterlineCross,
+        // Every "something was touched or broken" kind is a zone event.
+        K::Breakout | K::BandTouch | K::LevelTest => SignalKind::LevelTouch,
+        // Everything else is a change in how the market is behaving, with no
+        // single price attached: compression releasing, a trend flipping, a
+        // climax, a stack reordering, a pattern taking shape.
+        K::CompressionRelease
+        | K::TrendFlip
+        | K::VolumeClimax
+        | K::StackChange
+        | K::PatternForming => SignalKind::StateChange,
+    }
 }
 
 /// A typed reading. **A bare number is never a reading** (V-94q) — if it cannot be
@@ -351,8 +396,13 @@ pub enum Signal {
         kind: SignalKind,
         at_bar: usize,
         anchor: f64,
+        /// The pipeline kind this was reduced from, verbatim.
+        ///
+        /// **Typed, not a string.** This used to be `Option<String>` fed from a
+        /// normaliser's free text; carrying the enum instead means a consumer
+        /// can match on it without a string comparison (V-108).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        subtype: Option<String>,
+        subtype: Option<crate::indicator_dtos::SignalKind>,
     },
     /// A state change without a price.
     Transition {
