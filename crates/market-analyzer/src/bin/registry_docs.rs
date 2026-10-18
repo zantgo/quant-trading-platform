@@ -11,6 +11,7 @@
 //! What it generates
 //! -----------------
 //! `04-02-00-indicator-index.md` — the per-group tables and the Summary table,
+//! `05-02-00-signals-index.md` — the signal Summary table,
 //! inside an explicit generated region. The prose around them (counts policy,
 //! numbering policy, cross-references) is hand-written and stays readable.
 //!
@@ -19,6 +20,7 @@
 //! ```text
 //! registry_docs            write every generated region
 //! registry_docs --check    fail if any generated region differs byte-for-byte
+//! registry_docs --summary  print the registry's authoritative counts, one per line
 //! ```
 //!
 //! `--check` is what `scripts/check_docs.py` invokes through `./manage.sh
@@ -53,6 +55,16 @@ fn inventory_path() -> PathBuf {
         .parent()
         .expect("index path has a parent")
         .join("04-04-00-reading-inventory.md")
+}
+
+/// The signal index, whose Summary table was hand-maintained and had drifted to
+/// 101 declarations against the registry's 92.
+fn signals_path() -> PathBuf {
+    index_path()
+        .parent()
+        .and_then(Path::parent)
+        .expect("engine dir")
+        .join("signals/05-02-00-signals-index.md")
 }
 
 fn group_label(g: IndicatorCluster) -> &'static str {
@@ -406,15 +418,134 @@ fn apply_region(text: &str, generated: &str) -> String {
     out
 }
 
+/// The registry's authoritative counts, as `key=value` lines.
+///
+/// The counts that used to be hand-written into `04-02-00`'s prose, `05-02-00`'s
+/// summary and the README — the three places that disagreed with each other and
+/// with the registry. A document that states a count should be able to be checked
+/// against something; this is that something.
+fn summary() -> String {
+    use market_analyzer::indicators::registry::INDICATORS;
+    let mut out = String::new();
+    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+    let mut declarations = 0usize;
+    for m in INDICATORS {
+        for s in m.signal_types {
+            *kinds.entry(format!("{s:?}")).or_insert(0) += 1;
+            declarations += 1;
+        }
+    }
+    writeln!(out, "indicators={}", INDICATORS.len()).unwrap();
+    for group in GROUP_ORDER {
+        let n = INDICATORS.iter().filter(|m| m.group == group).count();
+        if n > 0 {
+            let label = match group {
+                IndicatorCluster::Institutional => "institutional",
+                IndicatorCluster::Volatility => "volatility",
+                IndicatorCluster::Structure => "structure",
+                IndicatorCluster::Momentum => "momentum",
+                IndicatorCluster::Trend => "trend",
+                IndicatorCluster::Volume => "volume",
+                IndicatorCluster::TrendQuality => "regime",
+            };
+            writeln!(out, "group.{label}={n}").unwrap();
+        }
+    }
+    writeln!(out, "signal_kind_types={}", kinds.len()).unwrap();
+    writeln!(out, "declarations={declarations}").unwrap();
+    for (k, n) in &kinds {
+        writeln!(out, "kind.{k}={n}").unwrap();
+    }
+    writeln!(
+        out,
+        "divergence_bearing={}",
+        INDICATORS.iter().filter(|m| m.supports_divergence).count()
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "directional={}",
+        INDICATORS.iter().filter(|m| m.directional).count()
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "readings={}",
+        market_analyzer::indicators::registry::READINGS.len()
+    )
+    .unwrap();
+    out
+}
+
+/// Generate the `05-02-00` Summary table from the registry.
+///
+/// Every number a reader would otherwise have to trust. The hand prose above it
+/// keeps the policy statements ("which counts are authoritative"); the numbers
+/// themselves come from the registry, so they cannot be right-but-stale.
+fn generate_signals_summary() -> String {
+    let mut out = String::new();
+    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+    let mut declarations = 0usize;
+    for m in INDICATORS {
+        for s in m.signal_types {
+            *kinds.entry(format!("{s:?}")).or_insert(0) += 1;
+            declarations += 1;
+        }
+    }
+    let breakdown: Vec<String> = kinds.iter().map(|(k, n)| format!("{k} {n}")).collect();
+    let sum_check: usize = kinds.values().sum();
+    writeln!(out, "| Metric | Count | Notes |").unwrap();
+    writeln!(out, "|---|---|---|").unwrap();
+    writeln!(
+        out,
+        "| Parent indicators | **{}** | Across {} functional groups |",
+        INDICATORS.len(),
+        GROUP_ORDER
+            .iter()
+            .filter(|g| INDICATORS.iter().any(|m| m.group == **g))
+            .count()
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "| `(indicator, SignalKind)` declarations | **{declarations}** | Per-kind breakdown: {}. Sum-check: {sum_check} = {declarations} |",
+        breakdown.join(" + ")
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "| Distinct `SignalKind` types | **{}** | (see table below) |",
+        kinds.len()
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "| Divergence declarations | **{}** | `supports_divergence: true` on the registry |",
+        INDICATORS.iter().filter(|m| m.supports_divergence).count()
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "| `×N` per-indicator multiplicities | internal event multiplicity | Counts internal event subtypes per declaration, **not** declaration count |"
+    )
+    .unwrap();
+    out
+}
+
 fn main() -> ExitCode {
+    if std::env::args().any(|a| a == "--summary") {
+        print!("{}", summary());
+        return ExitCode::SUCCESS;
+    }
     let check = std::env::args().any(|a| a == "--check");
 
     // Two generated files, one --check contract. The inventory is the one that
     // mattered: it was hand-maintained and asserted 76 "present" readings
     // against a registry of 44, and nothing compared the two.
-    let targets: [(PathBuf, fn() -> String); 2] = [
+    let targets: [(PathBuf, fn() -> String); 3] = [
         (index_path(), generate as fn() -> String),
         (inventory_path(), generate_readings as fn() -> String),
+        (signals_path(), generate_signals_summary as fn() -> String),
     ];
 
     let mut drifted: Vec<String> = Vec::new();

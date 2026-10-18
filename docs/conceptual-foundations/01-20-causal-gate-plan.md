@@ -96,13 +96,13 @@ This is the load-bearing property. Comparing a recomputed final indicator series
 sufficient — a series can agree at the endpoint and disagree in the middle, which is exactly what
 a look-ahead bug produces. **Historical snapshots are compared element-wise**, not endpoints.
 
-### 4.2 G2 — future perturbation, strengthened
+### 4.2 CG2 — future perturbation, strengthened
 
 Prefix invariance ("a longer dataset yields the same prefix") is necessary but weaker than the
 property that actually matters: *changing the future must not alter what the system claimed it
 knew about the past*.
 
-For an observation time *t*, **G2 runs as follows**:
+For an observation time *t*, **CG2 runs as follows**:
 
 1. Replay with the original data through *t*. Save **all outputs available at or before *t***.
 2. Hold every input through *t* **byte-identical**. Construct **several distinct futures** by
@@ -181,7 +181,7 @@ bar n+W  no revision             → counter = W   eligible: YES  → stable = t
 ```
 
 `target_stable` becomes `true` when `counter >= STABILITY_WINDOW`, evaluated **after** the bar's
-increment. The revision bar itself is never counted. Gate **G4** asserts the boundary exactly:
+increment. The revision bar itself is never counted. Gate **CG4** asserts the boundary exactly:
 `W-1` bars → still false; `W` bars → true.
 
 ### 5.3 The noise floor is fixed at leg creation
@@ -194,7 +194,7 @@ of the leg.** It does not evolve.
 | **Fixed at creation** ✅ | The floor is a property of the leg's own origin context. Stable, explainable, and `progress` changes only for two reasons: price moved, or the target moved. | **Adopted.** |
 | Evolving per bar | `progress` gains a **third** revision source unrelated to price or target. A leg can report a different value for the same `(P, O, T)` depending on when you looked. | Rejected — it reintroduces the ambiguity §4.3 of `leg.md` exists to remove. |
 
-The floor is computed **only from candles available at `origin_available_at`**. Gate **G6**
+The floor is computed **only from candles available at `origin_available_at`**. Gate **CG6**
 asserts both the freeze and the causality of the floor itself.
 
 ---
@@ -205,23 +205,23 @@ Thirteen gates. Every one executes runtime behaviour.
 
 | Gate | What it executes | Required result | Phase |
 |---|---|---|---|
-| **G1** | Availability enforcement | Pivot at *t*, `available_at` > *t*; no output before it is influenced | P2 |
-| **G2** | **Future perturbation** | ≥4 altered futures; equal causally-available input through *t* ⟹ equal historical output through *t*, element-wise | P1, P5 |
-| **G3** | Target revision ≠ movement | Price rises, target moves away; `progress` may fall, no movement fabricated, unstable stage not promoted | P2 |
-| **G4** | Stability window boundary | `W-1` bars → false; `W` bars → true; the revision bar is never counted | P2 |
-| **G5** | Revision budget | `unviable`; stability unrecoverable for that leg; no stage; `progress` provisional when defined | P2 |
-| **G6** | Degenerate reference | `UNDEFINED` — never `0`, `inf`, `NaN`; floor fixed at creation and causal | P2 |
-| **G7** | Leg identity and nesting | Major/minor records distinct; scale policy selects; identity ≠ relevance | P2 |
-| **G8** | Event lifecycle | Activate → expire → re-trigger evidence; old stays expired, new identity with `supersedes` | P3 |
-| **G9** | Retention vs validity | Expired events inside storage bounds are stored but **never** counted as active | P3 |
-| **G10** | Terminality vs completion | Termination evidence with new extremes; reassessed, leg **not** closed | P4 |
-| **G11** | Cross-axis consumption | One canonical divergence consumed by many axes, never multiplied | P4 |
-| **G12** | Deterministic replay | Same immutable input twice; IDs, identities, transitions, values, timestamps match exactly | P1, P5 |
-| **G13** | **Scale-classifier causality** | Rank distribution is causal; warmup defined; reclassification ≠ retargeting | P2 |
+| **CG1** | Availability enforcement | Pivot at *t*, `available_at` > *t*; no output before it is influenced | P2 |
+| **CG2** | **Future perturbation** | ≥4 altered futures; equal causally-available input through *t* ⟹ equal historical output through *t*, element-wise | P1, P5 |
+| **CG3** | Target revision ≠ movement | Price rises, target moves away; `progress` may fall, no movement fabricated, unstable stage not promoted | P2 |
+| **CG4** | Stability window boundary | `W-1` bars → false; `W` bars → true; the revision bar is never counted | P2 |
+| **CG5** | Revision budget | `unviable`; stability unrecoverable for that leg; no stage; `progress` provisional when defined | P2 |
+| **CG6** | Degenerate reference | `UNDEFINED` — never `0`, `inf`, `NaN`; floor fixed at creation and causal | P2 |
+| **CG7** | Leg identity and nesting | Major/minor records distinct; scale policy selects; identity ≠ relevance | P2 |
+| **CG8** | Event lifecycle | Activate → expire → re-trigger evidence; old stays expired, new identity with `supersedes` | P3 |
+| **CG9** | Retention vs validity | Expired events inside storage bounds are stored but **never** counted as active | P3 |
+| **CG10** | Terminality vs completion | Termination evidence with new extremes; reassessed, leg **not** closed | P4 |
+| **CG11** | Cross-axis consumption | One canonical divergence consumed by many axes, never multiplied | P4 |
+| **CG12** | Deterministic replay | Same immutable input twice; IDs, identities, transitions, values, timestamps match exactly | P1, P5 |
+| **CG13** | **Scale-classifier causality** | Rank distribution is causal; warmup defined; reclassification ≠ retargeting | P2 |
 
 **Total: 13 gates. Phase exit requires every gate in that phase to be green.**
 
-### 6.1 G13 — structural-scale classifier causality
+### 6.1 CG13 — structural-scale classifier causality
 
 The major/minor classifier ranks displacement against Tier A history. A percentile is only as
 honest as the sample behind it, so the classifier inherits every temporal rule the leg obeys.
@@ -250,6 +250,28 @@ classification is unchanged until the bar that made the revision available.
 
 Seven phases. P0 is complete. **P6 and P7 are blocked until P5 reports green.**
 
+### 7.0 The two phase series, and which one commits cite
+
+This document's `P0`–`P7` are the **gate plan's own** series: they order the *gate* work only. The
+delivery plan runs a wider series (`P0`–`P14` plus `R1`–`R9`) that also carries the CLI shell, the
+config split, the crate split and the release. Both are called `P`, and reading a commit message
+against the wrong table is how a phase silently lands its work in the wrong place.
+
+**Commit messages cite the delivery-plan series. This table is the mapping.**
+
+| This document | Delivery-plan phase | Gates it produces | State |
+|---|---|---|---|
+| **P0** Specification freeze | P0–P1 | — | ✅ |
+| **MS-1** First milestone | **P7** (first half) | CG1 + M1 | ✅ `4b2bf330` |
+| **P1** Replay harness | **P7** (second half) | harness, CG2, CG12 | ✅ `4b2bf330` |
+| **MR** Measurement-quality review | **P12** entry | CR-16 applied before any new reading | ⬜ |
+| **P2** Leg, progression, stability | **P8** | CG3 CG4 CG5 CG6 CG7 CG13 · M3 M4 M5 M7 | ⬜ |
+| **P3** Event lifecycle | **P9** | CG8 CG9 · M2 | ⬜ |
+| **P4** Ownership, terminality, cross-axis | **P10** | CG10 CG11 · M6 | ⬜ |
+| **P5** Full gate execution and report | **P11** | all 13 · M1–M7 · SV · parity | ⬜ |
+| **P6** Inventory expansion ⛔ | **P12** | — (entry is hard-gated on P11) | ⬜ |
+| **P7** Surface | **P13 + P14** | — | ⬜ |
+
 ---
 
 ### P0 — Specification freeze ✅ COMPLETE
@@ -263,7 +285,7 @@ Seven phases. P0 is complete. **P6 and P7 are blocked until P5 reports green.**
 
 ---
 
-### MS-1 — First milestone: G1 + M1 (the only gate authorised to run alone)
+### MS-1 — First milestone: CG1 + M1 (the only gate authorised to run alone)
 
 **Deliberately narrow.** This milestone proves exactly one thing: *the harness detects a
 precisely specified availability defect.* It does **not** prove the other twelve gates work, and
@@ -276,21 +298,21 @@ it does **not** prove mutation detection is reliable across classes.
 
 | Step | Action | Required evidence |
 |---|---|---|
-| **1. Baseline** | Run G1 against **unmodified production logic** | G1 passes. Command + exit status recorded. |
+| **1. Baseline** | Run CG1 against **unmodified production logic** | CG1 passes. Command + exit status recorded. |
 | **2. Inject M1** | Apply the availability mutation to an **isolated copy** of production logic | The mutation site is named. Production is untouched. |
-| **3. Catch** | Run G1 against the mutant | G1 **fails at the expected availability assertion** — quoted verbatim. |
-| **4. Repair** | Restore the unmutated logic | G1 passes again. Command + exit status recorded. |
+| **3. Catch** | Run CG1 against the mutant | CG1 **fails at the expected availability assertion** — quoted verbatim. |
+| **4. Repair** | Restore the unmutated logic | CG1 passes again. Command + exit status recorded. |
 | **5. Preserve** | Write the evidence | Report identifies commit, spec, harness, fixture checksums, the mutation, and the assertion. |
 
 #### Failure specificity — the requirement that matters
 
-> **A suite that goes red because the mutant *crashed* has not demonstrated that G1 detects the
+> **A suite that goes red because the mutant *crashed* has not demonstrated that CG1 detects the
 > intended semantic defect.** A compile error, a panic, a `None` unwrap, or a failing *unrelated*
 > assertion all produce red. None of them is evidence.
 
 | The failure is NOT acceptable because | |
 |---|---|
-| The mutant fails to compile | That tests the compiler, not G1 |
+| The mutant fails to compile | That tests the compiler, not CG1 |
 | The mutant panics on setup | That tests robustness, not availability semantics |
 | A different assertion fails first | That tests ordering, not detection |
 | The run errors before reaching any assertion | That tests the harness plumbing, not the gate |
@@ -303,7 +325,7 @@ pass.
 
 | Rule | |
 |---|---|
-| **MS-1-S1** | MS-1 runs **G1 only**. No other gate is implemented during MS-1. |
+| **MS-1-S1** | MS-1 runs **CG1 only**. No other gate is implemented during MS-1. |
 | **MS-1-S2** | MS-1 injects **M1 only**. M2–M7 are not created. |
 | **MS-1-S3** | If MS-1 fails, it is fixed. It is **not** worked around by adding gates. |
 | **MS-1-S4** | MS-1 produces a report of the **same format** as P5 — so the format itself is exercised once before it is depended upon. |
@@ -326,14 +348,14 @@ The harness is built **before** the components it judges, so it cannot be shaped
 | **W1.4** | Element-wise snapshot differ. Reports the **first** differing bar, not just the endpoint. Compares event identities, transitions, `available_at`, both version counters, axis values and stages — **not indicator values alone**. |
 | **W1.5** | Fail-closed assertions. Missing timestamps, references, typed values → hard fail with field name. |
 | **W1.6** | Typed `UNDEFINED` plumbing end-to-end. Must survive serialisation and aggregation without becoming `0` or `NaN`. |
-| **W1.7** | Reading-identity loader consuming the **CR-4** mapping. Must land before G11. |
+| **W1.7** | Reading-identity loader consuming the **CR-4** mapping. Must land before CG11. |
 | **W1.8** | **Generated-artifact generator + `test-doc` drift check** (CR-5). Regenerates `inventory.md` and the README totals from the registry; fails on byte difference. Closes the one V-1 gap. |
-| **T1.1** | Write **G2** and **G12** against the harness using a trivial stub aggregator — the harness must be capable of failing before it is capable of passing. |
+| **T1.1** | Write **CG2** and **CG12** against the harness using a trivial stub aggregator — the harness must be capable of failing before it is capable of passing. |
 | **T1.2** | Execute mutation **M1** (availability bypass) against the stub; the corresponding assertion must fail. |
 | **RV1** | Adversarial: can the harness be fooled? Can a component read past the clock? Is the differ really element-wise? Does a single perturbation pass while a targeted one would fail? |
-| **VC gate** | **G2 + G12 green.** Harness detects a seeded look-ahead violation. M1 detected and M1-repaired passes. Generator drift check green (**I35** enforceable). |
+| **VC gate** | **CG2 + CG12 green.** Harness detects a seeded look-ahead violation. M1 detected and M1-repaired passes. Generator drift check green (**I35** enforceable). |
 | **Exit** | A violation injected into a stub is *caught*. A clean stub is not. A single inert future does not produce a false pass. No generated artifact drifts from the registry. |
-| **Commit** | `feat(harness): causal replay harness, multi-future perturbation, element-wise differ (G2,G12)` |
+| **Commit** | `feat(harness): causal replay harness, multi-future perturbation, element-wise differ (CG2,CG12)` |
 
 > **The seeded-violation check is mandatory.** A harness that has never failed has not been shown
 > to work. Phase 1 cannot exit until a deliberately broken stub is caught by it — and until that
@@ -381,11 +403,11 @@ whether the harness is correct.
 | **W2.7** | Revision log — bounded; `target_version` and `structure_version` **monotonic and disjoint**; `stage`/`progress`/`target_stable` **carry no counter** (L26) |
 | **W2.8** | Stage classification — ordinal, from `progress`; blocked while `target_stable = false`; withheld while `unviable` or `provisional` |
 | **W2.9** | Tier D exclusion from the byte budget — no charge, no eviction path (**T2**, **L24**) |
-| **T2.x** | **G1, G3, G4, G5, G6, G7, G13** written from [`leg.md`](01-14-current-leg-record.md), before W2 runs |
+| **T2.x** | **CG1, CG3, CG4, CG5, CG6, CG7, CG13** written from [`leg.md`](01-14-current-leg-record.md), before W2 runs |
 | **RV2** | Adversarial: any read of an unconfirmed origin? Any fabricated movement? Any forced stability? Is the floor frozen? Is the rank threshold frozen? Does anything publish a stage for an `unviable` or `provisional` leg? Does reclassification leak into `target_version`? Can budget pressure reach a Tier D record? |
-| **VC gate** | **G1, G3, G4, G5, G6, G7, G13 green** + M3 M4 M5 M7 detected |
+| **VC gate** | **CG1, CG3, CG4, CG5, CG6, CG7, CG13 green** + M3 M4 M5 M7 detected |
 | **Exit** | Every L1–L24 invariant observable at runtime; leg behaviour matches all three worked examples (`leg.md` §8.1–8.3); CR-1–CR-4 landed |
-| **Commit** | `feat(leg): versioned leg record, progression, stability, causal scale classifier (G1,G3-G7,G13)` |
+| **Commit** | `feat(leg): versioned leg record, progression, stability, causal scale classifier (CG1,CG3-CG7,CG13)` |
 
 ---
 
@@ -400,11 +422,11 @@ whether the harness is correct.
 | **W3.5** | Reactivation — **new** identity + `supersedes`. No record is ever revived. |
 | **W3.6** | Three-count export — active / retained / emit, never conflated |
 | **W3.7** | Tier C journal bound — count **and** age, independent of validity |
-| **T3.x** | **G8, G9** written from [`event-lifecycle.md`](01-15-event-lifecycle.md) |
+| **T3.x** | **CG8, CG9** written from [`event-lifecycle.md`](01-15-event-lifecycle.md) |
 | **RV3** | Adversarial: can an expired event be counted? Is reactivation reviving anything? Is the bound count-only anywhere? |
-| **VC gate** | **G8 + G9 green** |
+| **VC gate** | **CG8 + CG9 green** |
 | **Exit** | Only `active` counts. A bounded journal holding 200 expired events reports active count 0 |
-| **Commit** | `feat(events): event lifecycle with expiry, invalidation and non-reviving reactivation (G8,G9)` |
+| **Commit** | `feat(events): event lifecycle with expiry, invalidation and non-reviving reactivation (CG8,CG9)` |
 
 ---
 
@@ -418,11 +440,11 @@ whether the harness is correct.
 | **W4.4** | Terminality — `continuation_supported` / `indeterminate` / `termination_evidence`, from completion criteria only |
 | **W4.5** | Terminality ⟂ completion — separate outputs; `termination_evidence` never closes a leg |
 | **W4.6** | Regime reserved · Confidence reserved — named, scoped, non-axis, non-smuggled |
-| **T4.x** | **G10, G11** written from [`framework.md`](01-13-state-axes-framework.md) §5.7–5.9 |
+| **T4.x** | **CG10, CG11** written from [`framework.md`](01-13-state-axes-framework.md) §5.7–5.9 |
 | **RV4** | Adversarial: is any indicator double-counted? Does terminality leak into stage? Is Regime leaking onto an axis? |
-| **VC gate** | **G10 + G11 green** |
+| **VC gate** | **CG10 + CG11 green** |
 | **Exit** | One divergence consumed by three axes counts **once** |
-| **Commit** | `feat(axes): ownership/consumption/emission, staged families, terminality (G10,G11)` |
+| **Commit** | `feat(axes): ownership/consumption/emission, staged families, terminality (CG10,CG11)` |
 
 ---
 
@@ -481,23 +503,23 @@ One row per gate. This is the table that decides the verdict.
 
 | Gate | Verifies | Phase | Test artifact | Command | Expected | Result |
 |---|---|---|---|---|---|---|
-| **G1** | Availability enforcement | P2 | `market-analyzer/tests/gate_g1_availability.rs` | `cargo test -p market-analyzer --test gate_g1_availability` | No pre-`available_at` influence | ⬜ not run |
-| **G2** | **Future perturbation** | P1, P5 | `.../gate_g2_future_perturbation.rs` | `cargo test -p market-analyzer --test gate_g2_future_perturbation` | ≥4 independent fixtures; outputs through *t* element-wise identical | ⬜ not run |
-| **G3** | Target revision ≠ movement | P2 | `.../gate_g3_target_revision.rs` | `cargo test -p market-analyzer --test gate_g3_target_revision` | `progress` may fall; no fabricated movement; no promotion | ⬜ not run |
-| **G4** | Stability window boundary | P2 | `.../gate_g4_stability_window.rs` | `cargo test -p market-analyzer --test gate_g4_stability_window` | `W-1` false · `W` true · revision bar uncounted | ⬜ not run |
-| **G5** | Revision budget | P2 | `.../gate_g5_revision_budget.rs` | `cargo test -p market-analyzer --test gate_g5_revision_budget` | `unviable`; stability unrecoverable; no stage | ⬜ not run |
-| **G6** | Degenerate reference | P2 | `.../gate_g6_degenerate.rs` | `cargo test -p market-analyzer --test gate_g6_degenerate` | `UNDEFINED`; never `0`/`inf`/`NaN`; floor fixed + causal | ⬜ not run |
-| **G7** | Leg identity and nesting | P2 | `.../gate_g7_leg_identity.rs` | `cargo test -p market-analyzer --test gate_g7_leg_identity` | Major/minor distinct; policy selects; identity ≠ relevance | ⬜ not run |
-| **G8** | Event lifecycle | P3 | `.../gate_g8_event_lifecycle.rs` | `cargo test -p market-analyzer --test gate_g8_event_lifecycle` | Old stays expired; new identity + `supersedes` | ⬜ not run |
-| **G9** | Retention vs validity | P3 | `.../gate_g9_retention_validity.rs` | `cargo test -p market-analyzer --test gate_g9_retention_validity` | Stored but not counted as active | ⬜ not run |
-| **G10** | Terminality vs completion | P4 | `.../gate_g10_terminality.rs` | `cargo test -p market-analyzer --test gate_g10_terminality` | Reassessed; leg not closed | ⬜ not run |
-| **G11** | Cross-axis consumption | P4 | `.../gate_g11_cross_axis.rs` | `cargo test -p market-analyzer --test gate_g11_cross_axis` | Consumable, never multiplied | ⬜ not run |
-| **G12** | Deterministic replay | P1, P5 | `.../gate_g12_determinism.rs` | `cargo test -p market-analyzer --test gate_g12_determinism` | Exact match across two runs | ⬜ not run |
-| **G13** | Scale-classifier causality | P2 | `.../gate_g13_scale_causality.rs` | `cargo test -p market-analyzer --test gate_g13_scale_causality` | Distribution causal; warmup defined; reclass ≠ retarget | ⬜ not run |
+| **CG1** | Availability enforcement | P2 | `market-analyzer/tests/gate_g1_availability.rs` | `cargo test -p market-analyzer --test gate_g1_availability` | No pre-`available_at` influence | ⬜ not run |
+| **CG2** | **Future perturbation** | P1, P5 | `.../gate_g2_future_perturbation.rs` | `cargo test -p market-analyzer --test gate_g2_future_perturbation` | ≥4 independent fixtures; outputs through *t* element-wise identical | ⬜ not run |
+| **CG3** | Target revision ≠ movement | P2 | `.../gate_g3_target_revision.rs` | `cargo test -p market-analyzer --test gate_g3_target_revision` | `progress` may fall; no fabricated movement; no promotion | ⬜ not run |
+| **CG4** | Stability window boundary | P2 | `.../gate_g4_stability_window.rs` | `cargo test -p market-analyzer --test gate_g4_stability_window` | `W-1` false · `W` true · revision bar uncounted | ⬜ not run |
+| **CG5** | Revision budget | P2 | `.../gate_g5_revision_budget.rs` | `cargo test -p market-analyzer --test gate_g5_revision_budget` | `unviable`; stability unrecoverable; no stage | ⬜ not run |
+| **CG6** | Degenerate reference | P2 | `.../gate_g6_degenerate.rs` | `cargo test -p market-analyzer --test gate_g6_degenerate` | `UNDEFINED`; never `0`/`inf`/`NaN`; floor fixed + causal | ⬜ not run |
+| **CG7** | Leg identity and nesting | P2 | `.../gate_g7_leg_identity.rs` | `cargo test -p market-analyzer --test gate_g7_leg_identity` | Major/minor distinct; policy selects; identity ≠ relevance | ⬜ not run |
+| **CG8** | Event lifecycle | P3 | `.../gate_g8_event_lifecycle.rs` | `cargo test -p market-analyzer --test gate_g8_event_lifecycle` | Old stays expired; new identity + `supersedes` | ⬜ not run |
+| **CG9** | Retention vs validity | P3 | `.../gate_g9_retention_validity.rs` | `cargo test -p market-analyzer --test gate_g9_retention_validity` | Stored but not counted as active | ⬜ not run |
+| **CG10** | Terminality vs completion | P4 | `.../gate_g10_terminality.rs` | `cargo test -p market-analyzer --test gate_g10_terminality` | Reassessed; leg not closed | ⬜ not run |
+| **CG11** | Cross-axis consumption | P4 | `.../gate_g11_cross_axis.rs` | `cargo test -p market-analyzer --test gate_g11_cross_axis` | Consumable, never multiplied | ⬜ not run |
+| **CG12** | Deterministic replay | P1, P5 | `.../gate_g12_determinism.rs` | `cargo test -p market-analyzer --test gate_g12_determinism` | Exact match across two runs | ⬜ not run |
+| **CG13** | Scale-classifier causality | P2 | `.../gate_g13_scale_causality.rs` | `cargo test -p market-analyzer --test gate_g13_scale_causality` | Distribution causal; warmup defined; reclass ≠ retarget | ⬜ not run |
 
 ### 8.2 Semantic validation — SV, the layer the gates do not cover
 
-G1–G13 establish **specification conformance** and **causal replay**. They do **not** establish
+CG1–CG13 establish **specification conformance** and **causal replay**. They do **not** establish
 that the readings *behave as intended*. A deterministic, causal system can compute the wrong
 value consistently.
 
@@ -578,7 +600,7 @@ situations*, not claims about future prices or trade outcomes. **SV establishes 
 means, not whether it improves a trading strategy** — that remains a separate downstream question.
 
 **Scope.** SV is scoped to the **implemented** inventory. It does not gate MS-1, P1 or P2, which
-build the machinery. It becomes an exit condition for **P5**, alongside G1–G13.
+build the machinery. It becomes an exit condition for **P5**, alongside CG1–CG13.
 
 **13 gates. `Result` is filled only by VC, never by the implementing agent.**
 
@@ -587,16 +609,16 @@ build the machinery. It becomes an exit condition for **P5**, alongside G1–G13
 | Layer | Establishes | Status now |
 |---|---|---|
 | **V-1** Documentation consistency | Normative statements agree with each other | 🟡 PASS (I35 not yet enforceable) |
-| **V-2** Gate execution | G1–G13 pass against production logic | ⬜ **not run** |
+| **V-2** Gate execution | CG1–CG13 pass against production logic | ⬜ **not run** |
 | **V-3** Mutation testing | M1–M7 fail the relevant assertion, pass after repair | ⬜ **not run** |
 | **V-4** Reproducible evidence | Report bound to a commit, spec, harness, fixtures, mutations | ⬜ not applicable |
 
 **A V-1 result never implies V-2.** Full status and the one declared gap:
 [`verification-status.md`](01-18-verification-status.md).
 
-### 8.1 G2's four futures are independent fixtures
+### 8.1 CG2's four futures are independent fixtures
 
-G2's value is **not** that one look-ahead test passes. It is that **four distinct futures each
+CG2's value is **not** that one look-ahead test passes. It is that **four distinct futures each
 fail to move the past**, and that each exercises a different mechanism.
 
 | Fixture | Alters | Mechanism it probes |
@@ -611,7 +633,7 @@ compared with the **element-wise prefix comparison** — never an endpoint compa
 single shared future reused across assertions.
 
 > **One shared future across all assertions would be a silent weakening.** If that future happened
-> not to move the mechanism under test, G2 would pass while proving nothing about it.
+> not to move the mechanism under test, CG2 would pass while proving nothing about it.
 
 ### 8.1 Mutation programme — the gate must be shown sensitive
 
@@ -621,12 +643,12 @@ isolated defect** injected into a copy of production logic — never into produc
 | # | Injected defect | Must be caught by | Status |
 |---|---|---|---|
 | **M1** | Availability enforcement bypassed — a field read before its `available_at` | CG1, CG2 | ✅ detected, repaired (P7 — record in §8.1.1) |
-| **M2** | Event expiry suppressed — absence of contradiction treated as persistence | G8, G9 | ⬜ not run |
-| **M3** | Stability boundary off-by-one — the revision bar counted | G4, G5 | ⬜ not run |
-| **M4** | Progression clamped to `[0, 1]` | G3, G6 | ⬜ not run |
-| **M5** | Reclassification bumps `target_version` — scale change masquerades as movement | G3, G13 | ⬜ not run |
-| **M6** | Cross-axis double-count — one event weighted once per consuming axis | G11 | ⬜ not run |
-| **M7** | Byte-budget eviction applied to a Tier D leg record | G7, G9 | ⬜ not run |
+| **M2** | Event expiry suppressed — absence of contradiction treated as persistence | CG8, CG9 | ⬜ not run |
+| **M3** | Stability boundary off-by-one — the revision bar counted | CG4, CG5 | ⬜ not run |
+| **M4** | Progression clamped to `[0, 1]` | CG3, CG6 | ⬜ not run |
+| **M5** | Reclassification bumps `target_version` — scale change masquerades as movement | CG3, CG13 | ⬜ not run |
+| **M6** | Cross-axis double-count — one event weighted once per consuming axis | CG11 | ⬜ not run |
+| **M7** | Byte-budget eviction applied to a Tier D leg record | CG7, CG9 | ⬜ not run |
 
 **Every mutation must produce all four of these, recorded in the report:**
 
@@ -687,7 +709,7 @@ REPRODUCIBILITY BANNER
    Mutations .............. M1..Mn exercised this run
 
 1. CAUSALITY
-   Gates ......... 4/4  (G1 G2 G4 G12)
+   Gates ......... 4/4  (CG1 CG2 CG4 CG12)
    Look-ahead violations .................. 0
    Pre-availability influence ............. 0
    Perturbation futures exercised ......... 4+
@@ -696,7 +718,7 @@ REPRODUCIBILITY BANNER
    VERDICT: PASS / FAIL
 
 2. SEMANTIC CORRECTNESS
-   Gates ......... 6/6  (G3 G5 G6 G7 G10 G13)
+   Gates ......... 6/6  (CG3 CG5 CG6 CG7 CG10 CG13)
    Progression transitions ................ expected
    Stage publication gating ................ correct
    Leg identity / nesting ................. distinct
@@ -706,7 +728,7 @@ REPRODUCIBILITY BANNER
    VERDICT: PASS / FAIL
 
 3. DETERMINISM AND INTEGRITY
-   Gates ......... 3/3  (G8 G9 G11)
+   Gates ......... 3/3  (CG8 CG9 CG11)
    Repeat-replay agreement ................ exact
    UNDEFINED typing preserved ............. yes
    Expired-as-active count ................. 0
@@ -733,7 +755,7 @@ A verdict is **reproducible or it is not a verdict.** All of the following must 
 
 | Category | Minimum evidence |
 |---|---|
-| **Causality** | Zero look-ahead violations. G2 future-perturbation passes across ≥4 futures. Replay consumes **only** eligible historical inputs — verified, not assumed. M1 detected. |
+| **Causality** | Zero look-ahead violations. CG2 future-perturbation passes across ≥4 futures. Replay consumes **only** eligible historical inputs — verified, not assumed. M1 detected. |
 | **Semantic correctness** | Every specified boundary case passes: target revision, permanent reference invalidation, nested legs, typed `UNDEFINED`, event expiry, reclassification-vs-retargeting. M3 M4 M5 detected. |
 | **Determinism & integrity** | Repeated replay agrees exactly. Canonical identities and timestamps stable. Retention limits respected and Tier D never evicted. M2 M6 M7 detected. The report corresponds to **the exact tested revision**. |
 
@@ -838,7 +860,7 @@ permitted in place of these decisions.**
 | **R1** | Spec Tier A = 250; registry declares `INDICATORS_MAX_BARS_REQUIRED = 300`. Do both govern the same resource? | **Same resource, different tiers.** Tier A → **300 bars**. The registry is **not** lowered — an existing assertion already locks it to the real maximum. | [CR-1](01-17-change-requests.md#cr-1--r1-tier-a-vs-the-indicators-calculation-floor) → `retention.md` **T1** | P2 exit |
 | **R2** | `history_budget.rs` evicts to a 50-entry floor. Which resource, and does it touch Tier D? | The floor is an **eviction floor on Tier B**. **Tier D is never evicted.** Eviction is **lifecycle-neutral** — a storage event may never produce a semantic claim. | [CR-2](01-17-change-requests.md#cr-2--r2-history_budget-vs-tier-b-and-tier-d) → `retention.md` **T2 T3**, `leg.md` **L24** | P2 exit |
 | **R3** | `candle_buffer.size` = 500 and Tier B = 500. Same knob? | **Separate settings.** Coincident defaults are permitted; a shared knob is not. A violating config is rejected at load, not clamped. | [CR-3](01-17-change-requests.md#cr-3--r3-candle_buffersize-vs-tier-b) → `retention.md` **T4 T5** | P2 exit |
-| **R4** | 76 readings map to 52 shipped indicators. Is the mapping machine-checkable? | **No** — `IndicatorMeta` has no readings field today. The **registry becomes authoritative**; every reading declares a producer or explicit `derived_from`. | [CR-4](01-17-change-requests.md#cr-4--r4-76-readings-mapped-to-52-shipped-indicators) → `framework.md` **I27–I32** | **P1** — G11 cannot test double-counting without it |
+| **R4** | 76 readings map to 52 shipped indicators. Is the mapping machine-checkable? | **No** — `IndicatorMeta` has no readings field today. The **registry becomes authoritative**; every reading declares a producer or explicit `derived_from`. | [CR-4](01-17-change-requests.md#cr-4--r4-76-readings-mapped-to-52-shipped-indicators) → `framework.md` **I27–I32** | **P1** — CG11 cannot test double-counting without it |
 
 > **CR-4 is not a P6 item.** It was scheduled for P6 and is now scheduled ahead of the gates that
 > consume reading identity. Ordering note, not a scope change.
@@ -850,19 +872,19 @@ permitted in place of these decisions.**
 ```
 P0 SPEC FREEZE + CR-1..CR-5 ... ✅ COMPLETE
         │
-MS-1 FIRST MILESTONE ......... G1 + M1 only - baseline/inject/catch/repair
+MS-1 FIRST MILESTONE ......... CG1 + M1 only - baseline/inject/catch/repair
         │                      MUST fail at the availability assertion
                       (demonstrates one specific defect; establishes nothing else)
 P1 REPLAY HARNESS ............. generation + drift check (CR-5) closes V-1 gap
-        │                      gates: G2 G12   mutations: M1
+        │                      gates: CG2 CG12   mutations: M1
         ▼
-P2 LEG + PROGRESSION ......... gates: G1 G3 G4 G5 G6 G7 G13
+P2 LEG + PROGRESSION ......... gates: CG1 CG3 CG4 CG5 CG6 CG7 CG13
         │                      mutations: M3 M4 M5 M7
         │                      CR-1..CR-5 must have landed
         ▼
-P3 EVENT LIFECYCLE ............ gates: G8 G9   mutations: M2
+P3 EVENT LIFECYCLE ............ gates: CG8 CG9   mutations: M2
         │
-P4 OWNERSHIP + TERMINALITY ... gates: G10 G11  mutations: M6
+P4 OWNERSHIP + TERMINALITY ... gates: CG10 CG11  mutations: M6
         │
 P5 FULL GATE + REPORT ......... gates: 13/13 → three categories
         │                      mutations: M1..M7 all detected
@@ -883,7 +905,7 @@ once called `M0` while `M1`-`M7` denoted mutations, and the two namespaces had t
 
 | Prefix | Namespace | Members |
 |---|---|---|
-| `G` | **Gates** | G1–G13 |
+| `G` | **Gates** | CG1–CG13 |
 | `M` | **Mutations** | M1–M7 |
 | `P` | **Phases** | P0–P7 |
 | `MS` | **Milestones** | MS-1 … MS-4 |
@@ -904,9 +926,9 @@ once called `M0` while `M1`-`M7` denoted mutations, and the two namespaces had t
 
 | # | Milestone | Provides evidence for | Does **not** establish |
 |---|---|---|---|
-| **MS-1** | G1 + M1 | The harness detects **one** precisely specified availability defect | That G2–G13 work; that mutation detection is reliable across classes |
-| **MS-2** | G2 + FX1–FX4 | Causal invariance across **four distinct perturbation mechanisms** | That the gates are complete |
-| **MS-3** | G3–G13 + M2–M7 | Behavioural coverage and mutation detection across classes | That the evidence is reproducible |
+| **MS-1** | CG1 + M1 | The harness detects **one** precisely specified availability defect | That CG2–CG13 work; that mutation detection is reliable across classes |
+| **MS-2** | CG2 + FX1–FX4 | Causal invariance across **four distinct perturbation mechanisms** | That the gates are complete |
+| **MS-3** | CG3–CG13 + M2–M7 | Behavioural coverage and mutation detection across classes | That the evidence is reproducible |
 | **MS-4** | V-4 | The evidence is bound to the exact merged commit and spec | — |
 
 > **MS-1 must not be expanded into a larger gate suite before the baseline / mutation / repair cycle

@@ -110,7 +110,7 @@ Constraints on the whole framework. Any proposal violating one is out of scope.
 | **P6** | **Literature-grounded.** Every indicator is a published, documented formula. No invented mathematics. | Each spec cites its family. |
 | **P7** | **All retention bounded.** No stored series, event journal, or state may grow without limit. | See [`retention.md`](01-16-retention-tiers.md). |
 | **P8** | **Candle-only.** Every reading is computed from OHLCV candles — historical or live — and from nothing else. | Derivatives, order-book, and forced-close data are out of scope (§9). |
-| **P9** | **Rule-based and deterministic.** Every reading is a published formula applied to available data. Nothing is trained, fitted, sampled at random, or simulated stochastically. | Same inputs and configuration produce bit-identical outputs. Enforced by **G12**. |
+| **P9** | **Rule-based and deterministic.** Every reading is a published formula applied to available data. Nothing is trained, fitted, sampled at random, or simulated stochastically. | Same inputs and configuration produce bit-identical outputs. Enforced by **CG12**. |
 | **P10** | **Backtesting validates strategy, never the model.** The layer is descriptive; it makes no claim that is settled by being tested for profitability. | A backtest may exercise a **strategy** built on these readings. It may **not** be used to accept, reject or tune a reading, an axis, or the model. See §8.2. |
 
 ---
@@ -741,10 +741,10 @@ Both may be added later, in a layer downstream of this one, once outcome data ex
 
 | Gate suite covers | Partially covers | Does **not** cover |
 |---|---|---|
-| Specification conformance, in part | Semantic validation, for a **few** cases only (G3–G7, G10 assert intended behaviour) | Semantic validation in general |
+| Specification conformance, in part | Semantic validation, for a **few** cases only (CG3–CG7, CG10 assert intended behaviour) | Semantic validation in general |
 | Causal replay, comprehensively | — | Whether the *intended* behaviour is the *correct* market interpretation |
 
-**A fully green G1–G13 result therefore establishes:** the system uses only what it knew, does so
+**A fully green CG1–CG13 result therefore establishes:** the system uses only what it knew, does so
 deterministically, and matches its written definitions on the cases the suite covers.
 
 **It does not establish** that a reading captures the market characteristic it was meant to

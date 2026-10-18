@@ -10,15 +10,17 @@
 
 ## Summary
 
+<!-- BEGIN GENERATED: registry — do not edit by hand -->
 | Metric | Count | Notes |
 |---|---|---|
-| Parent indicators | **52** | Across 8 functional groups |
-| `(indicator, SignalKind)` declarations | **101** | Per-kind breakdown: Threshold 22 + LevelTest 14 + ZeroLineCross 13 + Crossover 10 + TrendFlip 10 + Breakout 9 + Divergence 9 + BandTouch 4 + CompressionRelease 4 + PatternForming 3 + VolumeClimax 2 + StackChange 1 = 101 (registry-verified `2026-08-13` — see [04-02-00 §1](../../market-monitoring-engine/indicators/04-02-00-indicator-index.md)) |
+| Parent indicators | **44** | Across 7 functional groups |
+| `(indicator, SignalKind)` declarations | **92** | Per-kind breakdown: BandTouch 4 + Breakout 9 + CompressionRelease 4 + Crossover 10 + Divergence 8 + LevelTest 14 + PatternForming 3 + StackChange 1 + Threshold 15 + TrendFlip 10 + VolumeClimax 2 + ZeroLineCross 12. Sum-check: 92 = 92 |
 | Distinct `SignalKind` types | **12** | (see table below) |
-| Divergence declarations | **9** | 8 nested on parent (with `supports_divergence: true`) + 1 standalone (`oi_price_divergence`, own registry entry) |
+| Divergence declarations | **8** | `supports_divergence: true` on the registry |
 | `×N` per-indicator multiplicities | internal event multiplicity | Counts internal event subtypes per declaration, **not** declaration count |
+<!-- END GENERATED: registry -->
 
-> **Registry is authoritative.** The 101 `(indicator, SignalKind)` declarations are read from `crates/market-analyzer/src/indicators/registry.rs` (`signal_types`). The registry drives the configurable-activation surface (`[activation] disabled_signal_kinds` in [03-02-12 §2](../../market-monitoring-engine/03-02-12-mme-configurable-activation.md)) and the UI capability display. Per-indicator Signals tables in `04-02-NN` mirror the registry; where the runtime signal deriver (`crates/market-analyzer/src/indicators/normalized/signals.rs`) currently differs — emitting a kind the registry has not declared yet, or not yet emitting a declared kind — the table carries an explicit annotation.
+> **Registry is authoritative.** The declarations above are read from `crates/market-analyzer/src/indicators/registry.rs` (`signal_types`). The registry drives the configurable-activation surface (`[activation] disabled_signal_kinds` in [03-02-12 §2](../../market-monitoring-engine/03-02-12-mme-configurable-activation.md)) and the UI capability display. Per-indicator Signals tables in `04-02-NN` mirror the registry; where the runtime signal deriver (`crates/market-analyzer/src/indicators/normalized/signals.rs`) currently differs — emitting a kind the registry has not declared yet, or not yet emitting a declared kind — the table carries an explicit annotation.
 
 ## The 12 SignalKinds
 

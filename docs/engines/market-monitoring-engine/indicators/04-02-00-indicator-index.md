@@ -2,11 +2,13 @@
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 
-> **52** indicators across 8 functional groups. Registry-verified count: 52 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-08-16`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). The per-indicator `Signals` columns mirror the registry `signal_types` manifest; where the runtime signal deriver (`crates/market-analyzer/src/indicators/normalized/signals.rs`) differs today, the spec file's Signals table carries an explicit annotation (registry-declared-but-pending, or runtime-derived-but-not-yet-declared — see `bbwp`, `squeeze`, `aroon`, `stochastic`, `mfi`, `macd`).
+> **44** indicators across 7 functional groups, and every count below is **generated** from `INDICATORS` in `crates/market-analyzer/src/indicators/registry.rs` (see the Summary table). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). The per-indicator `Signals` columns mirror the registry `signal_types` manifest; where the runtime signal deriver (`crates/market-analyzer/src/indicators/normalized/signals.rs`) differs today, the spec file's Signals table carries an explicit annotation (registry-declared-but-pending, or runtime-derived-but-not-yet-declared — see `bbwp`, `squeeze`, `aroon`, `stochastic`, `mfi`, `macd`).
+>
+> **The eight Derivatives entries are gone** (CR-10, phase P5): a reading may not be derived from open interest, funding, mark/index or any non-candle feed. The count fell from 52 to 44 and this paragraph is the record of it. The §Derivatives section below is retained only to document the deletion.
 >
 > **Counts policy.** The per-SignalKind breakdown in the *Summary* table below is authoritative; if any other doc disagrees, this file wins. Counts are re-derived from `crates/market-analyzer/src/indicators/registry.rs` and updated on every registry change.
 >
-> **Numbering.** File names follow `04-02-NN-kebab-case.md` where `NN` is the zero-padded registry row index (01 → 52). The **registry key** (column below) remains snake_case and matches the Rust enum variant used in code; the **filename** uses kebab-case per the doc convention.
+> **Numbering.** File names follow `04-02-NN-kebab-case.md` where `NN` is the zero-padded registry row index. The numbering is **historical and non-contiguous**: entries deleted by CR-10 leave gaps, so the highest `NN` is not the count. The count is the Summary table's, and the count is generated. The **registry key** (column below) remains snake_case and matches the Rust enum variant used in code; the **filename** uses kebab-case per the doc convention.
 
 ---
 

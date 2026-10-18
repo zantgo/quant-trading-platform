@@ -1454,6 +1454,132 @@ def check_g20_ddl_doc_code():
     if errors == 0:
         ok("DDL ⇄ doc ⇄ code agreement holds")
 
+# ── G21: README inventory ⇄ filesystem, and hand counts ⇄ generated counts ──
+def _strip_generated(text):
+    """Return only the hand-written prose of a generated document.
+
+    A count inside a `BEGIN/END GENERATED` region is not hand-stated — it is
+    byte-equal to the registry by CHECK 7 — so counting it here would compare the
+    registry with itself and fail on the per-group headers.
+    """
+    out, skipping = [], False
+    for line in text.splitlines():
+        if line.startswith("<!-- BEGIN GENERATED"):
+            skipping = True
+            continue
+        if line.startswith("<!-- END GENERATED"):
+            skipping = False
+            continue
+        if not skipping:
+            out.append(line)
+    # Struck-through spans are history, not claims: a deleted file named inside
+    # one is a record of the deletion, and G14 already checks live links.
+    joined = "\n".join(out)
+    return re.sub(r"~~.*?~~", "", joined, flags=re.S)
+
+
+def check_g21_readme_inventory():
+    """Every file the README names exists; every count it states is true.
+
+    G2 already compares the README's *stats line* against the filesystem. It does
+    not look at the directory map, nor at the inventory numbers in prose — which
+    is how a specification file deleted in P5 kept its README entry, and how a
+    hand-stated "52 indicators / 101 declarations" survived two releases next to a
+    *generated* table saying 44 / 92.
+
+    The generated tables are the authority, so a hand number that disagrees is
+    drift in exactly the sense CR-4/CR-5 made mechanical for the registry itself.
+    """
+    print("\n=== G21: README inventory + hand counts ===")
+    errors = 0
+    readme = (ROOT / "README.md").read_text()
+    index = ROOT / "engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md"
+    signals = ROOT / "engines/market-monitoring-engine/signals/05-02-00-signals-index.md"
+
+    # 1. Every numbered file token the README names must exist.
+    live_readme = re.sub(r"~~.*?~~", "", readme, flags=re.S)
+    for tok in sorted(set(re.findall(r"\b\d{2}-\d{2}[a-z]?-[a-z0-9\-]+\.md\b", live_readme))):
+        if not any(p.name == tok for p in ROOT.rglob("*.md")):
+            fail(f"README names `{tok}`, which does not exist in docs/")
+            errors += 1
+
+    # 2. Every `(NN — N files)` annotation must equal the directory's real count.
+    dir_for_prefix = {
+        "01": "conceptual-foundations",
+        "02": "matrices",
+        "03-01": "engines/data-infrastructure-engine",
+        "03-02": "engines/market-monitoring-engine",
+        "03-03": "engines/trade-automation-engine",
+        "03-04": "engines/portfolio-management-engine",
+        "03-05": "engines/performance-analytics-engine",
+        "06": "integration-and-api",
+        "07": "ui-ux",
+        "08": "operations-and-compliance",
+    }
+    for prefix, claimed in re.findall(r"\((\d{2}(?:-\d{2})?) — (\d+) files\)", readme):
+        directory = dir_for_prefix.get(prefix)
+        if directory is None:
+            continue
+        actual = len(list((ROOT / directory).glob("*.md")))
+        if int(claimed) != actual:
+            fail(f"README says `{prefix}` has {claimed} files; {directory} has {actual}")
+            errors += 1
+
+    # 3. The generated indicator count, and every hand-written restatement of it.
+    index_text = index.read_text()
+    generated_indicators = len(re.findall(r"^\| \d{2} \| `04-02-", index_text, re.M))
+    claims = {
+        "README.md": (readme, [r"\((\d+) indicators", r"indicators \((\d+)\)",
+                                r"indicators \((\d+) registry", r"(\d+) registry entries"]),
+        "04-02-00": (index_text, [r"\*\*(\d+)\*\* indicators"]),
+    }
+    for name, (text, patterns) in claims.items():
+        hand = _strip_generated(text)
+        for pattern in patterns:
+            for claimed in re.findall(pattern, hand):
+                if int(claimed) != generated_indicators:
+                    fail(f"{name} claims {claimed} indicators; the generated registry "
+                         f"table has {generated_indicators}")
+                    errors += 1
+
+    # 4. SignalKind types: the generated summary is the count; hand prose must agree.
+    signals_text = signals.read_text()
+    m = re.search(r"\| Distinct `SignalKind` types \| \*\*(\d+)\*\*", signals_text)
+    if not m:
+        fail("05-02-00: the generated `Distinct SignalKind types` row is missing")
+        errors += 1
+    else:
+        kinds = int(m.group(1))
+        rows = len(re.findall(r"^\| \d{2} \| \*\*[A-Za-z]", signals_text, re.M))
+        if rows != kinds:
+            fail(f"05-02-00 declares {kinds} SignalKind types but lists {rows} rows")
+            errors += 1
+        for name, text in (("README.md", readme), ("05-02-00", signals_text)):
+            hand = _strip_generated(text)
+            for claimed in re.findall(r"(\d+) SignalKind", hand) + re.findall(r"(\d+) canonical `SignalKind`", hand):
+                if int(claimed) != kinds:
+                    fail(f"{name} claims {claimed} SignalKinds; the generated index has {kinds}")
+                    errors += 1
+
+    # 5. The declaration count, which is the number most likely to go stale
+    #    (101 → 92 when CR-10 removed the eight Derivatives entries).
+    dm = re.search(r"declarations \| \*\*(\d+)\*\*", signals_text)
+    if dm:
+        declarations = int(dm.group(1))
+        for name, text in (("README.md", readme), ("05-02-00", signals_text)):
+            hand = _strip_generated(text)
+            for claimed in re.findall(r"(\d+) signal-kind declarations", hand) + \
+                           re.findall(r"(\d+) `\(indicator, SignalKind\)` declarations", hand) + \
+                           re.findall(r"declarations from \d+ to (\d+)", hand):
+                if int(claimed) != declarations:
+                    fail(f"{name} claims {claimed} signal-kind declarations; the generated "
+                         f"index has {declarations}")
+                    errors += 1
+
+    if errors == 0:
+        ok(f"README inventory matches the filesystem; hand counts match the generated "
+           f"tables ({generated_indicators} indicators)")
+
 # ── Main ────────────────────────────────────────────────────────────────
 def main():
     global failures
@@ -1481,6 +1607,7 @@ def main():
     check_g18_ds_parity()
     check_g19_dil_ontology()
     check_g20_ddl_doc_code()
+    check_g21_readme_inventory()
     check_cli_gui_parity()
     # Legacy regression checks retained from the v6.2 gate
     check_retired_terms()

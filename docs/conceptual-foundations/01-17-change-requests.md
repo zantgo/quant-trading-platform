@@ -261,7 +261,7 @@ from count.
 
 ### Ordering
 
-CR-4 **must land before the gates that consume reading identity** — G11 in particular cannot test
+CR-4 **must land before the gates that consume reading identity** — CG11 in particular cannot test
 cross-axis double-counting without knowing which readings a producer declares.
 
 ---
@@ -319,7 +319,7 @@ the current state is:
 
 ### Ordering
 
-CR-5 lands in **P1**, with CR-4. G11 consumes reading identity and therefore the totals.
+CR-5 lands in **P1**, with CR-4. CG11 consumes reading identity and therefore the totals.
 
 ---
 
@@ -652,6 +652,19 @@ direction: the **new** identifier yields, not the established one.
 
 [01-20](01-20-causal-gate-plan.md) — every gate reference, the mutation table, the milestone
 table, and §13.1's namespace table.
+
+### Applied
+
+Landed in the delivery plan's **spec-alignment commit** (after `60064867`, CR-8 recorded as
+accepted at `1b59da38` but the corpus never rewritten). Every causal-gate identifier in
+[01-20](01-20-causal-gate-plan.md) (134), [01-18](01-18-verification-status.md) (17),
+[01-13](01-13-state-axes-framework.md) (6) and [01-14](01-14-current-leg-record.md) (1) is now
+`CG*`; the two prose references in this file were updated in place. The documentation gate keeps
+`G1`–`G20` everywhere, including the three references in this section.
+
+The code had already migrated — `crates/market-analyzer/src/replay/` and the `CG*` doc comments in
+`core-domain` were written against the renamed series — so before this commit the code and the
+spec disagreed about what `G1` meant, which is precisely the collision CR-8 was raised to close.
 
 ---
 

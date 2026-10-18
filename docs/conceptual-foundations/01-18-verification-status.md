@@ -17,7 +17,7 @@ The current, honest state of verification for this specification.
 | # | Layer | What it establishes | Depends on an implementation? |
 |---|---|---|---|
 | **V-1** | **Documentation consistency** | Links, references, normative statements and cross-document invariants agree | **No** |
-| **V-2** | **Gate execution** | Each of G1–G13 actually passes against production logic | **Yes** |
+| **V-2** | **Gate execution** | Each of CG1–CG13 actually passes against production logic | **Yes** |
 | **V-3** | **Mutation testing** | Each of M1–M7 demonstrably fails the relevant assertion, and passes after repair | **Yes** |
 | **V-4** | **Reproducible evidence** | The reports identify the exact commit, spec, harness, fixtures and mutations tested | **Yes** |
 
@@ -69,11 +69,11 @@ Both are about **how** the system computes. Neither asks whether it computes the
 | Kind of validation | Status |
 |---|---|
 | **Specification conformance** | Partly covered by V-2 |
-| **Causal replay** | Covered by V-2 (G1–G13) |
+| **Causal replay** | Covered by V-2 (CG1–CG13) |
 | **Semantic validation** — does it *behave as intended*? | ⬜ **not established.** SV-A / SV-B / SV-C defined; no implemented inventory yet |
 | **Strategy backtesting** | Out of scope — validates the strategy, not the model |
 
-> **A fully green G1–G13 result would establish that the system uses only what it knew, does so
+> **A fully green CG1–CG13 result would establish that the system uses only what it knew, does so
 > deterministically, and matches its written definitions on the cases the suite covers.** It would
 > **not** establish that a reading captures the market characteristic it was meant to capture.
 >
@@ -132,9 +132,9 @@ passing.
 | Phase | Layer advanced | How |
 |---|---|---|
 | **P1** | V-1 gap closed | Generator + `test-doc` drift check → I35 enforceable |
-| **P2** | V-2 partial | G1 G3 G4 G5 G6 G7 G13 executed; M3 M4 M5 M7 injected |
-| **P3** | V-2 partial | G8 G9 executed; M2 injected |
-| **P4** | V-2 partial | G10 G11 executed; M6 injected |
+| **P2** | V-2 partial | CG1 CG3 CG4 CG5 CG6 CG7 CG13 executed; M3 M4 M5 M7 injected |
+| **P3** | V-2 partial | CG8 CG9 executed; M2 injected |
+| **P4** | V-2 partial | CG10 CG11 executed; M6 injected |
 | **P5** | **V-2 V-3 V-4 complete** | 13/13 gates · M1–M7 all detected · report bound to a commit |
 
 ---

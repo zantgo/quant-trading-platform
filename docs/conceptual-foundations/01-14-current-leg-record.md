@@ -204,7 +204,7 @@ make one of them unobservable.
 | **S-N6** | A retarget increments `target_version` and **never** `structure_version`. |
 | **S-N7** | A reclassification is itself a revision and obeys the same availability rules as any other. |
 
-Keeping the counters disjoint is what makes G3 (retargeting is not movement) and the scale tests
+Keeping the counters disjoint is what makes CG3 (retargeting is not movement) and the scale tests
 separately falsifiable. If one bumped both, a reclassification would masquerade as movement —
 the exact confusion §4.3 exists to prevent.
 
