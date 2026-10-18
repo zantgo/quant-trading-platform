@@ -363,7 +363,7 @@ export interface AlignmentMatrix {
     mtf_volume_alignment: number;
     mtf_volatility_alignment: number;
     mtf_overall_score: number;
-    mtf_overall_label: string;
+    mtf_stance: CrossTfStance;
     /** Effective blend weights `[["T", 0.55], …]` applied to the
      *  composite — mirrors the backend formula (v6.10.16 thin-participation
      *  reweight; empty/absent on legacy payloads → standard 50/30/10/10). */
@@ -573,10 +573,8 @@ export interface AssetRank {
     /// v6.11+ — Mirrors `AlignmentMatrix.mtf_overall_score` for this
     /// symbol ∈ [-100, 100]. `0` when no alignment is available.
     mtf_score?: number;
-    /// v6.11+ — Mirrors `AlignmentMatrix.mtf_overall_label`
-    /// (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` /
-    /// `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`).
-    mtf_label?: string;
+    /// v6.11+ — Mirrors `AlignmentMatrix.mtf_stance`.
+    mtf_stance?: CrossTfStance;
 }
 
 export interface RiskDistribution {
@@ -609,12 +607,12 @@ export interface OverviewMatrix {
     cascade_risk_index?: RiskDimension;
     /// v6.9+ — Market-wide danger index consumed by the PME safety
     /// veto. `0.6 × high_pct + 0.4 × sync_penalty`.
-    /// v6.11+ — Count of assets per `AlignmentMatrix.mtf_overall_label`
-    /// (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` /
-    /// `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`). Mirrors
+    /// v6.11+ — Count of assets per `AlignmentMatrix.mtf_stance`
+    /// (typed `CrossTfStance` tokens: `strong_bull` / `bull` / `neutral` /
+    /// `bear` / `strong_bear` / `unmeasured`). Mirrors
     /// the shape of `opportunity_distribution` (per-type counts,
     /// not a partition).
-    alignment_distribution?: Record<string, number>;
+    alignment_distribution?: Partial<Record<CrossTfStance, number>>;
     /// v6.11+ — Mean of all per-symbol
     /// `AlignmentMatrix.mtf_overall_score` ∈ [-100, 100]. The
     /// cross-timeframe counterpart to `breadth_pct` (which is
@@ -659,26 +657,10 @@ export interface OverviewRow {
     symbol: string;
     price: number;
     bias: string;
-    signal: 'BUY' | 'SELL' | 'WAIT';
-    direction: 'LONG' | 'SHORT' | 'NEUTRAL';
-    rr: number;
     score: number;
-    confidence: number;
     mtf_score: number;
-    mtf_label: string;
-    risk: number;
-    /// Top-setup of the Opportunity Layer — resolved side of the displayed
-    /// bracket (`LONG` / `SHORT` / `NEUTRAL`), server-computed once for the
-    /// GUI + CLI parity contract (01-10 §5).
-    setup_side?: string;
-    /// Top-setup entry zone low/high bound (0 = N/A).
-    entry_low?: number;
-    entry_high?: number;
-    /// Top-setup target (take-profit) zone low/high bound (0 = N/A).
-    target_low?: number;
-    target_high?: number;
-    /// Top-setup stop-loss (invalidation) level (0 = N/A).
-    invalidation?: number;
+    /// CR-18 — typed cross-duration stance, replacing the `*_MTF` label string.
+    mtf_stance: CrossTfStance;
     updated_ts: number;
     active: boolean;
 }
@@ -1477,3 +1459,21 @@ export interface BteSignalsPayload {
     count: number;
     signals: any[];
 }
+
+/**
+ * CR-18 — the typed replacement for the `STRONG_BULL_MTF` / `WEAK_BULL_MTF` /
+ * `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA` label strings.
+ *
+ * A label is not a value: renaming it silently reclassifies data, and a typo
+ * produces an unmatched branch rather than a compile error. `Unmeasured` is the
+ * honest reading when no alignment exists — the old vocabulary had no such
+ * state, so absent data was rendered as "NO_DATA" *inside* a label field and a
+ * consumer could not tell it from a real classification.
+ */
+export type CrossTfStance =
+    | 'strong_bull'
+    | 'bull'
+    | 'neutral'
+    | 'bear'
+    | 'strong_bear'
+    | 'unmeasured';

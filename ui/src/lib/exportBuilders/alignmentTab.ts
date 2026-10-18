@@ -13,6 +13,7 @@ import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo } from '../..
 import { buildPriceBlock, buildHeaderBlock, type MetaEnvelope, type HeaderBlock, type InstanceTermsLike } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { mLabel } from '../layerHeader';
+import type { CrossTfStance } from '../../types';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -23,8 +24,8 @@ export const ALIGNMENT_DIMENSION_NAMES = [
 
 export interface AlignmentHeroBlock {
   mtf_overall_score: number;
-  mtf_overall_label: string;
-  mtf_overall_label_display: string;
+  mtf_stance: CrossTfStance;
+  mtf_stance_display: string;
   timeframes_present: number;
   signal_cross_tf_count: number;
   trend_agreement_pct: number;
@@ -171,8 +172,8 @@ function buildConflictBanner(alignment: AlignmentMatrix | null): string {
 function buildHeroBlock(alignment: AlignmentMatrix): AlignmentHeroBlock {
   return {
     mtf_overall_score: alignment.mtf_overall_score,
-    mtf_overall_label: alignment.mtf_overall_label,
-    mtf_overall_label_display: mLabel(alignment.mtf_overall_label),
+    mtf_stance: alignment.mtf_stance,
+    mtf_stance_display: mLabel(alignment.mtf_stance),
     timeframes_present: alignment.timeframes_present,
     signal_cross_tf_count: alignment.signal_cross_tf_count,
     trend_agreement_pct: alignment.trend_agreement_pct,
@@ -281,7 +282,7 @@ function buildInterpretation(alignment: AlignmentMatrix | null): string {
   const overall = signedStr(alignment.mtf_overall_score, 0);
   const present = alignment.timeframes_present;
   const crossTf = alignment.signal_cross_tf_count;
-  const label = mLabel(alignment.mtf_overall_label).toUpperCase();
+  const label = mLabel(alignment.mtf_stance).toUpperCase();
   if (pct >= 75) {
     // v7.1: a NEUTRAL composite can never show "strong directional
     // consensus" — neutral is directionless by definition, so the copy
@@ -296,7 +297,7 @@ function buildInterpretation(alignment: AlignmentMatrix | null): string {
         : `${crossTf} cross-timeframe signal votes reinforce the current bias.`
       : 'No cross-timeframe signal votes detected.';
     // Mirrors the screen paragraph verbatim — the label is the REAL
-    // mtf_overall_label, never a hardcoded token.
+    // mtf_stance, never a hardcoded token.
     // AUDIT-FE-M7: no hardcoded "/4" denominator (custom ladders).
     return `Multi-timeframe alignment shows <strong>${consensusPhrase}</strong> (${pct.toFixed(0)}% agreement across ${present} timeframes). ${scoreSentence} ${crossLine}`;
   }
@@ -387,8 +388,8 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
     header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'SUMMARY' },
     hero: {
       mtf_overall_score: 0,
-      mtf_overall_label: 'NO_DATA',
-      mtf_overall_label_display: '—',
+      mtf_stance: 'unmeasured',
+      mtf_stance_display: '—',
       timeframes_present: 0,
       signal_cross_tf_count: 0,
       trend_agreement_pct: 0,

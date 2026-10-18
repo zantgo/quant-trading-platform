@@ -155,7 +155,7 @@
             <tbody>
                 {#each rows as { pairKey, inst } (pairKey)}
                     {@const badge = biasBadge(inst)}
-                    {@const mtfLabel = inst.alignment?.mtf_overall_label ?? ''}
+                    {@const mtfLabel = inst.alignment?.mtf_stance ?? ''}
                     {@const hasData = badge.state !== 'empty'}
                     {@const decisionTrail = (() => { void trailVersion; return getBadgeTrail(layerKey('l6', pairKey)); })()}
                     <!-- v11.12.16: the bold label is ALWAYS the base symbol

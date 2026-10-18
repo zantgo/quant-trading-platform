@@ -34,7 +34,7 @@ fn model_snapshot() -> MarketSnapshot {
     a.bias = core_domain::analysis::MarketBias::StrongBullish;
     let mut m = AlignmentMatrix::empty("BTC-USDC");
     m.mtf_overall_score = 88.0;
-    m.mtf_overall_label = "STRONG_BULL_MTF".into();
+    m.mtf_stance = core_domain::alignment::CrossTfStance::StrongBull;
     MarketSnapshot {
         symbol: "BTC-USDC".into(),
         timeframe_secs: 60,

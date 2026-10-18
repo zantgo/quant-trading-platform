@@ -558,10 +558,7 @@ describe('export consistency — Overview tab', () => {
         instance_count: 3,
         active_symbols: ['BTC-USDT'],
         breadth_pct: 42,
-        alignment_distribution: {
-          STRONG_BULL_MTF: 1,
-          WEAK_BULL_MTF: 1,
-        },
+        alignment_distribution: { strong_bull: 1, bull: 1 },
         alignment_consensus_index: 35,
         multi_tf_agreement_pct: 78,
       };
@@ -625,7 +622,7 @@ describe('export consistency — Overview tab', () => {
     // Market Alignment — populated state.
     expect(p.cards.market_alignment.has_data).toBe(true);
     expect(p.cards.market_alignment.total_pairs).toBe(2);
-    expect(p.cards.market_alignment.distribution[0].key).toBe('STRONG_BULL_MTF');
+    expect(p.cards.market_alignment.distribution[0].key).toBe('strong_bull');
     expect(p.cards.market_alignment.consensus_index).toBe(35);
     expect(p.cards.market_alignment.consensus_label).toBe('Bullish');
     expect(c.dom).toContain('+35');
@@ -670,7 +667,7 @@ describe('export consistency — Overview tab', () => {
     expect(c.dom).toContain('Bias');
     expect(c.dom).toContain('Score');
     expect(c.dom).toContain('MTF Score');
-    expect(c.dom).toContain('MTF Label');
+    expect(c.dom).toContain('MTF Stance');
     expect(c.dom).toContain('Updated');
     // CR-15: the strategy columns are gone from the page and the export alike.
     for (const gone of ['Signal', 'Direction', 'Confidence', 'Risk']) {
@@ -681,7 +678,7 @@ describe('export consistency — Overview tab', () => {
     expect(row).toBeTruthy();
     expect(row.symbol).toBe('BTC');
     expect(row.score_display).toMatch(/^\d+$/);
-    expect(row.mtf_label_display).toBe('WEAK BULL');
+    expect(row.mtf_stance_display).toBe('WEAK BULL');
     for (const gone of ['signal', 'direction', 'rr_display', 'confidence_display', 'risk_display']) {
         expect(row[gone], `strategy field ${gone} must not be exported`).toBeUndefined();
     }

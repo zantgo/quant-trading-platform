@@ -49,7 +49,7 @@ function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatri
     mtf_volume_alignment: 0.5,
     mtf_volatility_alignment: 0.4,
     mtf_overall_score: 62,
-    mtf_overall_label: 'STRONG_BULL_MTF',
+    mtf_stance: 'strong_bull',
     timeframe_alignments: [
       { timeframe: '1M', timeframe_secs: 60, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
     ],
@@ -63,13 +63,13 @@ function makeSentinelAlignment(): AlignmentMatrix {
   return {
     symbol: 'BTC-USDT',
     timeframes_present: 0,
-    dimensions: Array.from({ length: 10 }, () => dim(0, 'NO_DATA')),
+    dimensions: Array.from({ length: 10 }, () => dim(0, 'unmeasured')),
     mtf_trend_alignment: 0,
     mtf_momentum_alignment: 0,
     mtf_volume_alignment: 0,
     mtf_volatility_alignment: 0,
     mtf_overall_score: 0,
-    mtf_overall_label: 'NO_DATA',
+    mtf_stance: 'unmeasured',
     timeframe_alignments: [],
     signal_cross_tf_count: 0,
     trend_agreement_pct: 0,
@@ -200,7 +200,7 @@ describe('AlignmentPanel — interpretation score binding (AL-8)', () => {
   });
 
   it('a negative composite prints with a minus sign in prose', () => {
-    seed(makeAlignment({ mtf_overall_score: -13, mtf_overall_label: 'NEUTRAL_MTF' }));
+    seed(makeAlignment({ mtf_overall_score: -13, mtf_stance: 'neutral' }));
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
     const interp = document.querySelector(`.${styles.interpretation}`)!.textContent!;
     expect(interp).toContain('-13');
@@ -210,7 +210,7 @@ describe('AlignmentPanel — interpretation score binding (AL-8)', () => {
 
 describe('AlignmentPanel — NEUTRAL composite wording (AL-9)', () => {
   it('high agreement + NEUTRAL composite reads "moderate consensus", never "strong directional consensus"', () => {
-    seed(makeAlignment({ mtf_overall_label: 'NEUTRAL_MTF', mtf_overall_score: -13 }));
+    seed(makeAlignment({ mtf_stance: 'neutral', mtf_overall_score: -13 }));
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
     const interp = document.querySelector(`.${styles.interpretation}`)!.textContent!;
     expect(interp).toContain('moderate consensus');

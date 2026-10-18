@@ -318,7 +318,7 @@ export function makeAlignment(): AlignmentMatrix {
     mtf_volume_alignment: 0.1,
     mtf_volatility_alignment: -0.2,
     mtf_overall_score: 30.5,
-    mtf_overall_label: 'WEAK_BULL_MTF',
+    mtf_stance: 'bull',
     timeframe_alignments: [
       { timeframe: '1S', timeframe_secs: 1, trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: MARK_PRICE },
       { timeframe: '3S', timeframe_secs: 3, trend_score: 0.0, momentum_score: 0.0, overall_score: 0.0, regime: 'RANGE', active_signals: 0, price: MARK_PRICE },

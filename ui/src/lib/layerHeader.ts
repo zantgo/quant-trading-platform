@@ -14,6 +14,7 @@
 import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
 import { DURATIONS } from '../types';
+import type { CrossTfStance } from '../types';
 // CR-15: `AdvisoryMatrix`, `DecisionContext`, `OpportunityMatrix` and
 // `RiskMatrix` are gone — each backed a strategy header badge (L4/L5/L6) and
 // nothing else. The header now trails the model's layers only.
@@ -158,19 +159,44 @@ export function prettifyEnum(value: string | null | undefined): string {
 }
 
 /**
- * Map an `mtf_overall_label` token to its operator-facing form (shared by
- * the L2 header badge, the Alignment panel, and the alignment export so
- * every surface renders the identical string for the same token).
- * AL-9 (v6.10.10): `WEAK_BULL_MTF` previously rendered "WEAK BULL MTF" in
- * the header badge while the panel body said "WEAK BULL".
+ * Map a typed `CrossTfStance` to its operator-facing form (shared by the L2
+ * header badge, the Alignment panel, and the alignment export so every surface
+ * renders the identical string for the same value).
+ *
+ * CR-18: this used to prefix-match a `STRONG_BULL_MTF`-style string. A missing
+ * or renamed token fell through to `return label` and rendered verbatim, and a
+ * typo produced a plausible-looking string rather than a compile error. The
+ * switch is exhaustive over the type, so a new variant cannot be added without
+ * this function being updated.
  */
-export function mLabel(label: string): string {
-    if (label.startsWith('STRONG_BULL')) return 'STRONG BULL';
-    if (label.startsWith('STRONG_BEAR')) return 'STRONG BEAR';
-    if (label.startsWith('WEAK_BULL')) return 'WEAK BULL';
-    if (label.startsWith('WEAK_BEAR')) return 'WEAK BEAR';
-    if (label === 'NEUTRAL_MTF') return 'NEUTRAL';
-    return label;
+export function mLabel(stance: CrossTfStance | null | undefined): string {
+    switch (stance) {
+        case 'strong_bull': return 'STRONG BULL';
+        case 'bull': return 'WEAK BULL';
+        case 'neutral': return 'NEUTRAL';
+        case 'bear': return 'WEAK BEAR';
+        case 'strong_bear': return 'STRONG BEAR';
+        case 'unmeasured': return 'NO DATA';
+        default: return EMPTY_DASH;
+    }
+}
+
+/**
+ * CR-18 — the colour for a typed cross-duration stance.
+ *
+ * The old path called `biasColor(label)`, which upper-cased the label, stripped
+ * underscores and then ran `includes('BULL')` / `includes('BEAR')` over it. A
+ * label typo silently changed the colour of a market-observation row.
+ */
+export function stanceColor(stance: CrossTfStance | null | undefined): string {
+    switch (stance) {
+        case 'strong_bull': return '#22c55e';
+        case 'bull': return DASHBOARD_COLORS.bullish;
+        case 'strong_bear': return '#dc2626';
+        case 'bear': return DASHBOARD_COLORS.bearish;
+        case 'neutral': return DASHBOARD_COLORS.neutral;
+        default: return DASHBOARD_COLORS.neutral;
+    }
 }
 
 export function signalCount(tf: TimeframeTelemetry | null | undefined): number {
@@ -355,7 +381,7 @@ export function buildL1MtfHeader(
     // short, amber for sideways/neutral, gray for no data). Cyan used to
     // be the sentinel colour for the cross-TF view; it now resolves
     // through the same `biasColor` mapping as the L2 badge.
-    const mtfColor = biasColor(alignment.mtf_overall_label ?? null);
+    const mtfColor = stanceColor(alignment.mtf_stance);
     return {
         layerNumber: 1,
         layerName: 'Metrics · MTF',
@@ -391,7 +417,7 @@ export function buildL2AlignmentHeader(
     /** v11.12.4: the CONFIGURED ACTIVE-ladder length — `Timeframes: N/14`. */
     activeCount: number | null = null,
 ): LayerHeaderSpec {
-    const label = a?.mtf_overall_label ?? null;
+    const label = a?.mtf_stance ?? null;
     const tfs = a?.timeframes_present ?? null;
 
     if (!a || !label) {

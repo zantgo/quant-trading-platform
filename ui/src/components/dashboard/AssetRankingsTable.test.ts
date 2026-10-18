@@ -14,8 +14,8 @@ function seedOverview() {
     const app = useAppStore();
     app.overviewMatrix = {
         overview_rows: [
-            { symbol: 'BTC-USDT', price: 81000, score: 58, confidence: 10, mtf_score: -7, mtf_label: 'NEUTRAL_MTF', risk: 50, signal: 'WAIT', direction: 'NEUTRAL', bias: 'Neutral', active: true },
-            { symbol: 'ETH-USDT', price: 2600, score: 56, confidence: 15, mtf_score: -4, mtf_label: 'NEUTRAL_MTF', risk: 44, signal: 'WAIT', direction: 'NEUTRAL', bias: 'Neutral', active: true },
+            { symbol: 'BTC-USDT', price: 81000, score: 58, confidence: 10, mtf_score: -7, mtf_stance: 'neutral', risk: 50, signal: 'WAIT', direction: 'NEUTRAL', bias: 'Neutral', active: true },
+            { symbol: 'ETH-USDT', price: 2600, score: 56, confidence: 15, mtf_score: -4, mtf_stance: 'neutral', risk: 44, signal: 'WAIT', direction: 'NEUTRAL', bias: 'Neutral', active: true },
         ],
         asset_ranking: [],
     } as unknown as OverviewMatrix;

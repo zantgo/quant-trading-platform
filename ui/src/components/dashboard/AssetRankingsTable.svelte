@@ -1,7 +1,7 @@
 <script lang="ts">
     // AssetRankingsTable — sortable leaderboard over the instances.
     //
-    // Columns: Symbol | Price | Bias | Score | MTF Score | MTF Label | Updated
+    // Columns: Symbol | Price | Bias | Score | MTF Score | MTF Stance | Updated
     //
     // CR-15: this was a 15-column table whose majority were strategy — Signal
     // (BUY / SELL / WAIT), Direction (LONG / SHORT), R:R, Confidence, Risk, and
@@ -19,10 +19,11 @@
     import { formatRelativeTime } from '../../lib/relTime';
     import { biasColor, scoreColor } from '../../lib/dashboardColors';
     import styles from './AssetRankingsTable.module.css';
+import type { CrossTfStance } from '../../types';
 
     const app = useAppStore();
 
-    type SortKey = 'symbol' | 'price' | 'bias' | 'score' | 'mtf_score' | 'mtf_label' | 'updated';
+    type SortKey = 'symbol' | 'price' | 'bias' | 'score' | 'mtf_score' | 'mtf_stance' | 'updated';
     type SortDir = 'asc' | 'desc';
     // v11.12: THREE-state sort — DEFAULT (null: no arrow anywhere, rows in
     // the server's own asset_ranking order) → ↓ → ↑ → DEFAULT per column.
@@ -41,16 +42,35 @@
         bias: string;
         score: number;
         mtf_score: number;
-        mtf_label: string;
+        mtf_stance: CrossTfStance;
         updatedMs: number | null;
         connected: boolean;
     }
 
-    function mtfLabelColor(l: string): string {
-        if (l === 'STRONG_BULL_MTF' || l === 'WEAK_BULL_MTF') return '#22c55e';
-        if (l === 'STRONG_BEAR_MTF' || l === 'WEAK_BEAR_MTF') return '#ef5350';
-        if (l === 'NEUTRAL_MTF') return '#f59e0b';
-        return '#64748b';
+    // CR-18: the stance is typed, so the colour is a total function over the
+    // type. The old version compared against four `*_MTF` string literals and
+    // fell through to grey for anything unrecognised — including a typo, which
+    // silently rendered a measured stance as unmeasured.
+    function mtfStanceColor(s: CrossTfStance): string {
+        switch (s) {
+            case 'strong_bull': return '#22c55e';
+            case 'bull': return '#22c55e';
+            case 'strong_bear': return '#ef5350';
+            case 'bear': return '#ef5350';
+            case 'neutral': return '#f59e0b';
+            default: return '#64748b';
+        }
+    }
+
+    function mtfStanceText(s: CrossTfStance): string {
+        switch (s) {
+            case 'strong_bull': return 'STRONG BULL';
+            case 'bull': return 'WEAK BULL';
+            case 'neutral': return 'NEUTRAL';
+            case 'bear': return 'WEAK BEAR';
+            case 'strong_bear': return 'STRONG BEAR';
+            default: return 'NO DATA';
+        }
     }
 
     function sortVal(r: Row, key: SortKey): number | string | null {
@@ -60,7 +80,7 @@
             case 'bias': return r.bias;
             case 'score': return r.score;
             case 'mtf_score': return r.mtf_score;
-            case 'mtf_label': return r.mtf_label;
+            case 'mtf_stance': return r.mtf_stance;
             case 'updated': return r.updatedMs;
         }
     }
@@ -80,7 +100,7 @@
                 bias: r.bias ?? 'Neutral',
                 score: r.score ?? 0,
                 mtf_score: r.mtf_score ?? 0,
-                mtf_label: r.mtf_label ?? 'NO_DATA',
+                mtf_stance: r.mtf_stance ?? 'unmeasured',
                 updatedMs: r.updated_ts ? r.updated_ts * 1000 : null,
                 connected: r.active,
             }));
@@ -129,7 +149,7 @@
                 bias: analysis?.bias ?? 'Neutral',
                 score,
                 mtf_score: mtfScore,
-                mtf_label: aln?.mtf_overall_label ?? 'NO_DATA',
+                mtf_stance: aln?.mtf_stance ?? 'unmeasured',
                 updatedMs: snap?.timestamp ?? null,
                 connected: inst.isConnected,
             });
@@ -192,7 +212,7 @@
                     <th class={styles.th} onclick={() => toggleSort('bias')}>Bias{arrow('bias')}</th>
                     <th class={styles.th} style="text-align:right" onclick={() => toggleSort('score')}>Score{arrow('score')}</th>
                     <th class={styles.th} style="text-align:right" onclick={() => toggleSort('mtf_score')}>MTF Score{arrow('mtf_score')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('mtf_label')}>MTF Label{arrow('mtf_label')}</th>
+                    <th class={styles.th} onclick={() => toggleSort('mtf_stance')}>MTF Stance{arrow('mtf_stance')}</th>
                     <th class={styles.th} onclick={() => toggleSort('updated')}>Updated{arrow('updated')}</th>
                 </tr>
             </thead>
@@ -213,11 +233,11 @@
                                 </span>
                             </span>
                         </td>
-                        <td class={styles.td} style="text-align:right; color: {mtfLabelColor(r.mtf_label)}">
+                        <td class={styles.td} style="text-align:right; color: {mtfStanceColor(r.mtf_stance)}">
                             {r.mtf_score > 0 ? '+' : ''}{r.mtf_score.toFixed(0)}
                         </td>
-                        <td class={styles.td} style="color: {mtfLabelColor(r.mtf_label)}; font-weight: 700; font-size: 10px; letter-spacing: 0.04em">
-                            {r.mtf_label.replace(/_MTF$/, '').replaceAll('_', ' ')}
+                        <td class={styles.td} style="color: {mtfStanceColor(r.mtf_stance)}; font-weight: 700; font-size: 10px; letter-spacing: 0.04em">
+                            {mtfStanceText(r.mtf_stance)}
                         </td>
                         <td class={styles.tdUpdated}>{rel(r.updatedMs)}</td>
                     </tr>

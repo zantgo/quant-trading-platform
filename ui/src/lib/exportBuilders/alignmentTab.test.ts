@@ -16,7 +16,7 @@ const headerSpec: LayerHeaderSpec = {
 function makeAlignment(): AlignmentMatrix {
   return {
     mtf_overall_score: 75,
-    mtf_overall_label: 'STRONG_BULL_MTF',
+    mtf_stance: 'strong_bull',
     timeframes_present: 4,
     signal_cross_tf_count: 3,
     trend_agreement_pct: 75,
@@ -108,7 +108,7 @@ describe('buildAlignmentTabExport', () => {
       headerSpec,
     }));
     expect(p.meta.pair).toBe('BTC-USDT');
-    expect(p.hero.mtf_overall_label).toBe('NO_DATA');
+    expect(p.hero.mtf_stance).toBe('unmeasured');
     expect(p.dimensions).toEqual([]);
   });
 
@@ -125,7 +125,7 @@ describe('buildAlignmentTabExport', () => {
     }));
     expect('breakdown_meta' in p).toBe(false);
     expect(p.consensus_conflict_banner).toContain('TIMEFRAME MISALIGNMENT');
-    expect(p.hero.mtf_overall_label_display).toMatch(/STRONG|WEAK|NEUTRAL/);
+    expect(p.hero.mtf_stance_display).toMatch(/STRONG|WEAK|NEUTRAL/);
   });
 
   it('FIX-H2: score_calculation mirrors the wire blend_weights (thin-participation reweight)', () => {
@@ -256,7 +256,7 @@ describe('buildAlignmentTabExport', () => {
   it('v7.1: a NEUTRAL composite reads "moderate consensus", never "strong directional consensus"', () => {
     const neutral = {
       ...makeAlignment(),
-      mtf_overall_label: 'NEUTRAL_MTF',
+      mtf_stance: 'neutral',
       mtf_overall_score: -13,
     } as AlignmentMatrix;
     const p = JSON.parse(buildAlignmentTabExport({

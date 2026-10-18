@@ -12,6 +12,7 @@ import { pushBadge, notifyBadgeChanged, l1Key, layerKey, L7_KEY, getBadgeHistory
 // returns these slots as axis badges.
 import { buildL1MtfHeader, buildL2AlignmentHeader, buildL3AnalysisHeader, metricsBadgeFor, prettifyEnum } from './layerHeader';
 import type { Time } from 'lightweight-charts';
+import { mLabel } from './layerHeader';
 
 const WS_INITIAL_DELAY_MS = 1000;
 const WS_MAX_DELAY_MS = 30000;
@@ -519,9 +520,9 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
                 // sampled on the same pair candle cycle as L2–L6.
                 pushBadge(layerKey('mtf', symbol), (() => {
                     const b = buildL1MtfHeader(pair.alignment).badge;
-                    const verdict = pair.alignment?.mtf_overall_label;
+                    const verdict = pair.alignment?.mtf_stance;
                     return {
-                        label: verdict ? prettifyEnum(verdict) : b.label,
+                        label: verdict ? mLabel(verdict) : b.label,
                         color: b.color,
                         ts: now,
                     };

@@ -452,8 +452,8 @@ ACTIVE slot, each with `slot`, `secs`, `badge_label`, `badge_sublabel`
     { "slot": "1s", "secs": 1, "badge_label": "NEUTRAL", "badge_sublabel": "COMPRESSION", "pipeline_status": "live" }
   ],
   "hero": {
-    "mtf_overall_score": 62.0, "mtf_overall_label": "STRONG_BULL_MTF",
-    "mtf_overall_label_display": "STRONG BULL",
+    "mtf_overall_score": 62.0, "mtf_stance": "STRONG_BULL_MTF",
+    "mtf_stance_display": "STRONG BULL",
     "timeframes_present": 5, "signal_cross_tf_count": 2, "trend_agreement_pct": 82
   },
   "dimensions": [
@@ -489,9 +489,9 @@ ACTIVE slot, each with `slot`, `secs`, `badge_label`, `badge_sublabel`
 ```
 
 Notes:
-- **Consensus hero (v7.0.1 B).** The alignment header carries no meta chips (the TFs chip was erased in v11.12.3; Agreement and Score were removed earlier) — the badge alone. The header-container hero row is now two side-by-side circular dial cards — an **AGREEMENT dial** (percentage + tier-colored verdict header + grey sub-label) and a **SCORE dial** (composite blend: ring filled `|score|%`, sign-colored, signed integer centered, prettified `mtf_overall_label` + tone explanation). The CONSENSUS 2×2 axis grid is erased from the screen (the four axis values still surface in the `score_calculation.weights` chips); the `consensus.axes` field stays in the JSON. The "Polarization" term is retired (the `consensus.polarization` field is renamed `consensus.axes`); the `label_display` mirrors the agreement dial verdict header verbatim (`"Strong Consensus"`), while the sub-label (`"Timeframes are aligned."`) stays DOM-only. The `consensus_conflict_banner` renders as a full-width strip under the dial row.
+- **Consensus hero (v7.0.1 B).** The alignment header carries no meta chips (the TFs chip was erased in v11.12.3; Agreement and Score were removed earlier) — the badge alone. The header-container hero row is now two side-by-side circular dial cards — an **AGREEMENT dial** (percentage + tier-colored verdict header + grey sub-label) and a **SCORE dial** (composite blend: ring filled `|score|%`, sign-colored, signed integer centered, prettified `mtf_stance` + tone explanation). The CONSENSUS 2×2 axis grid is erased from the screen (the four axis values still surface in the `score_calculation.weights` chips); the `consensus.axes` field stays in the JSON. The "Polarization" term is retired (the `consensus.polarization` field is renamed `consensus.axes`); the `label_display` mirrors the agreement dial verdict header verbatim (`"Strong Consensus"`), while the sub-label (`"Timeframes are aligned."`) stays DOM-only. The `consensus_conflict_banner` renders as a full-width strip under the dial row.
 - Dimension `confidence` is already 0..100 on the wire — it mirrors the screen's `confidence.toFixed(0)%` (no ×100 inflation).
-- `interpretation` carries the real `mtf_overall_label` (never a hardcoded token) and matches the panel sentence verbatim (HTML `<strong>` markers included).
+- `interpretation` carries the real `mtf_stance` (never a hardcoded token) and matches the panel sentence verbatim (HTML `<strong>` markers included).
 - **Interpretation fixes (v7.1).** The prose prints the **exact signed score string** the SCORE dial renders (e.g. `+62`) — the previous unsigned `toFixed(1)` form (`62.0`/`8.1`) beside the dial's signed integer was read as score drift; both surfaces now bind to the same live `mtf_overall_score`. When the composite classifies `NEUTRAL`, the ≥75% agreement branch reads **"moderate consensus"** (never "strong directional consensus" — neutral is directionless by definition) and closes with "the dimensions offset into a flat composite." The panel's Interpretation card additionally renders a **Consensus Composition Strip** (four directional segments, width = live `blend_weights`, color = axis sign, opacity = |axis| intensity) and a **whisper footnote** under a hairline rule; `composition_note` mirrors that footnote in full words (order Trend, Momentum, Volatility, Volume), `null` while data is still populating.
 - `consensus.trend_agreement_pct` keeps the raw float (screen text `toFixed(0)`, bar width `toFixed(1)`).
 - The `NO_DATA` dimension state renders `"NO DATA"` on both surfaces (panel and export).

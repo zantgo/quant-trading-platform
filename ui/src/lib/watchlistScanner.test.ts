@@ -16,7 +16,7 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
 function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatrix {
     return {
         mtf_overall_score: 42,
-        mtf_overall_label: 'WEAK_BULL_MTF',
+        mtf_stance: 'bull',
         ...overrides,
     } as AlignmentMatrix;
 }
@@ -137,7 +137,7 @@ describe('decide', () => {
     });
 
     it('WAIT while the cross-duration alignment is still NO_DATA', () => {
-        expect(decide(makeAnalysis(), makeAlignment({ mtf_overall_label: 'NO_DATA' }))).toBe('WAIT');
+        expect(decide(makeAnalysis(), makeAlignment({ mtf_stance: 'unmeasured' }))).toBe('WAIT');
     });
 
     it('CR-15: never returns DELETE — no input can remove a pair', () => {
@@ -148,7 +148,7 @@ describe('decide', () => {
             [null, null],
             [undefined, undefined],
             [makeAnalysis({ bias: 'Neutral' }), makeAlignment()],
-            [makeAnalysis({ bias: 'Bearish' }), makeAlignment({ mtf_overall_label: 'NO_DATA' })],
+            [makeAnalysis({ bias: 'Bearish' }), makeAlignment({ mtf_stance: 'unmeasured' })],
         ];
         for (const [a, al] of shapes) {
             expect(decide(a as AnalysisMatrix | null, al as AlignmentMatrix | null))
@@ -172,7 +172,7 @@ describe('reasonFor', () => {
     });
 
     it('returns NO_CROSS_TF when the alignment is NO_DATA', () => {
-        expect(reasonFor('WAIT', makeAnalysis(), makeAlignment({ mtf_overall_label: 'NO_DATA' })))
+        expect(reasonFor('WAIT', makeAnalysis(), makeAlignment({ mtf_stance: 'unmeasured' })))
             .toBe('NO_CROSS_TF');
     });
 

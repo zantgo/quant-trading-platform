@@ -143,7 +143,7 @@
                         status: 'done',
                         reason: reasonFor('KEEP', verdict.analysis, verdict.alignment),
                         guidance: verdict.analysis.bias ?? null,
-                        mtfLabel: verdict.alignment.mtf_overall_label ?? null,
+                        mtfLabel: verdict.alignment.mtf_stance ?? null,
                         elapsedMs,
                     };
                 }),

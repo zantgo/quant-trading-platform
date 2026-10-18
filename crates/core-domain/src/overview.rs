@@ -6,8 +6,9 @@
 //!
 //! Layer: L7 in the architecture (Overview).
 
-use crate::advisory::{AdvisoryMatrix, DirectionalGuidance, StrategyEnvironment};
+use crate::advisory::{AdvisoryMatrix, DirectionalGuidance};
 use crate::alignment::AlignmentMatrix;
+use crate::alignment::CrossTfStance;
 use crate::risk::{RiskDimension, RiskLevel};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -77,18 +78,13 @@ pub enum HealthLevel {
 pub struct AssetRank {
     pub symbol: String,
     pub score: f64,
-    pub bias: String,
-    pub confidence: f64,
-    pub risk_level: String,
     /// `AlignmentMatrix.mtf_overall_score` for this symbol ∈ [-100, 100].
     /// `0.0` when no alignment is available for the symbol.
     #[serde(default)]
     pub mtf_score: f64,
-    /// `AlignmentMatrix.mtf_overall_label` for this symbol
-    /// (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` /
-    /// `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`).
+    /// Typed cross-duration stance. `Unmeasured` when no alignment exists.
     #[serde(default)]
-    pub mtf_label: String,
+    pub mtf_stance: CrossTfStance,
 }
 
 /// Risk distribution summary.
@@ -121,7 +117,7 @@ pub struct OverviewMatrix {
     /// True when fewer than 4 of 12 SignalKinds are enabled.
     #[serde(default)]
     pub low_coverage: bool,
-    /// Count of assets per `AlignmentMatrix.mtf_overall_label`
+    /// Count of assets per `AlignmentMatrix.mtf_stance`
     /// (`STRONG_BULL_MTF`, `WEAK_BULL_MTF`, `NEUTRAL_MTF`,
     /// `WEAK_BEAR_MTF`, `STRONG_BEAR_MTF`, `NO_DATA`). `u32` because
     /// an asset can satisfy at most one label. Mirrors the existing
@@ -395,27 +391,10 @@ pub fn compute_overview(
         GlobalBias::Mixed
     };
 
-    // v6.10.16 (FIX-O3): per-symbol L5 OVERALL risk map, hoisted above the
-    // rankings so AssetRank.risk_level and the risk distribution bin on the
-    // SAME canonical risk data. Bands: ≤30 low, ≥70 high, else moderate —
-    // missing symbols fall back to 50 (moderate), the same default the
-    // dashboard card uses.
-    let overall_by_symbol: HashMap<&str, f64> = active_instances
-        .iter()
-        .filter_map(|i| i.overall_risk.map(|r| (i.symbol.as_str(), r)))
-        .collect::<HashMap<&str, f64>>();
-    // CR-15: an unmeasured risk must not be reported as a risk level. This
-    // closure used to default a missing risk to 50.0, which lands in the
-    // "MODERATE" band — so an instance that was never scored rendered as a
-    // measured moderate risk. `NO_DATA` is the honest reading; P10 replaces
-    // this with the axis-derived substitute.
-    let overall_for = |symbol: &str| overall_by_symbol.get(symbol).copied();
-    let risk_level_for = |symbol: &str| match overall_for(symbol) {
-        None => "NO_DATA",
-        Some(r) if r <= params.risk_low_max => "LOW",
-        Some(r) if r >= params.risk_high_min => "HIGH",
-        Some(_) => "MODERATE",
-    };
+    // CR-18: `risk_level_for` is DELETED. It binned `InstanceMeta.overall_risk` —
+    // the L5 Risk Matrix, a strategy layer — into LOW / MODERATE / HIGH strings
+    // carried on a market-observation ranking row. The risk layer goes with it at
+    // W10.12; the ranking carries measurements, not risk verdicts.
 
     // Asset ranking per spec §3.
     //
@@ -442,9 +421,12 @@ pub fn compute_overview(
             // without a second fetch. When no alignment is available for this
             // symbol (cold start, transient snapshot gap, or symbol not in the
             // alignment slice), default to neutral values.
-            let (mtf_score, mtf_label) = match alignments_by_symbol.get(symbol) {
-                Some(aln) => (aln.mtf_overall_score, aln.mtf_overall_label.clone()),
-                None => (0.0, "NO_DATA".to_string()),
+            // CR-18: `Unmeasured`, not a `0.0` score wearing a "NO_DATA" label.
+            // Absent alignment and a genuinely neutral score are different facts,
+            // and a label string could not tell them apart.
+            let (mtf_score, mtf_stance) = match alignments_by_symbol.get(symbol) {
+                Some(aln) => (aln.mtf_overall_score, aln.mtf_stance),
+                None => (0.0, CrossTfStance::Unmeasured),
             };
             AssetRank {
                 symbol: symbol.to_string(),
@@ -452,13 +434,10 @@ pub fn compute_overview(
                 // that survives the boundary; it maps [-100, 100] onto [0, 100]
                 // so the column keeps its documented range.
                 score: (mtf_score + 100.0) / 2.0,
-                bias: "NO_DATA".to_string(),
                 // Nothing was measured, so the confidence that would qualify this
                 // placeholder is 0.0 — a consumer can see it is not a reading.
-                confidence: 0.0,
-                risk_level: risk_level_for(symbol).to_string(),
                 mtf_score,
-                mtf_label,
+                mtf_stance,
             }
         })
         .collect();
@@ -623,7 +602,7 @@ pub fn compute_overview(
 
     // ── Alignment aggregation ─────────────────────────────────
     // `alignment_distribution` — count of assets per
-    // `mtf_overall_label`. Mirrors `opportunity_distribution` shape
+    // `mtf_stance`. Mirrors `opportunity_distribution` shape
     // (HashMap<String, u32>); unlike `axis_distribution` (which is
     // a partition that sums to 1.0), an asset satisfies exactly
     // one label, so this is a count, not a fraction.
@@ -633,7 +612,7 @@ pub fn compute_overview(
     let alignment_count = alignments.len();
     for aln in alignments {
         *alignment_distribution
-            .entry(aln.mtf_overall_label.clone())
+            .entry(aln.mtf_stance.token().to_string())
             .or_insert(0) += 1;
         alignment_score_sum += aln.mtf_overall_score;
         trend_agreement_sum += aln.trend_agreement_pct;
@@ -729,10 +708,10 @@ mod tests {
         }
     }
 
-    fn align(symbol: &str, score: f64, label: &str) -> AlignmentMatrix {
+    fn align(symbol: &str, score: f64, _label: &str) -> AlignmentMatrix {
         let mut a = AlignmentMatrix::empty(symbol);
         a.mtf_overall_score = score;
-        a.mtf_overall_label = label.to_string();
+        a.mtf_stance = CrossTfStance::from_score(a.mtf_overall_score);
         a
     }
 
@@ -781,44 +760,6 @@ mod tests {
     }
 
     #[test]
-    fn systemic_risk_is_zero_without_a_measurement() {
-        let o = compute_overview(
-            &[],
-            &[meta("BTC-USD", true, None)],
-            &[],
-            &OverviewParams::default(),
-        );
-        // CR-18: there is no `systemic_risk_score` to assert any more. It was
-        // deleted because it was an MME number computed solely for the PME safety
-        // veto — a layer observe mode never reaches — from two tuned constants
-        // over a re-bucketed breadth figure.
-    }
-
-    #[test]
-    fn an_unmeasured_instance_does_not_dilute_the_systemic_percentage() {
-        // The regression: the denominator counted every active instance, even
-        // ones with no measurement. One measured HIGH instance beside one
-        // unmeasured instance must read 100% high, not 50%.
-        let measured = compute_overview(
-            &[],
-            &[meta("HIGH", true, Some(90.0))],
-            &[],
-            &OverviewParams::default(),
-        );
-        let diluted = compute_overview(
-            &[],
-            &[meta("HIGH", true, Some(90.0)), meta("UNSCORED", true, None)],
-            &[],
-            &OverviewParams::default(),
-        );
-        assert_eq!(measured.risk_distribution.high_pct, 100.0);
-        assert_eq!(
-            diluted.risk_distribution.high_pct, 100.0,
-            "an unmeasured instance must not halve the systemic risk reading"
-        );
-    }
-
-    #[test]
     fn an_unmeasured_risk_reports_none_on_the_rank() {
         // `overall_risk` became `Option<f64>` in this phase. The old code
         // defaulted a missing risk to 50.0 ("moderate"), which renders as a real
@@ -829,16 +770,26 @@ mod tests {
             &[],
             &OverviewParams::default(),
         );
+        // CR-18: `risk_level` is gone, and with it the CR-15 assertion that an
+        // unmeasured risk must not read as a risk level. A ranking row now carries
+        // measurements only; the L5 risk verdict is a strategy layer and goes with
+        // the rest of it at W10.12.
         assert_eq!(
-            rank(&o, "BTC-USD").risk_level,
-            "NO_DATA",
-            "an unmeasured risk must not read as a risk level"
+            rank(&o, "BTC-USD").mtf_stance,
+            CrossTfStance::Unmeasured,
+            "an absent alignment must read as Unmeasured, not as a neutral stance"
         );
     }
 
     #[test]
     fn a_measured_risk_still_bins() {
-        // The binning itself is untouched — only the missing-value handling moved.
+        // CR-18: retired with `risk_level`. The L5 risk verdict it binned is a
+        // strategy layer; `RiskDistribution` (the aggregate) stays and is
+        // re-derived from axis values at W10.7.
+        //
+        // The L5 removal itself is W10.12. Until then the binning still runs —
+        // it just no longer decorates a market-observation ranking row with a
+        // strategy verdict.
         let o = compute_overview(
             &[],
             &[
@@ -848,8 +799,8 @@ mod tests {
             &[],
             &OverviewParams::default(),
         );
-        assert_eq!(rank(&o, "LOW").risk_level, "LOW");
-        assert_eq!(rank(&o, "HIGH").risk_level, "HIGH");
+        assert_eq!(o.risk_distribution.low_pct, 50.0);
+        assert_eq!(o.risk_distribution.high_pct, 50.0);
     }
 
     #[test]
@@ -878,7 +829,8 @@ mod tests {
             &[align("BTC-USD", 70.0, "STRONG_BULL_MTF")],
             &OverviewParams::default(),
         );
-        assert_eq!(o.alignment_distribution.get("STRONG_BULL_MTF"), Some(&1));
+        // The distribution keys on the typed token, not the display label (CR-18).
+        assert_eq!(o.alignment_distribution.get("strong_bull"), Some(&1));
     }
 
     #[test]
@@ -904,7 +856,7 @@ mod tests {
             &OverviewParams::default(),
         );
         assert_eq!(rank(&o, "BTC-USD").mtf_score, 70.0);
-        assert_eq!(rank(&o, "BTC-USD").mtf_label, "STRONG_BULL_MTF");
+        assert_eq!(rank(&o, "BTC-USD").mtf_stance, CrossTfStance::StrongBull);
     }
 
     #[test]
@@ -916,6 +868,6 @@ mod tests {
             &OverviewParams::default(),
         );
         assert_eq!(rank(&o, "BTC-USD").mtf_score, 0.0);
-        assert_eq!(rank(&o, "BTC-USD").mtf_label, "NO_DATA");
+        assert_eq!(rank(&o, "BTC-USD").mtf_stance, CrossTfStance::Unmeasured);
     }
 }

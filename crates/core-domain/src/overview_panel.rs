@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use crate::alignment::CrossTfStance;
 use crate::models::MarketSnapshot;
 use serde::{Deserialize, Serialize};
 
@@ -47,8 +48,8 @@ pub struct OverviewRow {
     pub score: f64,
     /// `AlignmentMatrix.mtf_overall_score` — cross-duration model state.
     pub mtf_score: f64,
-    /// `AlignmentMatrix.mtf_overall_label`.
-    pub mtf_label: String,
+    /// `AlignmentMatrix.mtf_stance`, typed. `Unmeasured` when absent.
+    pub mtf_stance: CrossTfStance,
     /// Micro-window snapshot timestamp (seconds since epoch).
     pub updated_ts: u64,
     /// Lifecycle-active (not stopped/cancelled).
@@ -118,9 +119,9 @@ pub fn build_overview_panel(
         // opportunity matrix, which no longer exists on the snapshot.
         let score = ranks.get(&inst.symbol).copied().unwrap_or(0.0);
         let mtf_score = alignment.map(|a| a.mtf_overall_score).unwrap_or(0.0);
-        let mtf_label = alignment
-            .map(|a| a.mtf_overall_label.clone())
-            .unwrap_or_else(|| "NO_DATA".to_string());
+        let mtf_stance = alignment
+            .map(|a| a.mtf_stance)
+            .unwrap_or(CrossTfStance::Unmeasured);
         let updated_ts = reference.map(|s| s.timestamp).unwrap_or(0);
 
         rows.push(OverviewRow {
@@ -129,7 +130,7 @@ pub fn build_overview_panel(
             bias,
             score,
             mtf_score,
-            mtf_label,
+            mtf_stance,
             updated_ts,
             active: inst.is_active,
         });
@@ -172,7 +173,7 @@ mod tests {
         s.analysis = Some(a);
         let mut m = AlignmentMatrix::empty("BTC-USDC");
         m.mtf_overall_score = 72.0;
-        m.mtf_overall_label = "BULLISH".into();
+        m.mtf_stance = CrossTfStance::Bull;
         s.alignment = Some(m);
         s
     }
@@ -211,7 +212,7 @@ mod tests {
         assert_eq!(row.bias, "Bullish");
         assert_eq!(row.score, 61.0);
         assert_eq!(row.mtf_score, 72.0);
-        assert_eq!(row.mtf_label, "BULLISH");
+        assert_eq!(row.mtf_stance, CrossTfStance::Bull);
         assert_eq!(row.updated_ts, 1_700_000_000);
         assert!(row.active);
     }
@@ -227,7 +228,7 @@ mod tests {
             bias: "Neutral".into(),
             score: 0.0,
             mtf_score: 0.0,
-            mtf_label: "NO_DATA".into(),
+            mtf_stance: CrossTfStance::Unmeasured,
             updated_ts: 0,
             active: true,
         })
@@ -239,8 +240,8 @@ mod tests {
             vec![
                 "active",
                 "bias",
-                "mtf_label",
                 "mtf_score",
+                "mtf_stance",
                 "price",
                 "score",
                 "symbol",
@@ -261,7 +262,8 @@ mod tests {
         let row = &panel.rows[0];
         assert_eq!(row.bias, "Neutral", "absent analysis is not a bullish read");
         assert_eq!(
-            row.mtf_label, "NO_DATA",
+            row.mtf_stance,
+            CrossTfStance::Unmeasured,
             "absent alignment must say NO_DATA"
         );
         assert_eq!(row.score, 0.0, "an unranked symbol scores 0.0");
@@ -277,6 +279,6 @@ mod tests {
         assert_eq!(panel.rows.len(), 1);
         assert_eq!(panel.rows[0].price, 0.0);
         assert_eq!(panel.rows[0].updated_ts, 0);
-        assert_eq!(panel.rows[0].mtf_label, "NO_DATA");
+        assert_eq!(panel.rows[0].mtf_stance, CrossTfStance::Unmeasured);
     }
 }

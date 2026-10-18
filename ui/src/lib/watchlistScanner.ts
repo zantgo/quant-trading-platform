@@ -21,7 +21,7 @@
 // resolve — but a timeout is a note, not a deletion.
 //
 //   - `analysis.bias` ∈ MarketBias — the model's resolved direction (or Neutral)
-//   - `alignment.mtf_overall_score` / `mtf_overall_label` — whether the
+//   - `alignment.mtf_overall_score` / `mtf_stance` — whether the
 //     durations agree, and whether an alignment exists at all
 //
 // The DELETE outcomes that remain are the operator's own doing: a duplicate
@@ -172,7 +172,7 @@ export function decide(
     if (!analysis || typeof analysis !== 'object') return 'WAIT';
     if (!hasResolvedBias(analysis.bias)) return 'WAIT';
     if (!alignment || typeof alignment !== 'object') return 'WAIT';
-    if (alignment.mtf_overall_label === 'NO_DATA') return 'WAIT';
+    if (alignment.mtf_stance === 'unmeasured') return 'WAIT';
     return 'KEEP';
 }
 

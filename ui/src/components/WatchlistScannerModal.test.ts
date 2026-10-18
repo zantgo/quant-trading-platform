@@ -40,7 +40,7 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
 function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatrix {
     return {
         mtf_overall_score: 42,
-        mtf_overall_label: 'WEAK_BULL_MTF',
+        mtf_stance: 'bull',
         ...overrides,
     } as AlignmentMatrix;
 }
@@ -213,7 +213,7 @@ describe('WatchlistScannerModal — run phase', () => {
         mockWaitForModelState.mockResolvedValue({
             status: 'READY',
             analysis: makeAnalysis({ bias: 'StrongBearish' }),
-            alignment: makeAlignment({ mtf_overall_label: 'STRONG_BEAR_MTF' }),
+            alignment: makeAlignment({ mtf_stance: 'strong_bear' }),
         });
 
         render(WatchlistScannerModal, {
@@ -235,7 +235,7 @@ describe('WatchlistScannerModal — run phase', () => {
         mockWaitForModelState.mockResolvedValue({
             status: 'READY',
             analysis: makeAnalysis({ bias: 'Neutral' }),
-            alignment: makeAlignment({ mtf_overall_label: 'NEUTRAL_MTF', mtf_overall_score: 0 }),
+            alignment: makeAlignment({ mtf_stance: 'neutral', mtf_overall_score: 0 }),
         });
 
         render(WatchlistScannerModal, {

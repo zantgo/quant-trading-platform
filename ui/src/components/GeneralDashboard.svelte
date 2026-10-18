@@ -114,7 +114,7 @@
                 model_state: {
                     bias: inst.analysis?.bias ?? null,
                     mtf_score: inst.alignment?.mtf_overall_score ?? null,
-                    mtf_label: inst.alignment?.mtf_overall_label ?? null,
+                    mtf_stance: inst.alignment?.mtf_stance ?? null,
                 },
                 timeframes: activeDurations(inst).map((slot) => {
                     const info = metricsBadgeFor(inst.terms?.[slot] ?? null, wss);

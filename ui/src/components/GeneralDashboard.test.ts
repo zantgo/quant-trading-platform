@@ -231,12 +231,12 @@ describe('GeneralDashboard — instance status table (v11.2)', () => {
 describe('GeneralDashboard — asset rankings table', () => {
     // CR-15: the table was 15 columns — Symbol, Price, Entry, Take Profit,
     // Stop Loss, Bias, Signal, Direction, R:R, Score, Confidence, MTF Score,
-    // MTF Label, Risk, Updated — and eight of them were strategy. The seven that
+    // MTF Stance, Risk, Updated — and eight of them were strategy. The seven that
     // remain are what the model measures.
-    it('renders the 7 model columns (Symbol, Price, Bias, Score, MTF Score, MTF Label, Updated)', () => {
+    it('renders the 7 model columns (Symbol, Price, Bias, Score, MTF Score, MTF Stance, Updated)', () => {
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
-        for (const col of ['Symbol', 'Price', 'Bias', 'Score', 'MTF Score', 'MTF Label', 'Updated']) {
+        for (const col of ['Symbol', 'Price', 'Bias', 'Score', 'MTF Score', 'MTF Stance', 'Updated']) {
             expect(screen.getAllByText(col).length, `missing column ${col}`).toBeGreaterThan(0);
         }
     });
@@ -262,7 +262,7 @@ describe('GeneralDashboard — asset rankings table', () => {
                     bias: 'Bullish',
                     score: 61,
                     mtf_score: 42,
-                    mtf_label: 'WEAK_BULL_MTF',
+                    mtf_stance: 'bull',
                     updated_ts: 1_700_000_000,
                     active: true,
                 },
@@ -377,7 +377,7 @@ describe('GeneralDashboard — market alignment card', () => {
             global_summary: '',
             instance_count: 4,
             active_symbols: [],
-            alignment_distribution: { STRONG_BULL_MTF: 2, WEAK_BULL_MTF: 1, NEUTRAL_MTF: 1 },
+            alignment_distribution: { strong_bull: 2, bull: 1, neutral: 1 },
             alignment_consensus_index: 50,
             multi_tf_agreement_pct: 80,
         } as OverviewMatrix;

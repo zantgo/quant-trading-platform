@@ -64,9 +64,9 @@ describe('MarketAlignmentCard — populated states', () => {
         const app = useAppStore();
         app.overviewMatrix = makeOverview({
             alignment_distribution: {
-                STRONG_BULL_MTF: 3,
-                WEAK_BULL_MTF: 1,
-                NEUTRAL_MTF: 1,
+                strong_bull: 3,
+                bull: 1,
+                neutral: 1,
             },
             alignment_consensus_index: 45,
             multi_tf_agreement_pct: 78,
@@ -84,9 +84,9 @@ describe('MarketAlignmentCard — populated states', () => {
         const app = useAppStore();
         app.overviewMatrix = makeOverview({
             alignment_distribution: {
-                WEAK_BEAR_MTF: 2,
-                STRONG_BEAR_MTF: 1,
-                NEUTRAL_MTF: 1,
+                bear: 2,
+                strong_bear: 1,
+                neutral: 1,
             },
             alignment_consensus_index: -35,
             multi_tf_agreement_pct: 60,
@@ -101,7 +101,7 @@ describe('MarketAlignmentCard — populated states', () => {
     it('renders the conflicted bucket for low agreement', () => {
         const app = useAppStore();
         app.overviewMatrix = makeOverview({
-            alignment_distribution: { WEAK_BULL_MTF: 2, WEAK_BEAR_MTF: 2 },
+            alignment_distribution: { bull: 2, bear: 2 },
             alignment_consensus_index: 5,
             multi_tf_agreement_pct: 30,
         });
@@ -114,7 +114,7 @@ describe('MarketAlignmentCard — populated states', () => {
     it('strongly bearish consensus gets the Strongly Bearish label', () => {
         const app = useAppStore();
         app.overviewMatrix = makeOverview({
-            alignment_distribution: { STRONG_BEAR_MTF: 4 },
+            alignment_distribution: { strong_bear: 4 },
             alignment_consensus_index: -72,
             multi_tf_agreement_pct: 85,
         });
@@ -126,7 +126,7 @@ describe('MarketAlignmentCard — populated states', () => {
     it('strongly bullish consensus gets the Strongly Bullish label', () => {
         const app = useAppStore();
         app.overviewMatrix = makeOverview({
-            alignment_distribution: { STRONG_BULL_MTF: 4 },
+            alignment_distribution: { strong_bull: 4 },
             alignment_consensus_index: 70,
             multi_tf_agreement_pct: 90,
         });

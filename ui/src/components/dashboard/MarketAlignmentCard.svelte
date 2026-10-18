@@ -2,7 +2,7 @@
     // MarketAlignmentCard — System-wide cross-timeframe alignment
     // synthesis. Reads three fields from `OverviewMatrix`:
     //   1. `alignment_distribution` (count of symbols per
-    //      `mtf_overall_label`) — rendered as a stacked horizontal
+    //      `mtf_stance`) — rendered as a stacked horizontal
     //      bar with one segment per label, plus a legend grid below.
     //   2. `alignment_consensus_index` (mean of all
     //      `mtf_overall_score` ∈ [-100, 100]) — rendered as a
@@ -17,25 +17,29 @@
     // "Awaiting alignment data…" placeholder when no instance has
     // yet produced a slow-tier AlignmentMatrix.
     import { useAppStore } from '../../state.svelte';
+    import type { CrossTfStance } from '../../types';
     import styles from './MarketAlignmentCard.module.css';
 
     const app = useAppStore();
 
     // Canonical display order for the distribution segments. The
-    // 6-state vocabulary is defined on `AlignmentMatrix.mtf_overall_label`.
-    const LABEL_ORDER: { key: string; label: string; cssVar: string }[] = [
-        { key: 'STRONG_BULL_MTF', label: 'Strong Bull', cssVar: 'strongBull' },
-        { key: 'WEAK_BULL_MTF', label: 'Weak Bull', cssVar: 'weakBull' },
-        { key: 'NEUTRAL_MTF', label: 'Neutral', cssVar: 'neutral' },
-        { key: 'WEAK_BEAR_MTF', label: 'Weak Bear', cssVar: 'weakBear' },
-        { key: 'STRONG_BEAR_MTF', label: 'Strong Bear', cssVar: 'strongBear' },
-        { key: 'NO_DATA', label: 'No Data', cssVar: 'noData' },
+    // 6-state vocabulary is defined on `AlignmentMatrix.mtf_stance`.
+    // CR-18: keyed on the typed `CrossTfStance` wire token, not the display
+    // label — a token rename would silently empty the card rather than failing.
+    const LABEL_ORDER: { key: CrossTfStance; label: string; cssVar: string }[] = [
+        { key: 'strong_bull', label: 'Strong Bull', cssVar: 'strongBull' },
+        { key: 'bull', label: 'Weak Bull', cssVar: 'weakBull' },
+        { key: 'neutral', label: 'Neutral', cssVar: 'neutral' },
+        { key: 'bear', label: 'Weak Bear', cssVar: 'weakBear' },
+        { key: 'strong_bear', label: 'Strong Bear', cssVar: 'strongBear' },
+        { key: 'unmeasured', label: 'No Data', cssVar: 'noData' },
     ];
 
     interface Bucket { key: string; label: string; cssVar: string; count: number; pct: number; }
 
     const distribution = $derived.by((): { buckets: Bucket[]; total: number } => {
-        const d = app.overviewMatrix?.alignment_distribution ?? {};
+        const d: Partial<Record<CrossTfStance, number>> =
+            app.overviewMatrix?.alignment_distribution ?? {};
         const total = Object.values(d).reduce((s, n) => s + (n ?? 0), 0);
         const buckets: Bucket[] = LABEL_ORDER.map((spec) => {
             const count = d[spec.key] ?? 0;

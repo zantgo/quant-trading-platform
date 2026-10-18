@@ -133,7 +133,7 @@ fn alignment_matrix_keys_match_frontend_contract() {
             "mtf_volume_alignment",
             "mtf_volatility_alignment",
             "mtf_overall_score",
-            "mtf_overall_label",
+            "mtf_stance",
             "blend_weights",
             "timeframe_alignments",
             "signal_cross_tf_count",

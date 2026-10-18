@@ -121,7 +121,14 @@ pub struct AlignmentMatrix {
     pub mtf_volume_alignment: f64,
     pub mtf_volatility_alignment: f64,
     pub mtf_overall_score: f64,
-    pub mtf_overall_label: String,
+    /// Typed cross-duration stance.
+    ///
+    /// CR-18: this replaces `mtf_overall_label: String`, which was bucketed from
+    /// `mtf_overall_score` at two thresholds and then string-matched by every
+    /// downstream consumer — `AssetRank.mtf_label`, `OverviewRow.mtf_label`, and
+    /// the UI. A label is not a value: renaming it silently reclassifies data,
+    /// and a typo produces an unmatched branch rather than a compile error.
+    pub mtf_stance: CrossTfStance,
     /// Effective blend weights applied to `mtf_overall_score`
     /// (`[(key, weight)]` over Trend / Momentum / Volume / Volatility).
     /// Always populated by `compute_alignment` so consumers (the
@@ -153,7 +160,7 @@ impl AlignmentMatrix {
             mtf_volume_alignment: 0.0,
             mtf_volatility_alignment: 0.0,
             mtf_overall_score: 0.0,
-            mtf_overall_label: "NO_DATA".to_string(),
+            mtf_stance: CrossTfStance::Unmeasured,
             blend_weights: Vec::new(),
             timeframe_alignments: Vec::new(),
             signal_cross_tf_count: 0,
@@ -384,18 +391,20 @@ impl AlignmentParams {
         }
     }
 
-    pub fn overall_label(&self, score: f64) -> String {
+    /// Typed stance at the configured bands. Same thresholds the string label
+    /// used, so the classification is unchanged — only its type is (CR-18).
+    pub fn stance(&self, score: f64) -> CrossTfStance {
         let [plain, strong] = self.overall_label_bands;
         if score >= strong {
-            "STRONG_BULL_MTF".into()
+            CrossTfStance::StrongBull
         } else if score >= plain {
-            "WEAK_BULL_MTF".into()
+            CrossTfStance::Bull
         } else if score <= -strong {
-            "STRONG_BEAR_MTF".into()
+            CrossTfStance::StrongBear
         } else if score <= -plain {
-            "WEAK_BEAR_MTF".into()
+            CrossTfStance::Bear
         } else {
-            "NEUTRAL_MTF".into()
+            CrossTfStance::Neutral
         }
     }
 }
@@ -704,7 +713,7 @@ pub fn compute_alignment(
         mtf_volume_alignment,
         mtf_volatility_alignment,
         mtf_overall_score,
-        mtf_overall_label: params.overall_label(mtf_overall_score),
+        mtf_stance: params.stance(mtf_overall_score),
         blend_weights,
         timeframe_alignments: alignments_vec,
         signal_cross_tf_count: cross_tf_count,
@@ -813,7 +822,7 @@ mod tests {
     fn empty_returns_no_data() {
         let c = compute_alignment("BTC-USD", &[], &AlignmentParams::default());
         assert_eq!(c.timeframes_present, 0);
-        assert_eq!(c.mtf_overall_label, "NO_DATA");
+        assert_eq!(c.mtf_stance, CrossTfStance::Unmeasured);
         assert_eq!(c.dimensions.len(), 10);
     }
 
@@ -1067,5 +1076,79 @@ mod tests {
         // Single TF → hardcoded 50.0 (no variance can be computed).
         let single = AlignmentMatrix::compute_confidence_alignment(&[0.7]);
         assert!((single.score - 50.0).abs() < 1e-9);
+    }
+}
+
+/// The typed replacement for the `STRONG_BULL_MTF` / `WEAK_BULL_MTF` /
+/// `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` label strings (CR-18).
+///
+/// `Unmeasured` is the honest reading when no alignment exists for a symbol —
+/// a cold start, a transient snapshot gap, or a symbol outside the alignment
+/// slice. The old vocabulary had no such state, so absent data was rendered as
+/// `"NO_DATA"` inside a label field, which a consumer could not distinguish from
+/// a real classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CrossTfStance {
+    StrongBull,
+    Bull,
+    Neutral,
+    Bear,
+    StrongBear,
+    /// No alignment was available. Not a classification. The `Default`,
+    /// because "nothing measured" is the honest reading of a zeroed struct.
+    #[default]
+    Unmeasured,
+}
+
+impl CrossTfStance {
+    /// Bucket a cross-duration score in [-100, 100].
+    ///
+    /// The thresholds are the two the string label already used, so this is a
+    /// faithful re-encoding — the value is unchanged, only its type is.
+    pub fn from_score(score: f64) -> Self {
+        if score > 50.0 {
+            CrossTfStance::StrongBull
+        } else if score > 20.0 {
+            CrossTfStance::Bull
+        } else if score < -50.0 {
+            CrossTfStance::StrongBear
+        } else if score < -20.0 {
+            CrossTfStance::Bear
+        } else {
+            CrossTfStance::Neutral
+        }
+    }
+
+    /// The wire token — the serde name of the variant. What the cross-pair
+    /// distribution keys on, so the wire carries a typed token rather than a
+    /// display label.
+    pub fn token(self) -> &'static str {
+        match self {
+            CrossTfStance::StrongBull => "strong_bull",
+            CrossTfStance::Bull => "bull",
+            CrossTfStance::Neutral => "neutral",
+            CrossTfStance::Bear => "bear",
+            CrossTfStance::StrongBear => "strong_bear",
+            CrossTfStance::Unmeasured => "unmeasured",
+        }
+    }
+
+    /// The operator-facing display form.
+    pub fn label(self) -> &'static str {
+        match self {
+            CrossTfStance::StrongBull => "STRONG_BULL_MTF",
+            CrossTfStance::Bull => "WEAK_BULL_MTF",
+            CrossTfStance::Neutral => "NEUTRAL_MTF",
+            CrossTfStance::Bear => "WEAK_BEAR_MTF",
+            CrossTfStance::StrongBear => "STRONG_BEAR_MTF",
+            CrossTfStance::Unmeasured => "NO_DATA",
+        }
+    }
+}
+
+impl std::fmt::Display for CrossTfStance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
     }
 }

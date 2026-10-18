@@ -24,6 +24,7 @@ import { demoteBiasForCoverage } from '../layerHeader';
 import { computeMarketHealth } from '../marketHealth';
 import { formatRewardRatio, signalLabel, directionLabel } from '../dashboardColors';
 import { formatRelativeTime } from '../relTime';
+import type { CrossTfStance } from '../../types';
 
 // ── Header chrome (LayerHeader) ───────────────────────────────────────────
 
@@ -119,7 +120,7 @@ export interface OverviewAxisBlock {
 // CR-15: the strategy sort keys (signal / direction / rr / confidence / risk
 // and the entry / target / stop levels) are gone with their columns.
 export type SortKey =
-    | 'symbol' | 'price' | 'bias' | 'score' | 'mtf_score' | 'mtf_label'
+    | 'symbol' | 'price' | 'bias' | 'score' | 'mtf_score' | 'mtf_stance'
     | 'updated';
 export type SortDir = 'asc' | 'desc';
 
@@ -131,8 +132,8 @@ export interface AssetRankingRow {
     score_display: string;
     mtf_score: number;
     mtf_score_display: string;
-    mtf_label: string;
-    mtf_label_display: string;
+    mtf_stance: CrossTfStance;
+    mtf_stance_display: string;
     updated_ms: number | null;
     updated_display: string;
     connected: boolean;
@@ -193,15 +194,18 @@ function riskEnvColor(env: string): string {
 }
 
 function computeAlignmentCard(overview: OverviewMatrix | null): OverviewAlignmentCard {
-    const d = overview?.alignment_distribution ?? {};
+    const d: Partial<Record<CrossTfStance, number>> = overview?.alignment_distribution ?? {};
     const total = Object.values(d).reduce((s, n) => s + (n ?? 0), 0);
-    const LABEL_ORDER = [
-        { key: 'STRONG_BULL_MTF', label: 'Strong Bull' },
-        { key: 'WEAK_BULL_MTF', label: 'Weak Bull' },
-        { key: 'NEUTRAL_MTF', label: 'Neutral' },
-        { key: 'WEAK_BEAR_MTF', label: 'Weak Bear' },
-        { key: 'STRONG_BEAR_MTF', label: 'Strong Bear' },
-        { key: 'NO_DATA', label: 'No Data' },
+    // CR-18: keyed on the typed `CrossTfStance` wire token, not the display
+    // label. The old list matched six `*_MTF` strings — a token rename would
+    // have silently emptied the card rather than failing.
+    const LABEL_ORDER: ReadonlyArray<{ key: CrossTfStance; label: string }> = [
+        { key: 'strong_bull', label: 'Strong Bull' },
+        { key: 'bull', label: 'Weak Bull' },
+        { key: 'neutral', label: 'Neutral' },
+        { key: 'bear', label: 'Weak Bear' },
+        { key: 'strong_bear', label: 'Strong Bear' },
+        { key: 'unmeasured', label: 'No Data' },
     ];
     const buckets = LABEL_ORDER.map((spec) => {
         const count = d[spec.key] ?? 0;
@@ -248,8 +252,19 @@ function computeAlignmentCard(overview: OverviewMatrix | null): OverviewAlignmen
     };
 }
 
-function mtfLabelDisplay(label: string): string {
-    return label.replace(/_MTF$/, '').replaceAll('_', ' ');
+function mtfStanceDisplay(stance: CrossTfStance): string {
+    // CR-18: the old version did `label.replace(/_MTF$/, '').replaceAll('_', ' ')`
+    // on a label string. A label typo produced a plausible-looking string rather
+    // than a compile error. The display is now a total function over the type.
+    switch (stance) {
+        case 'strong_bull': return 'STRONG BULL';
+        case 'bull': return 'WEAK BULL';
+        case 'neutral': return 'NEUTRAL';
+        case 'bear': return 'WEAK BEAR';
+        case 'strong_bear': return 'STRONG BEAR';
+        case 'unmeasured': return 'NO DATA';
+        default: return '—';
+    }
 }
 
 function mtfScoreDisplay(score: number): string {
@@ -290,7 +305,7 @@ function buildAssetRankingRow(
     const score = backendRank != null && Number.isFinite(backendRank.score)
         ? backendRank.score
         : mtfScore;
-    const mtfLabel = aln?.mtf_overall_label ?? 'NO_DATA';
+    const mtfStance: CrossTfStance = aln?.mtf_stance ?? 'unmeasured';
     const snap = inst.terms?.[1]?.latestSnapshot as { timestamp?: number } | null;
     const ts = snap?.timestamp ?? null;
 
@@ -302,8 +317,8 @@ function buildAssetRankingRow(
         score_display: score.toFixed(0),
         mtf_score: mtfScore,
         mtf_score_display: mtfScoreDisplay(mtfScore),
-        mtf_label: mtfLabel,
-        mtf_label_display: mtfLabelDisplay(mtfLabel),
+        mtf_stance: mtfStance,
+        mtf_stance_display: mtfStanceDisplay(mtfStance),
         updated_ms: ts,
         updated_display: formatRelativeTime(ts, nowMs).label,
         connected: inst.isConnected,
@@ -368,7 +383,7 @@ export interface InstanceStatusExportRow {
     model_state: {
         bias: string | null;
         mtf_score: number | null;
-        mtf_label: string | null;
+        mtf_stance: CrossTfStance | null;
     } | null;
     timeframes: Array<{
         slot: number;

@@ -260,7 +260,7 @@
         : '#94a3b8'
     );
     const scoreHeader = $derived(
-        hasAlignment && alignment != null ? mLabel(alignment!.mtf_overall_label) : '\u2014'
+        hasAlignment && alignment != null ? mLabel(alignment!.mtf_stance) : '\u2014'
     );
     const scoreSub = $derived(
         scoreTone === 'bull' ? 'The weighted composite is bullish.'
@@ -317,15 +317,15 @@
         <div class={styles.interpretation}>
             {#if alignment && alignment.timeframes_present > 0}
                 {#if alignment.trend_agreement_pct >= 75}
-                    {#if mLabel(alignment.mtf_overall_label).toUpperCase() === 'NEUTRAL'}
+                    {#if mLabel(alignment.mtf_stance).toUpperCase() === 'NEUTRAL'}
                         Multi-timeframe alignment shows <strong>moderate consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present} timeframes).
                         The composite score of {scoreText} is classified as <strong>NEUTRAL</strong> — the dimensions offset into a flat composite.
                     {:else}
                         Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present} timeframes).
-                        The composite score of {scoreText} is classified as <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong>.
+                        The composite score of {scoreText} is classified as <strong>{mLabel(alignment.mtf_stance).toUpperCase()}</strong>.
                     {/if}
                     {#if alignment.signal_cross_tf_count > 0}
-                        {mLabel(alignment.mtf_overall_label).toUpperCase() !== 'NEUTRAL'
+                        {mLabel(alignment.mtf_stance).toUpperCase() !== 'NEUTRAL'
                             ? `${alignment.signal_cross_tf_count} cross-timeframe signal votes reinforce the current bias.`
                             : `${alignment.signal_cross_tf_count} cross-timeframe signal votes detected across the aligned timeframes.`}
                     {:else}
@@ -333,7 +333,7 @@
                     {/if}
                 {:else if alignment.trend_agreement_pct >= 50}
                     Alignment shows <strong>partial consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement).
-                    The composite score of {scoreText} reflects <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong> conditions with mixed input from {alignment.timeframes_present} timeframes.
+                    The composite score of {scoreText} reflects <strong>{mLabel(alignment.mtf_stance).toUpperCase()}</strong> conditions with mixed input from {alignment.timeframes_present} timeframes.
                 {:else}
                     Timeframes are in <strong>conflict</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement).
                     Exercise caution — different time horizons are pulling in opposite directions. Wait for re-alignment before committing to directional bias.

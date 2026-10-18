@@ -1116,7 +1116,7 @@ pub fn derive_analysis(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alignment::{AlignmentMatrix, TfAlignmentInfo};
+    use crate::alignment::{AlignmentMatrix, CrossTfStance, TfAlignmentInfo};
 
     fn simple_alignment(tfs: u8, score: f64, agreement: f64, cross_tf: u32) -> AlignmentMatrix {
         let mut alignments = Vec::new();
@@ -1147,11 +1147,7 @@ mod tests {
             mtf_volume_alignment: 0.0,
             mtf_volatility_alignment: 0.0,
             mtf_overall_score: score,
-            mtf_overall_label: if score > 20.0 {
-                "WEAK_BULL_MTF".into()
-            } else {
-                "NEUTRAL_MTF".into()
-            },
+            mtf_stance: CrossTfStance::from_score(score),
             blend_weights: vec![
                 ("Trend".into(), 0.5),
                 ("Momentum".into(), 0.3),

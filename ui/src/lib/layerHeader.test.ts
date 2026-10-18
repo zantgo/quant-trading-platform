@@ -71,7 +71,7 @@ function alignmentStub(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatri
         mtf_volume_alignment: 0,
         mtf_volatility_alignment: 0,
         mtf_overall_score: 0,
-        mtf_overall_label: 'NEUTRAL_MTF',
+        mtf_stance: 'neutral',
         timeframe_alignments: [],
         signal_cross_tf_count: 0,
         trend_agreement_pct: 0,
@@ -323,15 +323,15 @@ describe('buildL2AlignmentHeader (L2)', () => {
         expectEmpty(buildL2AlignmentHeader(null));
     });
 
-    it('badge label = prettified mtf_overall_label; Timeframes N/14 chip (v11.12.4)', () => {
+    it('badge label = prettified mtf_stance; Timeframes N/14 chip (v11.12.4)', () => {
         const spec = buildL2AlignmentHeader(alignmentStub({
-            mtf_overall_label: 'WEAK_BULL',
+            mtf_stance: 'bull',
             mtf_overall_score: 21.2,
             trend_agreement_pct: 100,
             timeframes_present: 4,
         }));
         expect(spec.badge.label).toBe('WEAK BULL');
-        expect(spec.badge.color).toBe(biasColor('WEAK_BULL'));
+        expect(spec.badge.color).toBe(biasColor('bull'));
         expect(spec.meta.find((c) => c.label === 'Score')).toBeUndefined();
         // v11.12.4: Timeframes N/14 is the Alignment header's only chip.
         expect(spec.meta.map((m) => m.label)).toEqual(['Timeframes']);
@@ -450,12 +450,12 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L3, L7)', () 
     });
 
     it('L1 (MTF bullish → green)', () => {
-        const spec = buildL1MtfHeader(alignmentStub({ mtf_overall_label: 'WEAK_BULL', timeframes_present: 4 }));
+        const spec = buildL1MtfHeader(alignmentStub({ mtf_stance: 'bull', timeframes_present: 4 }));
         assertVocabulary(spec);
     });
 
     it('L2 (bullish → green)', () => {
-        const spec = buildL2AlignmentHeader(alignmentStub({ mtf_overall_label: 'WEAK_BULL', mtf_overall_score: 12 }));
+        const spec = buildL2AlignmentHeader(alignmentStub({ mtf_stance: 'bull', mtf_overall_score: 12 }));
         assertVocabulary(spec);
     });
 

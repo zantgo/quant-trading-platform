@@ -31,7 +31,7 @@ function makeAlignment(overrides: Record<string, unknown> = {}): AlignmentMatrix
   return {
     symbol: 'BTC-USDC',
     mtf_overall_score: 42,
-    mtf_overall_label: 'WEAK_BULL_MTF',
+    mtf_stance: 'bull',
     ...overrides,
   } as unknown as AlignmentMatrix;
 }
@@ -141,7 +141,7 @@ describe('buildOverviewTabExport — asset ranking row is model-only', () => {
         });
         const row = rowsOf(out)[0];
         expect(row.bias).toBe('Bullish');
-        expect(row.mtf_label).toBe('WEAK_BULL_MTF');
+        expect(row.mtf_stance).toBe('bull');
         expect(typeof row.score).toBe('number');
         expect(typeof row.price_display).toBe('string');
     });
