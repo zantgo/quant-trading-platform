@@ -368,7 +368,7 @@ describe('GeneralDashboard — market alignment card', () => {
         app.overviewMatrix = {
             global_market_bias: 'BULLISH',
             market_breadth: 'POSITIVE',
-            regime_distribution: {},
+            axis_distribution: {},
             opportunity_distribution: {},
             risk_distribution: { low_pct: 50, moderate_pct: 40, high_pct: 10, risk_environment: 'LOW_RISK' },
             asset_ranking: [],

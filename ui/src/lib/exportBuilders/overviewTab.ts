@@ -10,7 +10,7 @@
 //   cards        → 5-up card row (trade_opps / risk / signal_quality /
 //                  direction / market_alignment)
 //   market_health → MarketHealthCard (overall + sync + 4 quality bars)
-//   regime_distribution → RegimeDistributionCard
+//   axis_distribution → AxisDistributionCard
 //   asset_rankings → AssetRankingsTable (per-symbol rollup)
 //
 // v7.0-audit: numbers stay raw, structured header chrome, display
@@ -99,10 +99,10 @@ export interface OverviewMarketHealthBlock {
     footer_display: string;
 }
 
-// ── Regime distribution ───────────────────────────────────────────────────
+// ── Axis distribution ───────────────────────────────────────────────────
 
-export interface OverviewRegimeBlock {
-    total_regimes: number;
+export interface OverviewAxisBlock {
+    total_axes: number;
     total_display: string;
     empty_text: string | null;
     rows: Array<{
@@ -174,7 +174,7 @@ export interface OverviewPayload {
     kpis: OverviewKpisBlock;
     cards: OverviewCardsBlock;
     market_health: OverviewMarketHealthBlock;
-    regime_distribution: OverviewRegimeBlock;
+    axis_distribution: OverviewAxisBlock;
     asset_rankings: OverviewAssetRankingsBlock;
     /** Raw L7 matrix for the row of records the export represents. */
     overview_matrix: OverviewMatrix | null;
@@ -424,7 +424,7 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
         kpis: buildKpisBlock(instances, overview),
         cards: buildCardsBlock(overview),
         market_health: buildMarketHealthBlock(instances, overview),
-        regime_distribution: buildRegimeBlock(overview),
+        axis_distribution: buildAxisBlock(overview),
         asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now, overview?.asset_ranking ?? null),
         overview_matrix: overview,
         instance_count: instances.length,
@@ -510,8 +510,8 @@ function buildMarketHealthBlock(instances: InstanceState[], overview: OverviewMa
     };
 }
 
-function buildRegimeBlock(overview: OverviewMatrix | null): OverviewRegimeBlock {
-    const rd = overview?.regime_distribution ?? {};
+function buildAxisBlock(overview: OverviewMatrix | null): OverviewAxisBlock {
+    const rd = overview?.axis_distribution ?? {};
     const entries = Object.entries(rd)
         .map(([key, frac]) => ({
             key,
@@ -520,9 +520,9 @@ function buildRegimeBlock(overview: OverviewMatrix | null): OverviewRegimeBlock 
         }))
         .sort((a, b) => b.pct - a.pct);
     return {
-        total_regimes: entries.length,
-        total_display: `${entries.length} regimes`,
-        empty_text: entries.length === 0 ? 'No regime data yet — awaiting L7 synthesis.' : null,
+        total_axes: entries.length,
+        total_display: `${entries.length} axes`,
+        empty_text: entries.length === 0 ? 'No axis data yet — awaiting cross-pair synthesis.' : null,
         rows: entries.map((r) => ({
             key: r.key,
             label: r.label,

@@ -30,7 +30,6 @@ pub mod portfolio;
 pub mod risk;
 pub mod risk_reward;
 pub mod snapshot_export;
-pub mod state_matrix;
 pub mod statistics;
 pub mod symbol_rules;
 pub mod timeframe_category;

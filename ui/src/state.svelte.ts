@@ -400,7 +400,7 @@ export class AppStore {
     // ── L7 Overview Matrix polling ─────────────────────────────────────
     // The Overview Matrix is the pre-aggregated cross-symbol synthesis
     // (asset_ranking, risk_distribution, opportunity_distribution,
-    // market_health, global_summary, regime_distribution, etc.) produced
+    // market_health, global_summary, axis_distribution, etc.) produced
     // by the L7 layer in `compute_overview()` and serialised at
     // `GET /api/overview`. The `GeneralDashboard` consumes the last
     // fetched matrix as the source of truth for system-wide Roll-up

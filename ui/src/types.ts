@@ -589,7 +589,7 @@ export interface RiskDistribution {
 export interface OverviewMatrix {
     global_market_bias: GlobalBias;
     market_breadth: MarketBreadth;
-    regime_distribution: Record<string, number>;
+    axis_distribution: Record<string, number>;
     risk_distribution: RiskDistribution;
     asset_ranking: AssetRank[];
     market_synchronization: SyncLevel;

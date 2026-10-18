@@ -531,7 +531,7 @@ describe('export consistency — meta envelope across every panel tab', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('export consistency — Overview tab', () => {
-  it('exports the header chrome, hero, KPIs, 5-up cards, market health, regime distribution, asset rankings and scan strip shown on the GeneralDashboard', async () => {
+  it('exports the header chrome, hero, KPIs, 5-up cards, market health, axis distribution, asset rankings and scan strip shown on the GeneralDashboard', async () => {
     // Seed: rich instance + a populated OverviewMatrix that exercises
     // every visible card branch. The dashboard's populated branch
     // requires `instanceId` on the entry — `seedRichInstance` only
@@ -545,7 +545,7 @@ describe('export consistency — Overview tab', () => {
       app.overviewMatrix = {
         global_market_bias: 'BULLISH',
         market_breadth: 'POSITIVE',
-        regime_distribution: {
+        axis_distribution: {
           TRENDING: 0.6,
           RANGE: 0.3,
           VOLATILE: 0.1,
@@ -652,13 +652,13 @@ describe('export consistency — Overview tab', () => {
         expect(bar.value_display).toBe('—');
     }
 
-    // Regime distribution — sorted descending.
-    expect(c.dom).toContain('REGIME DISTRIBUTION');
+    // Axis distribution — sorted descending.
+    expect(c.dom).toContain('AXIS DISTRIBUTION');
     expect(c.dom).toContain('Trending');
     expect(c.dom).toContain('Range');
     expect(c.dom).toContain('Volatile');
-    expect(p.regime_distribution.rows[0].key).toBe('TRENDING');
-    expect(p.regime_distribution.rows[0].pct).toBe(60);
+    expect(p.axis_distribution.rows[0].key).toBe('TRENDING');
+    expect(p.axis_distribution.rows[0].pct).toBe(60);
     expect(c.dom).toContain('60%');
 
     // Asset rankings table — header columns + per-row values.
@@ -722,8 +722,8 @@ describe('export consistency — Overview tab', () => {
     expect(c.dom).toContain('Awaiting alignment data');
 
     // Regime distribution empty.
-    expect(p.regime_distribution.empty_text).toBe('No regime data yet — awaiting L7 synthesis.');
-    expect(c.dom).toContain('No regime data yet');
-    expect(p.regime_distribution.rows).toHaveLength(0);
+    expect(p.axis_distribution.empty_text).toBe('No axis data yet — awaiting cross-pair synthesis.');
+    expect(c.dom).toContain('No axis data yet');
+    expect(p.axis_distribution.rows).toHaveLength(0);
   });
 });

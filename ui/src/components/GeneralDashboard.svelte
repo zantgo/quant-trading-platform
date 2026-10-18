@@ -13,7 +13,7 @@
     //      row 3: badge (BULLISH • HEALTHY (2 pairs)) + meta chips
     //      (Instances / Sys Risk / Sync).
     //   2. Header KPI strip
-    //   3. 2-up card row: Market Alignment, Regime Distribution
+    //   3. 2-up card row: Market Alignment, Axis Distribution
     //   4. Market Health card (full-width, 4 sub-dim bars)
     //   5. Asset Rankings table
     //
@@ -38,7 +38,7 @@
     import HeaderKpiStrip from './dashboard/HeaderKpiStrip.svelte';
     import MarketAlignmentCard from './dashboard/MarketAlignmentCard.svelte';
     import MarketHealthCard from './dashboard/MarketHealthCard.svelte';
-    import RegimeDistributionCard from './dashboard/RegimeDistributionCard.svelte';
+    import AxisDistributionCard from './dashboard/AxisDistributionCard.svelte';
     import AssetRankingsTable from './dashboard/AssetRankingsTable.svelte';
     import InstanceStatusTable from './InstanceStatusTable.svelte';
     import ExportDataButton from './ExportDataButton.svelte';
@@ -219,7 +219,7 @@
 
             <div class={styles.grid6}>
                 <MarketAlignmentCard />
-                <RegimeDistributionCard />
+                <AxisDistributionCard />
             </div>
 
             <MarketHealthCard />

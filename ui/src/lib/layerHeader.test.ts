@@ -118,7 +118,7 @@ function overviewStub(overrides: Partial<OverviewMatrix> = {}): OverviewMatrix {
     return {
         global_market_bias: 'BULLISH',
         market_breadth: 'POSITIVE',
-        regime_distribution: {},
+        axis_distribution: {},
         opportunity_distribution: {},
         risk_distribution: { low_pct: 0, moderate_pct: 0, high_pct: 0, risk_environment: 'LOW' },
         asset_ranking: [],

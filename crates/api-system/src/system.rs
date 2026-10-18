@@ -153,26 +153,19 @@ pub async fn serve_observability_buffers(
         .unwrap_or(&symbol)
         .to_string();
 
-    let overview = state.overview.read().await;
-    let recent_decisions: Vec<DecisionMemoryBufferRow> = overview
-        .as_ref()
-        .map(|o| {
-            o.asset_ranking
-                .iter()
-                .take(10)
-                .map(|rank| DecisionMemoryBufferRow {
-                    id: 0,
-                    symbol: rank.symbol.clone(),
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                    regime_classification: rank.regime.clone(),
-                    orchestrator_decision: rank.bias.clone(),
-                    confidence_score: rank.confidence,
-                    eight_factor_score: (rank.score * 8.0) as i32,
-                    portfolio_risk_pct: 0.0,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    // CR-18: the recent-decisions buffer is EMPTIED.
+    //
+    // It was populated from `OverviewMatrix.asset_ranking` by writing the string
+    // literal `"NO_DATA"` into `regime_classification` and `orchestrator_decision`
+    // and `0.0` into `confidence_score` — for every ranked asset, every tick. So
+    // the surface showed a populated list of "recent decisions" that were never
+    // decisions, carrying banned vocabulary (`regime`), strategy vocabulary
+    // (`orchestrator_decision`) and a fabricated probability (CH-4), in a
+    // one-way interface that must never read the strategy's output (CH-6).
+    //
+    // MME cannot fill a decision record. When the TAE actually decides, this
+    // buffer is written from that decision — not from a market observation.
+    let recent_decisions: Vec<DecisionMemoryBufferRow> = Vec::new();
 
     let completed_trades: Vec<api_core::types::CompletedTradesBufferRow> = sqlx::query_as(
         "SELECT \

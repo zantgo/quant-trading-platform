@@ -1,17 +1,17 @@
 <script lang="ts">
-    // RegimeDistributionCard — reads regime fractions from the L7
-    // `OverviewMatrix.regime_distribution` (already pre-normalised to
+    // AxisDistributionCard — reads axis fractions from the L7
+    // `OverviewMatrix.axis_distribution` (already pre-normalised to
     // sum 1.0 by the backend). Renders an ASCII bar + percentage per
-    // regime so the operator can compare at a glance.
+    // axis so the operator can compare at a glance.
     import { useAppStore } from '../../state.svelte';
     import { asciiBar } from '../../lib/dashboardColors';
-    import styles from './RegimeDistributionCard.module.css';
+    import styles from './AxisDistributionCard.module.css';
 
     const app = useAppStore();
 
-    const regimes = $derived.by(() => {
+    const axes = $derived.by(() => {
         const overview = app.overviewMatrix;
-        const rd = overview?.regime_distribution ?? {};
+        const rd = overview?.axis_distribution ?? {};
         const entries = Object.entries(rd)
             .map(([key, frac]) => ({
                 key,
@@ -32,15 +32,15 @@
 
 <div class={styles.card}>
     <div class={styles.header}>
-        <span class={styles.title}>REGIME DISTRIBUTION</span>
-        <span class={styles.count}>{regimes.length} regimes</span>
+        <span class={styles.title}>AXIS DISTRIBUTION</span>
+        <span class={styles.count}>{axes.length} axes</span>
     </div>
 
-    {#if regimes.length === 0}
-        <div class={styles.empty}>No regime data yet — awaiting L7 synthesis.</div>
+    {#if axes.length === 0}
+        <div class={styles.empty}>No axis data yet — awaiting cross-pair synthesis.</div>
     {:else}
         <div class={styles.list}>
-            {#each regimes as r (r.key)}
+            {#each axes as r (r.key)}
                 <div class={styles.row}>
                     <span class={styles.label}>{r.label}</span>
                     <span class={styles.bar}>{asciiBar(r.pct)}</span>

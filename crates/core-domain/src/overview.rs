@@ -79,7 +79,6 @@ pub struct AssetRank {
     pub score: f64,
     pub bias: String,
     pub confidence: f64,
-    pub regime: String,
     pub risk_level: String,
     /// `AlignmentMatrix.mtf_overall_score` for this symbol ∈ [-100, 100].
     /// `0.0` when no alignment is available for the symbol.
@@ -106,7 +105,7 @@ pub struct RiskDistribution {
 pub struct OverviewMatrix {
     pub global_market_bias: GlobalBias,
     pub market_breadth: MarketBreadth,
-    pub regime_distribution: HashMap<String, f64>,
+    pub axis_distribution: HashMap<String, f64>,
     pub opportunity_distribution: HashMap<String, u32>,
     pub risk_distribution: RiskDistribution,
     pub asset_ranking: Vec<AssetRank>,
@@ -166,7 +165,7 @@ impl OverviewMatrix {
         Self {
             global_market_bias: GlobalBias::Neutral,
             market_breadth: MarketBreadth::Balanced,
-            regime_distribution: HashMap::new(),
+            axis_distribution: HashMap::new(),
             opportunity_distribution: HashMap::new(),
             risk_distribution: RiskDistribution {
                 low_pct: 0.0,
@@ -457,7 +456,6 @@ pub fn compute_overview(
                 // Nothing was measured, so the confidence that would qualify this
                 // placeholder is 0.0 — a consumer can see it is not a reading.
                 confidence: 0.0,
-                regime: "NO_DATA".to_string(),
                 risk_level: risk_level_for(symbol).to_string(),
                 mtf_score,
                 mtf_label,
@@ -470,23 +468,17 @@ pub fn compute_overview(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Regime distribution
-    let mut regime_counts: HashMap<String, f64> = HashMap::new();
-    for adv in advisories {
-        let regime_key = match adv.strategy_environment {
-            StrategyEnvironment::TrendFollowing => "TRENDING",
-            StrategyEnvironment::Breakout => "EXPANSION",
-            StrategyEnvironment::MeanReversion => "RANGE",
-            StrategyEnvironment::HighVolatility => "HIGH_VOLATILITY",
-            StrategyEnvironment::LowActivity => "LOW_ACTIVITY",
-            StrategyEnvironment::Unfavorable => "UNFAVORABLE",
-        };
-        *regime_counts.entry(regime_key.to_string()).or_insert(0.0) += 1.0;
-    }
-    let mut regime_distribution: HashMap<String, f64> = HashMap::new();
-    for (regime, count) in &regime_counts {
-        regime_distribution.insert(regime.clone(), count / total);
-    }
+    // CR-18: `regime_distribution` is RE-FILED as `axis_distribution`.
+    //
+    // The old field binned `advisory.strategy_environment` into
+    // TRENDING / EXPANSION / RANGE / HIGH_VOLATILITY / LOW_ACTIVITY /
+    // UNFAORABLE — strategy vocabulary in a market-observation layer (CH-5),
+    // and the word `regime` is banned outright by CR-11. It has been empty by
+    // construction since CR-15 removed the advisory, so nothing observed the
+    // change: a permanently-empty map with a banned name and strategy semantics.
+    //
+    // It is populated per axis at P10, from `cross_tf_state`, not from advice.
+    let axis_distribution: HashMap<String, f64> = HashMap::new();
 
     // CR-15: the opportunity distribution came from `advisory.opportunity_classification`.
     // The advisory no longer exists, so there is nothing to bin and the map is
@@ -632,7 +624,7 @@ pub fn compute_overview(
     // ── Alignment aggregation ─────────────────────────────────
     // `alignment_distribution` — count of assets per
     // `mtf_overall_label`. Mirrors `opportunity_distribution` shape
-    // (HashMap<String, u32>); unlike `regime_distribution` (which is
+    // (HashMap<String, u32>); unlike `axis_distribution` (which is
     // a partition that sums to 1.0), an asset satisfies exactly
     // one label, so this is a count, not a fraction.
     let mut alignment_distribution: HashMap<String, u32> = HashMap::new();
@@ -669,7 +661,7 @@ pub fn compute_overview(
     OverviewMatrix {
         global_market_bias: global_bias,
         market_breadth: breadth,
-        regime_distribution,
+        axis_distribution,
         opportunity_distribution,
         risk_distribution: RiskDistribution {
             low_pct: low_risk.round(),

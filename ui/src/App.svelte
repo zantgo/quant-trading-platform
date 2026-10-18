@@ -329,7 +329,7 @@
         }
         // Start the L7 OverviewMatrix polling loop. The GeneralDashboard
         // depends on `app.overviewMatrix` for the system-wide Roll-up
-        // cards (risk_distribution, asset_ranking, regime_distribution,
+        // cards (risk_distribution, asset_ranking, axis_distribution,
         // market_health, etc.). The loop is idempotent and tolerates
         // transient network failures — see state.svelte.ts.
         app.startOverviewPolling(3000);

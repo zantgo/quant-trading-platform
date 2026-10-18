@@ -171,7 +171,7 @@ describe('computeMarketHealth', () => {
             market_breadth: 'POSITIVE',
             low_coverage: false,
             breadth_pct: 50,
-            regime_distribution: {},
+            axis_distribution: {},
             opportunity_distribution: {},
             risk_distribution: { low_pct: 60, moderate_pct: 30, high_pct: 10, risk_environment: 'LOW_RISK' },
             asset_ranking: [],
