@@ -87,6 +87,14 @@ pub enum Domain {
 }
 
 impl Domain {
+    /// The closed set. A fourth variant would be a fourth meaning, and a
+    /// non-candle feed needs one to ride in on (CH-1).
+    pub const ALL: [Domain; 3] = [
+        Domain::DirectionalBias,
+        Domain::Acceleration,
+        Domain::NetEventBias,
+    ];
+
     pub fn axis(self) -> AxisId {
         match self {
             Domain::DirectionalBias => AxisId::Direction,
@@ -150,6 +158,7 @@ impl std::fmt::Display for Stage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "code", content = "detail")]
 pub enum UndefinedReason {
+    // (variants follow)
     /// Not enough bars have closed yet.
     InsufficientBars { available: usize, required: usize },
     /// A structural reference is still moving, so the stage is withheld.
@@ -158,6 +167,18 @@ pub enum UndefinedReason {
     DegenerateReference { detail: String },
     /// The reading was not computed because its producer is absent on this duration.
     NotApplicable { detail: String },
+}
+
+impl UndefinedReason {
+    /// The closed set. CH-7 requires absence to be *typed*, which means the
+    /// reasons must be nameable — an open-ended "undefined" is a hole.
+    pub const ALL_KINDS: [&'static str; 4] = [
+        "insufficient_bars",
+        "reference_moving",
+        "degenerate_reference",
+        "not_applicable",
+    ];
+    pub const ALL: usize = 4;
 }
 
 /// A typed axis value.

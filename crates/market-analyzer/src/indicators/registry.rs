@@ -1923,3 +1923,255 @@ impl IndicatorMeta {
         family_for(self.key)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Candle purity — CH-1
+// ---------------------------------------------------------------------------
+
+/// The **only** fields a reading may be derived from (CH-1).
+///
+/// `NormalizedCandle` also carries `exchange`, `symbol`, `start_time_ms`,
+/// `duration_ms`, `trades_count` and `reconstructed`. Those *describe* the
+/// candle rather than measure the market, so they are deliberately absent: a
+/// reading that reported "this candle came from Bitget" would be a fact about
+/// ingestion, not about price.
+///
+/// Declaring the roots as an enum rather than strings means the purity test
+/// cannot be satisfied by a typo — an unlisted field does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CandleField {
+    Open,
+    High,
+    Low,
+    Close,
+    Volume,
+}
+
+/// The candle fields each indicator reads.
+///
+/// Every one of the 44 shipped readings is declared. A new indicator that does
+/// not appear here has no declared root, and [`candle_purity`] fails — which is
+/// the point: "I did not think about what it reads" must not be able to pass.
+pub const CANDLE_INPUTS: &[(&str, &[CandleField])] = &[
+    // ── Trend ───────────────────────────────────────────────────────────
+    ("ema_stack", &[CandleField::Close]),
+    (
+        "supertrend",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    (
+        "donchian",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    (
+        "keltner",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    (
+        "vwap",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume,
+        ],
+    ),
+    (
+        "anchored_vwap",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume,
+        ],
+    ),
+    (
+        "ichimoku",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    ("hull_ma", &[CandleField::Close]),
+    ("psar", &[CandleField::High, CandleField::Low]),
+    (
+        "linreg_slope",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    ("aroon", &[CandleField::High, CandleField::Low]),
+    ("zscore", &[CandleField::Close]),
+    // ── Momentum ─────────────────────────────────────────────────────────
+    ("rsi", &[CandleField::Close]),
+    (
+        "stochastic",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    (
+        "williams_r",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    ("chandemo", &[CandleField::Close]),
+    (
+        "awesome_oscillator",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    (
+        "cci",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    ("macd", &[CandleField::Close]),
+    (
+        "adx",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    ("choppiness", &[CandleField::High, CandleField::Low]),
+    ("price_trend_sharpe", &[CandleField::Close]),
+    (
+        "bbwp",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    (
+        "squeeze",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    ("volume", &[CandleField::Volume]),
+    ("rvol", &[CandleField::Volume]),
+    ("obv", &[CandleField::Close, CandleField::Volume]),
+    (
+        "cmf",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume,
+        ],
+    ),
+    (
+        "mfi",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume,
+        ],
+    ),
+    ("force_index", &[CandleField::Close, CandleField::Volume]),
+    // ── Structure ────────────────────────────────────────────────────────
+    ("fibonacci", &[CandleField::High, CandleField::Low]),
+    (
+        "support_resistance",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    (
+        "pivot_points",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    (
+        "patterns",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    (
+        "candlestick",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    (
+        "smc_structure",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    (
+        "smc_liquidity",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume,
+        ],
+    ),
+    (
+        "smc_fvg",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    (
+        "smc_order_blocks",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+        ],
+    ),
+    (
+        "volume_profile",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume,
+        ],
+    ),
+    (
+        "bollinger",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    (
+        "stddev_channel",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    (
+        "atr",
+        &[CandleField::High, CandleField::Low, CandleField::Close],
+    ),
+    ("hv", &[CandleField::Close]),
+];
+
+/// The candle fields this indicator reads. `None` means "undeclared", which
+/// [`candle_purity`] treats as a failure rather than as an omission.
+pub fn candle_inputs(key: &str) -> Option<&'static [CandleField]> {
+    CANDLE_INPUTS
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, f)| *f)
+}
