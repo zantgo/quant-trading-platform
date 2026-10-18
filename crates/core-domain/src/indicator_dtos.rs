@@ -13,7 +13,21 @@ use std::collections::HashMap;
 /// Discrete signal kind an indicator can emit. Capabilities are declared in
 /// the registry (`signal_types`); occurrences are recorded per snapshot in
 /// `NormalizedIndicatorValue::signals`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Hash` and `Ord` are derived so a kind can be used as a **map key**.
+///
+/// This is load-bearing, not convenience. The live assembler used to count
+/// distinct signal kinds with `format!("{:?}", signal.kind)` and string
+/// comparison, which is why the same function also tried to match a variant
+/// named `LevelTouch` that has never existed on this enum -- the filter
+/// matched nothing, silently, and `model_state.levels` was empty on every
+/// live snapshot. With `Hash` + `Ord` the key is the value; a rename is a
+/// compile error rather than a silent empty array (V-106, V-107).
+///
+/// `Ord` follows **declaration order**, which is the documented capability
+/// order (structure before momentum before threshold). Two runs on the same
+/// candles therefore emit the same event set in the same order (CH-8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SignalKind {
     Divergence,
     Crossover,

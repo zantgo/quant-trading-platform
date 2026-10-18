@@ -252,9 +252,9 @@ This table is the **single source of implementation truth** — every spec in `d
 
 - All file/directory names are **lowercase-kebab-case** and prefixed `NN-MM[-KK]-…` per section.
 - All enum values serialize as **SCREAMING_SNAKE_CASE** (e.g. `STRONG_BULLISH`, `TRENDING_BULL`).
-- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 11.12 — see docs/CHANGELOG.md for the canonical version history).
-- All **score→label bands** are lower-inclusive half-open `[a, b)` (e.g. `entry_danger` 20.0 → `LOW`; SetupQuality 85.0 → `PRIME`). The single documented exception is the `MarketBias` NEUTRAL band, closed `[-20, 20]`. Canonical band tables per the MANIFEST §13 Canonical Source Registry.
+- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp. The corpus also carries a separate **code version line** — the one a git tag names — declared once in the workspace root `Cargo.toml` (`[workspace.package] version` for code, `[workspace.metadata.platform] spec-version` for docs) and resolved at compile time by `crates/core-domain/build.rs`. See `docs/CHANGELOG.md` for the canonical version history.
 - All configuration is stored in **`config.toml`** at the workspace root.
+- All **score→label bands** are lower-inclusive half-open `[a, b)` (e.g. `entry_danger` 20.0 → `LOW`; SetupQuality 85.0 → `PRIME`). The single documented exception is the `MarketBias` NEUTRAL band, closed `[-20, 20]`. Canonical band tables per the MANIFEST §13 Canonical Source Registry.
 - Engine communication on the data plane is **unidirectional**: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback.
 - Every engine **layer** produces exactly one immutable **Matrix** as its output contract.
 - The platform is **strategy-agnostic** — engines interpret markets; execution policies are user-defined.

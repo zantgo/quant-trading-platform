@@ -58,8 +58,10 @@ pub async fn execute(state: &Arc<AppState>, command: &Command) -> Outcome {
         ),
         Command::Version => Outcome::new(
             json!({
-                "corpus": env!("CARGO_PKG_VERSION"),
-                "build": option_env!("GIT_BUILD_ID").unwrap_or("dev"),
+                "spec_version": core_domain::SPEC_VERSION,
+                "code_version": core_domain::CODE_VERSION,
+                "build_version": core_domain::BUILD_VERSION,
+                "banner": core_domain::version_banner(),
                 "mode": "observe",
             }),
             super::version_line(),
@@ -85,17 +87,19 @@ async fn data(state: &Arc<AppState>, cmd: &DataCommand) -> Outcome {
     match cmd {
         DataCommand::Status => Outcome::new(
             json!({
-                "corpus": env!("CARGO_PKG_VERSION"),
-                "build": option_env!("GIT_BUILD_ID").unwrap_or("dev"),
+                "spec_version": core_domain::SPEC_VERSION,
+                "code_version": core_domain::CODE_VERSION,
+                "build_version": core_domain::BUILD_VERSION,
                 "mode": "observe",
                 "session_id": *state.session_id.read().await,
                 "instances": state.workspace.len().await,
                 "ws_clients": api_gateway::ws::connected_client_count(),
             }),
             format!(
-                "  corpus {} · build {} · mode observe\n  session {} · {} instance(s) · {} ws client(s)",
-                env!("CARGO_PKG_VERSION"),
-                option_env!("GIT_BUILD_ID").unwrap_or("dev"),
+                "  spec {} · code {} · build {} · mode observe\n  session {} · {} instance(s) · {} ws client(s)",
+                core_domain::SPEC_VERSION,
+                core_domain::CODE_VERSION,
+                core_domain::BUILD_VERSION,
                 state
                     .session_id
                     .read()

@@ -64,6 +64,40 @@ debug = 1
 [workspace.package]
 rust-version = "1.80"
 
+# ---------------------------------------------------------------------------
+# THE TWO VERSION LINES (V-101, V-104)
+#
+# They are deliberately separate numbers and they advance independently.
+# A reader comparing two published model documents must be able to tell
+# "the specification moved" from "the binary moved" -- which is impossible
+# if both fields carry the same string.
+#
+#   version      = the CODE line   -- what the git tag names (v4.0.0)
+#   spec-version = the DOCS line   -- what the corpus is stamped (12.0.0)
+#
+# `crates/core-domain/build.rs` reads this table and resolves both into
+# compile-time constants; `core_domain::SPEC_VERSION` / `CODE_VERSION` /
+# `BUILD_VERSION` are the only sanctioned sources (invariant N4). `tests/
+# version_identity.rs` reads them back out of the sources, so editing this
+# table without the rest of the scheme failing is not possible.
+# ---------------------------------------------------------------------------
+
+# The CODE version line, inherited by every member as `version.workspace = true`.
+version = "4.0.0"
+
+# ---------------------------------------------------------------------------
+# The DOCS/SPEC version line.
+#
+# It lives under `workspace.metadata` rather than beside `version` because
+# cargo forwards only a fixed set of `CARGO_PKG_*` variables to build scripts --
+# an arbitrary `[workspace.package]` key is reported as an "unused manifest
+# key". `[workspace.metadata]` is cargo's sanctioned home for non-standard
+# data, and `build.rs` reads it from there.
+# ---------------------------------------------------------------------------
+[workspace.metadata.platform]
+# The specification this code implements. Distinct from `version` above.
+spec-version = "12.0.0"
+
 # Single source of truth for clippy / rust correctness lints. Only
 # the "correctness" lints (those that catch real bugs or future-hard-
 # errors) are promoted to deny. Style / micro-perf lints stay at warn

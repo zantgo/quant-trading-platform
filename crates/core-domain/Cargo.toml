@@ -1,8 +1,13 @@
 [package]
 name = "core-domain"
 rust-version.workspace = true
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+# Resolves the SPEC and BUILD identity at compile time (V-101). Cargo only
+# forwards a fixed set of CARGO_PKG_* variables, so `build.rs` reads the
+# workspace `[workspace.package]` table directly -- which also means both
+# version lines live in exactly one greppable file.
+build = "build.rs"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

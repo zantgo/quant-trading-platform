@@ -134,6 +134,52 @@ impl Stage {
         Stage::Terminal,
     ];
 
+    /// Parse the label a producer publishes into a [`Stage`].
+    ///
+    /// **This is the only sanctioned reader of a stage label anywhere in the
+    /// workspace.** It used to be a `match` inlined in the live assembler,
+    /// which meant the closed set of five anchors was expressed as five string
+    /// literals in a module that had no reason to know about labels — so the
+    /// "no arithmetic on ordinals" guarantee (V-37, V-38) held at the type
+    /// level while the value arrived through a string that nothing type-checked
+    /// (V-108).
+    ///
+    /// Two properties make it safe to be the single door:
+    ///
+    /// * **Total over [`Stage::ALL`] and over nothing else.** Every anchor has a
+    ///   canonical spelling; anything not named is `None`, i.e. typed absence
+    ///   (CH-7), never a guess at the nearest anchor.
+    /// * **Round-trips.** `from_label(label)` accepts only what
+    ///   [`Stage::label`] emits, so a stage cannot be encoded two ways.
+    ///
+    /// [`Stage::label`] is display-only output. Nothing may branch on it.
+    pub fn from_label(label: &str) -> Option<Stage> {
+        // Normalise once, at the boundary: producers write `early_mid`,
+        // `early-mid` and `Early Mid` interchangeably.
+        let normalised = label.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+        match normalised.as_str() {
+            "early" => Some(Stage::Early),
+            "early_mid" => Some(Stage::EarlyMid),
+            "mid" | "middle" => Some(Stage::Mid),
+            "late" => Some(Stage::Late),
+            "terminal" => Some(Stage::Terminal),
+            _ => None,
+        }
+    }
+
+    /// The canonical published spelling of this anchor.
+    ///
+    /// Display only. Never compare against this — compare [`Stage`] values.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Stage::Early => "early",
+            Stage::EarlyMid => "early_mid",
+            Stage::Mid => "mid",
+            Stage::Late => "late",
+            Stage::Terminal => "terminal",
+        }
+    }
+
     /// The ordinal index of this anchor within [`Stage::ALL`].
     ///
     /// This exists so that "which of the five anchors" can be asked. It is **not**
@@ -680,6 +726,21 @@ pub enum DiagnosticState {
     Coiling,
 }
 
+impl DiagnosticState {
+    /// The closed set of diagnostic states.
+    ///
+    /// Present so the set can be iterated in tests and in the States renderer
+    /// without a second hand-written list. Like [`Stage::ALL`], this is an
+    /// enumeration for *display and exhaustiveness checks* — it is never a
+    /// value that anything counts over.
+    pub const ALL: [DiagnosticState; 4] = [
+        DiagnosticState::Chopping,
+        DiagnosticState::Expanding,
+        DiagnosticState::Settling,
+        DiagnosticState::Coiling,
+    ];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DiagnosticBasis {
     pub bbwp_pct: f64,
@@ -729,13 +790,97 @@ pub struct EventCounts {
     pub emit_count: u32,
 }
 
+/// **How a level's price band was determined.**
+///
+/// Typed, because the live path used to fill `Level::basis` from
+/// `NormalizedIndicatorValue::state_label` -- a free-text word a normalizer
+/// happened to write. That is the same string chain `V-109` closed for signals,
+/// re-entered one level up, and it made "the basis of this level" a value no
+/// consumer could compare against anything.
+///
+/// Every variant names a *derivation*, never an opinion.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "derivation", rename_all = "snake_case")]
+pub enum LevelBasis {
+    /// The producer declared an explicit band — `lower`/`upper` in its value
+    /// map. The edges are the declared ones, verbatim.
+    DeclaredBand { indicator: String },
+    /// Derived from a confirmed swing structure.
+    Swing { strength: String },
+    /// Derived from a pivot level of the given period.
+    Pivot { period: u32 },
+    /// The producer declared no band. Typed absence (CH-7): there is no price,
+    /// so there is no level — this variant exists so the *reason* survives
+    /// rather than the number silently becoming zero.
+    Unavailable { reason: UndefinedReason },
+}
+
 /// A priced, persistent zone.
+///
+/// **A level is a zone, not a price.** `price_low == price_high` is a point,
+/// and a point is not a level. The live assembler used to set both edges to
+/// `NormalizedIndicatorValue::normalized` -- which is a `[-1, 1]` *score*, so
+/// every level was simultaneously degenerate **and** not a price at all.
+/// Construct through [`Level::new`], which refuses to build one.
+///
+/// CH-1: both edges are prices derived from candles only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Level {
     pub kind: String,
     pub price_low: f64,
     pub price_high: f64,
-    pub basis: String,
+    pub basis: LevelBasis,
+}
+
+impl Level {
+    /// Build a level, or `None` if the band is not a band.
+    ///
+    /// Rejects, and the caller must handle, exactly three cases (CH-7):
+    ///
+    /// * either edge non-finite (`NaN` / `±inf`),
+    /// * `price_low >= price_high` — a zero-width or inverted zone,
+    /// * a `basis` of [`LevelBasis::Unavailable`], which carries no price at
+    ///   all and so cannot be paired with edges.
+    pub fn new(
+        kind: impl Into<String>,
+        price_low: f64,
+        price_high: f64,
+        basis: LevelBasis,
+    ) -> Option<Self> {
+        if !price_low.is_finite() || !price_high.is_finite() {
+            return None;
+        }
+        if price_low >= price_high {
+            return None;
+        }
+        if matches!(basis, LevelBasis::Unavailable { .. }) {
+            return None;
+        }
+        Some(Self {
+            kind: kind.into(),
+            price_low,
+            price_high,
+            basis,
+        })
+    }
+
+    /// Whether these edges describe a real zone. `false` for the shapes
+    /// [`Level::new`] refuses.
+    pub fn is_band(&self) -> bool {
+        self.price_low.is_finite()
+            && self.price_high.is_finite()
+            && self.price_low < self.price_high
+    }
+
+    /// Width of the zone. Meaningless when [`Level::is_band`] is `false`.
+    pub fn width(&self) -> f64 {
+        self.price_high - self.price_low
+    }
+
+    /// Whether `price` falls inside the zone.
+    pub fn contains(&self, price: f64) -> bool {
+        self.is_band() && price >= self.price_low && price <= self.price_high
+    }
 }
 
 // ---------------------------------------------------------------------------

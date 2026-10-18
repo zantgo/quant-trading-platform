@@ -433,7 +433,10 @@ fn sample_timeframe(secs: u64) -> serde_json::Value {
         "events": { "active_count": 4, "retained_count": 180, "emit_count": 61 },
         "levels": [{
             "kind": "FibRetracement", "price_low": 66980.0,
-            "price_high": 67420.0, "basis": "swing"
+            "price_high": 67420.0,
+            // Typed since V-109: `basis` used to be the producer's free-text
+            // `state_label`, which no two consumers could compare against.
+            "basis": { "derivation": "declared_band", "indicator": "fib_retracement" }
         }],
         "diagnostics": {
             "state": "Coiling", "volatility_change_pct": -8.4,

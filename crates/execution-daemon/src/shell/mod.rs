@@ -175,12 +175,18 @@ fn banner() -> String {
     "─".repeat(72).to_string()
 }
 
-/// The corpus + build identity line, also served by `version`.
+/// The spec + code + build identity line, also served by `version`.
+///
+/// All three now come from `core_domain`'s compile-time constants (V-101,
+/// N4). Previously `build` was `option_env!("GIT_BUILD_ID").unwrap_or("dev")`
+/// and `GIT_BUILD_ID` was never set by anything, so this line printed `dev`
+/// on every run -- the reproducibility banner had nothing to compare against.
 pub fn version_line() -> String {
     format!(
-        "corpus {} · build {} · mode observe",
-        env!("CARGO_PKG_VERSION"),
-        option_env!("GIT_BUILD_ID").unwrap_or("dev")
+        "spec {} · code {} · build {} · mode observe",
+        core_domain::SPEC_VERSION,
+        core_domain::CODE_VERSION,
+        core_domain::BUILD_VERSION
     )
 }
 
@@ -309,9 +315,19 @@ mod tests {
     }
 
     #[test]
-    fn the_version_line_names_corpus_build_and_mode() {
+    fn the_version_line_names_spec_code_build_and_mode() {
+        // Three distinct facts, not two. The spec line and the code line advance
+        // independently (V-101), and the build line is a real SHA rather than a
+        // placeholder (V-103) -- so an operator reading this line can tell which
+        // specification, which release and which commit they are looking at.
         let line = version_line();
-        assert!(line.contains("corpus "));
-        assert!(line.contains("mode observe"));
+        assert!(line.contains("spec "), "{line}");
+        assert!(line.contains("code "), "{line}");
+        assert!(line.contains("build "), "{line}");
+        assert!(line.contains("mode observe"), "{line}");
+        assert!(
+            !line.contains("dev"),
+            "the version line reports an unresolved build identity: {line}"
+        );
     }
 }

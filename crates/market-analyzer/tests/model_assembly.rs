@@ -92,12 +92,17 @@ fn state_for(
                 emitted: (events + 9) as usize,
                 ..Default::default()
             },
-            levels: vec![Level {
-                kind: "support".into(),
-                price_low: 100.0,
-                price_high: 101.0,
-                basis: "structure".into(),
-            }],
+            // Typed since V-109 — `basis` was the producer's free-text `state_label`,
+            // which no two consumers could compare against.
+            levels: vec![core_domain::axes::Level::new(
+                "support",
+                100.0,
+                101.0,
+                core_domain::axes::LevelBasis::DeclaredBand {
+                    indicator: "structure".into(),
+                },
+            )
+            .expect("100 < 101 is a real band")],
             diagnostics: diagnostics(),
             progression_stage: stage,
             progression_progress: core_domain::leg::Progress::Value { value: 0.5 },

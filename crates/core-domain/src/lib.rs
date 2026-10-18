@@ -11,6 +11,7 @@ pub mod axes;
 pub mod decision_context;
 pub mod decision_params;
 pub mod event;
+pub mod identity;
 pub mod indicator_dtos;
 pub mod jsonrpc;
 pub mod jsonrpc_methods;
@@ -39,3 +40,9 @@ pub mod volume_profile;
 
 pub use latency::{LatencySnapshot, LatencyTracker, SharedLatencyTracker};
 pub use normalized::TriggerType;
+
+// Compile-time identity (V-101..V-103). Re-exported at the crate root because
+// every downstream crate needs it and none of them should re-derive it.
+pub use identity::{
+    build_identity, version_banner, BuildIdentity, BUILD_VERSION, CODE_VERSION, SPEC_VERSION,
+};

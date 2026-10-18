@@ -127,17 +127,24 @@ async fn help_prints_the_command_list() {
 }
 
 #[tokio::test]
-async fn version_names_the_corpus_and_the_mode() {
+async fn version_names_all_three_version_lines_and_the_mode() {
+    // V-101/V-102: the shell reports the spec line, the code line and the build
+    // SHA. Before this, `build` was a `GIT_BUILD_ID` lookup that nothing set, so
+    // it always printed "dev" and the reproducibility banner had nothing to
+    // compare against.
     let text = drive(empty_state().await, &["version"]).await;
-    assert!(text.contains("corpus "), "{text}");
+    assert!(text.contains("spec "), "{text}");
+    assert!(text.contains("code "), "{text}");
+    assert!(text.contains("build "), "{text}");
     assert!(text.contains("mode observe"), "{text}");
+    assert!(!text.contains("dev"), "{text}");
 }
 
 #[tokio::test]
 async fn exit_stops_the_loop_and_later_lines_never_run() {
     let text = drive(empty_state().await, &["version", "exit", "version"]).await;
     assert_eq!(
-        text.matches("corpus ").count(),
+        text.matches("spec ").count(),
         1,
         "a command after `exit` still ran:\n{text}"
     );
@@ -149,7 +156,7 @@ async fn an_unknown_command_is_refused_and_the_session_continues() {
     let text = drive(empty_state().await, &["nonsense", "version"]).await;
     assert!(text.contains("not a command"), "{text}");
     assert!(
-        text.contains("corpus "),
+        text.contains("spec "),
         "the session did not continue:\n{text}"
     );
 }
@@ -157,7 +164,7 @@ async fn an_unknown_command_is_refused_and_the_session_continues() {
 #[tokio::test]
 async fn an_empty_line_is_ignored() {
     let text = drive(empty_state().await, &["", "   ", "version"]).await;
-    assert!(text.contains("corpus "));
+    assert!(text.contains("spec "));
 }
 
 #[tokio::test]

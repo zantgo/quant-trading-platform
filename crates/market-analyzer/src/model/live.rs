@@ -19,11 +19,11 @@
 //! ready, because an undeclared availability is indistinguishable from an
 //! unbounded one (CG1).
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use crate::indicators::registry;
 use core_domain::axes::{AxisId, AxisValue, Domain, Readiness, Stage, TimeframeState};
-use core_domain::indicator_dtos::NormalizedIndicatorValue;
+use core_domain::indicator_dtos::{NormalizedIndicatorValue, SignalKind};
 use core_domain::models::MarketSnapshot;
 
 use crate::model::{assemble_timeframe_state, Reading, TimeframeInput};
@@ -128,17 +128,11 @@ fn axis_value_for(axis: AxisId, value: &NormalizedIndicatorValue) -> AxisValue {
 
 /// The ordinal stage, when the published label names one of the five anchors.
 ///
-/// Labels are matched against the **closed** set of stage names; an unknown label
-/// is absence rather than a guess at the nearest anchor.
+/// Delegates to [`Stage::from_label`], which is the workspace's single
+/// sanctioned label→ordinal door (V-108). An unknown label is typed absence,
+/// never a guess at the nearest anchor.
 fn progression_stage_of(value: &NormalizedIndicatorValue) -> Option<Stage> {
-    match value.state_label.trim().to_ascii_lowercase().as_str() {
-        "early" => Some(Stage::Early),
-        "early_mid" | "early mid" | "early-mid" => Some(Stage::EarlyMid),
-        "mid" | "middle" => Some(Stage::Mid),
-        "late" => Some(Stage::Late),
-        "terminal" => Some(Stage::Terminal),
-        _ => None,
-    }
+    Stage::from_label(&value.state_label)
 }
 
 /// Assemble a duration's `TimeframeState` from its live snapshot.
@@ -170,25 +164,17 @@ pub fn timeframe_state_from_snapshot(
         candle_count,
         last_closed_at: snapshot.timestamp.to_string(),
         available_at: snapshot.timestamp.to_string(),
-        spec_version: env!("CARGO_PKG_VERSION").to_string(),
-        build_version: option_env!("GIT_BUILD_ID").unwrap_or("dev").to_string(),
+        // N4: resolved from the spec line and from git at COMPILE TIME by
+        // `core-domain/build.rs`. This used to be
+        // `env!("CARGO_PKG_VERSION")` + `option_env!("GIT_BUILD_ID")`, which
+        // published "0.1.0" and "dev" respectively -- GIT_BUILD_ID was never
+        // set by anything, so "dev" was the only reachable value and a stale
+        // tree was indistinguishable from a fresh one (CH-8).
+        spec_version: core_domain::SPEC_VERSION.to_string(),
+        build_version: core_domain::BUILD_VERSION.to_string(),
     };
 
-    let levels = snapshot
-        .indicators
-        .iter()
-        .filter(|(_, v)| {
-            v.signals
-                .iter()
-                .any(|s| matches!(format!("{:?}", s.kind).as_str(), "LevelTouch" | "Breakout"))
-        })
-        .map(|(key, v)| core_domain::axes::Level {
-            kind: key.clone(),
-            price_low: v.normalized,
-            price_high: v.normalized,
-            basis: v.state_label.clone(),
-        })
-        .collect();
+    let levels = levels_from(snapshot);
 
     assemble_timeframe_state(TimeframeInput {
         identity,
@@ -217,15 +203,84 @@ pub fn timeframe_state_from_snapshot(
 /// The number of active events the snapshot's indicators declare.
 ///
 /// An event counts once even though several indicators may declare the same
-/// kind (E5): distinct (key, kind) pairs, not signal instances.
-fn count_signals(snapshot: &MarketSnapshot) -> usize {
-    let mut distinct: BTreeMap<(String, String), ()> = BTreeMap::new();
+/// kind (E5): distinct `(indicator, kind)` pairs, not signal instances.
+///
+/// The key is the typed [`SignalKind`], not `format!("{:?}", …)`. That string
+/// form was the original defect (V-106): it made the count depend on a
+/// variant's *spelling*, so a rename silently changed which events existed.
+#[must_use]
+pub fn count_signals(snapshot: &MarketSnapshot) -> usize {
+    let mut distinct: BTreeSet<(String, SignalKind)> = BTreeSet::new();
     for (key, value) in &snapshot.indicators {
         for signal in &value.signals {
-            distinct.insert((key.clone(), format!("{:?}", signal.kind)), ());
+            distinct.insert((key.clone(), signal.kind));
         }
     }
     distinct.len()
+}
+
+/// Signal kinds that mark a **zone**, not a reading.
+///
+/// Typed, therefore total. The previous filter spelled these as strings —
+/// `matches!(format!("{:?}", s.kind).as_str(), "LevelTouch" | "Breakout")` —
+/// and `LevelTouch` **is not a variant of `SignalKind`** (the real one is
+/// `LevelTest`). The `matches!` therefore never fired, on any snapshot, ever,
+/// and `model_state.levels` was empty on the live path while the gate suite
+/// passed. That is the class of defect V-107 exists to catch.
+pub const ZONE_SIGNALS: [SignalKind; 3] = [
+    SignalKind::LevelTest,
+    SignalKind::BandTouch,
+    SignalKind::Breakout,
+];
+
+/// Extract the priced zones a snapshot's indicators declare.
+///
+/// A level is a **band**, so this reads an actual band: the `lower`/`upper`
+/// pair an indicator writes into its value map. An indicator that fires a zone
+/// signal but declares no band produces **no level** — typed absence (CH-7)
+/// rather than a number that means nothing.
+///
+/// Both previous behaviours were wrong in the same way: the edges were set to
+/// `normalized`, a `[-1, 1]` score, so every published level was degenerate
+/// *and* was not a price.
+fn levels_from(snapshot: &MarketSnapshot) -> Vec<core_domain::axes::Level> {
+    let mut out = Vec::new();
+
+    // Ordered by key so the level list is deterministic (CH-8): a `HashMap`
+    // iteration order would publish a different array order for the same
+    // market on the same candles, which is bit-level non-determinism.
+    let mut keys: Vec<&String> = snapshot.indicators.keys().collect();
+    keys.sort();
+
+    for key in keys {
+        let value = &snapshot.indicators[key];
+        if !value.signals.iter().any(|s| ZONE_SIGNALS.contains(&s.kind)) {
+            continue;
+        }
+        let Some(values) = value.values.as_ref() else {
+            continue;
+        };
+        let (Some(&low), Some(&high)) = (values.get("lower"), values.get("upper")) else {
+            // Fires a zone signal but declares no band. No level — and no
+            // fabricated edges.
+            continue;
+        };
+
+        let basis = core_domain::axes::LevelBasis::DeclaredBand {
+            indicator: key.clone(),
+        };
+        // `Level::new` refuses a degenerate band, so the ordering is fixed here
+        // rather than trusting the producer to have written low-then-high.
+        let (low, high) = if low <= high {
+            (low, high)
+        } else {
+            (high, low)
+        };
+        if let Some(level) = core_domain::axes::Level::new(key.clone(), low, high, basis) {
+            out.push(level);
+        }
+    }
+    out
 }
 
 /// The direction series the stability measure consumes.
