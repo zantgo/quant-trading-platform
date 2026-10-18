@@ -1136,6 +1136,11 @@ mod tests {
                 values: Some(atr_values),
                 signals: vec![],
                 confidence: 0.5,
+                // Availability is declared by the assembler, which knows the bar.
+                // Left undeclared here so CG1 reports it rather than this
+                // constructor guessing a time it has not been told.
+                available_at_bar: None,
+                subject_bar: None,
             },
         );
         let analysis = make_analysis_with_timeframes();
@@ -1290,6 +1295,11 @@ mod tests {
                 values: Some(HashMap::from([("atr_14".to_string(), atr_14)])),
                 signals: vec![],
                 confidence: 1.0,
+                // Availability is declared by the assembler, which knows the bar.
+                // Left undeclared here so CG1 reports it rather than this
+                // constructor guessing a time it has not been told.
+                available_at_bar: None,
+                subject_bar: None,
             },
         );
         map.insert(
@@ -1301,6 +1311,11 @@ mod tests {
                 values: None,
                 signals: vec![],
                 confidence: 1.0,
+                // Availability is declared by the assembler, which knows the bar.
+                // Left undeclared here so CG1 reports it rather than this
+                // constructor guessing a time it has not been told.
+                available_at_bar: None,
+                subject_bar: None,
             },
         );
         map

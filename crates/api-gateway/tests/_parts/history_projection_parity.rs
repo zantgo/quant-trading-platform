@@ -151,6 +151,11 @@ fn make_snapshot(timestamp: u64) -> MarketSnapshot {
                 "crossed 60",
             )],
             confidence: 0.9,
+            // Availability is declared by the assembler, which knows the bar.
+            // Left undeclared here so CG1 reports it rather than this
+            // constructor guessing a time it has not been told.
+            available_at_bar: None,
+            subject_bar: None,
         },
     );
     // Multi-line indicator: `values` become separate chart series, so the
@@ -173,6 +178,11 @@ fn make_snapshot(timestamp: u64) -> MarketSnapshot {
             ),
             signals: vec![],
             confidence: 0.5,
+            // Availability is declared by the assembler, which knows the bar.
+            // Left undeclared here so CG1 reports it rather than this
+            // constructor guessing a time it has not been told.
+            available_at_bar: None,
+            subject_bar: None,
         },
     );
     // A WARMING placeholder — must be skipped (pushed as null) on BOTH paths.

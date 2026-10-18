@@ -124,8 +124,28 @@ pub struct NormalizedIndicatorValue {
     pub signals: Vec<IndicatorSignal>,
     /// Conviction of this reading in `[0.0, 1.0]`. Base = `|normalized|`, later
     /// boosted by confirmed signals in the finalization pass.
+    ///
+    /// P10 replaces this with per-axis `readiness`. Until then it is the one
+    /// place a probability-shaped number survives in the model, and CH-4 forbids
+    /// it — that replacement is scheduled, not forgotten.
     #[serde(default)]
     pub confidence: f64,
+    /// The bar at which this value could **first** have been known (CG1).
+    ///
+    /// Distinct from the bar the value is *about*. A 3-bar fractal about bar
+    /// `i` is knowable only at `i + strength`, because the last bar on the far
+    /// side is what confirms it. Collapsing the two is how a backtest ends up
+    /// winning on hindsight: it labels a swing one bar before that bar existed.
+    ///
+    /// `None` means the producer has not declared availability. That is a
+    /// **failure** under CG1, not a default — an undeclared availability is
+    /// indistinguishable from an unbounded one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_at_bar: Option<usize>,
+    /// The bar this value is computed FROM. A value computed from bar `i` is
+    /// knowable at `i` only if nothing in the calculation read `i + 1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_bar: Option<usize>,
 }
 
 impl NormalizedIndicatorValue {
@@ -181,6 +201,11 @@ impl NormalizedIndicatorValue {
             values: self.values.clone(),
             signals: Vec::new(),
             confidence: 0.0,
+            // `None` is the honest default: a producer that has not declared
+            // availability is exactly what CG1 exists to catch, so the
+            // constructor must not silently supply one.
+            available_at_bar: None,
+            subject_bar: None,
         }
     }
 
@@ -221,6 +246,8 @@ impl NormalizedIndicatorValue {
             values: None,
             signals: Vec::new(),
             confidence: n.abs(),
+            available_at_bar: None,
+            subject_bar: None,
         }
     }
 
@@ -239,6 +266,8 @@ impl NormalizedIndicatorValue {
             values: Some(values),
             signals: Vec::new(),
             confidence: n.abs(),
+            available_at_bar: None,
+            subject_bar: None,
         }
     }
 
@@ -260,6 +289,37 @@ impl NormalizedIndicatorValue {
     }
 
     /// Override the computed confidence (chained builder).
+    /// Declare when this value became knowable (CG1).
+    ///
+    /// The only way to set `available_at_bar`. A builder rather than a public
+    /// field so that every declaration is greppable and every gate can find it —
+    /// a field assigned directly would let a producer skip the assertion.
+    pub fn available_at(mut self, subject_bar: usize, available_at: usize) -> Self {
+        debug_assert!(
+            available_at >= subject_bar,
+            "a value about bar {subject_bar} cannot be knowable at {available_at}"
+        );
+        self.subject_bar = Some(subject_bar);
+        self.available_at_bar = Some(available_at);
+        self
+    }
+
+    /// `true` when this value could not have been computed at or before `bar`.
+    ///
+    /// The predicate CG2 evaluates after perturbing a future bar: everything
+    /// this returns `true` for must be unchanged.
+    pub fn was_knowable_at(&self, bar: usize) -> bool {
+        self.available_at_bar.map(|a| a <= bar).unwrap_or(true)
+    }
+
+    /// `true` when availability has not been declared.
+    ///
+    /// `None` is not "contemporaneous" — it is "this producer never said", which
+    /// is indistinguishable from a value that read the whole future.
+    pub fn availability_is_undeclared(&self) -> bool {
+        self.available_at_bar.is_none()
+    }
+
     pub fn with_confidence(mut self, confidence: f64) -> Self {
         self.confidence = confidence.clamp(0.0, 1.0);
         self

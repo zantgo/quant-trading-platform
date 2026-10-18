@@ -67,6 +67,13 @@ fn overlay_indicators_from_db(
         values,
         signals: Vec::new(),
         confidence: 0.0,
+        // Left undeclared. A history row does know its own bar, but this
+        // closure is built before the row's timestamp is in scope, and
+        // guessing would be worse than admitting it. CG1 therefore reports
+        // history-built values as undeclared until the assembler stamps them,
+        // which is visible rather than assumed.
+        available_at_bar: None,
+        subject_bar: None,
     };
     let mut out: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
 

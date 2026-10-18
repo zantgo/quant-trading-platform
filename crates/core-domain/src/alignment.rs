@@ -971,6 +971,10 @@ mod tests {
                 state_label: "X".to_string(),
                 values: None,
                 confidence: 0.5,
+                // A test fixture; availability is stamped by the assembler in
+                // production, so leaving it undeclared here is accurate.
+                available_at_bar: None,
+                subject_bar: None,
                 signals: vec![IndicatorSignal {
                     kind: SignalKind::Threshold,
                     direction: SignalDirection::Bullish,
@@ -1022,6 +1026,8 @@ mod tests {
                     state_label: "X".to_string(),
                     values: None,
                     confidence: 0.5,
+                    available_at_bar: None,
+                    subject_bar: None,
                     signals: vec![IndicatorSignal {
                         kind: SignalKind::Threshold,
                         direction: SignalDirection::Bullish,

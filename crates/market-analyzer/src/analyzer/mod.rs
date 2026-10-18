@@ -5057,6 +5057,9 @@ mod lifecycle_tests {
     /// A WARMING placeholder mirrors the one the normalizer inserts for
     /// every registered key when its source data is not yet available.
     fn warming_placeholder() -> NormalizedIndicatorValue {
+        // Availability is declared by the assembler, which knows the bar. Left
+        // undeclared here so CG1 reports it rather than this constructor
+        // guessing a time it has not been told.
         NormalizedIndicatorValue::scalar(0.0, 0.0, "WARMING").with_confidence(0.0)
     }
 

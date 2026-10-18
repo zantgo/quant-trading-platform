@@ -141,6 +141,11 @@ fn full_snapshot(timestamp: u64) -> MarketSnapshot {
                     "crossover",
                 )],
                 confidence: 0.87,
+                // Availability is declared by the assembler, which knows the bar.
+                // Left undeclared here so CG1 reports it rather than this
+                // constructor guessing a time it has not been told.
+                available_at_bar: None,
+                subject_bar: None,
             },
         );
         snap.indicator_lifecycle.insert(
