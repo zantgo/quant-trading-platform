@@ -644,11 +644,11 @@ isolated defect** injected into a copy of production logic — never into produc
 |---|---|---|---|
 | **M1** | Availability enforcement bypassed — a field read before its `available_at` | CG1, CG2 | ✅ detected, repaired (P7 — record in §8.1.1) |
 | **M2** | Event expiry suppressed — absence of contradiction treated as persistence | CG8, CG9 | ⬜ not run |
-| **M3** | Stability boundary off-by-one — the revision bar counted | CG4, CG5 | ⬜ not run |
-| **M4** | Progression clamped to `[0, 1]` | CG3, CG6 | ⬜ not run |
-| **M5** | Reclassification bumps `target_version` — scale change masquerades as movement | CG3, CG13 | ⬜ not run |
+| **M3** | Stability boundary off-by-one — the revision bar counted | CG4, CG5 | ✅ detected, repaired (P8 — §8.1.2) |
+| **M4** | Progression clamped to `[0, 1]` | CG3, CG6 | ✅ detected, repaired (P8 — §8.1.2) |
+| **M5** | Reclassification bumps `target_version` — scale change masquerades as movement | CG3, CG13 | ✅ detected, repaired (P8 — §8.1.2) |
 | **M6** | Cross-axis double-count — one event weighted once per consuming axis | CG11 | ⬜ not run |
-| **M7** | Byte-budget eviction applied to a Tier D leg record | CG7, CG9 | ⬜ not run |
+| **M7** | Byte-budget eviction applied to a Tier D leg record | CG7, CG9 | ◑ CG7 detected, repaired (P8 — §8.1.2); **CG9 half deferred to P9** |
 
 **Every mutation must produce all four of these, recorded in the report:**
 
@@ -670,8 +670,25 @@ paraphrased.
 | **3** | **Demonstrated failing** | `cargo test --no-fail-fast -p market-analyzer --test gate_cg1_availability --test gate_cg2_future_perturbation` → **CG1: 1 failed / 9 passed, CG2: 2 failed / 10 passed.** Quoted: `a_pivot_declares_the_bar_it_was_confirmed_not_the_bar_it_happened` — `assertion left == right failed / left: 100 / right: 103`. Quoted: `c2_availability_matches_the_window_the_scan_actually_consults` — `pivot at bar 6 claims availability at 6, but the scan consults through bar 9 — availability earlier than that is a look-ahead / left: 6 / right: 9`. Quoted: `c2_a_pivot_is_not_knowable_before_its_far_side_bar_closed` — `a pivot at bar 6 was still hidden at bar 6, its confirming bar`. Each assertion failed on a **value mismatch**, not on a compile error or a setup panic. |
 | **4** | **Demonstrated repaired** | After the restore: CG1 `10 passed; 0 failed` · CG2 `13 passed; 0 failed` · CG12 `7 passed; 0 failed`. The mutant is also retained permanently as an **isolated copy** in `gate_cg2_future_perturbation.rs::c2_the_gate_catches_m1_bypassed_availability`, so the evidence does not require anyone to re-inject the defect. |
 
-**M2–M7 remain unrun** and are gated behind the phases that own their subject matter (M2 behind the
-event lifecycle, M3–M5 M7 behind the leg record, M6 behind the axis assembly).
+### 8.1.2 M3, M4, M5, M7 — the executed records (P8)
+
+All four were injected into production, run, and restored from a pre-injection copy; `git status`
+on the mutated files was clean before the re-run.
+
+| # | Named | Demonstrated failing (quoted) | Repaired |
+|---|---|---|---|
+| **M3** | `LegMachine::observe` — `unrevised_bars + 1 >= policy_window` → `+ 2`, so the revision bar counted toward its own stability. | **CG4** `4 passed; 2 failed`: `cg4_the_window_is_exactly_w_bars_and_not_one_fewer` — `17: 3-1 unrevised bars is still not stable`; `cg4_a_revision_resets_the_window_completely` — `32: the window restarted at the revision`. **CG5** `6 passed; 1 failed`: `cg5_an_under_budget_reference_still_stabilises_on_exactly_w_observations` — `17: 3-1 observations under the budget is still not stable`. | CG4 `6 passed; 0 failed` · CG5 `7 passed; 0 failed` |
+| **M4** | `core_domain::leg::progress_of` — `(P−O)/(T−O)` wrapped in `.clamp(0.0, 1.0)`. | **CG3** `6 passed; 1 failed`: `cg3_progress_is_never_clamped_to_the_unit_interval`. **CG6** `8 passed; 1 failed`: `cg6_an_overrun_is_not_substituted_onto_the_reference` — `an overrun must not read as 'at the target' … left: Some(1.0) right: Some(1.0)`. | CG3 `7 passed; 0 failed` · CG6 `9 passed; 0 failed` |
+| **M5** | `LegMachine::reclassify` — `structure_version += 1` **and** `target_version += 1`. | **CG13** `7 passed; 1 failed`: `cg13f_reclassification_and_retargeting_move_disjoint_counters` — `13f/S-N5: a reclassification never touches the target counter / left: 2 / right: 1`. **CG3** `6 passed; 1 failed`: `cg3_a_reclassification_does_not_bump_the_target_counter` — `S-N5: reclassification is not retargeting / left: 1 / right: 0`. | CG13 `8 passed; 0 failed` · CG3 `7 passed; 0 failed` |
+| **M7** | A new `LegMachine::evict_to_budget(max_bytes)` that drops the oldest legs until the machine fits. | **CG7** `8 passed; 1 failed`: `cg7_there_is_no_code_path_that_can_evict_a_leg` — `the leg machine contains \`evict_to\`: Tier D records are never evicted by the byte budget (01-16 T2, L24)`. | CG7 `9 passed; 0 failed` |
+
+**The CG9 half of M7 is deferred to P9**, and the table above says so rather than claiming the
+mutation is fully exercised: retention-vs-validity needs an event journal, which does not exist until
+the event lifecycle lands. The CG7 half is the load-bearing one — a leg that can be evicted has no
+identity to preserve — and it is checked *statically*, against the module's own source, because the
+defect being prevented is the *existence* of an eviction path.
+
+**M2 and M6 remain unrun**, gated behind the event lifecycle (P9) and the axis assembly (P10).
 
 > **M1 alone is not sufficient.** One caught mutation demonstrates detection of one specific
 > injected defect, under the tested conditions. M1 alone does not establish that the other

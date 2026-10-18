@@ -14,6 +14,7 @@ pub mod indicator_dtos;
 pub mod jsonrpc;
 pub mod jsonrpc_methods;
 pub mod latency;
+pub mod leg;
 pub mod market_context;
 pub mod models;
 pub mod state_bands;

@@ -14,6 +14,7 @@ pub mod candle_builder;
 pub mod candle_generator;
 // event_detector module removed (v6.4 — dormant, superseded by signal system)
 pub mod indicators;
+pub mod leg;
 pub mod market_context_synth;
 pub mod replay;
 pub mod sr_engine;
