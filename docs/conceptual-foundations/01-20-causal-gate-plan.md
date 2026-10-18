@@ -647,7 +647,7 @@ isolated defect** injected into a copy of production logic — never into produc
 | **M3** | Stability boundary off-by-one — the revision bar counted | CG4, CG5 | ✅ detected, repaired (P8 — §8.1.2) |
 | **M4** | Progression clamped to `[0, 1]` | CG3, CG6 | ✅ detected, repaired (P8 — §8.1.2) |
 | **M5** | Reclassification bumps `target_version` — scale change masquerades as movement | CG3, CG13 | ✅ detected, repaired (P8 — §8.1.2) |
-| **M6** | Cross-axis double-count — one event weighted once per consuming axis | CG11 | ⬜ not run |
+| **M6** | Cross-axis double-count — one event weighted once per consuming axis | CG11 | ✅ detected, repaired (P10 — §8.1.4) |
 | **M7** | Byte-budget eviction applied to a Tier D leg record | CG7, CG9 | ✅ detected, repaired — CG7 in P8 (§8.1.2), CG9 in P9 (§8.1.3) |
 
 **Every mutation must produce all four of these, recorded in the report:**
@@ -700,7 +700,16 @@ from the byte budget into a Tier D record. A behavioural test would have to call
 which means writing it first. Reading the module's own source means the gate can fail on code that
 was never called.
 
-**M6 remains unrun**, gated behind the axis assembly (P10).
+### 8.1.4 M6 — the executed record (P10)
+
+| # | Named | Demonstrated failing (quoted) | Repaired |
+|---|---|---|---|
+| **M6** | `reduce_axis` — the per-axis total weight multiplied by the number of consuming axes, so one shared fact contributed once per axis instead of once. | **CG11** `5 passed; 2 failed`: `cg11_a_divergence_can_feed_several_axes_without_being_duplicated` — `Structure consumed the event once / left: Some(0.5) / right: Some(1.0)`; `cg11_an_axis_never_multiplies_a_shared_member` — `three views of one fact average to that fact, not to 0.8^3`. | CG11 `7 passed; 0 failed` |
+
+**All seven mutations M1–M7 have now been executed**, each with the four required records: M1 (P7),
+M3/M4/M5/M7-CG7 (P8), M2/M7-CG9 (P9), M6 (P10). CG10 was not assigned a mutation by the matrix —
+its claim is that terminality never closes a leg, which is asserted directly rather than by
+mutation.
 
 > **M1 alone is not sufficient.** One caught mutation demonstrates detection of one specific
 > injected defect, under the tested conditions. M1 alone does not establish that the other
