@@ -30,7 +30,7 @@
 
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use market_analyzer::indicators::fibonacci::PivotPoint;
-use market_analyzer::replay::{Differ, Frame, Perturbation, Recorder, TARGETED_FUTURES};
+use market_analyzer::replay::{Differ, Fixture, Frame, Futures, Recorder, Run, TARGETED_FUTURES};
 
 // ---------------------------------------------------------------------------
 // The type-level contract
@@ -184,27 +184,32 @@ fn a_contemporaneous_frame_is_untouched_by_a_future_perturbation() {
     // regress if `available_at` is ever dropped: stamp everything
     // contemporaneously, perturb the future, and require zero movement through
     // the last clean bar.
-    let recorder = Recorder::new();
-    for bar in 0..20 {
-        recorder.record(Frame::new(bar, bar, "sma", bar as f64));
-    }
-    let baseline = recorder.into_run();
+    // The baseline and the perturbed run publish the SAME series, differing only
+    // at bar 19. Publishing two different series would make the assertion
+    // vacuous — it would pass only if the differ were broken.
+    let fixture = Fixture::sawtooth(20);
+    let perturbed =
+        Futures::apply(&fixture, 19, Futures::ALL_FOUR).expect("bar 19 is inside a 20-bar fixture");
 
-    let perturbed = market_analyzer::replay::perturb(
-        &(0..20).map(|i| i as f64).collect::<Vec<_>>(),
-        &[Perturbation::new(
-            19,
-            market_analyzer::replay::Futures::ALL_FOUR,
-        )],
-    );
-    let recorder2 = Recorder::new();
-    for (bar, v) in perturbed.iter().enumerate() {
-        recorder2.record(Frame::new(bar, bar, "sma", *v));
-    }
+    let record = |closes: &[f64]| -> Run {
+        let r = Recorder::new();
+        for (bar, c) in closes.iter().enumerate() {
+            r.record(Frame::new(bar, bar, "sma", *c));
+        }
+        r.into_run()
+    };
+
+    let baseline = record(&fixture.closes());
+    let perturbed_run = record(&perturbed.closes());
+
+    // Sanity: the two runs really do differ, so the next assertion has teeth.
+    assert!(Differ::new()
+        .first_divergence(&baseline, &perturbed_run)
+        .is_some());
 
     let d = Differ::new();
     assert_eq!(
-        d.assert_unchanged_through(&baseline, &recorder2.into_run(), 18),
+        d.assert_unchanged_through(&baseline, &perturbed_run, 18),
         None,
         "a future perturbation moved the past"
     );

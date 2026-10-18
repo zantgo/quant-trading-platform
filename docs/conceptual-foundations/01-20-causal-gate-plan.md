@@ -620,7 +620,7 @@ isolated defect** injected into a copy of production logic — never into produc
 
 | # | Injected defect | Must be caught by | Status |
 |---|---|---|---|
-| **M1** | Availability enforcement bypassed — a field read before its `available_at` | G1, G2 | ⬜ not run |
+| **M1** | Availability enforcement bypassed — a field read before its `available_at` | CG1, CG2 | ✅ detected, repaired (P7 — record in §8.1.1) |
 | **M2** | Event expiry suppressed — absence of contradiction treated as persistence | G8, G9 | ⬜ not run |
 | **M3** | Stability boundary off-by-one — the revision bar counted | G4, G5 | ⬜ not run |
 | **M4** | Progression clamped to `[0, 1]` | G3, G6 | ⬜ not run |
@@ -635,6 +635,21 @@ isolated defect** injected into a copy of production logic — never into produc
    process failure, not a test result.
 3. **Demonstrated failing** — the specific assertion that caught it, quoted.
 4. **Demonstrated repaired** — the same test passes against the unmutated implementation.
+
+### 8.1.1 M1 — the executed record (P7)
+
+The four records this section requires. Quoted output is verbatim from the run; nothing is
+paraphrased.
+
+| # | Record | Evidence |
+|---|---|---|
+| **1** | **Named** | Availability enforcement bypassed. `crates/market-analyzer/src/indicators/fibonacci.rs` → `PivotPoint::confirming_bar()` returned `self.index` instead of `self.index + self.strength` — a pivot claimed it was knowable on the bar it *occurred*, three bars before the far side supplied the evidence. |
+| **2** | **Isolated** | The defect was injected, run, and repaired inside one working session; `git checkout crates/market-analyzer/src/indicators/fibonacci.rs` restored the file and `git diff` on it returned empty before the re-run. Nothing mutated was committed. |
+| **3** | **Demonstrated failing** | `cargo test --no-fail-fast -p market-analyzer --test gate_cg1_availability --test gate_cg2_future_perturbation` → **CG1: 1 failed / 9 passed, CG2: 2 failed / 10 passed.** Quoted: `a_pivot_declares_the_bar_it_was_confirmed_not_the_bar_it_happened` — `assertion left == right failed / left: 100 / right: 103`. Quoted: `c2_availability_matches_the_window_the_scan_actually_consults` — `pivot at bar 6 claims availability at 6, but the scan consults through bar 9 — availability earlier than that is a look-ahead / left: 6 / right: 9`. Quoted: `c2_a_pivot_is_not_knowable_before_its_far_side_bar_closed` — `a pivot at bar 6 was still hidden at bar 6, its confirming bar`. Each assertion failed on a **value mismatch**, not on a compile error or a setup panic. |
+| **4** | **Demonstrated repaired** | After the restore: CG1 `10 passed; 0 failed` · CG2 `13 passed; 0 failed` · CG12 `7 passed; 0 failed`. The mutant is also retained permanently as an **isolated copy** in `gate_cg2_future_perturbation.rs::c2_the_gate_catches_m1_bypassed_availability`, so the evidence does not require anyone to re-inject the defect. |
+
+**M2–M7 remain unrun** and are gated behind the phases that own their subject matter (M2 behind the
+event lifecycle, M3–M5 M7 behind the leg record, M6 behind the axis assembly).
 
 > **M1 alone is not sufficient.** One caught mutation demonstrates detection of one specific
 > injected defect, under the tested conditions. M1 alone does not establish that the other

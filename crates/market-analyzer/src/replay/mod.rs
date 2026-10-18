@@ -38,7 +38,7 @@ pub mod perturb;
 pub mod snapshot;
 
 pub use differ::{Differ, Divergence};
-pub use perturb::{perturb, Futures, Perturbation, TARGETED_FUTURES};
+pub use perturb::{channel, Bar, Fixture, Futures, TARGETED_FUTURES};
 pub use snapshot::{Frame, Recorder};
 
 use std::collections::BTreeMap;
