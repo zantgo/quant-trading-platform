@@ -643,12 +643,12 @@ isolated defect** injected into a copy of production logic — never into produc
 | # | Injected defect | Must be caught by | Status |
 |---|---|---|---|
 | **M1** | Availability enforcement bypassed — a field read before its `available_at` | CG1, CG2 | ✅ detected, repaired (P7 — record in §8.1.1) |
-| **M2** | Event expiry suppressed — absence of contradiction treated as persistence | CG8, CG9 | ⬜ not run |
+| **M2** | Event expiry suppressed — absence of contradiction treated as persistence | CG8, CG9 | ✅ detected, repaired (P9 — §8.1.3) |
 | **M3** | Stability boundary off-by-one — the revision bar counted | CG4, CG5 | ✅ detected, repaired (P8 — §8.1.2) |
 | **M4** | Progression clamped to `[0, 1]` | CG3, CG6 | ✅ detected, repaired (P8 — §8.1.2) |
 | **M5** | Reclassification bumps `target_version` — scale change masquerades as movement | CG3, CG13 | ✅ detected, repaired (P8 — §8.1.2) |
 | **M6** | Cross-axis double-count — one event weighted once per consuming axis | CG11 | ⬜ not run |
-| **M7** | Byte-budget eviction applied to a Tier D leg record | CG7, CG9 | ◑ CG7 detected, repaired (P8 — §8.1.2); **CG9 half deferred to P9** |
+| **M7** | Byte-budget eviction applied to a Tier D leg record | CG7, CG9 | ✅ detected, repaired — CG7 in P8 (§8.1.2), CG9 in P9 (§8.1.3) |
 
 **Every mutation must produce all four of these, recorded in the report:**
 
@@ -688,7 +688,19 @@ the event lifecycle lands. The CG7 half is the load-bearing one — a leg that c
 identity to preserve — and it is checked *statically*, against the module's own source, because the
 defect being prevented is the *existence* of an eviction path.
 
-**M2 and M6 remain unrun**, gated behind the event lifecycle (P9) and the axis assembly (P10).
+### 8.1.3 M2, and the CG9 half of M7 — the executed records (P9)
+
+| # | Named | Demonstrated failing (quoted) | Repaired |
+|---|---|---|---|
+| **M2** | `EventJournal::expire_at` — an early `return 0`, i.e. expiry suppressed: silence treated as persistence. | **CG8** `4 passed; 6 failed`, including `cg8_absence_of_contradiction_does_not_extend_an_event` — `silence is not persistence / left: Active / right: Expired` — and `cg8_persistence_is_the_only_thing_that_extends_life`. **CG9** `2 passed; 6 failed`, including `cg9_a_journal_full_of_expired_events_contributes_zero` — `a journal holding 200 expired records contributes ZERO / left: 200 / right: 0`. Every failure was a state or count mismatch; none was a crash. | CG8 `10 passed; 0 failed` · CG9 `8 passed; 0 failed` |
+| **M7** (CG9 half) | Asserted **statically**: both `CG7` and `CG9` read the leg module's own source with `include_str!` and fail on `evict_to` / `truncate(` / `remove(0)` / `shrink_to`. | **CG7** `8 passed; 1 failed` (P8 run): `the leg machine contains \`evict_to\`: Tier D records are never evicted by the byte budget (01-16 T2, L24)`. **CG9** `cg9_a_tier_d_record_is_outside_the_byte_budget_reach` — the same scan, run from the retention side. | CG7 `9 passed; 0 failed` · CG9 `8 passed; 0 failed` |
+
+**Why M7 is asserted statically in both gates.** The defect is the *existence* of an eviction path
+from the byte budget into a Tier D record. A behavioural test would have to call that function —
+which means writing it first. Reading the module's own source means the gate can fail on code that
+was never called.
+
+**M6 remains unrun**, gated behind the axis assembly (P10).
 
 > **M1 alone is not sufficient.** One caught mutation demonstrates detection of one specific
 > injected defect, under the tested conditions. M1 alone does not establish that the other

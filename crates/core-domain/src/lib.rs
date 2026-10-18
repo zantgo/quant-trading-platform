@@ -10,6 +10,7 @@ pub mod analysis;
 pub mod axes;
 pub mod decision_context;
 pub mod decision_params;
+pub mod event;
 pub mod indicator_dtos;
 pub mod jsonrpc;
 pub mod jsonrpc_methods;
