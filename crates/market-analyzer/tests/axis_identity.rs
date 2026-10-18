@@ -19,39 +19,42 @@ fn every_registered_indicator_owns_exactly_one_axis() {
 }
 
 #[test]
-fn no_axis_assignment_names_an_unregistered_indicator() {
-    // The table and the manifest are two halves of one claim. An assignment for a
-    // key that does not exist is a phantom reading, which is precisely how the
-    // inventory's hand-maintained `PRESENT` column came to assert 76 readings
-    // against a registry of 44.
-    for (key, _) in registry::AXIS_ASSIGNMENT {
-        assert!(
-            registry::get(key).is_some(),
-            "AXIS_ASSIGNMENT names `{key}`, which is not in the registry"
-        );
+fn no_reading_names_an_unregistered_producer() {
+    // I29 — every producer key referenced by a reading exists in the registry.
+    // A phantom reading is precisely how the inventory's hand-maintained
+    // `PRESENT` column came to assert 76 readings against a registry of 44.
+    for r in registry::READINGS {
+        if let Some(p) = r.producer {
+            assert!(
+                registry::get(p).is_some(),
+                "reading `{}` names producer `{p}`, which is not in the registry",
+                r.id
+            );
+        }
     }
 }
 
 #[test]
 fn each_observable_has_exactly_one_assignment() {
+    // Ownership is single (I30). A reading declared twice would vote twice.
     let mut seen = std::collections::HashSet::new();
-    for (key, _) in registry::AXIS_ASSIGNMENT {
-        assert!(seen.insert(*key), "`{key}` is assigned twice");
+    for r in registry::READINGS {
+        assert!(seen.insert(r.id), "`{}` is declared twice", r.id);
     }
     assert_eq!(
         seen.len(),
         registry::all().len(),
-        "assignment count must equal registry count"
+        "reading count must equal indicator count while every indicator yields \
+         exactly one reading. When P12 adds readings that share a calculator \
+         (rsi_slope over rsi), this assertion moves to `>=` and a new one pins \
+         the producer-coverage rule instead."
     );
 }
 
 #[test]
 fn the_axis_totals_reconcile_and_progression_is_empty() {
-    let mut counts: std::collections::HashMap<AxisId, usize> = std::collections::HashMap::new();
-    for meta in registry::all() {
-        let axis = registry::owner_axis(meta.key).unwrap();
-        *counts.entry(axis).or_default() += 1;
-    }
+    // Computed from the table, never typed beside it (I31, I36).
+    let counts = registry::axis_totals();
 
     assert_eq!(counts.get(&AxisId::Direction).copied().unwrap_or(0), 12);
     assert_eq!(counts.get(&AxisId::Momentum).copied().unwrap_or(0), 18);
@@ -64,6 +67,7 @@ fn the_axis_totals_reconcile_and_progression_is_empty() {
     );
 
     let total: usize = counts.values().sum();
+    assert_eq!(total, registry::READINGS.len());
     assert_eq!(total, 44, "all 44 shipped observables are assigned");
 
     // The 157 target is D 50 · M 48 · S 34 · P 25. Present coverage against it:

@@ -47,6 +47,14 @@ fn index_path() -> PathBuf {
     repo_root().join("docs/engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md")
 }
 
+/// The reading inventory — the file that used to be hand-maintained (CR-5 / I35).
+fn inventory_path() -> PathBuf {
+    index_path()
+        .parent()
+        .expect("index path has a parent")
+        .join("04-04-00-reading-inventory.md")
+}
+
 fn group_label(g: IndicatorCluster) -> &'static str {
     match g {
         IndicatorCluster::Trend => "TREND",
@@ -273,6 +281,111 @@ fn generate() -> String {
     out
 }
 
+/// Generate the reading inventory from `registry::READINGS` (CR-5 / I35 / I36).
+///
+/// This is the file that used to be hand-maintained and that asserted 76
+/// "present" readings against a registry of 44. Every count below is computed, so
+/// the disagreement is now structurally impossible rather than merely noticed.
+fn generate_readings() -> String {
+    use market_analyzer::indicators::registry::{self, ReadingRole};
+
+    let totals = registry::axis_totals();
+    let mut out = String::new();
+
+    out.push_str(&format!(
+        "**{} readings.** Every row below is generated from `registry::READINGS`.\n\n",
+        registry::READINGS.len()
+    ));
+
+    let mut counts: Vec<(char, &'static str, usize)> = vec![
+        ('D', "Direction", 0),
+        ('M', "Momentum", 0),
+        ('S', "Structure", 0),
+        ('P', "Progression", 0),
+    ];
+    for (i, axis) in core_domain::axes::AxisId::ALL.iter().enumerate() {
+        counts[i].2 = totals.get(axis).copied().unwrap_or(0);
+    }
+
+    out.push_str("| Axis | Readings | Target (157) | Outstanding |\n");
+    out.push_str("|---|---|---|---|\n");
+    const TARGET: [usize; 4] = [50, 48, 34, 25];
+    for (i, (code, name, have)) in counts.iter().enumerate() {
+        let want = TARGET[i];
+        out.push_str(&format!(
+            "| {code} {name} | **{have}** | {want} | {} |\n",
+            want.saturating_sub(*have)
+        ));
+    }
+    out.push_str(&format!(
+        "| **Total** | **{}** | **157** | **{}** |\n\n",
+        registry::READINGS.len(),
+        157usize.saturating_sub(registry::READINGS.len())
+    ));
+
+    // `AxisId::ALL` is in declaration order and `counts` is built in the same
+    // order, so they are zipped rather than matched by label. Matching on the
+    // label silently produced four EMPTY tables, because the codes are upper and
+    // the labels lower.
+    for ((code, name, _), axis) in counts.iter().zip(core_domain::axes::AxisId::ALL.iter()) {
+        let axis = *axis;
+        out.push_str(&format!("## {code} · {name}\n\n"));
+        out.push_str(
+            "| # | Reading | Producer | Calculator | Family | Cluster | Role | Candle inputs |\n",
+        );
+        out.push_str("|---|---|---|---|---|---|---|---|\n");
+        let mut n = 0;
+        for r in registry::READINGS.iter().filter(|r| r.owner_axis == axis) {
+            n += 1;
+            let inputs: Vec<&str> = r
+                .inputs
+                .iter()
+                .map(|f| match f {
+                    market_analyzer::indicators::registry::CandleField::Open => "O",
+                    market_analyzer::indicators::registry::CandleField::High => "H",
+                    market_analyzer::indicators::registry::CandleField::Low => "L",
+                    market_analyzer::indicators::registry::CandleField::Close => "C",
+                    market_analyzer::indicators::registry::CandleField::Volume => "V",
+                })
+                .collect();
+            out.push_str(&format!(
+                "| {n} | `{}` | {} | `{}` | {} | {} | {} | {} |\n",
+                r.id,
+                r.producer
+                    .map(|p| format!("`{p}`"))
+                    .unwrap_or_else(|| "-".into()),
+                r.calculator,
+                r.family.unwrap_or("-"),
+                r.cluster,
+                match r.role {
+                    ReadingRole::Scoring => "scoring",
+                    ReadingRole::Diagnostic => "diagnostic",
+                },
+                inputs.join(""),
+            ));
+        }
+        out.push('\n');
+    }
+
+    // The provenance the hand table could not carry.
+    out.push_str("## Provenance\n\n");
+    out.push_str(&format!(
+        "- **Present**: {} — every one has a registry entry *and* a producer.\n",
+        registry::READINGS.len()
+    ));
+    out.push_str(&format!(
+        "- **New**: {} — the 157 target less what exists. These arrive in P12 by \
+         axis, in batches, each gated on P11.\n",
+        157usize.saturating_sub(registry::READINGS.len())
+    ));
+    out.push_str(
+        "- **Status is computed, never typed.** A reading is PRESENT because the \
+         registry carries it with a producer, and NEW because it does not carry          it at all. There is no column to get wrong.\n",
+    );
+
+    out
+}
+
 fn apply_region(text: &str, generated: &str) -> String {
     let begin = text
         .find(BEGIN)
@@ -295,35 +408,61 @@ fn apply_region(text: &str, generated: &str) -> String {
 
 fn main() -> ExitCode {
     let check = std::env::args().any(|a| a == "--check");
-    let path = index_path();
-    let original = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("registry_docs: cannot read {}: {e}", path.display());
+
+    // Two generated files, one --check contract. The inventory is the one that
+    // mattered: it was hand-maintained and asserted 76 "present" readings
+    // against a registry of 44, and nothing compared the two.
+    let targets: [(PathBuf, fn() -> String); 2] = [
+        (index_path(), generate as fn() -> String),
+        (inventory_path(), generate_readings as fn() -> String),
+    ];
+
+    let mut drifted: Vec<String> = Vec::new();
+    let mut wrote = 0;
+
+    for (path, gen) in targets {
+        let original = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("registry_docs: cannot read {}: {e}", path.display());
+                return ExitCode::FAILURE;
+            }
+        };
+        let updated = apply_region(&original, &gen());
+
+        if updated == original {
+            println!(
+                "  OK: {} is byte-identical to the registry",
+                path.file_name().unwrap().to_string_lossy()
+            );
+            continue;
+        }
+        if check {
+            drifted.push(path.display().to_string());
+            continue;
+        }
+        if let Err(e) = std::fs::write(&path, &updated) {
+            eprintln!("registry_docs: cannot write {}: {e}", path.display());
             return ExitCode::FAILURE;
         }
-    };
-    let updated = apply_region(&original, &generate());
+        println!("registry_docs: wrote {}", path.display());
+        wrote += 1;
+    }
 
-    if check {
-        if updated == original {
+    if drifted.is_empty() {
+        if wrote == 0 {
             println!("  OK: registry-generated docs are byte-identical to the registry");
-            return ExitCode::SUCCESS;
         }
-        eprintln!("  FAIL: registry-generated docs differ from the registry.");
-        eprintln!(
-            "        {} — run `cargo run -p market-analyzer --bin registry_docs` to regenerate.",
-            path.display()
-        );
-        eprintln!("        Editing a generated region by hand produces drift, and drift is a failing check (CR-5),");
-        eprintln!("        not a merge conflict to resolve manually.");
-        return ExitCode::FAILURE;
+        return ExitCode::SUCCESS;
     }
 
-    if let Err(e) = std::fs::write(&path, &updated) {
-        eprintln!("registry_docs: cannot write {}: {e}", path.display());
-        return ExitCode::FAILURE;
+    eprintln!("  FAIL: registry-generated docs differ from the registry.");
+    for d in &drifted {
+        eprintln!(
+            "        {d} — run `cargo run -p market-analyzer --bin registry_docs` to regenerate."
+        );
     }
-    println!("registry_docs: wrote {}", path.display());
-    ExitCode::SUCCESS
+    eprintln!("        Editing a generated region by hand produces drift, and drift is a failing check (CR-5),");
+    eprintln!("        not a merge conflict to resolve manually.");
+    ExitCode::FAILURE
 }

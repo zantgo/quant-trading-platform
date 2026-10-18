@@ -50,33 +50,39 @@ fn no_declaration_names_an_unregistered_indicator() {
     // Two halves of one claim: a declaration for a key that does not exist is a
     // phantom reading. This is exactly how the hand-maintained inventory came to
     // assert 76 readings against a registry of 44.
-    for (key, _) in registry::CANDLE_INPUTS {
-        assert!(
-            registry::get(key).is_some(),
-            "CANDLE_INPUTS names `{key}`, which is not in the registry"
-        );
+    for r in registry::READINGS {
+        if let Some(p) = r.producer {
+            assert!(
+                registry::get(p).is_some(),
+                "reading `{}` names producer `{p}`, which is not in the registry",
+                r.id
+            );
+        }
     }
     assert_eq!(
-        registry::CANDLE_INPUTS.len(),
+        registry::READINGS.len(),
         INDICATORS.len(),
-        "declaration count must equal registry count"
+        "reading count must equal indicator count while every indicator yields \
+         exactly one reading"
     );
 }
 
 #[test]
 fn every_declared_indicator_declares_at_least_one_field() {
-    for (key, fields) in registry::CANDLE_INPUTS {
+    for r in registry::READINGS {
         assert!(
-            !fields.is_empty(),
-            "`{key}` declares zero candle fields — a reading with no root is not \
-             candle-derived, it is fabricated"
+            !r.inputs.is_empty(),
+            "reading `{}` declares zero candle fields — a reading with no root is \
+             not candle-derived, it is fabricated",
+            r.id
         );
         // A set, not a multiset: declaring `Close` twice declares it once.
-        let unique: HashSet<_> = fields.iter().collect();
+        let unique: HashSet<_> = r.inputs.iter().collect();
         assert_eq!(
             unique.len(),
-            fields.len(),
-            "`{key}` declares a duplicate candle field"
+            r.inputs.len(),
+            "reading `{}` declares a duplicate candle field",
+            r.id
         );
     }
 }
@@ -103,8 +109,8 @@ fn the_root_set_is_the_five_ohlcv_fields_and_nothing_else() {
     .collect();
 
     let mut used: HashSet<CandleField> = HashSet::new();
-    for (_, fields) in registry::CANDLE_INPUTS {
-        used.extend(fields.iter().copied());
+    for r in registry::READINGS {
+        used.extend(r.inputs.iter().copied());
     }
 
     for f in &used {
@@ -124,10 +130,10 @@ fn the_volume_only_readings_are_exactly_the_participation_ones() {
     // set, not "every reading is priced" — `volume` and `rvol` measure
     // participation by definition, and forcing a price field onto them would be
     // a fake dependency rather than a real constraint.
-    let volume_only: Vec<&str> = registry::CANDLE_INPUTS
+    let volume_only: Vec<&str> = registry::READINGS
         .iter()
-        .filter(|(_, f)| f.iter().all(|x| *x == CandleField::Volume))
-        .map(|(k, _)| *k)
+        .filter(|r| r.inputs.iter().all(|x| *x == CandleField::Volume))
+        .map(|r| r.id)
         .collect();
 
     assert_eq!(
@@ -360,11 +366,8 @@ fn candle_purity_is_re_runnable_and_fails_closed() {
         !calculator_sources().is_empty(),
         "candle purity scan found no sources — it would pass vacuously"
     );
-    for (key, _) in registry::CANDLE_INPUTS {
+    for r in registry::READINGS {
         assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).exists());
-        assert!(
-            !key.is_empty(),
-            "a declaration has an empty key — the table is malformed"
-        );
+        assert!(!r.id.is_empty(), "a reading has an empty id");
     }
 }

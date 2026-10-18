@@ -1785,65 +1785,456 @@ mod tests {
 /// Progression and CR-16's measurement-quality audit cuts the 22 planned ones to
 /// 11–13. Progression is therefore almost entirely Block 2 work, and the axis is
 /// empty until those batches land.
-pub const AXIS_ASSIGNMENT: &[(&str, AxisId)] = &[
-    // ── Direction — where price is going ──────────────────────────────────
-    ("ema_stack", AxisId::Direction),
-    ("supertrend", AxisId::Direction),
-    ("donchian", AxisId::Direction),
-    ("keltner", AxisId::Direction),
-    ("vwap", AxisId::Direction),
-    ("anchored_vwap", AxisId::Direction),
-    ("ichimoku", AxisId::Direction),
-    ("hull_ma", AxisId::Direction),
-    ("psar", AxisId::Direction),
-    ("linreg_slope", AxisId::Direction),
-    ("aroon", AxisId::Direction),
-    ("zscore", AxisId::Direction),
+// ---------------------------------------------------------------------------
+// The reading registry — CR-4 / CR-5, invariants I27–I36
+// ---------------------------------------------------------------------------
+
+/// What a reading is *for*.
+///
+/// `diagnostic` readings describe the market but never vote on an axis — they
+/// are the reason `diagnostics` is not a fifth axis (CR-11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingRole {
+    /// Enters its owner axis's aggregation.
+    Scoring,
+    /// Describes; never votes.
+    Diagnostic,
+}
+
+/// One reading — the unit CR-5 makes authoritative.
+///
+/// **A reading is not an indicator.** One indicator can yield several readings,
+/// and a reading can be derived from other readings rather than produced
+/// directly. That is why this table, not `INDICATORS`, is the source of every
+/// displayed total: the registry answers "how many readings are there?", and the
+/// answer is not "how many indicators are there?".
+///
+/// # I27 — producer XOR derived_from
+///
+/// Every reading resolves to a declared producer **or** an explicit
+/// `derived_from` list. Never both, never neither (I33).
+///
+/// # I30 — ownership single, consumption many
+///
+/// `owner_axis` is exactly one axis. `consumers` may name others. An indicator
+/// that three axes read still votes once.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Reading {
+    /// Stable ID (I28). Never renumbered; a retired reading is tombstoned.
+    pub id: &'static str,
+    /// The indicator key that produces this reading, or `None` when derived.
+    pub producer: Option<&'static str>,
+    /// Other reading IDs this is derived from. Non-empty iff `producer` is
+    /// `None` (I33).
+    pub derived_from: &'static [&'static str],
+    /// Exactly one axis (I30).
+    pub owner_axis: AxisId,
+    /// Axes permitted to consume this reading. May exceed one (I30).
+    pub consumers: &'static [AxisId],
+    /// Readings that cannot disagree and share one weight. Rare (CR-18).
+    pub family: Option<&'static str>,
+    /// Indicators reading the same source series. **Display only, no weight.**
+    pub cluster: &'static str,
+    /// Whether it votes (I34).
+    pub role: ReadingRole,
+    /// The calculator whose code produces the series. Shared code, distinct keys.
+    pub calculator: &'static str,
+    /// The candle fields it reads (CH-1). The only legal roots.
+    pub inputs: &'static [CandleField],
+}
+
+const DIRECTION: [AxisId; 1] = [AxisId::Direction];
+const MOMENTUM: [AxisId; 1] = [AxisId::Momentum];
+const STRUCTURE: [AxisId; 1] = [AxisId::Structure];
+
+/// Declare a reading produced directly by an indicator that owns its axis.
+///
+/// The overwhelmingly common case, so it gets a one-liner. The verbosity of the
+/// full struct at 157 rows is not affordable and not worth paying for.
+macro_rules! direct {
+    ($id:literal, $axis:expr, $cluster:literal, $inputs:expr) => {
+        Reading {
+            id: $id,
+            producer: Some($id),
+            derived_from: &[],
+            owner_axis: $axis,
+            consumers: &[$axis],
+            family: None,
+            cluster: $cluster,
+            role: ReadingRole::Scoring,
+            calculator: $id,
+            inputs: $inputs,
+        }
+    };
+}
+
+/// Every reading the platform knows about, present and planned.
+///
+/// **157 when complete** (CR-18): Direction 50 · Momentum 48 · Structure 34 ·
+/// Progression 25. Today it carries the 44 that exist; P12 appends the batches
+/// and the totals are counted from here, never typed by hand (I31, I36).
+pub const READINGS: &[Reading] = &[
+    // ── Direction — where price is going ─────────────────────────────────
+    direct!(
+        "ema_stack",
+        AxisId::Direction,
+        "trend",
+        &[CandleField::Close]
+    ),
+    direct!(
+        "supertrend",
+        AxisId::Direction,
+        "trend",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "donchian",
+        AxisId::Direction,
+        "trend",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!(
+        "keltner",
+        AxisId::Direction,
+        "trend",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!(
+        "vwap",
+        AxisId::Direction,
+        "trend",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume
+        ]
+    ),
+    direct!(
+        "anchored_vwap",
+        AxisId::Direction,
+        "trend",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume
+        ]
+    ),
+    direct!(
+        "ichimoku",
+        AxisId::Direction,
+        "trend",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!("hull_ma", AxisId::Direction, "trend", &[CandleField::Close]),
+    direct!(
+        "psar",
+        AxisId::Direction,
+        "trend",
+        &[CandleField::High, CandleField::Low]
+    ),
+    direct!(
+        "linreg_slope",
+        AxisId::Direction,
+        "trend_quality",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!(
+        "aroon",
+        AxisId::Direction,
+        "trend_quality",
+        &[CandleField::High, CandleField::Low]
+    ),
+    direct!(
+        "zscore",
+        AxisId::Direction,
+        "trend_quality",
+        &[CandleField::Close]
+    ),
     // ── Momentum — how fast, and whether participation supports it ────────
-    ("rsi", AxisId::Momentum),
-    ("stochastic", AxisId::Momentum),
-    ("williams_r", AxisId::Momentum),
-    ("chandemo", AxisId::Momentum),
-    ("awesome_oscillator", AxisId::Momentum),
-    ("cci", AxisId::Momentum),
-    ("macd", AxisId::Momentum),
-    ("adx", AxisId::Momentum),
-    ("choppiness", AxisId::Momentum),
-    ("price_trend_sharpe", AxisId::Momentum),
-    ("bbwp", AxisId::Momentum),
-    ("squeeze", AxisId::Momentum),
-    ("volume", AxisId::Momentum),
-    ("rvol", AxisId::Momentum),
-    ("obv", AxisId::Momentum),
-    ("cmf", AxisId::Momentum),
-    ("mfi", AxisId::Momentum),
-    ("force_index", AxisId::Momentum),
+    // `rsi` is the calculator for three observables, not one: `rsi` here,
+    // `rsi_slope` (Momentum) and `rsi_divergence` (Structure) arrive in P12 as
+    // separate readings with `calculator: "rsi"`. That is the whole point of the
+    // `calculator` field — three keys, one pass over the candles.
+    direct!("rsi", AxisId::Momentum, "momentum", &[CandleField::Close]),
+    Reading {
+        id: "stochastic",
+        producer: Some("stochastic"),
+        derived_from: &[],
+        owner_axis: AxisId::Momentum,
+        consumers: &MOMENTUM,
+        family: Some("oscillator_saturated"),
+        cluster: "momentum",
+        role: ReadingRole::Scoring,
+        calculator: "stochastic",
+        inputs: &[CandleField::High, CandleField::Low, CandleField::Close],
+    },
+    Reading {
+        id: "williams_r",
+        producer: Some("williams_r"),
+        derived_from: &[],
+        owner_axis: AxisId::Momentum,
+        consumers: &MOMENTUM,
+        family: Some("oscillator_saturated"),
+        cluster: "momentum",
+        role: ReadingRole::Scoring,
+        calculator: "williams_r",
+        inputs: &[CandleField::High, CandleField::Low, CandleField::Close],
+    },
+    direct!(
+        "chandemo",
+        AxisId::Momentum,
+        "momentum",
+        &[CandleField::Close]
+    ),
+    direct!(
+        "awesome_oscillator",
+        AxisId::Momentum,
+        "momentum",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "cci",
+        AxisId::Momentum,
+        "momentum",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!("macd", AxisId::Momentum, "momentum", &[CandleField::Close]),
+    direct!(
+        "adx",
+        AxisId::Momentum,
+        "trend_quality",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "choppiness",
+        AxisId::Momentum,
+        "trend_quality",
+        &[CandleField::High, CandleField::Low]
+    ),
+    direct!(
+        "price_trend_sharpe",
+        AxisId::Momentum,
+        "trend_quality",
+        &[CandleField::Close]
+    ),
+    direct!(
+        "bbwp",
+        AxisId::Momentum,
+        "volatility",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!(
+        "squeeze",
+        AxisId::Momentum,
+        "volatility",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!("volume", AxisId::Momentum, "volume", &[CandleField::Volume]),
+    direct!("rvol", AxisId::Momentum, "volume", &[CandleField::Volume]),
+    direct!(
+        "obv",
+        AxisId::Momentum,
+        "volume",
+        &[CandleField::Close, CandleField::Volume]
+    ),
+    direct!(
+        "cmf",
+        AxisId::Momentum,
+        "volume",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume
+        ]
+    ),
+    direct!(
+        "mfi",
+        AxisId::Momentum,
+        "volume",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume
+        ]
+    ),
+    direct!(
+        "force_index",
+        AxisId::Momentum,
+        "volume",
+        &[CandleField::Close, CandleField::Volume]
+    ),
     // ── Structure — is the structure intact, and what is priced ──────────
-    ("fibonacci", AxisId::Structure),
-    ("support_resistance", AxisId::Structure),
-    ("pivot_points", AxisId::Structure),
-    ("patterns", AxisId::Structure),
-    ("candlestick", AxisId::Structure),
-    ("smc_structure", AxisId::Structure),
-    ("smc_liquidity", AxisId::Structure),
-    ("smc_fvg", AxisId::Structure),
-    ("smc_order_blocks", AxisId::Structure),
-    // Volume Profile owns Structure: it emits levels (POC / VAH / VAL / HVN / LVN),
-    // not a direction and not an acceleration.
-    ("volume_profile", AxisId::Structure),
-    ("bollinger", AxisId::Structure),
-    ("stddev_channel", AxisId::Structure),
-    ("atr", AxisId::Structure),
-    ("hv", AxisId::Structure),
-    // ── Progression — empty until Block 2 (CR-16) ─────────────────────────
+    direct!(
+        "fibonacci",
+        AxisId::Structure,
+        "structure",
+        &[CandleField::High, CandleField::Low]
+    ),
+    direct!(
+        "support_resistance",
+        AxisId::Structure,
+        "structure",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!(
+        "pivot_points",
+        AxisId::Structure,
+        "structure",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "patterns",
+        AxisId::Structure,
+        "structure",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "candlestick",
+        AxisId::Structure,
+        "structure",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "smc_structure",
+        AxisId::Structure,
+        "institutional",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "smc_liquidity",
+        AxisId::Structure,
+        "institutional",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume
+        ]
+    ),
+    direct!(
+        "smc_fvg",
+        AxisId::Structure,
+        "institutional",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "smc_order_blocks",
+        AxisId::Structure,
+        "institutional",
+        &[
+            CandleField::Open,
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close
+        ]
+    ),
+    direct!(
+        "volume_profile",
+        AxisId::Structure,
+        "volume",
+        &[
+            CandleField::High,
+            CandleField::Low,
+            CandleField::Close,
+            CandleField::Volume
+        ]
+    ),
+    direct!(
+        "bollinger",
+        AxisId::Structure,
+        "volatility",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!(
+        "stddev_channel",
+        AxisId::Structure,
+        "volatility",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!(
+        "atr",
+        AxisId::Structure,
+        "volatility",
+        &[CandleField::High, CandleField::Low, CandleField::Close]
+    ),
+    direct!("hv", AxisId::Structure, "volatility", &[CandleField::Close]),
 ];
+
+/// Look up a reading by its stable ID.
+pub fn reading(id: &str) -> Option<&'static Reading> {
+    READINGS.iter().find(|r| r.id == id)
+}
+
+/// Every reading that enters its axis's aggregation (I34).
+pub fn scoring_readings() -> impl Iterator<Item = &'static Reading> {
+    READINGS.iter().filter(|r| r.role == ReadingRole::Scoring)
+}
+
+/// The count per axis, computed rather than typed (I31, I36).
+pub fn axis_totals() -> std::collections::BTreeMap<AxisId, usize> {
+    let mut m = std::collections::BTreeMap::new();
+    for r in READINGS {
+        *m.entry(r.owner_axis).or_insert(0) += 1;
+    }
+    m
+}
+
+pub const AXIS_ASSIGNMENT: &[(&str, AxisId)] = &[];
 
 /// The axis a reading votes on.
 pub fn owner_axis(key: &str) -> Option<AxisId> {
-    AXIS_ASSIGNMENT
-        .iter()
-        .find(|(k, _)| *k == key)
-        .map(|(_, a)| *a)
+    reading(key).map(|r| r.owner_axis)
 }
 
 /// Which calculator produces this observable's series.
@@ -1857,11 +2248,7 @@ pub fn owner_axis(key: &str) -> Option<AxisId> {
 /// it means every current observable is its own calculator, and a non-empty table
 /// is what appears the moment two observables share one.
 pub fn calculator_for(key: &'static str) -> &'static str {
-    CALCULATOR_OVERRIDES
-        .iter()
-        .find(|(k, _)| *k == key)
-        .map(|(_, c)| *c)
-        .unwrap_or(key)
+    reading(key).map(|r| r.calculator).unwrap_or(key)
 }
 
 /// Observables whose series comes from a calculator other than their own key.
@@ -1876,23 +2263,20 @@ pub const CALCULATOR_OVERRIDES: &[(&str, &str)] = &[];
 ///
 /// This is deliberately not the same as a cluster. A cluster has no weight effect
 /// at all; a family has exactly one.
-pub const FAMILIES: &[(&str, &[&str])] = &[("oscillator_saturated", &["stochastic", "williams_r"])];
+pub const FAMILIES: &[(&str, &[&str])] = &[];
 
 /// The family this observable belongs to, if any.
 pub fn family_for(key: &str) -> Option<&'static str> {
-    FAMILIES
-        .iter()
-        .find(|(_, members)| members.contains(&key))
-        .map(|(name, _)| *name)
+    reading(key).and_then(|r| r.family)
 }
 
 /// Every observable in a family, for the single-weight aggregation.
-pub fn family_members(family: &str) -> &'static [&'static str] {
-    FAMILIES
+pub fn family_members(family: &str) -> Vec<&'static str> {
+    READINGS
         .iter()
-        .find(|(name, _)| *name == family)
-        .map(|(_, m)| *m)
-        .unwrap_or(&[])
+        .filter(|r| r.family == Some(family))
+        .map(|r| r.id)
+        .collect()
 }
 
 impl IndicatorMeta {
@@ -1952,226 +2336,10 @@ pub enum CandleField {
 /// Every one of the 44 shipped readings is declared. A new indicator that does
 /// not appear here has no declared root, and [`candle_purity`] fails — which is
 /// the point: "I did not think about what it reads" must not be able to pass.
-pub const CANDLE_INPUTS: &[(&str, &[CandleField])] = &[
-    // ── Trend ───────────────────────────────────────────────────────────
-    ("ema_stack", &[CandleField::Close]),
-    (
-        "supertrend",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    (
-        "donchian",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    (
-        "keltner",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    (
-        "vwap",
-        &[
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-            CandleField::Volume,
-        ],
-    ),
-    (
-        "anchored_vwap",
-        &[
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-            CandleField::Volume,
-        ],
-    ),
-    (
-        "ichimoku",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    ("hull_ma", &[CandleField::Close]),
-    ("psar", &[CandleField::High, CandleField::Low]),
-    (
-        "linreg_slope",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    ("aroon", &[CandleField::High, CandleField::Low]),
-    ("zscore", &[CandleField::Close]),
-    // ── Momentum ─────────────────────────────────────────────────────────
-    ("rsi", &[CandleField::Close]),
-    (
-        "stochastic",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    (
-        "williams_r",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    ("chandemo", &[CandleField::Close]),
-    (
-        "awesome_oscillator",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    (
-        "cci",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    ("macd", &[CandleField::Close]),
-    (
-        "adx",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    ("choppiness", &[CandleField::High, CandleField::Low]),
-    ("price_trend_sharpe", &[CandleField::Close]),
-    (
-        "bbwp",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    (
-        "squeeze",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    ("volume", &[CandleField::Volume]),
-    ("rvol", &[CandleField::Volume]),
-    ("obv", &[CandleField::Close, CandleField::Volume]),
-    (
-        "cmf",
-        &[
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-            CandleField::Volume,
-        ],
-    ),
-    (
-        "mfi",
-        &[
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-            CandleField::Volume,
-        ],
-    ),
-    ("force_index", &[CandleField::Close, CandleField::Volume]),
-    // ── Structure ────────────────────────────────────────────────────────
-    ("fibonacci", &[CandleField::High, CandleField::Low]),
-    (
-        "support_resistance",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    (
-        "pivot_points",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    (
-        "patterns",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    (
-        "candlestick",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    (
-        "smc_structure",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    (
-        "smc_liquidity",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-            CandleField::Volume,
-        ],
-    ),
-    (
-        "smc_fvg",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    (
-        "smc_order_blocks",
-        &[
-            CandleField::Open,
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-        ],
-    ),
-    (
-        "volume_profile",
-        &[
-            CandleField::High,
-            CandleField::Low,
-            CandleField::Close,
-            CandleField::Volume,
-        ],
-    ),
-    (
-        "bollinger",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    (
-        "stddev_channel",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    (
-        "atr",
-        &[CandleField::High, CandleField::Low, CandleField::Close],
-    ),
-    ("hv", &[CandleField::Close]),
-];
+pub const CANDLE_INPUTS: &[(&str, &[CandleField])] = &[];
 
 /// The candle fields this indicator reads. `None` means "undeclared", which
 /// [`candle_purity`] treats as a failure rather than as an omission.
 pub fn candle_inputs(key: &str) -> Option<&'static [CandleField]> {
-    CANDLE_INPUTS
-        .iter()
-        .find(|(k, _)| *k == key)
-        .map(|(_, f)| *f)
+    reading(key).map(|r| r.inputs)
 }

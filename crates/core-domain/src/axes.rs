@@ -25,7 +25,11 @@
 use serde::{Deserialize, Serialize};
 
 /// The four axes. A reading has exactly one owner axis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// `Ord` is derived so axis totals can be counted into a `BTreeMap` — the
+/// registry's whole job is to compute a total, and a total needs a key that
+/// sorts. The order is declaration order, which is also stack order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AxisId {
     Direction,
