@@ -72,6 +72,7 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     context: None,
                     alignment: None,
                     analysis: None,
+                    model_state: None,
                     prev_day_px: None,
                     statistical_context: None,
                     metrics_config: None,

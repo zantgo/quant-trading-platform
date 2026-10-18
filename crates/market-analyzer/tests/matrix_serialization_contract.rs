@@ -60,6 +60,7 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         state_bands: Some(core_domain::state_bands::StateBandMatrix::empty(
             "BTC-USDT", "60s", 60, 50_000.0,
         )),
+        model_state: None,
         timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 60,

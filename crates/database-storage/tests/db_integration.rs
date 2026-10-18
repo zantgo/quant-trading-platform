@@ -56,6 +56,7 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         context: None,
         alignment: None,
         analysis: None,
+        model_state: None,
         prev_day_px: None,
         statistical_context: None,
         metrics_config: None,

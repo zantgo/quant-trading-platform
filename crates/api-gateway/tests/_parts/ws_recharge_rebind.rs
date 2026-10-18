@@ -59,6 +59,7 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
     MarketSnapshot {
         // CR-10: the candle-derived heatmap bands.
         state_bands: None,
+        model_state: None,
         timeframe_label: Some("1s".to_string()),
         exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
         timeframe_secs,

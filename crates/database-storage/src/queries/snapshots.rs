@@ -539,6 +539,10 @@ pub async fn query_latest_snapshot(
             context: None,
             alignment: None,
             analysis: None,
+            // 01-24 step 1: the model state is derived from the readings, so a
+            // row read back out of SQLite does not carry one. Re-deriving it is
+            // cheap and is the only way it can never drift from the readings.
+            model_state: None,
             statistical_context: None,
             indicators,
             risk_profile: None,

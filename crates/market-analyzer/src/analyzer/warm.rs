@@ -963,6 +963,7 @@ fn build_historical_snapshot(
         indicators,
         alignment: None,
         analysis: None,
+        model_state: None,
         metrics_config: None,
         risk_profile: None,
         // CR-10: `liquidity` and `cluster` are gone. The band set is rebuilt on

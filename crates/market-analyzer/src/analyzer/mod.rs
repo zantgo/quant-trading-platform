@@ -3460,6 +3460,7 @@ async fn synthesize_completed_candle(
         indicators: indicators.clone(),
         alignment: None,
         analysis: None,
+        model_state: None,
         metrics_config: None,
         risk_profile: None,
         volume_profile: None,
@@ -3669,6 +3670,10 @@ async fn synthesize_completed_candle(
         indicators,
         alignment: Some(synthesis.alignment),
         analysis: Some(synthesis.analysis),
+        // 01-24 step 1: the model's own per-duration output, assembled from the
+        // readings above. Additive — `analysis` is still here until every
+        // consumer has moved.
+        model_state: None,
         risk_profile: None,
         volume_profile: volume_profile_snapshot,
         // CR-10: `liquidity`, `cluster` and `liquidity_signals` are deleted from
@@ -3679,6 +3684,18 @@ async fn synthesize_completed_candle(
         metrics_config: active_set.to_metrics_config(),
         quality_envelope: Some(quality_envelope.clone()),
     };
+
+    // 01-24 step 1: assemble the model's per-duration state from the readings
+    // that were just published. Done here, after the snapshot exists, because
+    // this is the ONE place the pipeline's output and the model's vocabulary meet
+    // — a second meeting point is a second filing rule, and two filing rules
+    // drift.
+    let mut completed_snapshot = completed_snapshot;
+    completed_snapshot.model_state = Some(crate::model::live::timeframe_state_from_snapshot(
+        &completed_snapshot,
+        *bar_count as usize,
+        &completed_snapshot.symbol,
+    ));
 
     // M2 (production audit): the awaited send froze the whole pipeline
     // when the SQLite logger stalled — drop instead of blocking.
@@ -3708,6 +3725,11 @@ async fn synthesize_completed_candle(
         // four strategy nullings here along with the fields themselves.
         broadcast_snapshot.alignment = None;
         broadcast_snapshot.analysis = None;
+        // The model state is a reduction over cross-duration readings, so a
+        // shadow frame — which exists to fill a chart before the ladder is live —
+        // does not carry one. An axis assembled from partial durations would be a
+        // claim about a reduction that has not happened yet.
+        broadcast_snapshot.model_state = None;
         broadcast_snapshot.statistical_context = None;
         broadcast_snapshot.context = None;
     }
@@ -4686,6 +4708,7 @@ pub(super) fn build_completed_snapshot_from_readings(
         indicators,
         alignment: None,
         analysis: None,
+        model_state: None,
         risk_profile: None,
         volume_profile: readings.volume_profile_snapshot.clone(),
         metrics_config: active_set.to_metrics_config(),
@@ -4975,6 +4998,7 @@ fn broadcast_live_snapshot(
         indicators,
         alignment: None,
         analysis: None,
+        model_state: None,
         metrics_config: None,
         risk_profile: None,
         volume_profile: None,

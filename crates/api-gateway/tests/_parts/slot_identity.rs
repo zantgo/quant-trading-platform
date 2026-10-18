@@ -295,6 +295,7 @@ async fn timeframe_label_round_trips_through_wire_payload() {
     let snap = MarketSnapshot {
         // CR-10: the candle-derived heatmap bands.
         state_bands: None,
+        model_state: None,
         timeframe_label: Some("5m".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 300,

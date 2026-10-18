@@ -42,6 +42,7 @@ fn model_snapshot() -> MarketSnapshot {
         close: Decimal::from_f64_retain(100.0),
         alignment: Some(m),
         analysis: Some(a),
+        model_state: None,
         ..MarketSnapshot::default()
     }
 }

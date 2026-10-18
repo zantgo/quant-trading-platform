@@ -190,6 +190,7 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
     MarketSnapshot {
         // CR-10: the candle-derived heatmap bands.
         state_bands: None,
+        model_state: None,
         timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: secs,

@@ -138,6 +138,7 @@ fn snap_to_market(symbol: &str, rec: &RecordedSnapshot) -> core_domain::models::
         close: rec.close.and_then(Decimal::from_f64_retain),
         // CR-10: the candle-derived heatmap bands.
         state_bands: None,
+        model_state: None,
         ..core_domain::models::MarketSnapshot::default()
     };
     // CR-15: only the analysis (model) column is restored. The opportunity /
