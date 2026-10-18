@@ -82,14 +82,28 @@ impl SmartMoney {
 
         let mut sh_idx = Vec::new();
         let mut sl_idx = Vec::new();
+        // CG1 / P7 W7.2 — the stored index is the CONFIRMING bar, not the pivot
+        // bar.
+        //
+        // A 3-bar fractal at `i` needs `bars[i + 1]` to decide the pivot, so it
+        // is not knowable until `i + 1` closes. Recording it against `i` is
+        // latently wrong: every consumer today reads only the price (`.1`), so
+        // nothing currently computes a bad number — but the tuple carries a bar
+        // index that is off by one, and the first consumer to read it would
+        // inherit the error and label a swing one bar before it existed.
+        //
+        // Storing `i + 1` makes the causality visible in the type rather than in
+        // a comment: a consumer that wants "the bar this pivot happened on"
+        // subtracts one deliberately, and a consumer that wants "the bar I could
+        // first have known it" gets it directly.
         for i in 1..n - 1 {
             let h = bars[i].1;
             let l = bars[i].2;
             if h >= bars[i - 1].1 && h >= bars[i + 1].1 {
-                sh_idx.push((i, h));
+                sh_idx.push((i + 1, h));
             }
             if l <= bars[i - 1].2 && l <= bars[i + 1].2 {
-                sl_idx.push((i, l));
+                sl_idx.push((i + 1, l));
             }
         }
         // AUDIT-AIU-047: the previous `>= 2` gate on BOTH sides meant a

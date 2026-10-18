@@ -42,10 +42,39 @@ pub enum PivotType {
 
 #[derive(Debug, Clone)]
 pub struct PivotPoint {
+    /// The bar the pivot **occurred** on.
+    ///
+    /// CG1 / P7 W7.2 — this is NOT the bar the pivot became knowable. A pivot
+    /// at `i` is only confirmed once `i + strength` closes, so anything reading
+    /// `index` as "when I could have known this" is off by `strength` bars. Use
+    /// [`PivotPoint::confirming_bar`] for that.
+    ///
+    /// `detect_pivots` itself is causally correct: its scan is bounded by
+    /// `end = total - pivot_strength`, so the inner `j` loop never reads past
+    /// `total - 1`. The gap was never look-ahead — it was an index with two
+    /// plausible meanings and no way to ask which one you were getting.
     pub index: usize,
     pub price: Decimal,
     pub pivot_type: PivotType,
     pub strength: usize,
+}
+
+impl PivotPoint {
+    /// The bar on which this pivot could first have been known.
+    ///
+    /// `index + strength`: the pivot needs `strength` bars on each side to be
+    /// distinguished, and the last of those is the one that confirms it.
+    pub fn confirming_bar(&self) -> usize {
+        self.index + self.strength
+    }
+
+    /// `true` when this pivot was knowable at or before `bar`.
+    ///
+    /// The single question CG2 asks when it perturbs a future bar and asserts
+    /// nothing at or before `t` moved.
+    pub fn is_knowable_at(&self, bar: usize) -> bool {
+        self.confirming_bar() <= bar
+    }
 }
 
 /// Unified Fibonacci level calculator.
