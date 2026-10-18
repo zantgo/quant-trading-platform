@@ -71,6 +71,13 @@ In dependency order, each a separate commit:
    `analysis.market_regime`; delete `prev_regime` / `prev_bias` / `prev_score` /
    `prev_volume_dim` from `MtfState` and from `synthesize_cross_tf`'s signature
    (**CR-11 + R2 W2.5 close here**).
+
+   > **This step is behavioural, and its tests must be written from the
+   > specification before it is implemented.** Removing the four carriers is not a
+   > signature change with no consequences — it changes what
+   > `derive_analysis` *decides*. Attempted once, and the attempt is the
+   > specification (see §3.1 below).
+
 2. **BTE recorded** — same substitution on the restore path; `analysis_json` is
    then read-only historical data.
 3. **storage + export** — write `model_state_json` alongside; keep
@@ -101,6 +108,35 @@ CHANGELOG.
 * The cross-TF grid moves from Metrics to Alignment (**W10.14**).
 
 *Exit:* `test-ui` 956/956 and `bun run check` 0/0.
+
+### 3.1 What removing the four carriers actually changes
+
+Recorded from an attempt, because the attempt is what turned "delete four
+parameters" into a specification. Each item is a **behaviour change on a live
+path**, and each has an existing test that encodes the old contract:
+
+| The carrier fed | What it decided | Test that encodes it |
+|---|---|---|
+| `previous_score` + `previous_bias` | the grace-band **hold**: a direction that outlived its bar | `grace_band_holds_bias_across_band_reentry`, `grace_band_is_not_held_from_plain_threshold_state`, `grace_band_bearish_hold_is_symmetric` |
+| `previous_score` | `score_slope`, the score's slope against the last bar | *(consumed by the regime tree)* |
+| `previous_regime` | `regime_shifted` → the `Transition` regime | `transition_from_regime_shift_with_low_adx` |
+| `previous_volume_dim` | `volume_rising` / `volume_falling` → the `Accumulation` and `Distribution` **phases** | `accumulation_from_rising_score`, `distribution_from_falling_score` |
+
+So step 2.1 requires, **before** any code:
+
+* a decision on whether the grace hold survives at all. It cannot survive as
+  "hold the direction", because that is state. It *can* survive as "hold while
+  **this** bar's vote still says so", which is a decision about this bar — but it
+  is a different rule with different fixtures, and the difference has to be
+  specified.
+* a decision on `Transition` and on the volume-driven phases: without a
+  remembered bar they either become unreachable (`Transition`) or must be
+  redefined against this bar's own volume reading.
+* the seven tests rewritten **from that decision**, not from the new code.
+
+Writing those tests against the implementation instead is the failure mode this
+document exists to prevent, which is why step 2.1 is listed as its own commit and
+not folded into step 1.
 
 ## 4. The regression that must exist first
 
