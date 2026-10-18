@@ -609,9 +609,9 @@ build the machinery. It becomes an exit condition for **P5**, alongside CG1–CG
 | Layer | Establishes | Status now |
 |---|---|---|
 | **V-1** Documentation consistency | Normative statements agree with each other | 🟡 PASS (I35 not yet enforceable) |
-| **V-2** Gate execution | CG1–CG13 pass against production logic | ⬜ **not run** |
-| **V-3** Mutation testing | M1–M7 fail the relevant assertion, pass after repair | ⬜ **not run** |
-| **V-4** Reproducible evidence | Report bound to a commit, spec, harness, fixtures, mutations | ⬜ not applicable |
+| **V-2** Gate execution | CG1–CG13 pass against production logic | ✅ **13/13 green** |
+| **V-3** Mutation testing | M1–M7 fail the relevant assertion, pass after repair | ✅ **7/7 executed** |
+| **V-4** Reproducible evidence | Report bound to a commit, spec, harness, fixtures, mutations | ✅ every phase report carries the banner |
 
 **A V-1 result never implies V-2.** Full status and the one declared gap:
 [`verification-status.md`](01-18-verification-status.md).

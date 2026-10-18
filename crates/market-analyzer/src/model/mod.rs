@@ -910,7 +910,16 @@ pub struct TerminalityAssessment {
 /// actually fires with a `close_reason`, which is a separate, timestamped event
 /// (CG10).
 pub fn assess_terminality(fired: &[CompletionCriterion]) -> TerminalityAssessment {
-    let mut criteria = fired.to_vec();
+    // **Distinct** criteria only. Two reports of the same criterion are one
+    // criterion — and without this, a caller that fires the same evidence twice
+    // would manufacture the two-criteria threshold and claim termination
+    // evidence it does not have. Found by the adversarial suite (SV-B).
+    let mut criteria: Vec<CompletionCriterion> = Vec::new();
+    for c in fired {
+        if !criteria.contains(c) {
+            criteria.push(*c);
+        }
+    }
     criteria.sort_by_key(|c| format!("{c:?}"));
     let terminality = match criteria.len() {
         0 => Terminality::Indeterminate,
