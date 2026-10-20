@@ -69,7 +69,6 @@ function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
         historyLatestClose: '0',
         currentView: 'terminal',
         alignment: null,
-        analysis: null,
         lastMatrixTimestampBySlot: {},
         lastCompletedClose: null,
         automationEnabled: false,
@@ -260,11 +259,13 @@ describe('InstanceStatusTable — v11.14.1 warming state', () => {
 // worth pinning is that no probability is invented:
 describe('InstanceStatusTable — model bias badge', () => {
     it('shows the model bias and never a percentage', () => {
-        const inst = makeInstance();
+        const inst = makeInstance({
+            alignment: { mtf_stance: 'bull', mtf_overall_score: 42 } as never,
+        });
         seed('BTC-USDT', inst);
         renderTable();
         const badge = screen.getByLabelText(/Model bias/);
-        expect(badge.textContent).toContain(inst.analysis?.bias ?? '');
+        expect(badge.textContent).toContain('Bullish');
         expect(badge.textContent).not.toMatch(/\d+%/);
     });
 });

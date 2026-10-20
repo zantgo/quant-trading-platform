@@ -1,78 +1,163 @@
 //! CG3 — the far side of the model boundary.
 //!
-//! The companion to `crates/market-analyzer/tests/model_boundary.rs`, which pins
-//! the near side (MME emits state and no verdict). This file pins what TAE does
-//! with that state: **nothing**.
-//!
-//! The setup executor used to select the best setup out of
-//! `snapshot.opportunity` (entry / target / invalidation zones, R:R, the evaluated
-//! profiles) and `snapshot.decision_context` (a `trade_readiness` gate). Both were
-//! L4/L6 strategy and neither crosses the boundary any more — so the two inputs
-//! the derivation needs are gone, and no derivation is possible from a live
-//! snapshot.
-//!
-//! The consequence is stated plainly here rather than left to be discovered: the
-//! setup executor has no setups in this build. Paper and live are WIP and not
-//! selectable, which is precisely why the boundary could be drawn here. Restoring
-//! the executor means computing setups inside TAE from model state — future TAE
-//! work, and not something this phase pretends to have done.
-//!
-//! These tests are written to FAIL when the executor starts working again. That
-//! is the correct direction for them to fail: a restored executor would need its
-//! own tests, written against model state, rather than silently resuming the old
-//! behaviour behind a passing suite.
+//! MME emits state, never a trade instruction. TAE now derives its own setup
+//! from that state: per-duration bias/confidence plus the candle-derived ATR.
+//! These tests pin that the derivation is real, bounded, and refuses neutral or
+//! incomplete input.
 
 use rust_decimal::Decimal;
 
 use core_domain::alignment::AlignmentMatrix;
-use core_domain::analysis::AnalysisMatrix;
+use core_domain::axes::{
+    AxisId, AxisState, AxisValue, DiagnosticBasis, DiagnosticState, Diagnostics, Domain,
+    EventCounts, Readiness, TimeframeIdentity, TimeframeState,
+};
+use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::models::MarketSnapshot;
 use portfolio_supervisor::setup_executor::extract_top_setup;
 
-fn model_snapshot() -> MarketSnapshot {
-    let mut a = AnalysisMatrix::empty("BTC-USDC");
-    a.bias = core_domain::analysis::MarketBias::StrongBullish;
-    let mut m = AlignmentMatrix::empty("BTC-USDC");
-    m.mtf_overall_score = 88.0;
-    m.mtf_stance = core_domain::alignment::CrossTfStance::StrongBull;
+fn state_snapshot(direction: f64, diagnostic: DiagnosticState) -> MarketSnapshot {
+    let axis = |axis, position| AxisState {
+        axis,
+        position,
+        size: AxisValue::rank(100.0),
+        readiness: Readiness::Solid,
+        readings: Vec::new(),
+    };
+    let state = TimeframeState {
+        identity: TimeframeIdentity {
+            instance_id: "inst".into(),
+            pair: "BTC-USDC".into(),
+            exchange: "hyperliquid".into(),
+            timeframe_secs: 60,
+            timeframe_label: "1m".into(),
+            candle_count: 500,
+            last_closed_at: "2026-10-20T00:00:00Z".into(),
+            available_at: "500".into(),
+            spec_version: core_domain::SPEC_VERSION.into(),
+            build_version: core_domain::BUILD_VERSION.into(),
+        },
+        axes: vec![
+            axis(
+                AxisId::Direction,
+                AxisValue::signed(direction, Domain::DirectionalBias),
+            ),
+            axis(
+                AxisId::Momentum,
+                AxisValue::signed(0.1, Domain::Acceleration),
+            ),
+            axis(
+                AxisId::Structure,
+                AxisValue::signed(0.1, Domain::NetEventBias),
+            ),
+            axis(
+                AxisId::Progression,
+                AxisValue::ordinal(core_domain::axes::Stage::Mid),
+            ),
+        ],
+        events: EventCounts::default(),
+        levels: Vec::new(),
+        atr: Some(2.0),
+        legs: Vec::new(),
+        diagnostics: Diagnostics {
+            state: diagnostic,
+            volatility_change_pct: 0.0,
+            participation_change_pct: 0.0,
+            basis: DiagnosticBasis {
+                bbwp_pct: 20.0,
+                rvol_pct: 100.0,
+            },
+        },
+        derived: core_domain::axes::DerivedState {
+            consensus: core_domain::axes::Consensus {
+                agreeing_axes: 0,
+                of: 4,
+                axes: Vec::new(),
+                weakest_axis: None,
+            },
+            stability: core_domain::axes::Stability {
+                state: core_domain::axes::StabilityState::Holding,
+                changes_last_50_bars: 0,
+                window: 50,
+            },
+        },
+    };
+    let mut indicators = std::collections::HashMap::new();
+    indicators.insert(
+        "atr".into(),
+        NormalizedIndicatorValue::scalar(2.0, 0.0, "X"),
+    );
     MarketSnapshot {
         symbol: "BTC-USDC".into(),
         timeframe_secs: 60,
+        timestamp: 1_700_000_000,
+        is_completed: Some(true),
         mid_price: Decimal::from_f64_retain(100.0).unwrap(),
         close: Decimal::from_f64_retain(100.0),
-        alignment: Some(m),
-        analysis: Some(a),
-        timeframe_state: None,
+        alignment: Some(AlignmentMatrix::empty("BTC-USDC")),
+        indicators,
+        timeframe_state: Some(state),
         ..MarketSnapshot::default()
     }
 }
 
 #[test]
-fn cg3_a_fully_resolved_model_state_yields_no_setup() {
-    // The strongest possible model input: a StrongBullish bias and near-unanimous
-    // cross-duration agreement. The old executor would have emitted a long setup
-    // off the top qualifying profile. It cannot now, because the profiles it read
-    // are not on the wire — and that is correct, not a defect: a strong bias is
-    // not a trade instruction, and an engine that turned it into one would be
-    // trading on the model's opinion rather than on TAE's own analysis.
-    let s = model_snapshot();
-    let snapshots = vec![&s];
-    assert!(
-        extract_top_setup(&snapshots, 0.5).is_none(),
-        "CG3: a resolved model state must not become a setup"
-    );
+fn cg3_tae_reads_timeframe_state() {
+    let s = state_snapshot(0.88, DiagnosticState::Expanding);
+    let plan = extract_top_setup(&[&s], 0.5).expect("state alone is tradable");
+    assert_eq!(plan.direction, "LONG");
+    assert_eq!(plan.setup_type, "MOMENTUM_BREAKOUT");
+    assert_eq!(plan.confidence, 1.0);
+    assert_eq!(plan.source_tf_secs, 60);
 }
 
 #[test]
-fn cg3_no_input_shape_yields_a_setup() {
-    let s = model_snapshot();
-    let refs = vec![&s];
-    for min_rr in [0.0, 0.5, 2.0, f64::NAN] {
-        assert!(
-            extract_top_setup(&refs, min_rr).is_none(),
-            "CG3: min_net_rr={min_rr} must not change the outcome — the parameter is \
-             accepted for signature stability only"
-        );
-    }
+fn cg3_tae_derives_a_bracketed_setup_from_model_state() {
+    let s = state_snapshot(0.88, DiagnosticState::Expanding);
+    let plan = extract_top_setup(&[&s], 0.5).expect("a directional model state is tradable");
+    assert_eq!(plan.direction, "LONG");
+    assert_eq!(plan.source_tf_secs, 60);
+    assert_eq!(plan.symbol, "BTC-USDC");
+    assert!(plan.entry_zone_low < plan.entry_mid);
+    assert!(plan.entry_zone_high > plan.entry_mid);
+    assert!(plan.sl < plan.entry_mid);
+    assert!(plan.tp > plan.entry_mid);
+    assert!(plan.net_rr >= 0.5);
+    assert_eq!(plan.confidence, 1.0);
+    assert!(!plan.fingerprint.is_empty());
+}
+
+#[test]
+fn cg3_neutral_and_incomplete_shapes_yield_no_setup() {
+    let neutral = state_snapshot(0.0, DiagnosticState::Coiling);
+    assert!(extract_top_setup(&[&neutral], 0.5).is_none());
+
+    let mut incomplete = state_snapshot(0.55, DiagnosticState::Settling);
+    incomplete.is_completed = Some(false);
+    assert!(extract_top_setup(&[&incomplete], 0.5).is_none());
+
     assert!(extract_top_setup(&[], 0.5).is_none());
+}
+
+#[test]
+fn cg3_the_rr_gate_is_enforced() {
+    let s = state_snapshot(0.55, DiagnosticState::Settling);
+    assert!(extract_top_setup(&[&s], 2.5).is_none());
+    assert!(extract_top_setup(&[&s], f64::NAN).is_none());
+}
+
+#[test]
+fn cg3_an_invalid_candidate_does_not_abort_the_scan() {
+    let mut invalid = state_snapshot(0.88, DiagnosticState::Expanding);
+    invalid.close = None;
+    invalid.mid_price = Decimal::from_f64_retain(0.0).unwrap();
+
+    let mut valid = state_snapshot(0.88, DiagnosticState::Expanding);
+    valid.timeframe_secs = 300;
+    valid.timestamp += 1;
+
+    let plan = extract_top_setup(&[&invalid, &valid], 0.5)
+        .expect("a later valid candidate must still be considered");
+    assert_eq!(plan.source_tf_secs, 300);
+    assert_eq!(plan.source_candle_ts, valid.timestamp);
 }

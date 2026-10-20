@@ -7,11 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { clampWaitMinutes, decide, detectBackendErrorKind, parseSymbols, parseSymbolsWithReasons, reasonFor, reasonLabel, summarize, watchlistIsClean, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome, type PairOutcomeReason } from './watchlistScanner';
 import { MAX_SYMBOL_CHARS as MAX_SYMBOL_LEN } from './symbol';
-import type { AlignmentMatrix, AnalysisMatrix } from '../types';
-
-function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
-    return { bias: 'Bullish', ...overrides } as AnalysisMatrix;
-}
+import type { AlignmentMatrix } from '../types';
 
 function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatrix {
     return {
@@ -107,82 +103,65 @@ describe('parseSymbols', () => {
 });
 
 describe('decide', () => {
-    it('KEEP once the model has a bias and a cross-duration alignment', () => {
-        expect(decide(makeAnalysis(), makeAlignment())).toBe('KEEP');
+    it('KEEP once the model has a cross-duration alignment', () => {
+        expect(decide(makeAlignment())).toBe('KEEP');
     });
 
-    it('KEEP on a StrongBullish bias', () => {
-        expect(decide(makeAnalysis({ bias: 'StrongBullish' }), makeAlignment())).toBe('KEEP');
+    it('KEEP on a StrongBullish stance', () => {
+        expect(decide(makeAlignment({ mtf_stance: 'strong_bull' }))).toBe('KEEP');
     });
 
-    it('KEEP on a StrongBearish bias', () => {
-        expect(decide(makeAnalysis({ bias: 'StrongBearish' }), makeAlignment())).toBe('KEEP');
+    it('KEEP on a StrongBearish stance', () => {
+        expect(decide(makeAlignment({ mtf_stance: 'strong_bear' }))).toBe('KEEP');
     });
 
-    it('CR-15: KEEP on a Neutral bias — a flat read is still a reading', () => {
-        // This is the case the old rule DELETEd: "direction neutral" was read as
-        // "no trade call, remove it". The model reading a market as flat is a
-        // statement about the market, not a reason to delete an instance.
-        expect(decide(makeAnalysis({ bias: 'Neutral' }), makeAlignment())).toBe('KEEP');
-    });
-
-    it('WAIT when the analysis has not landed yet', () => {
-        expect(decide(null, makeAlignment())).toBe('WAIT');
-        expect(decide(undefined, makeAlignment())).toBe('WAIT');
+    it('CR-15: KEEP on a Neutral stance — a flat read is still a reading', () => {
+        expect(decide(makeAlignment({ mtf_stance: 'neutral' }))).toBe('KEEP');
     });
 
     it('WAIT when there is no alignment yet', () => {
-        expect(decide(makeAnalysis(), null)).toBe('WAIT');
-        expect(decide(makeAnalysis(), undefined)).toBe('WAIT');
+        expect(decide(null)).toBe('WAIT');
+        expect(decide(undefined)).toBe('WAIT');
     });
 
     it('WAIT while the cross-duration alignment is still NO_DATA', () => {
-        expect(decide(makeAnalysis(), makeAlignment({ mtf_stance: 'unmeasured' }))).toBe('WAIT');
+        expect(decide(makeAlignment({ mtf_stance: 'unmeasured' }))).toBe('WAIT');
     });
 
     it('CR-15: never returns DELETE — no input can remove a pair', () => {
-        // The regression this pins. Every input shape below resolved DELETE
-        // under the old rule, which made the scanner remove every pair it had
-        // just added once the matrices went off the wire.
-        const shapes: Array<[unknown, unknown]> = [
-            [null, null],
-            [undefined, undefined],
-            [makeAnalysis({ bias: 'Neutral' }), makeAlignment()],
-            [makeAnalysis({ bias: 'Bearish' }), makeAlignment({ mtf_stance: 'unmeasured' })],
+        const shapes: Array<AlignmentMatrix | null | undefined> = [
+            null,
+            undefined,
+            makeAlignment({ mtf_stance: 'neutral' }),
+            makeAlignment({ mtf_stance: 'unmeasured' }),
         ];
-        for (const [a, al] of shapes) {
-            expect(decide(a as AnalysisMatrix | null, al as AlignmentMatrix | null))
-                .not.toBe('DELETE');
+        for (const al of shapes) {
+            expect(decide(al)).not.toBe('DELETE');
         }
     });
 });
 
 describe('reasonFor', () => {
     it('returns KEEP when verdict is KEEP', () => {
-        expect(reasonFor('KEEP', makeAnalysis(), makeAlignment())).toBe('KEEP');
+        expect(reasonFor('KEEP', makeAlignment())).toBe('KEEP');
     });
 
-    it('returns NO_MODEL_STATE when the analysis has not landed', () => {
-        expect(reasonFor('WAIT', null, makeAlignment())).toBe('NO_MODEL_STATE');
-        expect(reasonFor('WAIT', undefined, makeAlignment())).toBe('NO_MODEL_STATE');
-    });
-
-    it('returns NO_CROSS_TF when there is no alignment yet', () => {
-        expect(reasonFor('WAIT', makeAnalysis(), null)).toBe('NO_CROSS_TF');
+    it('returns NO_MODEL_STATE when the alignment has not landed', () => {
+        expect(reasonFor('WAIT', null)).toBe('NO_MODEL_STATE');
+        expect(reasonFor('WAIT', undefined)).toBe('NO_MODEL_STATE');
     });
 
     it('returns NO_CROSS_TF when the alignment is NO_DATA', () => {
-        expect(reasonFor('WAIT', makeAnalysis(), makeAlignment({ mtf_stance: 'unmeasured' })))
+        expect(reasonFor('WAIT', makeAlignment({ mtf_stance: 'unmeasured' })))
             .toBe('NO_CROSS_TF');
     });
 
     it('CR-15: never reports a strategy removal reason', () => {
-        expect(reasonFor('WAIT', null, null)).not.toBe('NO_DECISION');
-        expect(reasonFor('WAIT', makeAnalysis({ bias: 'Neutral' }), makeAlignment()))
+        expect(reasonFor('WAIT', null)).not.toBe('NO_DECISION');
+        expect(reasonFor('WAIT', makeAlignment({ mtf_stance: 'neutral' })))
             .not.toBe('DIRECTION_NEUTRAL');
     });
 });
-
 
 describe('summarize', () => {
     function outcome(overrides: Partial<PairOutcome>): PairOutcome {

@@ -119,7 +119,7 @@ non-interactive flags for automation:
 
 ```text
 execution-daemon --backtest --exchange hl|bitget --symbols BTC,ETH \
-    --tf 60,180,300,900,3600 --depth 180 --capital 1000 --allocation 10
+    --tf 60,180,300,900,3600 --depth 180 --portfolio-capital 1000 --allocation 10
 ```
 
 `--tf` accepts 1..=14 strictly-ascending values from the standard tiers, all

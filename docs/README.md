@@ -22,7 +22,7 @@ docs/
 │   ├── 01-02-global-architecture.md                  ← 6-engine blueprint, 2D framework, hybrid memory/math model
 │   ├── 01-03-systemic-data-flow.md                   ← chronological event sequences across engines
 │   ├── 01-04-timeframe-model.md                      ← 14-duration timeframe pool, weighting, UTC alignment
-│   ├── 01-06-crate-layout-and-cycles.md              ← 10-crate workspace layout, dependency graph, cycle-breaking design decisions
+│   ├── 01-06-crate-layout-and-cycles.md              ← 15-crate workspace layout, dependency graph, cycle-breaking design decisions
 │   ├── 01-07-target-architecture-roadmap.md          ← SoA candle history, Phase-3 book depth, NTP, PD memory
 │   ├── 01-08-candle-buffer-and-indicator-lifecycle.md ← conceptual overview: single candle count + two-level lifecycle (v6.5)
 │   ├── 01-09-cli-setup-flow.md                       ← interactive CLI setup flow (v6.10.4)
@@ -178,7 +178,7 @@ The v9/v10 Unreleased work in CHANGELOG adds the Data-Science Layer — [01-11-d
    - `01-02-global-architecture.md` — Two-Dimensional Framework + hybrid memory/math architecture (incl. §6 DOD/OOP target)
    - `01-03-systemic-data-flow.md` — how data flows through the system (incl. Sequence A bifurcation)
    - `01-04-timeframe-model.md` — 14-duration timeframe pool + §3.1 UTC alignment rules
-   - `01-06-crate-layout-and-cycles.md` — 10-crate workspace layout, dependency graph, cycle-breaking design rationale (read this when mapping a feature to its crate)
+   - `01-06-crate-layout-and-cycles.md` — 15-crate workspace layout, dependency graph, cycle-breaking design rationale (read this when mapping a feature to its crate)
    - `01-08-candle-buffer-and-indicator-lifecycle.md` — v6.5 conceptual overview tying the four new specs together
 0. **`ROADMAP.md`** — implementation-status register and phased delivery plan (start here if you are asking "what works today?")
 

@@ -13,7 +13,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AlignmentMatrix, AnalysisMatrix } from '../types';
+import type { AlignmentMatrix } from '../types';
 import { useAppStore } from '../state.svelte';
 
 const mockCreateInstance = vi.fn();
@@ -32,10 +32,6 @@ vi.mock('../lib/websocket.svelte', () => ({
 }));
 
 import WatchlistScannerModal from './WatchlistScannerModal.svelte';
-
-function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
-    return { bias: 'Bullish', ...overrides } as AnalysisMatrix;
-}
 
 function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatrix {
     return {
@@ -168,12 +164,10 @@ describe('WatchlistScannerModal — run phase', () => {
         mockWaitForModelState
             .mockResolvedValueOnce({
                 status: 'READY',
-                analysis: makeAnalysis({ bias: 'Bullish' }),
                 alignment: makeAlignment(),
             })
             .mockResolvedValueOnce({
                 status: 'READY',
-                analysis: makeAnalysis({ bias: 'StrongBullish' }),
                 alignment: makeAlignment(),
             });
 
@@ -212,7 +206,6 @@ describe('WatchlistScannerModal — run phase', () => {
         mockCreateInstance.mockResolvedValue({ ok: true, instanceId: 'inst_sol' });
         mockWaitForModelState.mockResolvedValue({
             status: 'READY',
-            analysis: makeAnalysis({ bias: 'StrongBearish' }),
             alignment: makeAlignment({ mtf_stance: 'strong_bear' }),
         });
 
@@ -234,7 +227,6 @@ describe('WatchlistScannerModal — run phase', () => {
         mockCreateInstance.mockResolvedValue({ ok: true, instanceId: 'inst_avax' });
         mockWaitForModelState.mockResolvedValue({
             status: 'READY',
-            analysis: makeAnalysis({ bias: 'Neutral' }),
             alignment: makeAlignment({ mtf_stance: 'neutral', mtf_overall_score: 0 }),
         });
 
@@ -298,7 +290,6 @@ describe('WatchlistScannerModal — done phase', () => {
         mockWaitForModelState
             .mockResolvedValueOnce({
                 status: 'READY',
-                analysis: makeAnalysis({ bias: 'Bullish' }),
                 alignment: makeAlignment(),
             })
             .mockResolvedValueOnce({ status: 'TIMEOUT' });

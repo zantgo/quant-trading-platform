@@ -103,7 +103,7 @@ async fn status_returns_default_runtime_when_unconfigured() {
             "metrics".to_string(),
             "mtf".to_string(),
             "alignment".to_string(),
-            "analysis".to_string()
+            "model_state".to_string()
         ]
     );
 }
@@ -240,7 +240,7 @@ async fn put_config_empty_tabs_falls_back_to_all() {
             "metrics".to_string(),
             "mtf".to_string(),
             "alignment".to_string(),
-            "analysis".to_string()
+            "model_state".to_string()
         ]
     );
 }

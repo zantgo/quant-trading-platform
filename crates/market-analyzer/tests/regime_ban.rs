@@ -233,17 +233,11 @@ fn v111_the_retirement_debt_is_counted_and_attributed() {
             analysis.matches("MarketPhase").count(),
             "V-231",
         ),
-        (
-            "prev_regime (live)",
-            analyzer.matches("prev_regime").count(),
-            "V-230",
-        ),
-        (
-            "prev_regime (replay)",
-            historical.matches("prev_regime").count(),
-            "V-506",
-        ),
     ];
+    // V-230/V-506 receipt: the second state carrier is gone from BOTH the
+    // live loop and the replay.
+    assert_eq!(analyzer.matches("prev_regime").count(), 0);
+    assert_eq!(historical.matches("prev_regime").count(), 0);
     for (name, count, retired_by) in debts {
         assert!(
             *count > 0,
@@ -251,10 +245,10 @@ fn v111_the_retirement_debt_is_counted_and_attributed() {
         );
     }
 
-    // The four retirements are accounted for; nothing is orphaned.
+    // The two remaining retirements are accounted for; nothing is orphaned.
     assert_eq!(
         debts.len(),
-        4,
+        2,
         "every banned identifier has a retiring item"
     );
 }

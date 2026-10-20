@@ -137,7 +137,7 @@ execution-daemon --backtest \
     --symbols BTC,ETH \
     --tf 60,180,300,900 \
     --depth 180 \
-    --capital 1000 \
+    --portfolio-capital 1000 \
     --allocation 10
 ```
 

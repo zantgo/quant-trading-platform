@@ -10,6 +10,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Deserialize)]
@@ -817,18 +818,12 @@ pub async fn serve_backtest_run(
         Some(name) => workspace.resolve_strategy(name).unwrap_or_default(),
         None => workspace.default_strategy().unwrap_or_default(),
     };
-    let task_symbol_for_input_bars: Option<(String, Vec<u64>)> =
+    let task_symbol_for_input_bars: Option<Vec<(String, Vec<u64>)>> =
         task_historical.as_ref().map(|cfg| {
-            (
-                cfg.symbols
-                    .first()
-                    .map(|s| s.symbol.clone())
-                    .unwrap_or_default(),
-                cfg.symbols
-                    .first()
-                    .map(|s| s.ladder.clone())
-                    .unwrap_or_default(),
-            )
+            cfg.symbols
+                .iter()
+                .map(|s| (s.symbol.clone(), s.ladder.clone()))
+                .collect()
         });
 
     tokio::spawn(async move {
@@ -892,7 +887,7 @@ pub async fn serve_backtest_run(
             &task_payload,
             &result,
             task_bound.as_ref(),
-            task_symbol_for_input_bars.as_ref(),
+            task_symbol_for_input_bars.as_deref(),
         )
         .await
         {
@@ -932,33 +927,58 @@ pub async fn persist_backtest_run(
     payload: &BacktestRequest,
     result: &backtesting_engine::recorded::BacktestResult,
     bound_instance: Option<&Arc<portfolio_supervisor::instance::Instance>>,
-    input_bars_target: Option<&(String, Vec<u64>)>,
+    input_bars_target: Option<&[(String, Vec<u64>)]>,
 ) -> Result<i64, String> {
+    let strategy_id = payload.strategy_id.clone().or_else(|| {
+        bound_instance.as_ref().and_then(|inst| {
+            workspace
+                .instances
+                .iter()
+                .find(|e| e.symbol == inst.symbol())
+                .and_then(|e| e.strategy.clone())
+        })
+    });
+    let exchange = payload
+        .exchange
+        .clone()
+        .or_else(|| bound_instance.map(|inst| inst.exchange.as_str().to_string()))
+        .unwrap_or_else(|| "unknown".to_string());
     let mut params_obj = serde_json::to_value(&result.params)
         .unwrap_or(serde_json::Value::Object(Default::default()));
     // v10.1: self-describing run.json — carry the exchange + bound strategy
     // so cross-folder comparison (`--compare-folders`) works DB-free.
     if let Some(obj) = params_obj.as_object_mut() {
-        let exchange = payload
-            .exchange
-            .clone()
-            .or_else(|| bound_instance.map(|inst| inst.exchange.as_str().to_string()));
-        if let Some(ex) = exchange {
-            obj.insert("exchange".to_string(), serde_json::json!(ex));
-        }
-        let strategy_id = payload.strategy_id.clone().or_else(|| {
-            bound_instance.as_ref().and_then(|inst| {
-                workspace
-                    .instances
-                    .iter()
-                    .find(|e| e.symbol == inst.symbol())
-                    .and_then(|e| e.strategy.clone())
-            })
-        });
-        if let Some(sid) = strategy_id {
+        obj.insert("exchange".to_string(), serde_json::json!(exchange));
+        if let Some(sid) = strategy_id.clone() {
             obj.insert("strategy_id".to_string(), serde_json::json!(sid));
         }
     }
+    let source_json = serde_json::json!({
+        "kind": if mode == "historical" { "venue_archive" } else { "recorded_session" },
+        "provider": exchange,
+        "dataset": if mode == "historical" { "candle_archive" } else { "recorded_snapshots" },
+        "schema_version": core_domain::SPEC_VERSION,
+        "from_secs": result.params.from_secs,
+        "to_secs": result.params.to_secs,
+        "symbol": result.params.symbol,
+        "timeframe_secs": result.params.timeframe_secs,
+    });
+    let config_snapshot_json = serde_json::to_string(&serde_json::json!({
+        "workspace_id": workspace.id,
+        "config_version": workspace.config_version,
+        "strategy_id": strategy_id,
+        "exchange": exchange,
+        "fees": workspace.fees,
+        "leverage": workspace.leverage,
+        "timeframes": workspace.timeframes,
+        "backtest": {
+            "archive_depth_days": workspace.backtest.archive_depth_days,
+            "warmup_bars": workspace.backtest.warmup_bars,
+            "store_input_bars": workspace.backtest.store_input_bars,
+            "max_equity_points": workspace.backtest.max_equity_points,
+        },
+    }))
+    .unwrap_or_default();
     let params_json = serde_json::to_string(&params_obj).unwrap_or_default();
     let summary_json = serde_json::to_string(&serde_json::json!({
         "total_trades": result.total_trades,
@@ -1268,32 +1288,36 @@ pub async fn persist_backtest_run(
 
     // Historical mode: persist the exact input bars for reproducibility.
     if mode == "historical" && workspace.backtest.store_input_bars {
-        let (symbol, ladder): (String, Vec<u64>) = if let Some(t) = input_bars_target {
-            t.clone()
+        let targets: Vec<(String, Vec<u64>)> = if let Some(t) = input_bars_target {
+            t.to_vec()
         } else if let Some(inst) = bound_instance {
-            let symbol = inst.symbol();
             // v11.9: the instance's ACTIVE ladder; sub-minute entries
             // simply find no archive rows.
-            (symbol, inst.active_secs.clone())
+            vec![(inst.symbol(), inst.active_secs.clone())]
         } else {
-            (String::new(), Vec::new())
+            Vec::new()
         };
-        if !symbol.is_empty() {
-            let burn_in_secs = workspace.backtest.warmup_bars as i64
-                * ladder.iter().copied().max().unwrap_or(3600) as i64;
+        if !targets.is_empty() {
+            let max_tf = targets
+                .iter()
+                .flat_map(|(_, ladder)| ladder.iter().copied())
+                .max()
+                .unwrap_or(3600);
+            let burn_in_secs = workspace.backtest.warmup_bars as i64 * max_tf as i64;
             if let Ok(mut tx) = pool.begin().await {
-                for tf in ladder {
-                    let bars = database_storage::queries::archive::query_archive_window(
-                        pool,
-                        &symbol,
-                        tf,
-                        params.from_secs - burn_in_secs,
-                        params.to_secs,
-                        100_000,
-                    )
-                    .await;
-                    for b in bars {
-                        if let Err(e) = sqlx::query(
+                for (symbol, ladder) in targets {
+                    for tf in ladder {
+                        let bars = database_storage::queries::archive::query_archive_window(
+                            pool,
+                            &symbol,
+                            tf,
+                            params.from_secs - burn_in_secs,
+                            params.to_secs,
+                            100_000,
+                        )
+                        .await;
+                        for b in bars {
+                            if let Err(e) = sqlx::query(
                             "INSERT OR IGNORE INTO backtest_input_bars
                                 (run_id, symbol, timeframe_secs, ts_secs, open, high, low, close, volume)
                              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -1311,12 +1335,85 @@ pub async fn persist_backtest_run(
                         .await {
                 eprintln!("DB persist failed: {e}");
             }
+                        }
                     }
                 }
                 let _ = tx.commit().await;
             }
         }
     }
+
+    // v10.2 traceability: the params blob and the frozen config snapshot are
+    // written to BOTH the DB and run.json, and the exact input bars carry a
+    // SHA-256 checksum so a replay can prove it consumed the same dataset.
+    let mut input_bars: std::collections::HashMap<String, Vec<serde_json::Value>> =
+        std::collections::HashMap::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT symbol, timeframe_secs, ts_secs, open, high, low, close, volume
+         FROM backtest_input_bars WHERE run_id = ?1 ORDER BY ts_secs",
+    )
+    .bind(backtest_id)
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            use sqlx::Row as _;
+            let symbol: String = row.try_get("symbol").unwrap_or_default();
+            let tf: i64 = row.try_get("timeframe_secs").unwrap_or(0);
+            let key = format!("{symbol}.{tf}");
+            let value = serde_json::json!({
+                "ts_secs": row.try_get::<i64, _>("ts_secs").unwrap_or(0),
+                "open": row.try_get::<String, _>("open").unwrap_or_default(),
+                "high": row.try_get::<String, _>("high").unwrap_or_default(),
+                "low": row.try_get::<String, _>("low").unwrap_or_default(),
+                "close": row.try_get::<String, _>("close").unwrap_or_default(),
+                "volume": row.try_get::<String, _>("volume").unwrap_or_default(),
+            });
+            input_bars.entry(key).or_default().push(value);
+        }
+    }
+    let mut input_bar_count = 0usize;
+    let mut input_hasher = Sha256::new();
+    let mut input_keys: Vec<&String> = input_bars.keys().collect();
+    input_keys.sort();
+    for key in input_keys {
+        if let Some(bars) = input_bars.get(key) {
+            for bar in bars {
+                input_bar_count += 1;
+                input_hasher.update(serde_json::to_string(bar).unwrap_or_default().as_bytes());
+            }
+        }
+    }
+    let data_checksum = format!("{:x}", input_hasher.finalize());
+    let config_checksum = format!("{:x}", Sha256::digest(config_snapshot_json.as_bytes()));
+    let mut trace_params = serde_json::from_str::<serde_json::Value>(&params_json)
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+    if let Some(obj) = trace_params.as_object_mut() {
+        obj.insert("source".to_string(), source_json);
+        obj.insert(
+            "data_checksum_sha256".to_string(),
+            serde_json::json!(data_checksum),
+        );
+        obj.insert(
+            "config_checksum_sha256".to_string(),
+            serde_json::json!(config_checksum),
+        );
+        obj.insert(
+            "input_bar_count".to_string(),
+            serde_json::json!(input_bar_count),
+        );
+        if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&config_snapshot_json) {
+            obj.insert("config_snapshot".to_string(), cfg);
+        }
+    }
+    let trace_params_json = serde_json::to_string(&trace_params).unwrap_or_default();
+    database_storage::queries::backtest_ds::update_backtest_run_trace(
+        pool,
+        backtest_id,
+        &trace_params_json,
+        &config_snapshot_json,
+    )
+    .await;
 
     // v10: DS export — mirror the run into ./ds/backtests/BTxxxx_mode/
     // (web and CLI runs share this path).
@@ -1332,6 +1429,7 @@ pub async fn persist_backtest_run(
                     "ts_close_secs": t.timestamp,
                     "ts_entry_secs": t.ts_entry_secs,
                     "direction": t.direction,
+                    "symbol": t.symbol,
                     "entry_price": t.entry_price,
                     "exit_price": t.exit_price,
                     "size": t.size,
@@ -1344,6 +1442,7 @@ pub async fn persist_backtest_run(
                     "slippage_bps": t.slippage_bps,
                     "commission_fees": t.commission_fees,
                     "funding_fees": t.funding_fees,
+                    "r_multiple": t.r_multiple,
                 })
             })
             .collect();
@@ -1362,37 +1461,11 @@ pub async fn persist_backtest_run(
             .iter()
             .map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null))
             .collect();
-        let mut input_bars: std::collections::HashMap<String, Vec<serde_json::Value>> =
-            std::collections::HashMap::new();
-        if let Ok(rows) = sqlx::query(
-            "SELECT symbol, timeframe_secs, ts_secs, open, high, low, close, volume
-             FROM backtest_input_bars WHERE run_id = ?1 ORDER BY ts_secs",
-        )
-        .bind(backtest_id)
-        .fetch_all(pool)
-        .await
-        {
-            for row in rows {
-                use sqlx::Row as _;
-                let symbol: String = row.try_get("symbol").unwrap_or_default();
-                let tf: i64 = row.try_get("timeframe_secs").unwrap_or(0);
-                let key = format!("{symbol}.{tf}");
-                let value = serde_json::json!({
-                    "ts_secs": row.try_get::<i64, _>("ts_secs").unwrap_or(0),
-                    "open": row.try_get::<String, _>("open").unwrap_or_default(),
-                    "high": row.try_get::<String, _>("high").unwrap_or_default(),
-                    "low": row.try_get::<String, _>("low").unwrap_or_default(),
-                    "close": row.try_get::<String, _>("close").unwrap_or_default(),
-                    "volume": row.try_get::<String, _>("volume").unwrap_or_default(),
-                });
-                input_bars.entry(key).or_default().push(value);
-            }
-        }
         database_storage::ds_export::write_backtest_ds(
             &root,
             backtest_id,
             mode,
-            &params_json,
+            &trace_params_json,
             &summary_json,
             &stats_json,
             &trades_json,

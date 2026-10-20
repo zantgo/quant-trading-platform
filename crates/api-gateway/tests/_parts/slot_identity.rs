@@ -315,7 +315,6 @@ async fn timeframe_label_round_trips_through_wire_payload() {
         average_volume: None,
         indicators: Default::default(),
         alignment: None,
-        analysis: None,
         risk_profile: None,
         volume_profile: None,
         statistical_context: None,

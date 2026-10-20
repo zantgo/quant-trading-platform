@@ -96,7 +96,6 @@ function createInstanceState(symbol: string): InstanceState {
         currentView: 'terminal',
         activeTf: 1,
         alignment: null,
-        analysis: null,
         lastMatrixTimestampBySlot: {},
         lastCompletedClose: null,
         automationEnabled: false,

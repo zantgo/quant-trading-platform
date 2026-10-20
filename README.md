@@ -1,6 +1,6 @@
 # Quant Trading Platform
 
-> **High-performance market telemetry monitor for Hyperliquid and Bitget, built in Rust.**
+> **High-performance market telemetry monitor for Hyperliquid, Bitget and Bybit, built in Rust.**
 
 > **Single-operator local deployment.** The Trading Platform is built for a single operator and their team: one workspace, one operator identity (`local`), no per-route authentication, and no multi-client/SaaS model. Everything runs on your machine or a VM you control.
 
@@ -42,17 +42,18 @@ Once running, navigate to http://127.0.0.1:3000 to access the dashboard.
 
 ## Workspace Structure
 
-The platform is a 10-crate Cargo workspace + Svelte 5 frontend. The six logical engines (DIE, MME, TAE, PME, PAE, BTE) are mapped onto these physical crates:
+The platform is a 15-crate Cargo workspace + Svelte 5 frontend. The six logical engines (DIE, MME, TAE, PME, PAE, BTE) are mapped onto these physical crates:
 
 - `crates/core-domain` — Stateless DTOs (`MarketSnapshot`, matrices), JSON-RPC, indicator value types.
 - `crates/config-models` — All `*Config` structs + `load_config()` / `load_instances()` readers.
 - `crates/market-analyzer` — 52 technical indicators, signals, multi-TF pipeline, decision support, liquidity math (MME).
 - `crates/database-storage` — SQLite schema, migrations, WAL telemetry logger, queries (DIE persistence layer).
-- `crates/network-adapters` — WS/REST clients (Hyperliquid, Bitget), NTP clock monitor, candle reconstruction, connection-quality tracker (DIE).
+- `crates/network-adapters` — WS/REST clients (Hyperliquid, Bitget, Bybit), NTP clock monitor, candle reconstruction, connection-quality tracker (DIE).
 - `crates/portfolio-supervisor` — Instance lifecycle, position sizing, safety veto, session state, risk/commission math (PME + TAE).
 - `crates/performance-analytics` — Dashboard stats compiler, strategy optimizer (PAE).
 - `crates/backtesting-engine` — Candle archive + backfill, deep-history MME-pipeline replay, recorded-decision replay, DS persistence (BTE).
-- `crates/api-gateway` — Axum HTTP router, WS broadcast server, HTTP handlers and request/response shapes.
+- `crates/api-core` / `api-market` / `api-instances` / `api-analytics` / `api-system` — HTTP handler modules split by domain.
+- `crates/api-gateway` — Axum HTTP router, WS broadcast server, and the composed request/response surface.
 - `crates/execution-daemon` — Headless CLI binary that wires everything together (`--web` mode).
 - `ui` — Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools.
 

@@ -24,7 +24,6 @@ import { COLORS } from './scoreStyles';
 import type {
     AdvisoryMatrix,
     AlignmentMatrix,
-    AnalysisMatrix,
     ContextDimension,
     DecisionContext,
     MarketContext,
@@ -77,30 +76,6 @@ function alignmentStub(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatri
         trend_agreement_pct: 0,
         ...overrides,
     };
-}
-
-function analysisStub(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
-    return {
-        symbol: 'BTC-USDT',
-        bias: 'Neutral',
-        confidence: 0,
-        state_confidence: 0,
-        market_regime: 'Range',
-        trend_assessment: 'Developing',
-        momentum_assessment: 'Increasing',
-        structure_assessment: 'Healthy',
-        volatility_assessment: 'Normal',
-        volume_assessment: 'Normal',
-        market_quality: 'Average',
-        market_quality_score: 50,
-        market_phase: 'ACCUMULATION',
-        market_interpretation: '',
-        rationale: '',
-        supporting_signals: [],
-        contradicting_signals: [],
-        timeframes_considered: 4,
-        ...overrides,
-    } as AnalysisMatrix;
 }
 
 function riskStub(overrides: Partial<RiskDimension> = {}): RiskDimension {
@@ -344,32 +319,35 @@ describe('buildL2AlignmentHeader (L2)', () => {
     });
 });
 
-// ── L3 — Analysis ───────────────────────────────────────────────────────
+// ── L3 — Model state ────────────────────────────────────────────────────
 
 describe('buildL3AnalysisHeader (L3)', () => {
-    it('badge reads bias; Quality + Confidence chips; Regime hidden when redundant', () => {
-        // bias='BULLISH' ∧ regime='TRENDING_BULL' is one fact, not two.
-        const a = analysisStub({ bias: 'Bullish', market_regime: 'TrendingBull', market_quality: 'Good', state_confidence: 0.7 });
-        const spec = buildL3AnalysisHeader(a);
+    it('badge reads the cross-duration stance; score + TF count are the meta', () => {
+        const spec = buildL3AnalysisHeader(alignmentStub({
+            mtf_stance: 'bull',
+            mtf_overall_score: 72,
+            timeframes_present: 4,
+        }));
+        expect(spec.layerName).toBe('Model State');
         expect(spec.badge.label).toBe('Bullish');
-        expect(spec.meta.some((c) => c.label === 'Quality')).toBe(true);
-        expect(spec.meta.some((c) => c.label === 'State Confidence')).toBe(true);
-        expect(spec.meta.some((c) => c.label === 'Regime')).toBe(false);
+        expect(spec.meta.find((c) => c.label === 'Cross-TF')!.value).toBe('72');
+        expect(spec.meta.find((c) => c.label === 'TFs')!.value).toBe('4');
     });
 
-    it('Regime chip is present when regime is NOT redundant with bias', () => {
-        const a = analysisStub({ bias: 'Bullish', market_regime: 'Accumulation', market_quality: 'Average', state_confidence: 0.4 });
-        const spec = buildL3AnalysisHeader(a);
-        expect(spec.meta.some((c) => c.label === 'Regime')).toBe(true);
-        expect(spec.meta.find((c) => c.label === 'Regime')!.value).toBe('Accumulation');
+    it('a neutral stance is a real reading, not a loading state', () => {
+        const spec = buildL3AnalysisHeader(alignmentStub({
+            mtf_stance: 'neutral',
+            mtf_overall_score: 0,
+            timeframes_present: 2,
+        }));
+        expect(spec.status).toBe('live');
+        expect(spec.badge.label).toBe('Neutral');
     });
 
-    it('confidence 0 renders as 0% amber (neutral)', () => {
-        const a = analysisStub({ bias: 'Neutral', state_confidence: 0 });
-        const spec = buildL3AnalysisHeader(a);
-        const c = spec.meta.find((m) => m.label === 'State Confidence')!;
-        expect(c.state).toBe('neutral');
-        expect(c.value).toBe('0%');
+    it('NO_DATA renders the empty badge + loading status', () => {
+        const spec = buildL3AnalysisHeader(alignmentStub({ mtf_stance: 'unmeasured', timeframes_present: 0 }));
+        expect(spec.status).toBe('loading');
+        expect(spec.badge.label).toBe('—');
     });
 });
 
@@ -460,7 +438,7 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L3, L7)', () 
     });
 
     it('L3 (bullish → green)', () => {
-        const spec = buildL3AnalysisHeader(analysisStub({ bias: 'Bullish', market_regime: 'TrendingBull' }));
+        const spec = buildL3AnalysisHeader(alignmentStub({ mtf_stance: 'bull', mtf_overall_score: 72 }));
         assertVocabulary(spec);
     });
 

@@ -5,7 +5,7 @@
 // component regression tests in `src/components/*.test.ts`).
 
 import { useAppStore } from '../../state.svelte';
-import type { AlignmentMatrix, AnalysisMatrix, BandBasis, IndicatorLifecycleStatus, IndicatorMeta, IndicatorDto, MarketContext, StateBand, StateBandMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
+import type { AlignmentMatrix, BandBasis, IndicatorLifecycleStatus, IndicatorMeta, IndicatorDto, MarketContext, StateBand, StateBandMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
 
 export const PAIR = 'BTC-USDT';
 export const MARK_PRICE = 63390.0;
@@ -51,7 +51,6 @@ export function seedRichInstance(): void {
   // builders are gone from the wire, so a fixture that still populated them
   // would be testing an export path that can no longer exist.
   entry.alignment = makeAlignment();
-  entry.analysis = makeAnalysis();
 
   entry.terms[1].indicators = makeMicroIndicators();
   entry.terms[1].indicatorLifecycle = makeMicroLifecycle() as unknown as Record<string, IndicatorLifecycleStatus>;
@@ -333,44 +332,6 @@ export function makeAlignment(): AlignmentMatrix {
     ],
     signal_cross_tf_count: 2,
     trend_agreement_pct: 82,
-  };
-}
-
-export function makeAnalysis(): AnalysisMatrix {
-  return {
-    symbol: PAIR,
-    bias: 'Bullish',
-    confidence: 0.72,
-    state_confidence: 0.72,
-    market_regime: 'TrendingBull',
-    trend_assessment: 'Healthy',
-    momentum_assessment: 'Increasing',
-    structure_assessment: 'Strong',
-    volatility_assessment: 'Normal',
-    volume_assessment: 'Strong',
-    market_quality: 'Good',
-    market_quality_score: 72,
-    // v6.12: per-card dimension scores — the exact 0-100 inputs the
-    // qualitative assessments above are bucketed from (badge parity).
-    trend_score: 76.5,
-    momentum_score: 83.2,
-    structure_score: 81.4,
-    volatility_score: 55.0,
-    volume_score: 78.8,
-    // v6.10.21: exact L3 regime inputs the rationale quotes.
-    representative_bbwp: 83.3,
-    representative_adx: 33.0,
-    market_phase: 'Markup',
-    market_interpretation: 'Price is making higher highs and higher lows on strong volume. Momentum is increasing and structure remains intact.',
-    rationale: 'The market is in a healthy uptrend with broad participation across timeframes.',
-    supporting_signals: [
-      '1S (bullish): rsi_14 score +62, TRENDING regime, 3 signals',
-      '5S (bullish): macd_12_26_9 score +45, TRENDING regime, 2 signals',
-    ],
-    contradicting_signals: [
-      '3M (bearish): obv score -20, RANGE regime, 1 signals',
-    ],
-    timeframes_considered: 14,
   };
 }
 

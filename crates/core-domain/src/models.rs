@@ -236,17 +236,8 @@ pub struct MarketSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alignment: Option<crate::alignment::AlignmentMatrix>,
 
-    /// Analysis Matrix per symbol.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub analysis: Option<crate::analysis::AnalysisMatrix>,
     /// The model's own per-duration output — `timeframe_state`, assembled by
     /// `market-analyzer::model::live` from the readings below.
-    ///
-    /// **01-24 step 1 is additive**: nothing reads this yet, and `analysis` is
-    /// still the matrix the older consumers use. The two coexist until step 2
-    /// moves each consumer, which is why the dissolve is four commits and not
-    /// one: a snapshot carrying both is honest, a snapshot carrying half a
-    /// migration is not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeframe_state: Option<crate::axes::TimeframeState>,
 
@@ -400,7 +391,6 @@ impl MarketSnapshot {
             .collect();
         out.context = None;
         out.alignment = None;
-        out.analysis = None;
         // The timeframe state is assembled ON DEMAND from the readings below. Retaining a
         // second copy of the four axes would charge the byte budget twice for one
         // fact — which is precisely the double-charge the v11.12.24 budget work

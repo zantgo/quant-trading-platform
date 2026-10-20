@@ -104,7 +104,7 @@ run_case() {
 
     local out
     out=$(timeout "$TIMEOUT" "$BIN" --backtest --exchange "$ex" --symbols "$syms" \
-        --tf "$tf" --depth "$depth" --capital 1000 --allocation 10 2>".e2e-$name.stderr")
+        --tf "$tf" --depth "$depth" --portfolio-capital 1000 --allocation 10 2>".e2e-$name.stderr")
     local code=$?
     local status
     status=$(printf '%s' "$out" | sed -n 's/.*"status":"\([a-z]*\)".*/\1/p' | head -1)
@@ -168,7 +168,7 @@ done
 if [ -z "$FILTER" ] || [[ "determinism" == *"$FILTER"* ]]; then
     echo "── determinism (bitget-L1-d7 run twice)"
     "$BIN" --backtest --exchange bitget --symbols BTC --tf 60,180,300,900 --depth 7 \
-        --capital 1000 --allocation 10 >/dev/null 2>&1
+        --portfolio-capital 1000 --allocation 10 >/dev/null 2>&1
     id_a=$(python3 - "$DB" <<'PYEOF'
 import sqlite3, sys
 con = sqlite3.connect(sys.argv[1])
@@ -176,7 +176,7 @@ print(con.execute("SELECT MAX(id) FROM backtest_runs").fetchone()[0])
 PYEOF
 )
     "$BIN" --backtest --exchange bitget --symbols BTC --tf 60,180,300,900 --depth 7 \
-        --capital 1000 --allocation 10 >/dev/null 2>&1
+        --portfolio-capital 1000 --allocation 10 >/dev/null 2>&1
     id_b=$(python3 - "$DB" <<'PYEOF'
 import sqlite3, sys
 con = sqlite3.connect(sys.argv[1])

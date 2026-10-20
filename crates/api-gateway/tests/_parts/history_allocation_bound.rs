@@ -212,7 +212,6 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
         statistical_context: None,
         indicators: Default::default(),
         alignment: None,
-        analysis: None,
         risk_profile: None,
         volume_profile: None,
         metrics_config: None,

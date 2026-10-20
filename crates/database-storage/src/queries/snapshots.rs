@@ -69,9 +69,9 @@ pub async fn insert_snapshot_with_session(
             auxiliary_normalized_data,
             reconstructed,
             market_regime, opportunity_json, decision_context_json,
-            analysis_json, advisory_json,
+            analysis_json, model_state_json, advisory_json,
             session_id
-        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41,?42,?43,?44,?45,?46,?47,?48,?49,?50,?51,?52,?53,?54,?55,?56,?57,?58,?59,?60,?61,?62,?63,?64,?65,?66,?67,?68,?69,?70,?71,?72,?73,?74,?75,?76,?77,?78,?79,?80,?81,?82,?83,?84,?85,?86,?87,?88,?89,?90,?91)"
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41,?42,?43,?44,?45,?46,?47,?48,?49,?50,?51,?52,?53,?54,?55,?56,?57,?58,?59,?60,?61,?62,?63,?64,?65,?66,?67,?68,?69,?70,?71,?72,?73,?74,?75,?76,?77,?78,?79,?80,?81,?82,?83,?84,?85,?86,?87,?88,?89,?90,?91,?92)"
     )
     .bind(&exchange_label)
     .bind(snapshot.timeframe_secs as i64)
@@ -170,24 +170,19 @@ pub async fn insert_snapshot_with_session(
             .filter(|q| q.is_gap_filled)
             .map(|_| "SYNTHETIC"),
     )
-    .bind(
-        snapshot
-            .context
-            .as_ref()
-            .map(|c| c.regime.clone())
-            .or_else(|| {
-                snapshot
-                    .analysis
-                    .as_ref()
-                    .map(|a| format!("{:?}", a.market_regime))
-            }),
-    )
+    .bind(snapshot.context.as_ref().map(|c| c.regime.clone()))
     // CR-15: the strategy matrices are no longer produced, so they are no longer
     // persisted. The columns remain in the schema until the P5 forward migration
     // drops them with the non-candle columns.
     .bind(None::<String>)
     .bind(None::<String>)
-    .bind(snapshot.analysis.as_ref().and_then(|a| serde_json::to_string(a).ok()))
+    .bind(None::<String>)
+    .bind(
+        snapshot
+            .timeframe_state
+            .as_ref()
+            .and_then(|s| serde_json::to_string(s).ok()),
+    )
     .bind(None::<String>)
     .bind(session_id)
     .execute(pool)
@@ -538,7 +533,6 @@ pub async fn query_latest_snapshot(
             indicator_lifecycle: Default::default(),
             context: None,
             alignment: None,
-            analysis: None,
             // 01-24 step 1: the model state is derived from the readings, so a
             // row read back out of SQLite does not carry one. Re-deriving it is
             // cheap and is the only way it can never drift from the readings.
@@ -613,7 +607,7 @@ pub struct RecordedSnapshot {
     pub market_regime: Option<String>,
     pub opportunity_json: Option<String>,
     pub decision_context_json: Option<String>,
-    pub analysis_json: Option<String>,
+    pub model_state_json: Option<String>,
     pub advisory_json: Option<String>,
     pub reconstructed: Option<String>,
 }
@@ -637,7 +631,7 @@ pub async fn query_backtest_snapshots(
         "SELECT timestamp, timeframe_secs,
                 CAST(mid_price AS REAL) as mid_price, CAST(close AS REAL) as close,
                 market_regime, opportunity_json, decision_context_json,
-                analysis_json, advisory_json, reconstructed
+                model_state_json, advisory_json, reconstructed
          FROM market_snapshots
          WHERE symbol = ?1 AND timeframe_secs = ?2
            AND timestamp >= ?3 AND timestamp <= ?4

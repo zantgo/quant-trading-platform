@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 /// produce and observe mode does not surface. What remains is the model: the
 /// per-duration metrics, the multi-duration grid, the cross-duration alignment,
 /// and the analysis.
-pub const ALL_TABS: &[&str] = &["metrics", "mtf", "alignment", "analysis"];
+pub const ALL_TABS: &[&str] = &["metrics", "mtf", "alignment", "model_state"];
 
 /// Snapshot of the live runtime state — returned by
 /// `GET /api/snapshot-export/status` and the CLI `--status` command.

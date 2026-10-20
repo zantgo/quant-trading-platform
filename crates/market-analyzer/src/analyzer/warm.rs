@@ -962,7 +962,6 @@ fn build_historical_snapshot(
         statistical_context: None,
         indicators,
         alignment: None,
-        analysis: None,
         timeframe_state: None,
         metrics_config: None,
         risk_profile: None,
@@ -1044,7 +1043,6 @@ mod tests {
         let state = warm_state(120);
         for snap in &state.snapshot_history {
             assert!(snap.statistical_context.is_none());
-            assert!(snap.analysis.is_none());
             assert!(snap.alignment.is_none());
         }
     }

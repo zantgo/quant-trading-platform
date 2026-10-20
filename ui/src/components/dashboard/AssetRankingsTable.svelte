@@ -20,6 +20,7 @@
     import { biasColor, scoreColor } from '../../lib/dashboardColors';
     import styles from './AssetRankingsTable.module.css';
 import type { CrossTfStance } from '../../types';
+    import { stanceToBias } from '../../lib/modelState';
 
     const app = useAppStore();
 
@@ -136,7 +137,6 @@ import type { CrossTfStance } from '../../types';
         for (const [key, inst] of Object.entries(app.instancesMap)) {
             if (!inst.instanceId) continue;
             const backendRank = assetRanking.find((r) => r.symbol === inst.symbol) ?? null;
-            const analysis = inst.analysis;
             const aln = inst.alignment;
             const mtfScore = aln?.mtf_overall_score ?? 0;
             const score = backendRank != null && Number.isFinite(backendRank.score)
@@ -146,7 +146,7 @@ import type { CrossTfStance } from '../../types';
             out.push({
                 symbol: inst.symbol,
                 price: inst.terms?.[1]?.priceText ?? '--',
-                bias: analysis?.bias ?? 'Neutral',
+                bias: stanceToBias(aln?.mtf_stance),
                 score,
                 mtf_score: mtfScore,
                 mtf_stance: aln?.mtf_stance ?? 'unmeasured',

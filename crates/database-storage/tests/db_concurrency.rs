@@ -71,7 +71,6 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     indicators: std::collections::HashMap::new(),
                     context: None,
                     alignment: None,
-                    analysis: None,
                     timeframe_state: None,
                     prev_day_px: None,
                     statistical_context: None,

@@ -6,32 +6,27 @@
 //! invalidation, reward:risk, an opportunity, a risk score, a go/no-go. The
 //! second side is TAE's to compute, from model state, inside TAE.
 //!
-//! This file pins the line. Each test below is written so that **reverting the
-//! corresponding production change makes it fail** — not merely "the value
-//! changed". That distinction matters: a test that asserts a number is only as
-//! strong as the number, while a test that asserts a *field does not exist*
-//! cannot pass by accident.
-//!
-//! What is deliberately NOT here: assertions that a strategy layer works. There
-//! is no strategy layer on this side of the line to test.
+//! P10-G removed the last derived matrix: `synthesize_cross_tf` returns the
+//! alignment alone.
 //!
 //! CG3 (the executor produces no setups) lives in
 //! `crates/portfolio-supervisor/tests/model_boundary.rs` instead: the executor
 //! is TAE's, and market-analyzer cannot depend on portfolio-supervisor without a
 //! cycle. The split is the dependency graph agreeing with the boundary.
 
-use market_analyzer::synthesis::{synthesize_cross_tf, CrossTfSynthesisResult};
+use market_analyzer::synthesis::synthesize_cross_tf;
 use rust_decimal::Decimal;
 
 use core_domain::alignment::AlignmentMatrix;
-use core_domain::analysis::{AnalysisMatrix, MarketBias};
 use core_domain::market_context::{ContextDimension, MarketContext};
 use core_domain::models::MarketSnapshot;
 
 // ─── CG1: the wire carries no strategy ────────────────────────────────────
 
 /// The snapshot's serialized key set is the boundary in its most literal form.
-/// If any of the four strategy keys reappear — even always-null — this fails.
+/// If any strategy key reappears — even always-null — this fails. The retired
+/// `analysis` matrix is included: it was a second, derived copy of the model
+/// state and must not come back as a parallel surface.
 #[test]
 fn cg1_the_snapshot_wire_carries_no_strategy_matrix() {
     let snap = MarketSnapshot {
@@ -48,7 +43,13 @@ fn cg1_the_snapshot_wire_carries_no_strategy_matrix() {
         .map(|k| k.as_str())
         .collect();
 
-    for forbidden in ["risk", "advisory", "opportunity", "decision_context"] {
+    for forbidden in [
+        "risk",
+        "advisory",
+        "opportunity",
+        "decision_context",
+        "analysis",
+    ] {
         assert!(
             !keys.contains(&forbidden),
             "CG1: `{forbidden}` is on the MarketSnapshot wire. A strategy matrix that \
@@ -58,12 +59,11 @@ fn cg1_the_snapshot_wire_carries_no_strategy_matrix() {
         );
     }
 
-    // The model's own two matrices are still there. This is the other half of the
+    // The model's own matrix is still there. This is the other half of the
     // contract: the boundary is a narrowing, not a teardown.
     let populated = serde_json::to_value(MarketSnapshot {
         symbol: "BTC-USDC".into(),
         alignment: Some(AlignmentMatrix::empty("BTC-USDC")),
-        analysis: Some(AnalysisMatrix::empty("BTC-USDC")),
         ..MarketSnapshot::default()
     })
     .unwrap();
@@ -73,32 +73,17 @@ fn cg1_the_snapshot_wire_carries_no_strategy_matrix() {
         .keys()
         .map(|k| k.as_str())
         .collect();
-    // The model's own two matrices are still there. This is the other half of the
-    // contract: the boundary is a narrowing, not a teardown.
-    //
-    // (They are `skip_serializing_if = "Option::is_none"`, so they only appear on a
-    // snapshot that has them — which is why the populated case is checked here and
-    // not in the default snapshot above.)
     assert!(
         populated_keys.contains(&"alignment"),
         "CG1: the model must still emit alignment"
-    );
-    assert!(
-        populated_keys.contains(&"analysis"),
-        "CG1: the model must still emit analysis"
     );
 }
 
 #[test]
 fn cg1_history_projection_drops_no_longer_present_fields() {
-    // `history_projection()` is the retained-copy view of the snapshot. It used to
-    // null out `risk` / `advisory` / `opportunity` / `decision_context` for space;
-    // with the fields gone there is nothing to strip. If this fails with a missing
-    // field, the struct grew a strategy matrix again.
     let full = MarketSnapshot {
         symbol: "BTC-USDC".into(),
         alignment: Some(AlignmentMatrix::empty("BTC-USDC")),
-        analysis: Some(AnalysisMatrix::empty("BTC-USDC")),
         ..MarketSnapshot::default()
     };
     let projected = full.history_projection();
@@ -107,17 +92,12 @@ fn cg1_history_projection_drops_no_longer_present_fields() {
         projected.alignment.is_none(),
         "CG1: the projection must drop alignment"
     );
-    assert!(
-        projected.analysis.is_none(),
-        "CG1: the projection must drop analysis"
-    );
-    // And the live surface is untouched — the projection is a storage optimisation,
-    // not a second, thinner truth.
+    // And the live surface is untouched — the projection is a storage
+    // optimisation, not a second, thinner truth.
     assert!(full.alignment.is_some());
-    assert!(full.analysis.is_some());
 }
 
-// ─── CG2: synthesis produces two matrices and stops ───────────────────────
+// ─── CG2: synthesis produces the alignment and stops ──────────────────────
 
 fn ctx(trend: f64, overall: i32) -> MarketContext {
     MarketContext {
@@ -166,83 +146,54 @@ fn snap(secs: u64, price: f64, context: MarketContext) -> MarketSnapshot {
     m
 }
 
-fn synth(pairs: &[(u64, MarketSnapshot)]) -> CrossTfSynthesisResult {
+fn synth(pairs: &[(u64, MarketSnapshot)]) -> AlignmentMatrix {
     let refs: Vec<(u64, &MarketSnapshot)> = pairs.iter().map(|(s, m)| (*s, m)).collect();
     synthesize_cross_tf(
         "BTC-USDC",
         &refs,
-        None,
-        None,
-        None,
-        None,
-        &core_domain::analysis::AnalysisParams::default(),
         &core_domain::alignment::AlignmentParams::default(),
-        &config_models::strategy::LadderRoles::default(),
     )
 }
 
 #[test]
-fn cg2_synthesis_yields_alignment_and_analysis_and_nothing_else() {
+fn cg2_synthesis_yields_alignment_and_nothing_else() {
     let a = snap(60, 100.0, ctx(0.8, 60));
     let r = synth(&[(60, a)]);
-    assert_eq!(r.alignment.symbol, "BTC-USDC");
-    assert_eq!(r.analysis.symbol, "BTC-USDC");
-    // The bias is a model state, not a verdict. Asserting it is a `MarketBias`
-    // is the type-level statement that no "what to do" token can inhabit this
-    // field — the enum simply has no such variant.
-    let _: MarketBias = r.analysis.bias;
+    assert_eq!(r.symbol, "BTC-USDC");
+    assert_eq!(r.timeframes_present, 1);
 }
 
 #[test]
 fn cg2_a_flat_market_reads_flat_rather_than_actionable() {
-    // The failure this guards is the subtle one: a synthesizer that had drifted
-    // toward recommendations would map a neutral market onto "no opportunity"
-    // or a HOLD-style token. The model has exactly one way to express "flat", and
-    // it is `Neutral`.
     let a = snap(60, 100.0, ctx(0.0, 0));
     let r = synth(&[(60, a)]);
     assert_eq!(
-        r.analysis.bias,
-        MarketBias::Neutral,
+        r.mtf_stance,
+        core_domain::alignment::CrossTfStance::Neutral,
         "CG2: a market with no directional lean reads Neutral — there is no other token \
          available, and that is the point"
     );
 }
 
 #[test]
-fn cg2_the_bias_is_aggregated_across_durations_not_read_off_one() {
-    // The synthesis must genuinely combine the ladder. The check: removing the
-    // slow duration changes the result, which can only happen if the slow
-    // duration is contributing.
-    //
-    // NOTE — a finding worth carrying forward. While writing this I asserted the
-    // stronger property that two durations in direct opposition cannot produce a
-    // STRONG bias. **It can**: with a fast duration at +0.9 / score 80 and a slow
-    // one at -0.9 / score -80, `derive_analysis` returns `StrongBearish`. The
-    // ladder weights the slow duration heavily (it carries the decision horizon),
-    // so a strongly-opposed slow duration wins outright.
-    //
-    // That is defensible for a STATE claim — "the slow horizon is bearish and the
-    // fast one has not contradicted it enough" — but it is exactly the kind of
-    // thing a confidence or probability field would launder into "90% sure". The
-    // reason it is safe here is that there is no such field: the only output is a
-    // `MarketBias`. P10, which introduces the typed axes, is where disagreement
-    // has to be made visible as a first-class quantity — and this test is the one
-    // to revisit then, to assert what the axes are required to show.
+fn cg2_the_score_is_aggregated_across_durations_not_read_off_one() {
+    // The synthesis must genuinely combine the ladder. The check: adding a
+    // second, agreeing duration changes the aggregate, which can only happen if
+    // the added duration is contributing.
     let fast_bull = snap(60, 100.0, ctx(0.9, 80));
     let slow_bull = snap(3600, 100.0, ctx(0.9, 80));
     let both = synth(&[(60, fast_bull.clone()), (3600, slow_bull)]);
     let fast_only = synth(&[(60, fast_bull)]);
 
     assert!(
-        both.alignment.timeframes_present == 2 && fast_only.alignment.timeframes_present == 1,
+        both.timeframes_present == 2 && fast_only.timeframes_present == 1,
         "CG2: the fixture must differ in duration count for this test to mean anything"
     );
     assert!(
-        both.alignment.mtf_overall_score != fast_only.alignment.mtf_overall_score,
+        both.mtf_overall_score != fast_only.mtf_overall_score,
         "CG2: the cross-duration score must aggregate — adding a duration that agrees \
          cannot leave the aggregate untouched (two durations: {}, one: {})",
-        both.alignment.mtf_overall_score,
-        fast_only.alignment.mtf_overall_score
+        both.mtf_overall_score,
+        fast_only.mtf_overall_score
     );
 }

@@ -31,6 +31,7 @@
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import { activeDurations } from '../lib/terms';
+    import { stanceToBias } from '../lib/modelState';
     import { getBadgeTrail, badgeHistoryVersion, l1Key, layerKey } from '../lib/badgeHistory.svelte';
     import BadgeTrail from './BadgeTrail.svelte';
     import SignalSquares from './SignalSquares.svelte';
@@ -112,11 +113,12 @@
     /// printed one would be fabricating a confidence the model never computed —
     /// so the cell shows the bias and the MTF label instead of a ring.
     function biasBadge(inst: InstanceState): BadgeSpec {
-        const analysis = inst.analysis;
-        if (!analysis || !analysis.bias) return emptyBadge();
-        const color = biasColor(analysis.bias);
+        const stance = inst.alignment?.mtf_stance;
+        if (!stance || stance === 'unmeasured') return emptyBadge();
+        const bias = stanceToBias(stance);
+        const color = biasColor(bias);
         return {
-            label: analysis.bias,
+            label: bias,
             color,
             background: hexToRgba(color, 0.08),
             state: 'valid',

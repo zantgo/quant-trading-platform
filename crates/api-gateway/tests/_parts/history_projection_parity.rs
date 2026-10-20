@@ -113,7 +113,6 @@ fn make_snapshot(timestamp: u64) -> MarketSnapshot {
             monte_carlo_stdev: Some(0.03),
         }),
         alignment: Some(core_domain::alignment::AlignmentMatrix::empty(PAIR_KEY)),
-        analysis: Some(core_domain::analysis::AnalysisMatrix::empty(PAIR_KEY)),
         risk_profile: Some(1),
         volume_profile: None,
         metrics_config: None,

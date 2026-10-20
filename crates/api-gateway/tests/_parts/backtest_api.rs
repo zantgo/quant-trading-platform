@@ -7,40 +7,82 @@
 use api_gateway::AppState;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use core_domain::analysis::{
-    AnalysisMatrix, MarketBias, OpportunityProfile, OpportunityType, PriceRange, SetupQuality,
-    TradeViability,
+use core_domain::axes::{
+    AxisId, AxisState, AxisValue, DiagnosticBasis, DiagnosticState, Diagnostics, Domain,
+    EventCounts, Readiness, TimeframeIdentity, TimeframeState,
 };
-use core_domain::decision_context::DecisionContext;
+use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::models::MarketSnapshot;
-use core_domain::opportunity::OpportunityMatrix;
-use core_domain::risk::{RiskDimension, RiskLevel, RiskState};
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
-fn decision(rr: f64) -> DecisionContext {
-    DecisionContext {
-        score: 60.0,
-        bias: "Bullish".to_string(),
-        score_confidence: 0.6,
-        entry_danger: RiskDimension {
-            score: 20.0,
-            level: RiskLevel::Low,
-            state: RiskState::Stable,
-            confidence: 80.0,
-            evidence: vec![],
-            volatility_to_spread_ratio: None,
+fn bull_state(secs: u64) -> TimeframeState {
+    let axis = |axis, position| AxisState {
+        axis,
+        position,
+        size: AxisValue::rank(100.0),
+        readiness: Readiness::Solid,
+        readings: Vec::new(),
+    };
+    TimeframeState {
+        identity: TimeframeIdentity {
+            instance_id: "inst".into(),
+            pair: "BTC-USDC".into(),
+            exchange: "hyperliquid".into(),
+            timeframe_secs: secs,
+            timeframe_label: core_domain::duration_label(secs),
+            candle_count: 500,
+            last_closed_at: "2026-10-20T00:00:00Z".into(),
+            available_at: "500".into(),
+            spec_version: core_domain::SPEC_VERSION.into(),
+            build_version: core_domain::BUILD_VERSION.into(),
         },
-        expected_reward_risk_ratio: rr,
-        trade_readiness: "READY".to_string(),
-        contributing_indicators: vec![],
-        long_probability: 60.0,
-        short_probability: 30.0,
-        hold_probability: 10.0,
-        net_bias_pct: 30.0,
-        lean_floor_applied: false,
+        axes: vec![
+            axis(
+                AxisId::Direction,
+                AxisValue::signed(0.8, Domain::DirectionalBias),
+            ),
+            axis(
+                AxisId::Momentum,
+                AxisValue::signed(0.4, Domain::Acceleration),
+            ),
+            axis(
+                AxisId::Structure,
+                AxisValue::signed(0.3, Domain::NetEventBias),
+            ),
+            axis(
+                AxisId::Progression,
+                AxisValue::ordinal(core_domain::axes::Stage::Mid),
+            ),
+        ],
+        events: EventCounts::default(),
+        levels: Vec::new(),
+        atr: Some(20.0),
+        legs: Vec::new(),
+        diagnostics: Diagnostics {
+            state: DiagnosticState::Expanding,
+            volatility_change_pct: 0.0,
+            participation_change_pct: 0.0,
+            basis: DiagnosticBasis {
+                bbwp_pct: 20.0,
+                rvol_pct: 100.0,
+            },
+        },
+        derived: core_domain::axes::DerivedState {
+            consensus: core_domain::axes::Consensus {
+                agreeing_axes: 0,
+                of: 4,
+                axes: Vec::new(),
+                weakest_axis: None,
+            },
+            stability: core_domain::axes::Stability {
+                state: core_domain::axes::StabilityState::Holding,
+                changes_last_50_bars: 0,
+                window: 50,
+            },
+        },
     }
 }
 
@@ -55,9 +97,11 @@ fn long_snapshot(ts: u64, mid: f64) -> MarketSnapshot {
     snap.ask_price = snap.mid_price;
     snap.close = Some(snap.mid_price);
 
-    let mut a = AnalysisMatrix::empty("BTC-USDC");
-    a.bias = MarketBias::Bullish;
-    snap.analysis = Some(a);
+    snap.timeframe_state = Some(bull_state(60));
+    snap.indicators.insert(
+        "atr".into(),
+        NormalizedIndicatorValue::scalar(20.0, 0.0, "X"),
+    );
     snap
 }
 
@@ -69,8 +113,8 @@ async fn build_state() -> Arc<AppState> {
         .await
         .expect("migrations");
 
-    // Seed: accept @105 → fill @94 → TP @126.
-    for (ts, mid) in [(1000u64, 105.0f64), (1001, 94.0), (1002, 126.0)] {
+    // Seed: accept at 105 → the 94 print fills the resting long → TP at 170.
+    for (ts, mid) in [(1000u64, 105.0f64), (1001, 94.0), (1002, 170.0)] {
         database_storage::insert_snapshot_internal(&pool, &long_snapshot(ts, mid)).await;
     }
 

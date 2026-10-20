@@ -106,16 +106,11 @@ pub fn build_overview_panel(
     let mut rows: Vec<OverviewRow> = Vec::new();
     for inst in instances {
         let reference = inst.snapshots.first();
-        // CR-15: the model halves only.
-        let analysis = reference.and_then(|s| s.analysis.as_ref());
         let alignment = reference.and_then(|s| s.alignment.as_ref());
 
         let price = reference
             .map(|s| f64_from_decimal(s.mid_price))
             .unwrap_or(0.0);
-        let bias = analysis
-            .map(|a| format!("{:?}", a.bias))
-            .unwrap_or_else(|| "Neutral".to_string());
         // CR-15: the canonical L7 AssetRank. The old fallback chain read the L4
         // opportunity matrix, which no longer exists on the snapshot.
         let score = ranks.get(&inst.symbol).copied().unwrap_or(0.0);
@@ -123,6 +118,14 @@ pub fn build_overview_panel(
         let mtf_stance = alignment
             .map(|a| a.mtf_stance)
             .unwrap_or(CrossTfStance::Unmeasured);
+        let bias = match mtf_stance {
+            CrossTfStance::StrongBull => "StrongBullish",
+            CrossTfStance::Bull => "Bullish",
+            CrossTfStance::Bear => "Bearish",
+            CrossTfStance::StrongBear => "StrongBearish",
+            CrossTfStance::Neutral | CrossTfStance::Unmeasured => "Neutral",
+        }
+        .to_string();
         let updated_ts = reference.map(|s| s.timestamp).unwrap_or(0);
 
         rows.push(OverviewRow {
@@ -210,7 +213,6 @@ mod tests {
     //! model matrices, with no invented values when a matrix is absent.
     use super::*;
     use crate::alignment::AlignmentMatrix;
-    use crate::analysis::{AnalysisMatrix, MarketBias};
     use rust_decimal::Decimal;
 
     fn snapshot(price: f64) -> MarketSnapshot {
@@ -220,9 +222,6 @@ mod tests {
             timestamp: 1_700_000_000,
             ..MarketSnapshot::default()
         };
-        let mut a = AnalysisMatrix::empty("BTC-USDC");
-        a.bias = MarketBias::Bullish;
-        s.analysis = Some(a);
         let mut m = AlignmentMatrix::empty("BTC-USDC");
         m.mtf_overall_score = 72.0;
         m.mtf_stance = CrossTfStance::Bull;
@@ -312,7 +311,10 @@ mod tests {
         let panel =
             build_overview_panel(&[instance("SOL-USDC", vec![bare], false)], &HashMap::new());
         let row = &panel.rows[0];
-        assert_eq!(row.bias, "Neutral", "absent analysis is not a bullish read");
+        assert_eq!(
+            row.bias, "Neutral",
+            "absent cross-duration stance is not a bullish read"
+        );
         assert_eq!(
             row.mtf_stance,
             CrossTfStance::Unmeasured,

@@ -41,7 +41,6 @@ fn sample_snapshot() -> MarketSnapshot {
         indicators,
         context: None,
         alignment: None,
-        analysis: None,
         prev_day_px: None,
         statistical_context: None,
         metrics_config: None,

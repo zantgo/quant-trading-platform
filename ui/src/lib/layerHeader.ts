@@ -14,11 +14,12 @@
 import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
 import { DURATIONS } from '../types';
+import { stanceToBias } from './modelState';
 import type { CrossTfStance } from '../types';
 // CR-15: `AdvisoryMatrix`, `DecisionContext`, `OpportunityMatrix` and
 // `RiskMatrix` are gone — each backed a strategy header badge (L4/L5/L6) and
 // nothing else. The header now trails the model's layers only.
-import type { AlignmentMatrix, AnalysisMatrix, GlobalBias, MarketBias, OverviewMatrix, TimeframeTelemetry } from '../types';
+import type { AlignmentMatrix, GlobalBias, MarketBias, OverviewMatrix, TimeframeTelemetry } from '../types';
 
 // ── Discriminated state ─────────────────────────────────────────────────
 //
@@ -447,48 +448,30 @@ export function buildL2AlignmentHeader(
     };
 }
 
-// L3 — Analysis (no longer leaks into L4-L6).
-// Regime chip is suppressed when redundant with the bias badge
-// (e.g. bias=BULLISH ∧ regime=TRENDING_BULL is one fact, not two).
-// M-2/M-3 (v6.10.13): the warmup sentinel (`timeframes_considered === 0`)
-// renders the empty badge + loading status (the L3 body would otherwise
-// show fabricated Neutral/Poor values), and the confidence chip is
-// renamed "State Conf" to disambiguate from the L6 risk-discounted
-// "Confidence".
-export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): LayerHeaderSpec {
-    const bias = a?.bias ?? null;
-    const regime = a?.market_regime ?? null;
-    const quality = a?.market_quality ?? null;
-    const stateConfidence = a?.state_confidence ?? null;
-    const confidencePct = stateConfidence != null ? Math.round(stateConfidence * 100) : null;
-
-    if (!a || !bias || (a.timeframes_considered ?? 0) === 0) {
-        return { layerNumber: 3, layerName: 'Analysis', badge: emptyBadge(), meta: [], status: 'loading' };
+// L3 — Model state (no longer leaks into L4-L6).
+//
+// P10-G: the derived `AnalysisMatrix` is gone. The same cross-duration
+// direction the analysis collapsed is already on the alignment (`mtf_stance`),
+// and the score is `mtf_overall_score`. One fact, read once.
+export function buildL3AnalysisHeader(a: AlignmentMatrix | null | undefined): LayerHeaderSpec {
+    if (!a || (a.timeframes_present ?? 0) === 0 || a.mtf_stance === 'unmeasured') {
+        return { layerNumber: 3, layerName: 'Model State', badge: emptyBadge(), meta: [], status: 'loading' };
     }
-    const redundant =
-        (bias === 'Bullish' && regime === 'TrendingBull') ||
-        (bias === 'Bearish' && regime === 'TrendingBear') ||
-        (bias === 'StrongBullish' && regime === 'TrendingBull') ||
-        (bias === 'StrongBearish' && regime === 'TrendingBear') ||
-        (bias === 'Neutral' && regime === 'Range');
-
-    const meta: MetaChipSpec[] = [
-        chip('Quality', quality, null, () => qualityColor(quality)),
-        chip('State Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, null),
-    ];
-    if (regime && !redundant) {
-        meta.push(chip('Regime', prettifyEnum(regime), null, () => COLORS.textMuted));
-    }
+    const bias = stanceToBias(a.mtf_stance);
+    const score = Number.isFinite(a.mtf_overall_score) ? Math.round(a.mtf_overall_score) : null;
     return {
         layerNumber: 3,
-        layerName: 'Analysis',
+        layerName: 'Model State',
         badge: {
             label: prettifyEnum(bias),
             color: biasColor(bias),
             background: hexToRgba(biasColor(bias), 0.08),
             state: 'valid',
         },
-        meta,
+        meta: [
+            chip('Cross-TF', score != null ? `${score}` : null, score, null),
+            chip('TFs', `${a.timeframes_present ?? 0}`, a.timeframes_present ?? null, null),
+        ],
         status: 'live',
     };
 }

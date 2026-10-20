@@ -295,7 +295,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     // CR-15: this predicate used to test six matrices (alignment, analysis,
     // risk, advisory, opportunity, decision_context). The four strategy ones
     // are always absent now, so they could only ever read `undefined`.
-    const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis);
+    const hasMatrixPayload = !!snapshot.alignment;
     if (!tf.latestSnapshot || hasMatrixPayload) {
         tf.latestSnapshot = snapshot;
     } else {
@@ -308,7 +308,6 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // reactive wrapper objects, which breaks Lightweight Charts
         // `series.update({ time })`.
         snapshot.alignment = tf.latestSnapshot.alignment;
-        snapshot.analysis = tf.latestSnapshot.analysis;
         tf.latestSnapshot = snapshot;
     }
     tf.isCompleted = snapshot.is_completed === true;
@@ -479,7 +478,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         const isCompleted = (snapshot as Record<string, unknown>).is_completed === true;
         // CR-15: the four strategy matrices are gone from the wire, so this
         // predicate is now just the model's two.
-        const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis);
+        const hasMatrixPayload = !!snapshot.alignment;
         const lastSlotTs = pair.lastMatrixTimestampBySlot[tf.slot] ?? -Infinity;
         const acceptMatrixFrame =
             isCompleted &&
@@ -496,9 +495,6 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             }
             if (snapshot.alignment && typeof snapshot.alignment === 'object') {
                 pair.alignment = snapshot.alignment;
-            }
-            if (snapshot.analysis && typeof snapshot.analysis === 'object') {
-                pair.analysis = snapshot.analysis;
             }
 
             // Track the last completed-candle close so panels can use a stable
@@ -532,7 +528,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
                     return { label: b.label, color: b.color, ts: now };
                 })());
                 pushBadge(layerKey('l3', symbol), (() => {
-                    const b = buildL3AnalysisHeader(pair.analysis).badge;
+                    const b = buildL3AnalysisHeader(pair.alignment).badge;
                     return { label: b.label, color: b.color, ts: now };
                 })());
                 // CR-15: the L4 opportunity, L5 risk and L6 decision badge

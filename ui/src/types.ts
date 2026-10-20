@@ -225,7 +225,6 @@ export interface MarketSnapshot {
     indicator_lifecycle?: IndicatorLifecycleMap;
     context?: MarketContext | null;
     alignment?: AlignmentMatrix | null;
-    analysis?: AnalysisMatrix | null;
     prev_day_px?: number | string | null;
     statistical_context?: StatisticalContext | null;
     metrics_config?: MetricsConfig | null;
@@ -357,10 +356,37 @@ export interface AlignmentDimension {
     confidence: number;
 }
 
+export type AxisId = 'direction' | 'momentum' | 'structure' | 'progression';
+export type AxisReadiness = 'solid' | 'dashed';
+
+export type AxisValue =
+    | { kind: 'signed'; value: number; domain: string }
+    | { kind: 'rank'; pct: number }
+    | { kind: 'ordinal'; stage: string }
+    | { kind: 'undefined'; reason: Record<string, unknown> };
+
+export interface AxisMember {
+    timeframe_secs: number;
+    position: AxisValue;
+    readiness: AxisReadiness;
+}
+
+/** P10-F: one of four cross-duration axis rows. `mean`/`agreement_pct`
+ *  are absent for progression, which is summarised by `modal_stage`. */
+export interface AxisRow {
+    axis: AxisId;
+    members: AxisMember[];
+    mean?: number;
+    agreement_pct?: number;
+    gradient?: number;
+    modal_stage?: string;
+}
+
 export interface AlignmentMatrix {
     symbol: string;
     timeframes_present: number;
     dimensions: AlignmentDimension[];
+    axis_rows?: AxisRow[];
     mtf_trend_alignment: number;
     mtf_momentum_alignment: number;
     mtf_volume_alignment: number;
@@ -951,7 +977,6 @@ export interface InstanceState {
     historyLatestClose: string;
     currentView: CurrentView;
     alignment: AlignmentMatrix | null;
-    analysis: AnalysisMatrix | null;
 
 
     /// Last candle-close timestamp (epoch seconds) whose WS frame was

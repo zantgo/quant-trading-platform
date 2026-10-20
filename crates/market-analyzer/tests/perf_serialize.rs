@@ -1,7 +1,7 @@
 //! AC-L4-1 (per-frame serialization p95 < 1ms under nominal load).
 //!
 //! Verifies that `MarketSnapshot` serialization to JSON completes in under 1ms
-//! for a typical payload with 52 indicators and sub-matrices populated.
+//! for a typical payload with 52 indicators and model state populated.
 //! Uses a generous 50ms threshold to account for debug/test-profile overhead
 //! in CI environments; in optimized release builds this is well under 1ms.
 
@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use core_domain::alignment::AlignmentMatrix;
-use core_domain::analysis::AnalysisMatrix;
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::{ContextDimension, MarketContext};
 use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity};
@@ -123,7 +122,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         indicators,
         context: Some(context),
         alignment: Some(AlignmentMatrix::empty("BTC-USDT")),
-        analysis: Some(AnalysisMatrix::empty("BTC-USDT")),
         prev_day_px: Some(dec!(49500.0)),
         statistical_context: None,
         metrics_config: None,

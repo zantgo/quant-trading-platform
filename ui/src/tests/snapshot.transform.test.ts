@@ -739,7 +739,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // `lastMatrixTimestamp` on every such frame, pinning it at ~wall-clock
         // so the ≥1m slots' matrix frames (timestamp = closed bucket start,
         // always ~duration in the past) never passed the monotonicity check —
-        // pair.alignment/analysis/risk/opportunity/advisory/decisionContext
+        // pair.alignment/risk/opportunity/advisory/decisionContext
         // stayed null and every non-chart tab showed no values.
         const pair = app.instancesMap['BTC-USDT'];
         const micro = pair.terms[1];
@@ -773,7 +773,6 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         // guard this frame was rejected forever; it must now populate the
         // pair-level mirrors.
         const alignment = { mtf_trend_alignment: 0.6, mtf_overall_score: 72.0 } as never;
-        const analysis = { market_regime: 'TRENDING', market_quality_score: 65.0 } as never;
         applySnapshotToTimeframe(app, fast, wsEvent({
             symbol: 'BTC',
             timeframe_label: '5s',
@@ -783,10 +782,8 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             mid_price: '64900.00',
             indicators: { rsi: { raw_value: 45.0, normalized: 0.0, state_label: 'RSI_NEUTRAL' } },
             alignment,
-            analysis,
         }), 'BTC-USDT');
         expect(pair.alignment).toEqual(alignment);
-        expect(pair.analysis).toEqual(analysis);
 
         // Step 3: interleaved matrix-less micro completes must NOT wipe the
         // mirrors (they carry no payload and don't advance the guard).
@@ -800,7 +797,6 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             indicators: { rsi: { raw_value: 57.0, normalized: 0.14, state_label: 'RSI_NEUTRAL' } },
         }), 'BTC-USDT');
         expect(pair.alignment).toEqual(alignment);
-        expect(pair.analysis).toEqual(analysis);
 
         // Step 4: monotonicity is preserved among MATRIX frames — an older
         // matrix frame (ts=90 < guard 100) must still be rejected.
@@ -813,10 +809,8 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             mid_price: '64800.00',
             indicators: { rsi: { raw_value: 44.0, normalized: 0.0, state_label: 'RSI_NEUTRAL' } },
             alignment: { mtf_trend_alignment: -0.6, mtf_overall_score: 30.0 } as never,
-            analysis: { market_regime: 'RANGE', market_quality_score: 40.0 } as never,
         }), 'BTC-USDT');
         expect(pair.alignment).toEqual(alignment);
-        expect(pair.analysis).toEqual(analysis);
 
         // Step 5: a NEWER matrix frame (ts=180 > 100) still updates the mirrors.
         const newerAlignment = { mtf_trend_alignment: 0.8, mtf_overall_score: 84.0 } as never;

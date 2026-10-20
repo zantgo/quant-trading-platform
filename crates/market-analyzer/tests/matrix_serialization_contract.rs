@@ -12,7 +12,6 @@
 use std::collections::HashMap;
 
 use core_domain::alignment::AlignmentMatrix;
-use core_domain::analysis::AnalysisMatrix;
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::{ContextDimension, MarketContext};
 use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity};
@@ -79,7 +78,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         indicators,
         context: Some(context),
         alignment: Some(AlignmentMatrix::empty("BTC-USDT")),
-        analysis: Some(AnalysisMatrix::empty("BTC-USDT")),
         prev_day_px: Some(dec!(49500.0)),
         statistical_context: None,
         metrics_config: None,
@@ -129,6 +127,7 @@ fn alignment_matrix_keys_match_frontend_contract() {
             "symbol",
             "timeframes_present",
             "dimensions",
+            "axis_rows",
             "mtf_trend_alignment",
             "mtf_momentum_alignment",
             "mtf_volume_alignment",
@@ -144,39 +143,9 @@ fn alignment_matrix_keys_match_frontend_contract() {
     );
     let row = &v["timeframe_alignments"];
     assert!(row.is_array() && row.as_array().map(|a| a.is_empty()).unwrap_or(false));
-}
-
-#[test]
-fn analysis_matrix_keys_match_frontend_contract() {
-    let snap = build_realistic_snapshot();
-    let v = serde_json::to_value(snap.analysis.as_ref().unwrap()).unwrap();
-    // `ui/src/types.ts` `AnalysisMatrix` — the full wire shape (v9 F-03:
-    // `opportunity_analysis` erased — the classification is L4-owned).
-    assert_keys_eq(
-        &v,
-        &[
-            "symbol",
-            "bias",
-            "market_bias_score",
-            "state_confidence",
-            "confidence",
-            "market_regime",
-            "trend_assessment",
-            "momentum_assessment",
-            "structure_assessment",
-            "volatility_assessment",
-            "volume_assessment",
-            "market_quality",
-            "market_quality_score",
-            "market_phase",
-            "market_interpretation",
-            "rationale",
-            "supporting_signals",
-            "contradicting_signals",
-            "timeframes_considered",
-        ],
-        "AnalysisMatrix",
-    );
+    let rows = v["axis_rows"].as_array().expect("axis rows array");
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0]["axis"], "direction");
 }
 
 #[test]
@@ -225,7 +194,6 @@ fn snapshot_top_level_keys_match_frontend_contract() {
         "indicators",
         "context",
         "alignment",
-        "analysis",
         "prev_day_px",
         "quality_envelope",
         "pipeline_state",

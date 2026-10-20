@@ -323,7 +323,6 @@ export async function waitForModelState(
 ): Promise<
     | {
         status: 'READY';
-        analysis: NonNullable<InstanceState['analysis']>;
         alignment: NonNullable<InstanceState['alignment']>;
         waitedMs: number;
     }
@@ -342,10 +341,9 @@ export async function waitForModelState(
         if (!pair) {
             return { status: 'TIMEOUT', waitedMs: Date.now() - start };
         }
-        if (decide(pair.analysis, pair.alignment) === 'KEEP') {
+        if (decide(pair.alignment) === 'KEEP') {
             return {
                 status: 'READY',
-                analysis: pair.analysis as NonNullable<InstanceState['analysis']>,
                 alignment: pair.alignment as NonNullable<InstanceState['alignment']>,
                 waitedMs: Date.now() - start,
             };

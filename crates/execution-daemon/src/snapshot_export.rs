@@ -15,8 +15,7 @@
 //!   2026-08-13/
 //!     14h30m05s/                      ← one tick (UTC timestamp)
 //!       BTC-USDT.micro.alignment.json
-//!       BTC-USDT.micro.analysis.json
-//!       BTC-USDT.micro.advisory.json
+//!       BTC-USDT.micro.model_state.json
 //!       ...
 //!       BTC-USDT.slow.alignment.json
 //!       ...
@@ -251,11 +250,13 @@ pub async fn tick_once(
 }
 
 /// Build the per-tab payload — either a per-tab matrix directly
-/// (alignment / analysis) or a small wrapper (metrics / mtf).
+/// (alignment / model_state) or a small wrapper (metrics / mtf).
 fn build_tab_payload(tab: &str, snap: &MarketSnapshot) -> serde_json::Value {
     match tab {
         "alignment" => serde_json::to_value(&snap.alignment).unwrap_or(serde_json::Value::Null),
-        "analysis" => serde_json::to_value(&snap.analysis).unwrap_or(serde_json::Value::Null),
+        "model_state" => {
+            serde_json::to_value(&snap.timeframe_state).unwrap_or(serde_json::Value::Null)
+        }
         "metrics" => serde_json::to_value(snap).unwrap_or(serde_json::Value::Null),
         "mtf" => serde_json::json!({
             "slot": snap
@@ -265,7 +266,7 @@ fn build_tab_payload(tab: &str, snap: &MarketSnapshot) -> serde_json::Value {
             "timeframe_secs": snap.timeframe_secs,
             "indicators": snap.indicators.len(),
             "alignment": snap.alignment,
-            "analysis": snap.analysis,
+            "model_state": snap.timeframe_state,
         }),
         _ => serde_json::json!({
             "unknown_tab": tab,

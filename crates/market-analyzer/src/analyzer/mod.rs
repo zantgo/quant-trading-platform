@@ -1267,10 +1267,6 @@ pub async fn run_single(
     let mut live_bar: u32 = 0;
     let mut prev_bar_state = PreviousBarState::default();
     let mut last_pivot_count: usize = 0;
-    let mut prev_mtf_score: Option<f64> = None;
-    let mut prev_regime: Option<core_domain::analysis::MarketRegime> = None;
-    let mut prev_volume_dim: Option<f64> = None;
-    let mut prev_bias: Option<core_domain::analysis::MarketBias> = None;
 
     let mut candle_gen = CandleGenerator::new(
         &symbol,
@@ -1684,10 +1680,6 @@ pub async fn run_single(
                             &mut sil_engine,
                             &mut prev_sil_close,
                             &mut mc_counter,
-                            &mut prev_mtf_score,
-                            &mut prev_regime,
-                            &mut prev_volume_dim,
-                            &mut prev_bias,
                             &cross_tf_snapshots,
                             &indicator_lifecycle,
                             &pipeline_state_handle,
@@ -2622,10 +2614,6 @@ pub async fn run_single(
                         &mut sil_engine,
                         &mut prev_sil_close,
                         &mut mc_counter,
-                        &mut prev_mtf_score,
-                        &mut prev_regime,
-                        &mut prev_volume_dim,
-                        &mut prev_bias,
                         &cross_tf_snapshots,
                         &indicator_lifecycle,
                         &pipeline_state_handle,
@@ -2935,10 +2923,6 @@ async fn synthesize_completed_candle(
     sil_engine: &mut StatisticsEngine,
     prev_sil_close: &mut f64,
     mc_counter: &mut u64,
-    prev_mtf_score: &mut Option<f64>,
-    prev_regime: &mut Option<core_domain::analysis::MarketRegime>,
-    prev_volume_dim: &mut Option<f64>,
-    prev_bias: &mut Option<core_domain::analysis::MarketBias>,
     // CR-10: `funding_history` is gone from this signature. It was the last
     // reader — the funding-rate indicator it fed is deleted, so the ring it
     // was threading through `run_single` for 30+ call sites has no consumer.
@@ -3544,7 +3528,6 @@ async fn synthesize_completed_candle(
         statistical_context: None,
         indicators: indicators.clone(),
         alignment: None,
-        analysis: None,
         timeframe_state: None,
         metrics_config: None,
         risk_profile: None,
@@ -3632,28 +3615,8 @@ async fn synthesize_completed_candle(
     // CR-15: the L4 opportunity, L5 risk and L6 advisory params are strategy
     // parameters. MME no longer reads them — the strategy layer is not run in
     // observe mode, and nothing here consumes them.
-    let analysis_params = crate::strategy_params::analysis_params_from_strategy(&strategy.l3);
     let alignment_params = crate::strategy_params::alignment_params_from_strategy(&strategy.l2);
-    let synthesis = crate::synthesis::synthesize_cross_tf(
-        symbol,
-        &cross_refs,
-        *prev_mtf_score,
-        *prev_regime,
-        *prev_volume_dim,
-        *prev_bias,
-        // v9: the strategy's L3 params.
-        &analysis_params,
-        // v9: the strategy's L2 params.
-        &alignment_params,
-        // CR-15: which duration leads the per-duration indicator union.
-        &strategy.ladder_roles,
-        // v9: the strategy's L5 params.
-    );
-
-    *prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
-    *prev_regime = Some(synthesis.analysis.market_regime);
-    *prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
-    *prev_bias = Some(synthesis.analysis.bias);
+    let synthesis = crate::synthesis::synthesize_cross_tf(symbol, &cross_refs, &alignment_params);
 
     let sil_ctx = sil_engine.advance_ext(
         close_f,
@@ -3753,11 +3716,9 @@ async fn synthesize_completed_candle(
         context: Some(current_context),
         statistical_context: Some(sil_ctx),
         indicators,
-        alignment: Some(synthesis.alignment),
-        analysis: Some(synthesis.analysis),
-        // 01-24 step 1: the model's own per-duration output, assembled from the
-        // readings above. Additive — `analysis` is still here until every
-        // consumer has moved.
+        alignment: Some(synthesis),
+        // The model's own per-duration output, assembled from the readings
+        // above after the snapshot exists.
         timeframe_state: None,
         risk_profile: None,
         volume_profile: volume_profile_snapshot,
@@ -3810,7 +3771,6 @@ async fn synthesize_completed_candle(
         // The shadow frame carries candle-derived data only. CR-15 removed the
         // four strategy nullings here along with the fields themselves.
         broadcast_snapshot.alignment = None;
-        broadcast_snapshot.analysis = None;
         // The model state is a reduction over cross-duration readings, so a
         // shadow frame — which exists to fill a chart before the ladder is live —
         // does not carry one. An axis assembled from partial durations would be a
@@ -4786,7 +4746,6 @@ pub(super) fn build_completed_snapshot_from_readings(
         statistical_context: None,
         indicators,
         alignment: None,
-        analysis: None,
         timeframe_state: None,
         risk_profile: None,
         volume_profile: readings.volume_profile_snapshot.clone(),
@@ -5076,7 +5035,6 @@ fn broadcast_live_snapshot(
         statistical_context: None,
         indicators,
         alignment: None,
-        analysis: None,
         timeframe_state: None,
         metrics_config: None,
         risk_profile: None,

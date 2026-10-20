@@ -7,6 +7,7 @@
 //!
 //! Layer: L2.5 in the architecture (Signal Correlation).
 
+use crate::axes::{AxisId, AxisState, Stage, TimeframeState};
 use crate::indicator_dtos::NormalizedIndicatorValue;
 use crate::market_context::MarketContext;
 use serde::{Deserialize, Serialize};
@@ -108,13 +109,162 @@ pub struct TfAlignmentInfo {
     pub price: f64,
 }
 
-/// Cross-timeframe Alignment Matrix for one symbol — 10 dimensions.
+/// One duration's contribution to a cross-duration axis row.
+///
+/// `position` is the published [`crate::axes::AxisValue`], including its typed
+/// absence. A duration that has not assembled a state is still a member: it
+/// carries `Undefined`, never a fabricated zero.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AxisMember {
+    pub timeframe_secs: u64,
+    pub position: crate::axes::AxisValue,
+    pub readiness: crate::axes::Readiness,
+}
+
+/// One of the four cross-duration axis rows.
+///
+/// This replaces the ten free-floating alignment dimensions as the model-side
+/// answer. `mean` is present only for signed axes; progression is summarised by
+/// its ordinal mode and never by arithmetic.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AxisRow {
+    pub axis: AxisId,
+    pub members: Vec<AxisMember>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agreement_pct: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal_stage: Option<Stage>,
+}
+
+impl AxisRow {
+    pub fn empty(axis: AxisId) -> Self {
+        Self {
+            axis,
+            members: Vec::new(),
+            mean: None,
+            agreement_pct: None,
+            gradient: None,
+            modal_stage: None,
+        }
+    }
+}
+
+/// Build the four cross-duration rows from the durations' published states.
+///
+/// The reduction is deliberately narrow: signed means quantify Direction,
+/// Momentum and Structure; the progression row uses an ordinal mode. Missing
+/// states remain typed members with [`crate::axes::UndefinedReason`] so a
+/// consumer can say why a row has no answer.
+pub fn axis_rows_from_states(states: &[(u64, Option<&TimeframeState>)]) -> Vec<AxisRow> {
+    let mut ordered: Vec<(u64, Option<&TimeframeState>)> = states.to_vec();
+    ordered.sort_by_key(|(secs, _)| *secs);
+
+    AxisId::ALL
+        .into_iter()
+        .map(|axis| {
+            let mut members = Vec::with_capacity(ordered.len());
+            for (secs, state) in &ordered {
+                let axis_state: Option<&AxisState> =
+                    state.and_then(|s| s.axes.iter().find(|candidate| candidate.axis == axis));
+                members.push(match axis_state {
+                    Some(s) => AxisMember {
+                        timeframe_secs: *secs,
+                        position: s.position.clone(),
+                        readiness: s.readiness,
+                    },
+                    None => AxisMember {
+                        timeframe_secs: *secs,
+                        position: crate::axes::AxisValue::undefined(
+                            crate::axes::UndefinedReason::NotApplicable {
+                                detail: format!(
+                                    "duration {} published no {} axis state",
+                                    crate::duration_label(*secs),
+                                    axis.label()
+                                ),
+                            },
+                        ),
+                        readiness: crate::axes::Readiness::Dashed,
+                    },
+                });
+            }
+
+            let mut row = AxisRow {
+                axis,
+                members,
+                ..AxisRow::empty(axis)
+            };
+
+            if axis.is_ordinal() {
+                let stages: Vec<Stage> = row
+                    .members
+                    .iter()
+                    .filter_map(|member| member.position.as_stage())
+                    .collect();
+                if !stages.is_empty() {
+                    let mut counts = [0u32; 5];
+                    for stage in &stages {
+                        counts[stage.anchor_index()] += 1;
+                    }
+                    let (index, count) = counts
+                        .iter()
+                        .enumerate()
+                        .max_by_key(|(_, count)| **count)
+                        .map(|(index, count)| (index, *count))
+                        .expect("non-empty stage list");
+                    row.modal_stage = Some(Stage::ALL[index]);
+                    row.agreement_pct = Some((count as f64 / stages.len() as f64) * 100.0);
+                    if let (Some(first), Some(last)) = (stages.first(), stages.last()) {
+                        row.gradient =
+                            Some(last.anchor_index() as f64 - first.anchor_index() as f64);
+                    }
+                }
+                return row;
+            }
+
+            let values: Vec<f64> = row
+                .members
+                .iter()
+                .filter_map(|member| member.position.as_signed().map(|(value, _)| value))
+                .filter(|value| value.is_finite())
+                .collect();
+            if values.is_empty() {
+                return row;
+            }
+
+            let mean = values.iter().sum::<f64>() / values.len() as f64;
+            row.mean = Some(mean);
+            if mean.abs() > f64::EPSILON {
+                let agreeing = values
+                    .iter()
+                    .filter(|value| value.signum() == mean.signum())
+                    .count();
+                row.agreement_pct = Some((agreeing as f64 / values.len() as f64) * 100.0);
+            } else {
+                row.agreement_pct = Some(0.0);
+            }
+            if values.len() >= 2 {
+                row.gradient = Some(values[values.len() - 1] - values[0]);
+            }
+            row
+        })
+        .collect()
+}
+
+/// Cross-timeframe Alignment Matrix for one symbol — 10 legacy dimensions plus
+/// the four axis rows that are replacing them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AlignmentMatrix {
     pub symbol: String,
     pub timeframes_present: u8,
     /// 10 alignment dimensions (spec order).
     pub dimensions: Vec<AlignmentDimension>,
+    /// Four cross-duration axis rows, one per [`AxisId`].
+    #[serde(default)]
+    pub axis_rows: Vec<AxisRow>,
     // ── Legacy top-level summaries (preserved for backward compat) ──
     pub mtf_trend_alignment: f64,
     pub mtf_momentum_alignment: f64,
@@ -155,6 +305,7 @@ impl AlignmentMatrix {
             symbol: symbol.to_string(),
             timeframes_present: 0,
             dimensions: vec![AlignmentDimension::new(0.0); 10],
+            axis_rows: AxisId::ALL.into_iter().map(AxisRow::empty).collect(),
             mtf_trend_alignment: 0.0,
             mtf_momentum_alignment: 0.0,
             mtf_volume_alignment: 0.0,
@@ -708,6 +859,7 @@ pub fn compute_alignment(
             dim_9_liquidity,
             dim_10_opportunity,
         ],
+        axis_rows: AxisId::ALL.into_iter().map(AxisRow::empty).collect(),
         mtf_trend_alignment,
         mtf_momentum_alignment,
         mtf_volume_alignment,
@@ -719,6 +871,22 @@ pub fn compute_alignment(
         signal_cross_tf_count: cross_tf_count,
         trend_agreement_pct: agreement,
     }
+}
+
+/// Compute the legacy alignment matrix and attach the four cross-duration rows
+/// assembled from each duration's published [`TimeframeState`].
+///
+/// `states` must be in the same active-duration order as `tf_data`; rows are
+/// sorted by duration so the gradient always runs fast → slow.
+pub fn compute_alignment_with_states(
+    symbol: &str,
+    tf_data: &[TimeframeAlignmentInput<'_>],
+    states: &[(u64, Option<&TimeframeState>)],
+    params: &AlignmentParams,
+) -> AlignmentMatrix {
+    let mut alignment = compute_alignment(symbol, tf_data, params);
+    alignment.axis_rows = axis_rows_from_states(states);
+    alignment
 }
 
 #[allow(dead_code)]
@@ -824,6 +992,130 @@ mod tests {
         assert_eq!(c.timeframes_present, 0);
         assert_eq!(c.mtf_stance, CrossTfStance::Unmeasured);
         assert_eq!(c.dimensions.len(), 10);
+        assert_eq!(c.axis_rows.len(), 4);
+    }
+
+    fn test_state(
+        secs: u64,
+        direction: f64,
+        momentum: f64,
+        structure: f64,
+        stage: Stage,
+    ) -> TimeframeState {
+        let undefined =
+            crate::axes::AxisValue::undefined(crate::axes::UndefinedReason::NotApplicable {
+                detail: "test size".into(),
+            });
+        let axis = |axis: AxisId, position: crate::axes::AxisValue| AxisState {
+            axis,
+            position,
+            size: undefined.clone(),
+            readiness: crate::axes::Readiness::Solid,
+            readings: Vec::new(),
+        };
+        TimeframeState {
+            identity: crate::axes::TimeframeIdentity {
+                instance_id: "inst".into(),
+                pair: "BTC-USD".into(),
+                exchange: "hyperliquid".into(),
+                timeframe_secs: secs,
+                timeframe_label: crate::duration_label(secs),
+                candle_count: 500,
+                last_closed_at: "2026-10-20T00:00:00Z".into(),
+                available_at: "500".into(),
+                spec_version: crate::SPEC_VERSION.into(),
+                build_version: crate::BUILD_VERSION.into(),
+            },
+            axes: vec![
+                axis(
+                    AxisId::Direction,
+                    crate::axes::AxisValue::signed(direction, crate::axes::Domain::DirectionalBias),
+                ),
+                axis(
+                    AxisId::Momentum,
+                    crate::axes::AxisValue::signed(momentum, crate::axes::Domain::Acceleration),
+                ),
+                axis(
+                    AxisId::Structure,
+                    crate::axes::AxisValue::signed(structure, crate::axes::Domain::NetEventBias),
+                ),
+                axis(AxisId::Progression, crate::axes::AxisValue::ordinal(stage)),
+            ],
+            events: crate::axes::EventCounts::default(),
+            levels: Vec::new(),
+            atr: Some(1.0),
+            legs: Vec::new(),
+            diagnostics: crate::axes::Diagnostics {
+                state: crate::axes::DiagnosticState::Coiling,
+                volatility_change_pct: 0.0,
+                participation_change_pct: 0.0,
+                basis: crate::axes::DiagnosticBasis {
+                    bbwp_pct: 20.0,
+                    rvol_pct: 100.0,
+                },
+            },
+            derived: crate::axes::DerivedState {
+                consensus: crate::axes::Consensus {
+                    agreeing_axes: 0,
+                    of: 4,
+                    axes: Vec::new(),
+                    weakest_axis: None,
+                },
+                stability: crate::axes::Stability {
+                    state: crate::axes::StabilityState::Holding,
+                    changes_last_50_bars: 0,
+                    window: 50,
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn axis_rows_cover_all_four_axes_and_absence_is_typed() {
+        let state = test_state(60, 0.5, 0.2, 0.1, Stage::Mid);
+        let rows = axis_rows_from_states(&[(1, None), (60, Some(&state))]);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(
+            rows.iter().map(|row| row.axis).collect::<Vec<_>>(),
+            AxisId::ALL.to_vec()
+        );
+        assert_eq!(rows[0].members.len(), 2);
+        assert!(matches!(
+            rows[0].members[0].position,
+            crate::axes::AxisValue::Undefined { .. }
+        ));
+        assert_eq!(rows[0].members[1].readiness, crate::axes::Readiness::Solid);
+        assert_eq!(rows[0].mean, Some(0.5));
+    }
+
+    #[test]
+    fn axis_row_gradient_runs_fast_to_slow() {
+        let fast = test_state(1, -0.5, 0.0, 0.0, Stage::Early);
+        let slow = test_state(60, 0.5, 0.0, 0.0, Stage::Late);
+        let rows = axis_rows_from_states(&[(60, Some(&slow)), (1, Some(&fast))]);
+        let direction = rows
+            .iter()
+            .find(|row| row.axis == AxisId::Direction)
+            .unwrap();
+        assert_eq!(direction.mean, Some(0.0));
+        assert_eq!(direction.gradient, Some(1.0));
+        assert_eq!(direction.agreement_pct, Some(0.0));
+    }
+
+    #[test]
+    fn progression_uses_ordinal_mode_never_arithmetic() {
+        let one = test_state(1, 0.0, 0.0, 0.0, Stage::Early);
+        let three = test_state(3, 0.0, 0.0, 0.0, Stage::Early);
+        let five = test_state(5, 0.0, 0.0, 0.0, Stage::Late);
+        let rows = axis_rows_from_states(&[(5, Some(&five)), (1, Some(&one)), (3, Some(&three))]);
+        let progression = rows
+            .iter()
+            .find(|row| row.axis == AxisId::Progression)
+            .unwrap();
+        assert_eq!(progression.modal_stage, Some(Stage::Early));
+        assert_eq!(progression.mean, None);
+        assert!((progression.agreement_pct.unwrap() - 200.0 / 3.0).abs() < 1e-9);
+        assert_eq!(progression.gradient, Some(3.0));
     }
 
     #[test]

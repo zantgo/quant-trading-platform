@@ -1,5 +1,6 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    import { stanceToBias } from '../lib/modelState';
     import { createInstance, waitForModelState } from '../lib/api.svelte';
     import { connectWsForInstance, type WsState } from '../lib/websocket.svelte';
     import { clampWaitMinutes, detectBackendErrorKind, parseSymbolsWithReasons, reasonFor, reasonLabel, summarize, WAIT_WINDOW_DEFAULT, WAIT_WINDOW_MAX, WAIT_WINDOW_MIN, type PairOutcome } from '../lib/watchlistScanner';
@@ -141,8 +142,8 @@
                     outcomes[i] = {
                         ...outcome,
                         status: 'done',
-                        reason: reasonFor('KEEP', verdict.analysis, verdict.alignment),
-                        guidance: verdict.analysis.bias ?? null,
+                        reason: reasonFor('KEEP', verdict.alignment),
+                        guidance: stanceToBias(verdict.alignment.mtf_stance),
                         mtfLabel: verdict.alignment.mtf_stance ?? null,
                         elapsedMs,
                     };

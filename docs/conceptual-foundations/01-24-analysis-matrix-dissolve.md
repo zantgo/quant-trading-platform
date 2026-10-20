@@ -2,14 +2,42 @@
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
 
-> **Status: specification. Nothing here is implemented yet.**
+> **Status: steps 2.1–2.3 and 3a implemented (2026-10-20); steps 2.4 and 3b
+> remain.**
+> Step 2.1 removed the four `previous_*` carriers from live and replay. The
+> grace-band *hold*, the `Transition` regime and the volume-led
+> `Accumulation`/`Distribution` phases retired with them; the LEAN tier now
+> reads THIS bar's vote and is not a hold. `TimeframeState` is the only state
+> carrier, and BTE historical breadth reads its Direction axis. The step 2.1
+> regressions are in `core-domain/src/analysis.rs` and
+> `market-analyzer/tests/regime_ban.rs`.
+>
+> Step 2.2/2.3: `market_snapshots.model_state_json` now persists the state,
+> the recorded replay restores it, and BTE historical no longer synthesizes an
+> `AnalysisMatrix` at all. TAE reads `TimeframeState` only.
+>
+> Step 3a: `MarketSnapshot::analysis` is gone; `synthesize_cross_tf` returns
+> `AlignmentMatrix`; the live writer, recorded restore, storage read, export
+> tab, TAE fallback and every production UI consumer are removed. The
+> `analysis_json` column remains write-only (`NULL`) until the forward
+> migration, and `AnalysisMatrix`/`derive_analysis` remain only for the
+> test-only L5/L6 modules and legacy export shapes.
+>
+> Step 2.4 (retype the test-only `compute_risk`/advisory inputs onto
+> `TimeframeState`) and step 3b (delete `AnalysisMatrix`/`derive_analysis` and
+> the dead L5/L6 modules) remain open.
+>
 > This document exists because `AnalysisMatrix` is the last large block on the
 > wire that is neither an axis, nor a diagnostic, nor a derived consensus — and
 > because dissolving it touches 31 Rust files, a database column and 115 UI
 > references. Sequencing a 47-site refactor badly is how the project ends up with
 > a half-dissolved matrix and two producers, which is worse than the matrix.
 
-## 1. What `AnalysisMatrix` is today
+## 1. What `AnalysisMatrix` was before step 3a
+
+> This table records the starting surface. Step 3a removed every production
+> consumer listed here except the write-only `analysis_json` bind; the type now
+> lives only for the test-only L5/L6 modules.
 
 Produced by `analysis::derive_analysis` on every closed candle, carried as
 `MarketSnapshot::analysis`, and consumed by:

@@ -48,7 +48,6 @@ function seedEmptyPair(): InstanceState {
     if (!app.instancesMap['BTC-USDT']) app.initInstance('BTC');
     const entry = app.instancesMap['BTC-USDT'];
     entry.alignment = null;
-    entry.analysis = null;
     return entry;
 }
 

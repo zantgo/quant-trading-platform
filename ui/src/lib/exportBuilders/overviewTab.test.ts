@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildOverviewTabExport } from './overviewTab';
 import type { LayerHeaderSpec } from '../layerHeader';
-import type { AlignmentMatrix, AnalysisMatrix, InstanceState } from '../../types';
+import type { AlignmentMatrix, InstanceState } from '../../types';
 import { DURATIONS } from '../../types';
 import { makeTerms } from '../../tests/makeTerms';
 
@@ -22,10 +22,6 @@ const tf = {
   latestSnapshot: { timestamp: 1786752300 },
   priceText: '63006.0',
 } as unknown as InstanceState['terms'][number];
-
-function makeAnalysis(bias = 'Neutral'): AnalysisMatrix {
-  return { symbol: 'BTC-USDC', bias, market_quality: 'Average' } as unknown as AnalysisMatrix;
-}
 
 function makeAlignment(overrides: Record<string, unknown> = {}): AlignmentMatrix {
   return {
@@ -46,7 +42,6 @@ function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
     historyLatestClose: '63006.0',
     currentView: { timeframe: 'micro60', symbol: 'BTC-USDC', layer: 'overview' } as never,
     alignment: null,
-    analysis: makeAnalysis(),
     ...overrides,
   } as unknown as InstanceState;
 }
@@ -57,7 +52,6 @@ describe('buildOverviewTabExport — I-10 KPI demotion parity', () => {
       symbol: 'BTC-USDC',
       instanceId: 'inst_btc',
       microTerm: tf,
-      analysis: makeAnalysis('StrongBullish'),
     } as unknown as InstanceState;
 
     const p = JSON.parse(buildOverviewTabExport({
@@ -89,7 +83,6 @@ describe('buildOverviewTabExport — I-10 KPI demotion parity', () => {
       symbol: 'BTC-USDC',
       instanceId: 'inst_btc',
       microTerm: tf,
-      analysis: makeAnalysis('StrongBullish'),
     } as unknown as InstanceState;
 
     const p = JSON.parse(buildOverviewTabExport({
@@ -135,7 +128,7 @@ describe('buildOverviewTabExport — asset ranking row is model-only', () => {
     it('carries price, bias, score and cross-duration agreement', () => {
         const out = buildOverviewTabExport({
             overviewMatrix: null,
-            instances: [makeInstance({ alignment: makeAlignment(), analysis: makeAnalysis('Bullish') })],
+            instances: [makeInstance({ alignment: makeAlignment() })],
             headerSpec,
             nowMs: 1_700_000_000_000,
         });
@@ -149,7 +142,7 @@ describe('buildOverviewTabExport — asset ranking row is model-only', () => {
     it('CR-15: carries no strategy key at all', () => {
         const out = buildOverviewTabExport({
             overviewMatrix: null,
-            instances: [makeInstance({ alignment: makeAlignment(), analysis: makeAnalysis('Bullish') })],
+            instances: [makeInstance({ alignment: makeAlignment() })],
             headerSpec,
             nowMs: 1_700_000_000_000,
         });
@@ -167,7 +160,7 @@ describe('buildOverviewTabExport — asset ranking row is model-only', () => {
     it('CR-15: the payload carries no hero / KPI / card verdict', () => {
         const out = buildOverviewTabExport({
             overviewMatrix: null,
-            instances: [makeInstance({ alignment: makeAlignment(), analysis: makeAnalysis('Bullish') })],
+            instances: [makeInstance({ alignment: makeAlignment() })],
             headerSpec,
             nowMs: 1_700_000_000_000,
         });

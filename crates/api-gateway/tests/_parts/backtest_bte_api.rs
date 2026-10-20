@@ -623,5 +623,41 @@ async fn standalone_run_completes_and_persists() {
     let (s, t) = get_json(state.clone(), &format!("/api/backtest/{id}/equity")).await;
     assert_eq!(s, StatusCode::OK);
     assert!(t["equity"].is_array());
+
+    // v10.2 traceability contract: the run carries its source, frozen
+    // config snapshot, input checksum and bar count in BOTH stores.
+    use sqlx::Row as _;
+    let row =
+        sqlx::query("SELECT params_json, config_snapshot_json FROM backtest_runs WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            .expect("persisted run row");
+    let params: serde_json::Value =
+        serde_json::from_str(&row.get::<String, _>("params_json")).expect("params json");
+    assert_eq!(params["source"]["kind"], "venue_archive");
+    assert_eq!(params["source"]["provider"], "Hyperliquid");
+    assert_eq!(params["source"]["dataset"], "candle_archive");
+    assert_eq!(params["source"]["schema_version"], "12.0.0");
+    assert!(params["input_bar_count"].as_u64().unwrap_or(0) > 0);
+    assert_eq!(
+        params["data_checksum_sha256"].as_str().unwrap_or("").len(),
+        64
+    );
+    let config: serde_json::Value =
+        serde_json::from_str(&row.get::<String, _>("config_snapshot_json")).expect("config json");
+    assert_eq!(config["exchange"], "Hyperliquid");
+    assert!(config["fees"].is_object());
+    assert!(config["backtest"]["warmup_bars"].is_number());
+    let bar_count: i64 = sqlx::query("SELECT COUNT(*) FROM backtest_input_bars WHERE run_id = ?1")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .expect("input bars")
+        .get(0);
+    assert_eq!(
+        bar_count as u64,
+        params["input_bar_count"].as_u64().unwrap()
+    );
     let _ = &seed_archive_row;
 }

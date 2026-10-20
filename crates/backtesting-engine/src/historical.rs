@@ -36,11 +36,14 @@
 
 use config_models::FibonacciConfig;
 use core_domain::analysis::MarketBias;
+use core_domain::axes::{AxisId, TimeframeState};
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{Exchange, NormalizedCandle};
 use core_domain::portfolio::SafetyState;
 use market_analyzer::active_set::ActiveSet;
 use market_analyzer::analyzer::warm_indicators_for_timeframe;
+use market_analyzer::leg::{LegDriver, LegPolicy};
+use market_analyzer::model::live::timeframe_state_from_snapshot;
 use portfolio_supervisor::execution::session_tick::run_tick;
 use portfolio_supervisor::execution::ExecutionEngine;
 use portfolio_supervisor::paper_trading::FeesConfig;
@@ -350,33 +353,16 @@ pub async fn run_historical_backtest(
     let mut portfolio: Vec<database_storage::queries::backtest_ds::DsPortfolioPoint> = Vec::new();
     let mut peak_equity: f64 = params.portfolio_capital_usd;
 
-    // MTF synthesis state carried per symbol across ticks (mirrors the
-    // live loop — state must not leak across symbols).
-    struct MtfState {
-        prev_score: Option<f64>,
-        prev_regime: Option<core_domain::analysis::MarketRegime>,
-        prev_volume_dim: Option<f64>,
-        prev_bias: Option<MarketBias>,
-    }
-    let mut mtf_states: HashMap<String, MtfState> = run_cfg
-        .symbols
-        .iter()
-        .map(|s| {
-            (
-                s.symbol.clone(),
-                MtfState {
-                    prev_score: None,
-                    prev_regime: None,
-                    prev_volume_dim: None,
-                    prev_bias: None,
-                },
-            )
-        })
-        .collect();
-
     // v10 (A15): the latest completed bias per run symbol — the replay's
     // analog of the live L7 breadth feed (strategy intake gates).
     let mut latest_bias: HashMap<String, Option<MarketBias>> = HashMap::new();
+
+    // V-506: the replay drives the SAME `LegDriver` carrier as the live loop.
+    // One per (symbol, duration), created from the history visible at the
+    // first replay event so the noise floor never sees a future bar.
+    let mut leg_drivers: HashMap<(String, u64), LegDriver> = HashMap::new();
+    let mut latest_states: HashMap<(String, u64), TimeframeState> = HashMap::new();
+    let mut last_state_ts: HashMap<(String, u64), u64> = HashMap::new();
 
     // Simulated 8h funding clock: settle at every multiple of
     // FUNDING_INTERVAL_SECS crossed by the replay clock.
@@ -427,23 +413,39 @@ pub async fn run_historical_backtest(
 
         // Gather the latest aligned snapshot per ladder TF (≤ event ts)
         // for THIS symbol only — never another symbol's buffers.
-        let mut tf_refs: Vec<(u64, MarketSnapshot)> = Vec::with_capacity(spec.ladder.len());
+        let mut tf_refs: Vec<(u64, MarketSnapshot, usize)> = Vec::with_capacity(spec.ladder.len());
         for tf in &spec.ladder {
             if let Some(series) = per_tf_snapshots.get(&(ev.symbol.clone(), *tf)) {
-                if let Some(latest) = latest_at_or_before(series, ev.ts) {
-                    tf_refs.push((*tf, latest.clone()));
+                if let Some(idx) = latest_index_at_or_before(series, ev.ts) {
+                    tf_refs.push((*tf, series[idx].clone(), idx + 1));
                 }
             }
         }
 
-        let mut snap = ev.snap.clone();
-        let mut mtf = mtf_states.remove(&ev.symbol).unwrap_or(MtfState {
-            prev_score: None,
-            prev_regime: None,
-            prev_volume_dim: None,
-            prev_bias: None,
-        });
+        // The warm history is a `history_projection()`: it deliberately drops
+        // every derived field (context, alignment, analysis, state) to keep
+        // retained memory bounded. Context is rebuilt here, and the state is
+        // rebuilt below by advancing each duration's LegDriver.
+        for (_, snapshot, _) in &mut tf_refs {
+            if snapshot.context.is_none() {
+                snapshot.context = Some(
+                    market_analyzer::market_context_synth::synthesize_market_context(
+                        &snapshot.indicators,
+                        Some(&run_cfg.strategy.l1),
+                    ),
+                );
+            }
+        }
 
+        let mut snap = ev.snap.clone();
+        if snap.context.is_none() {
+            snap.context = Some(
+                market_analyzer::market_context_synth::synthesize_market_context(
+                    &snap.indicators,
+                    Some(&run_cfg.strategy.l1),
+                ),
+            );
+        }
         // ── The SAME pure synthesizer the live model assembly calls ──
         //
         // CR-15: the replay now drives the MODEL only. It used to compute the
@@ -451,31 +453,46 @@ pub async fn run_historical_backtest(
         // call, and then derive a setup from them. Those layers no longer cross
         // the boundary, so the replay stops at alignment + analysis, exactly
         // where the live observe path does.
-        let cross: Vec<(u64, &MarketSnapshot)> = tf_refs.iter().map(|(t, s)| (*t, s)).collect();
         let analysis_params =
             market_analyzer::strategy_params::analysis_params_from_strategy(&run_cfg.strategy.l3);
-        let alignment_params =
-            market_analyzer::strategy_params::alignment_params_from_strategy(&run_cfg.strategy.l2);
-        let synthesis = market_analyzer::synthesis::synthesize_cross_tf(
-            &ev.symbol,
-            &cross,
-            mtf.prev_score,
-            mtf.prev_regime,
-            mtf.prev_volume_dim,
-            mtf.prev_bias,
-            &analysis_params,
-            &alignment_params,
-            &run_cfg.strategy.ladder_roles,
+
+        // V-506: advance each duration's single state carrier BEFORE synthesis.
+        // The warm history is a `history_projection`, so no `timeframe_state`
+        // survives from the archive; replay reconstructs it from the same
+        // normalized indicators/readings the live assembler consumes.
+        for (tf, snapshot, candle_count) in &mut tf_refs {
+            let key = (ev.symbol.clone(), *tf);
+            if last_state_ts.get(&key) != Some(&snapshot.timestamp) {
+                let floor = series_noise_floor(&per_tf_snapshots, &ev.symbol, *tf, ev.ts);
+                let driver = leg_drivers
+                    .entry(key.clone())
+                    .or_insert_with(|| LegDriver::new(LegPolicy::default(), floor));
+                let state = timeframe_state_from_snapshot(
+                    snapshot,
+                    *candle_count,
+                    "backtest-historical",
+                    driver,
+                );
+                latest_states.insert(key.clone(), state);
+                last_state_ts.insert(key.clone(), snapshot.timestamp);
+            }
+            snapshot.timeframe_state = latest_states.get(&key).cloned();
+        }
+
+        // P10-G: the replay consumes the per-duration states directly. No
+        // cross-TF `AnalysisMatrix` is synthesized here; breadth and the setup
+        // executor both read the one state carrier.
+        // V-506: breadth reads the MODEL state, not `AnalysisMatrix::bias`.
+        latest_bias.insert(
+            ev.symbol.clone(),
+            Some(bias_from_timeframe_states(&tf_refs, &analysis_params)),
         );
 
-        mtf.prev_score = Some(synthesis.alignment.mtf_overall_score);
-        mtf.prev_regime = Some(synthesis.analysis.market_regime);
-        mtf.prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
-        mtf.prev_bias = Some(synthesis.analysis.bias);
-        mtf_states.insert(ev.symbol.clone(), mtf);
-        latest_bias.insert(ev.symbol.clone(), Some(synthesis.analysis.bias));
-
-        snap.analysis = Some(synthesis.analysis.clone());
+        // Keep the entry snapshot's state for the per-tick setup executor.
+        snap.timeframe_state = tf_refs
+            .iter()
+            .find(|(tf, _, _)| *tf == ev.entry_tf)
+            .and_then(|(_, s, _)| s.timeframe_state.clone());
         snap.is_completed = Some(true);
 
         // v8.2 parity: the simulated safety ladder is the soft entry gate.
@@ -882,6 +899,83 @@ fn warm_tf(
 }
 
 /// Latest snapshot with `ts <= t` (the series is ascending).
+fn latest_index_at_or_before(series: &[MarketSnapshot], t: u64) -> Option<usize> {
+    match series.binary_search_by_key(&t, |s| s.timestamp) {
+        Ok(idx) => Some(idx),
+        Err(idx) if idx > 0 => Some(idx - 1),
+        _ => series.first().filter(|s| s.timestamp <= t).map(|_| 0),
+    }
+}
+
+/// Median ATR-shaped range over the 50 bars visible at `t` (L21's frozen
+/// noise floor, never a future bar).
+fn series_noise_floor(
+    per_tf: &HashMap<(String, u64), Vec<MarketSnapshot>>,
+    symbol: &str,
+    tf: u64,
+    t: u64,
+) -> f64 {
+    let Some(series) = per_tf.get(&(symbol.to_string(), tf)) else {
+        return 0.001;
+    };
+    let Some(idx) = latest_index_at_or_before(series, t) else {
+        return 0.001;
+    };
+    let mut ranges: Vec<f64> = series[..=idx]
+        .iter()
+        .rev()
+        .take(50)
+        .filter_map(|s| {
+            let hi = s.high?.to_f64()?;
+            let lo = s.low?.to_f64()?;
+            let r = (hi - lo).abs();
+            (r.is_finite() && r > 0.0).then_some(r)
+        })
+        .collect();
+    if ranges.is_empty() {
+        return 0.001;
+    }
+    ranges.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    market_analyzer::leg::noise_floor_from_range(ranges[ranges.len() / 2])
+}
+
+/// The replay's breadth reads `TimeframeState` direction (mean across the
+/// ladder) and maps it onto the configured analysis thresholds.
+fn bias_from_timeframe_states(
+    tf_refs: &[(u64, MarketSnapshot, usize)],
+    params: &core_domain::analysis::AnalysisParams,
+) -> MarketBias {
+    let values: Vec<f64> = tf_refs
+        .iter()
+        .filter_map(|(_, s, _)| {
+            s.timeframe_state.as_ref().and_then(|state| {
+                state
+                    .axes
+                    .iter()
+                    .find(|a| a.axis == AxisId::Direction)
+                    .and_then(|a| a.position.as_signed())
+                    .map(|(v, _)| v)
+            })
+        })
+        .collect();
+    let score = if values.is_empty() {
+        0.0
+    } else {
+        values.iter().sum::<f64>() / values.len() as f64 * 100.0
+    };
+    if score > params.bias_strong {
+        MarketBias::StrongBullish
+    } else if score > params.bias_plain {
+        MarketBias::Bullish
+    } else if score < -params.bias_strong {
+        MarketBias::StrongBearish
+    } else if score < -params.bias_plain {
+        MarketBias::Bearish
+    } else {
+        MarketBias::Neutral
+    }
+}
+
 fn latest_at_or_before(series: &[MarketSnapshot], t: u64) -> Option<&MarketSnapshot> {
     match series.binary_search_by_key(&t, |s| s.timestamp) {
         Ok(idx) => Some(&series[idx]),
@@ -1052,6 +1146,10 @@ mod tests {
 
         assert!(!r1.cancelled && !r2.cancelled);
         assert_eq!(r1.trades.len(), r2.trades.len(), "deterministic trades");
+        assert!(
+            r1.total_trades > 0,
+            "a modelled trend must produce at least one trade (warm projections must be re-contextualised)"
+        );
         assert_eq!(r1.equity_curve.len(), r2.equity_curve.len());
         for (a, b) in r1.equity_curve.iter().zip(&r2.equity_curve) {
             assert_eq!(a.0, b.0);

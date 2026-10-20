@@ -28,7 +28,7 @@
 // pair, an invalid ticker, or a venue that does not list it. Those are input
 // errors, not judgements about the market.
 
-import type { AlignmentMatrix, AnalysisMatrix, MarketBias } from '../types';
+import type { AlignmentMatrix } from '../types';
 
 // v11.12.26: the scanner used to drop any token over 10 CHARACTERS silently
 // (no error at all), which was the worst failure mode for a non-ASCII ticker —
@@ -153,37 +153,15 @@ export function watchlistIsClean(text: string): boolean {
 
 /** Has the model resolved a reading for this pair?
  *
- *  CR-15: this replaces a rule that required a READY trade gate AND a real
- *  directional bias, and DELETEd every pair that fell short. Both inputs were
- *  strategy, so the rule now asks only whether the model has spoken: a resolved
- *  bias (Neutral counts — a flat read is a reading) and at least one duration
- *  with a cross-duration alignment other than `NO_DATA`.
- *
- *  Note what this deliberately does NOT do: it never returns a verdict that
- *  removes a pair. Not Neutral, not a missing alignment, not a timeout. */
+ *  P10-G: `AnalysisMatrix` is gone. The alignment already carries the same
+ *  cross-duration direction (`mtf_stance`) and whether the model has spoken
+ *  (`unmeasured` is the only absence). No verdict ever removes a pair. */
 export function decide(
-    analysis: AnalysisMatrix | null | undefined,
     alignment: AlignmentMatrix | null | undefined,
 ): DecisionVerdict {
-    // CR-15: "resolved" means the model has produced a reading for this pair.
-    // A pair is kept once that happens, and the verdict is never DELETE on the
-    // strength of what the model said — only the caller removes pairs, and only
-    // for input-level problems.
-    if (!analysis || typeof analysis !== 'object') return 'WAIT';
-    if (!hasResolvedBias(analysis.bias)) return 'WAIT';
     if (!alignment || typeof alignment !== 'object') return 'WAIT';
     if (alignment.mtf_stance === 'unmeasured') return 'WAIT';
     return 'KEEP';
-}
-
-/** A bias the model has actually resolved.
- *
- *  `Neutral` is a resolution, not an absence — a market the model reads as flat
- *  is still a reading, so it keeps the pair. What would NOT be a resolution is
- *  `undefined` / `null`, which is what a pair that has not yet produced a
- *  completed-candle analysis carries. */
-function hasResolvedBias(bias: MarketBias | null | undefined): boolean {
-    return bias != null;
 }
 
 /** Map a `DecisionVerdict` to the user-facing reason string on the summary
@@ -191,16 +169,10 @@ function hasResolvedBias(bias: MarketBias | null | undefined): boolean {
  *  — they are notes on a pair that was kept, not reasons for a removal. */
 export function reasonFor(
     verdict: DecisionVerdict,
-    analysis: AnalysisMatrix | null | undefined,
     alignment: AlignmentMatrix | null | undefined,
 ): PairOutcomeReason {
     if (verdict === 'KEEP') return 'KEEP';
-    // CR-15: the four strategy near-misses (no decision / not ready / direction
-    // neutral / avoid directional) all said the same thing in different words —
-    // "the model has not produced a trade call yet". There is one reason now.
-    if (!analysis || typeof analysis !== 'object') return 'NO_MODEL_STATE';
-    if (!hasResolvedBias(analysis.bias)) return 'NO_MODEL_STATE';
-    if (!alignment || typeof alignment !== 'object') return 'NO_CROSS_TF';
+    if (!alignment || typeof alignment !== 'object') return 'NO_MODEL_STATE';
     return 'NO_CROSS_TF';
 }
 

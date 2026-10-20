@@ -125,22 +125,6 @@ fn step1_the_retained_projection_drops_it() {
     );
     // And what it DOES keep is the readings the state is derived from, so it can
     // be re-derived on demand.
-    assert!(projected.analysis.is_none());
-}
-
-#[test]
-fn step1_analysis_and_timeframe_state_coexist_in_this_commit() {
-    // Stated as a test because it is the thing a reviewer must see before the
-    // next commit removes one of them.
-    let mut snapshot = snapshot_with_timeframe_state();
-    snapshot.analysis = Some(core_domain::analysis::AnalysisMatrix::empty("BTC-USDT"));
-    let json = serde_json::to_string(&snapshot).expect("serialises");
-    assert!(
-        json.contains("analysis") && json.contains("timeframe_state"),
-        "step 1 is additive: both are present. When this fails, step 2 has begun \
-         and this assertion should be deleted in the same commit that removes a \
-         consumer"
-    );
 }
 
 #[test]

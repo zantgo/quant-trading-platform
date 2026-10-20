@@ -18,6 +18,7 @@
 // clipboard.
 
 import type { AssetRank, InstanceState, OverviewMatrix } from '../../types';
+import { stanceToBias } from '../modelState';
 import { buildHeaderBlock, type HeaderBlock } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { demoteBiasForCoverage } from '../layerHeader';
@@ -299,7 +300,6 @@ function buildAssetRankingRow(
     // qualifying profile score, then `opportunity_score`), which no longer
     // exists; the agreement score is the model measurement that remains.
     const backendRank = assetRanking?.find((r) => r.symbol === inst.symbol) ?? null;
-    const analysis = inst.analysis;
     const aln = inst.alignment;
     const mtfScore = aln?.mtf_overall_score ?? 0;
     const score = backendRank != null && Number.isFinite(backendRank.score)
@@ -312,7 +312,7 @@ function buildAssetRankingRow(
     return {
         symbol: inst.symbol,
         price_display: inst.terms?.[1]?.priceText ?? '--',
-        bias: analysis?.bias ?? 'Neutral',
+        bias: stanceToBias(aln?.mtf_stance),
         score,
         score_display: score.toFixed(0),
         mtf_score: mtfScore,

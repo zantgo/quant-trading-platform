@@ -513,10 +513,14 @@ pub async fn run_cli_backtest(
     // The window: [now − depth + burn_in, now].
     let burn_in_secs =
         workspace.backtest.warmup_bars as i64 * args.tf.iter().copied().max().unwrap_or(900) as i64;
-    let to_secs = std::time::SystemTime::now()
+    let mut to_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(1_800_000_000);
+    // Align the window to the fastest requested candle so two runs in the
+    // same bar consume byte-identical datasets (traceability checksum).
+    let anchor = args.tf.iter().copied().min().unwrap_or(60).max(1);
+    to_secs -= to_secs % anchor as i64;
     let from_secs = to_secs - (args.depth_days as i64 * 86400 - burn_in_secs);
 
     let params = backtesting_engine::recorded::BacktestParams {
@@ -645,7 +649,12 @@ pub async fn run_cli_backtest(
         symbols: None,
         strategy_id: args.strategy_name.clone(),
     };
-    let input_bars_target: Option<(String, Vec<u64>)> = Some((symbols[0].clone(), args.tf.clone()));
+    let input_bars_target: Option<Vec<(String, Vec<u64>)>> = Some(
+        symbols
+            .iter()
+            .map(|s| (s.clone(), args.tf.clone()))
+            .collect(),
+    );
     match api_gateway::handlers::analytics::persist_backtest_run(
         pool,
         workspace,
@@ -655,7 +664,7 @@ pub async fn run_cli_backtest(
         &payload,
         &result,
         None,
-        input_bars_target.as_ref(),
+        input_bars_target.as_deref(),
     )
     .await
     {

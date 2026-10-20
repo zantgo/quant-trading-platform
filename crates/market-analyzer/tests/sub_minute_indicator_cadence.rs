@@ -483,10 +483,10 @@ async fn all_indicator_families_advance_on_sub_minute_doji_fills() {
 /// different candle sequences (one 1-second bar per sample, one 5-second
 /// bar per sample) and asserting they produce different RSI values. If a
 /// live implementation ever conflated these, the per-TF contract is broken.
-/// CR-15: the model's cross-TF output is alignment + analysis. The strategy
-/// matrices this predicate used to require no longer exist on the snapshot.
+/// P10-G: the model's cross-TF output is the alignment plus the per-duration
+/// model state. The derived analysis matrix is gone.
 fn has_model_matrices(s: &MarketSnapshot) -> bool {
-    s.alignment.is_some() && s.analysis.is_some()
+    s.alignment.is_some() && s.timeframe_state.is_some()
 }
 
 #[test]

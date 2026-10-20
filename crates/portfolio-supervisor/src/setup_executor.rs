@@ -499,33 +499,193 @@ impl SetupPlan {
     }
 }
 
+/// The subset of model output a TAE bracket needs.
+struct SetupModel {
+    direction: &'static str,
+    bias_score: f64,
+    confidence: f64,
+    setup_type: &'static str,
+}
+
+fn setup_model(snapshot: &MarketSnapshot) -> Option<SetupModel> {
+    let state = snapshot.timeframe_state.as_ref()?;
+    let direction_axis = state
+        .axes
+        .iter()
+        .find(|a| a.axis == core_domain::axes::AxisId::Direction)?;
+    let (value, _) = direction_axis.position.as_signed()?;
+    if !value.is_finite() || value.abs() < 0.2 {
+        return None;
+    }
+    let direction = if value > 0.0 { "LONG" } else { "SHORT" };
+    let confidence = match direction_axis.readiness {
+        core_domain::axes::Readiness::Solid => 1.0,
+        core_domain::axes::Readiness::Dashed => 0.5,
+    };
+    let setup_type = match state.diagnostics.state {
+        core_domain::axes::DiagnosticState::Chopping
+        | core_domain::axes::DiagnosticState::Coiling => "RANGE_REVERSAL",
+        core_domain::axes::DiagnosticState::Settling => "TREND_CONTINUATION",
+        core_domain::axes::DiagnosticState::Expanding => "MOMENTUM_BREAKOUT",
+    };
+    Some(SetupModel {
+        direction,
+        bias_score: value.abs() * 100.0,
+        confidence,
+        setup_type,
+    })
+}
+
 /// Extract the top setup from the latest completed snapshots of the
 /// ACTIVE durations (one per duration, fastest → slowest).
 ///
-/// Selection: candidates = profiles with `preconditions_met > 0`,
-/// `trade_viability == Actionable`, geometry consistent for the active side
-/// (from `analysis.bias`); then the RR filter; then the highest score across
-/// all timeframes (ties → faster TF wins).
-/// CR-15 — this function no longer derives anything, and that is the point.
+/// Setup derivation lives in TAE, not MME. TAE reads the model's own output —
+/// the per-duration Direction axis and diagnostics, plus the candle-derived ATR —
+/// and constructs a bracket. It never reads an L4/L6 verdict because those
+/// matrices no longer cross the model boundary.
 ///
-/// It used to pick the best setup out of `snap.decision_context` +
-/// `snap.opportunity`, both of which were L4/L6 strategy matrices computed by
-/// the Market Monitoring Engine. MME now stops at the model
-/// ([01-21](../../../conceptual-foundations/01-21-engine-split-and-model-boundary.md)
-/// §3): it reports what the market is doing and never what to do about it. So
-/// the two inputs the derivation needs do not cross the boundary, and no
-/// derivation is possible from a live snapshot.
+/// P10-G: `TimeframeState` is the only source. A snapshot without a state has
+/// no model reading to trade.
 ///
-/// **The consequence, stated plainly:** the setup executor has no setups in this
-/// build. Paper and live are WIP and not selectable, which is precisely why the
-/// boundary could be drawn here. Restoring the executor means computing the
-/// advisory and the opportunity **inside TAE** from model state — future TAE
-/// work, and not a thing this phase pretends to have done.
-///
-/// `min_net_rr` is accepted and ignored so the signature stays stable for that
-/// future work and for its tests.
-pub fn extract_top_setup(_snapshots: &[&MarketSnapshot], _min_net_rr: f64) -> Option<SetupPlan> {
-    None
+/// Selection: completed snapshots with a directional axis and a positive ATR
+/// become candidates; the best confidence/score wins (ties → faster TF). The
+/// bracket is ATR-anchored: 1.5 ATR stop, 2.0 R target, with a small entry and
+/// target zone around the anchor. `min_net_rr` is enforced, not ignored.
+pub fn extract_top_setup(snapshots: &[&MarketSnapshot], min_net_rr: f64) -> Option<SetupPlan> {
+    if !min_net_rr.is_finite() {
+        return None;
+    }
+
+    let mut best: Option<(f64, SetupPlan)> = None;
+    for snapshot in snapshots {
+        if snapshot.is_completed == Some(false) {
+            continue;
+        }
+        let Some(model) = setup_model(snapshot) else {
+            continue;
+        };
+        let (direction, bias_score, confidence, setup_type) = (
+            model.direction,
+            model.bias_score,
+            model.confidence,
+            model.setup_type,
+        );
+        if bias_score <= 0.0 || !bias_score.is_finite() {
+            continue;
+        }
+
+        let Some(close) = snapshot
+            .close
+            .and_then(|value| value.to_f64())
+            .or_else(|| snapshot.mid_price.to_f64())
+            .filter(|value| *value > 0.0)
+        else {
+            continue;
+        };
+        let atr = snapshot
+            .indicators
+            .get("atr")
+            .map(|value| value.raw_value)
+            .filter(|value| *value > 0.0)
+            .or_else(|| {
+                snapshot
+                    .high
+                    .zip(snapshot.low)
+                    .and_then(|(high, low)| (high - low).to_f64())
+                    .filter(|value| *value > 0.0)
+            })
+            .unwrap_or_else(|| close * 0.005);
+
+        let stop_distance = atr * 1.5;
+        let target_distance = stop_distance * 2.0;
+        let zone_buffer = atr * 0.15;
+        let is_long = direction == "LONG";
+        let entry_price = close;
+        let sl_price = if is_long {
+            entry_price - stop_distance
+        } else {
+            entry_price + stop_distance
+        };
+        let tp_price = if is_long {
+            entry_price + target_distance
+        } else {
+            entry_price - target_distance
+        };
+        if sl_price <= 0.0 || tp_price <= 0.0 {
+            continue;
+        }
+
+        let (Some(entry), Some(tp), Some(sl)) = (
+            Decimal::from_f64_retain(entry_price),
+            Decimal::from_f64_retain(tp_price),
+            Decimal::from_f64_retain(sl_price),
+        ) else {
+            continue;
+        };
+        let net_rr = rr_units(direction, entry, tp, sl);
+        if !net_rr.is_finite() || net_rr < min_net_rr {
+            continue;
+        }
+
+        let Some(entry_zone_low) = Decimal::from_f64_retain(entry_price - zone_buffer) else {
+            continue;
+        };
+        let Some(entry_zone_high) = Decimal::from_f64_retain(entry_price + zone_buffer) else {
+            continue;
+        };
+        let Some(target_zone_low) = Decimal::from_f64_retain(tp_price - zone_buffer) else {
+            continue;
+        };
+        let Some(target_zone_high) = Decimal::from_f64_retain(tp_price + zone_buffer) else {
+            continue;
+        };
+
+        let timeframe_label = snapshot
+            .timeframe_label
+            .clone()
+            .unwrap_or_else(|| core_domain::duration_label(snapshot.timeframe_secs));
+        let plan = SetupPlan {
+            symbol: snapshot.symbol.clone(),
+            direction: direction.to_string(),
+            setup_type: setup_type.to_string(),
+            score: bias_score,
+            source_tf: timeframe_label.clone(),
+            source_tf_secs: snapshot.timeframe_secs,
+            entry_mid: entry,
+            entry_zone_low,
+            entry_zone_high,
+            sl,
+            tp,
+            target_zone_low,
+            target_zone_high,
+            net_rr,
+            time_horizon: timeframe_label,
+            confidence,
+            readiness: "READY".to_string(),
+            fingerprint: format!(
+                "{}:{}:{}:{}",
+                snapshot.symbol, direction, setup_type, snapshot.timestamp
+            ),
+            source_candle_ts: snapshot.timestamp,
+        };
+
+        let candidate_score = plan.score * plan.confidence.max(0.05);
+        best = match best {
+            None => Some((candidate_score, plan)),
+            Some((best_score, best_plan)) => {
+                if candidate_score > best_score
+                    || (candidate_score == best_score
+                        && plan.source_tf_secs < best_plan.source_tf_secs)
+                {
+                    Some((candidate_score, plan))
+                } else {
+                    Some((best_score, best_plan))
+                }
+            }
+        };
+    }
+
+    best.map(|(_, plan)| plan)
 }
 
 /// The v7 setup executor — one instance per daemon, one `SymbolState` per
@@ -2161,36 +2321,29 @@ impl SetupExecutor {
 
 #[cfg(test)]
 mod tests {
-    //! CR-15 removed this module's subject.
-    //!
-    //! The two suites that used to live here — the setup-extraction suite and
-    //! the safety-ladder suite — exercised `extract_top_setup` against
-    //! `snapshot.opportunity` / `snapshot.decision_context`, the L4/L6 strategy
-    //! matrices that no longer exist. None of their fixtures could survive the
-    //! boundary, and none of their assertions still describe shipped behaviour.
-    //!
-    //! What replaces them is the pin on the boundary itself: the executor must
-    //! produce no setups, and it must do so for a reason rather than by accident.
-    //! A future TAE implementation that re-derives setups inside TAE from model
-    //! state will fail these tests, which is the correct direction for it to fail.
-
     use super::*;
 
     #[test]
-    fn no_setup_is_ever_extracted() {
-        assert!(
-            extract_top_setup(&[], 0.5).is_none(),
-            "an empty input must produce no setup"
-        );
+    fn empty_input_never_produces_a_setup() {
+        assert!(extract_top_setup(&[], 0.5).is_none());
     }
 
     #[test]
-    fn the_stub_is_not_an_unreachable_arm() {
-        // `min_net_rr` is deliberately ignored. If a later change ever starts
-        // filtering on it, this fails: the parameter is accepted for signature
-        // stability only, and using it would imply a derivation that no longer
-        // exists.
-        let never_matching: f64 = f64::NAN;
-        assert!(extract_top_setup(&[], never_matching).is_none());
+    fn non_finite_rr_gate_is_not_a_disabled_filter() {
+        assert!(extract_top_setup(&[], f64::NAN).is_none());
+    }
+
+    #[test]
+    fn a_snapshot_without_model_state_produces_no_setup() {
+        let snap = MarketSnapshot {
+            symbol: "BTC-USDC".into(),
+            timeframe_secs: 60,
+            timestamp: 1,
+            is_completed: Some(true),
+            close: Decimal::from_f64_retain(100.0),
+            mid_price: Decimal::from_f64_retain(100.0).unwrap_or_default(),
+            ..MarketSnapshot::default()
+        };
+        assert!(extract_top_setup(&[&snap], 0.5).is_none());
     }
 }

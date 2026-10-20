@@ -78,7 +78,6 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
         average_volume: None,
         indicators: Default::default(),
         alignment: None,
-        analysis: None,
         risk_profile: None,
         volume_profile: None,
         statistical_context: None,

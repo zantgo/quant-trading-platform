@@ -31,7 +31,6 @@ function makeInstance(ladder: number[] = [...DURATIONS]): InstanceState {
         historyLatestClose: '0',
         currentView: 'terminal',
         alignment: null,
-        analysis: null,
         lastMatrixTimestampBySlot: {},
         lastCompletedClose: null,
         automationEnabled: false,

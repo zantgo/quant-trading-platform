@@ -13,7 +13,7 @@ import { makeTerms } from '../tests/makeTerms';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import GeneralDashboard from './GeneralDashboard.svelte';
 import { useAppStore } from '../state.svelte';
-import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, InstanceState, OpportunityMatrix, OverviewMatrix, RiskDimension, RiskMatrix } from '../types';
+import type { AdvisoryMatrix, DecisionContext, InstanceState, OpportunityMatrix, OverviewMatrix, RiskDimension, RiskMatrix } from '../types';
 
 function makeDanger(score: number, overrides: Partial<RiskDimension> = {}): RiskDimension {
     return {
@@ -106,45 +106,6 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
     } as OpportunityMatrix;
 }
 
-function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
-    return {
-        symbol: 'BTC-USDT',
-        bias: 'Bullish',
-        confidence: 0.7,
-        state_confidence: 0.7,
-        market_regime: 'Accumulation',
-        trend_assessment: 'Developing',
-        momentum_assessment: 'Increasing',
-        structure_assessment: 'Healthy',
-        volatility_assessment: 'Normal',
-        volume_assessment: 'Normal',
-        market_quality: 'Good',
-        market_quality_score: 70,
-        market_phase: 'Markup',
-        market_interpretation: '',
-        rationale: '',
-        supporting_signals: [],
-        contradicting_signals: [],
-        timeframes_considered: 4,
-        ...overrides,
-    } as AnalysisMatrix;
-}
-
-function makeRiskMatrix(score = 40): RiskMatrix {
-    return {
-        symbol: 'BTC-USDT',
-        market_risk: makeDanger(score),
-        volatility_risk: makeDanger(score),
-        execution_liquidity_risk: makeDanger(score, { confidence: 80 }),
-        structure_risk: makeDanger(score),
-        momentum_risk: makeDanger(score),
-        signal_risk: makeDanger(score),
-        execution_risk: makeDanger(score),
-        cascade_risk: makeDanger(score),
-        overall_risk: makeDanger(score),
-    };
-}
-
 function makeInstance(symbol: string, overrides: Partial<InstanceState> = {}): InstanceState {
     return {
         symbol,
@@ -153,8 +114,7 @@ function makeInstance(symbol: string, overrides: Partial<InstanceState> = {}): I
         terms: makeTerms({ 1: { priceText: '63505' } as any }),
         historyLatestClose: '0',
         currentView: 'terminal',
-        alignment: null,
-        analysis: makeAnalysis(),
+        alignment: { mtf_stance: 'bull', mtf_overall_score: 42 } as never,
         lastMatrixTimestampBySlot: {},
         lastCompletedClose: null,
         automationEnabled: false,

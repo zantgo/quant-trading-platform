@@ -1,15 +1,15 @@
 # Crate Layout & Cycle-Breaking Design
 
 **Version:** 11.14 (2026-10-16) — see docs/CHANGELOG.md for the canonical version history.
-**Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 10 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
+**Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 15 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
 
 If you are a new engineer trying to answer "where does the runtime safety state live in the source tree?" or "why does this crate not import that one?", this document is your first stop.
 
 ---
 
-## 1. The Ten Physical Crates
+## 1. The Fifteen Physical Crates
 
-The platform is a Cargo Workspace of 10 specialized, decoupled crates plus the Svelte 5 frontend.
+The platform is a Cargo Workspace of 15 specialized, decoupled crates plus the Svelte 5 frontend.
 
 | Crate | Layers it owns | Primary responsibility |
 |---|---|---|
@@ -17,11 +17,16 @@ The platform is a Cargo Workspace of 10 specialized, decoupled crates plus the S
 | `config-models` | All `*Config` structs | Configuration loading (`load_config()`, `load_instances()`), TOML/JSON deserialization. Leaf crate. |
 | `market-analyzer` | MME L1–L7 (logical ownership); DIE L2–L4 (physical execution) | 52 indicators across the 14-duration timeframe pool (1 s–1 h), signal detection, multi-TF pipeline orchestrator (`ActivePair`, `TimeframePipeline`), `MarketContext` synthesis, candle generation, quality validation, distribution channels, indicator DTO re-exports. |
 | `database-storage` | DIE persistence + PAE persistence | SQLite schema (26 active tables; migration history tracks table additions — see CHANGELOG), WAL telemetry logger, query layer, encryption helpers. |
-| `network-adapters` | DIE ingestion | WebSocket/REST clients for Hyperliquid and Bitget, NTP clock monitor, candle reconstruction (`ReconstructionMethod`), connection-quality event tracker. |
+| `network-adapters` | DIE ingestion | WebSocket/REST clients for Hyperliquid, Bitget and Bybit, NTP clock monitor, candle reconstruction (`ReconstructionMethod`), connection-quality event tracker. |
 | `portfolio-supervisor` | PME + TAE | Instance lifecycle, setup executor + unified execution engine (TAE), safety-state ladder, sizing, exposure, capital, session state, registry orchestrator. **Implemented** — see [`docs/ROADMAP.md`](../ROADMAP.md) §2.3–§2.4. |
 | `performance-analytics` | PAE | Dashboard stats compiler, strategy optimizer, performance evaluator, recorded-decision backtest runner (historical BTE lives in `backtesting-engine`). **Implemented** — the analytics APIs (`/api/analytics/*`) are live, and the backtest tab consumes `POST /api/backtest/run` + `GET /api/backtest/:id`. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5. |
 | `backtesting-engine` | BTE | Candle archive (`candle_archive`), backfill orchestrator, historical pipeline replay (full MME), recorded replay, DS persistence (`backtest_*` tables), single-run lock, parity contract. **Implemented** — v8 production-ready, v8.2 async + multi-symbol. See `docs/engines/backtesting-engine/`. |
-| `api-gateway` | HTTP/WS surface | Axum router (`build_router`), WebSocket broadcast handler, all HTTP request/response shapes (`IndicatorSnapshot`, `EvaluateRequest`, `RiskCalculationRequest`, `StatsQuery`, …), `AppState`, `DbState`, `WsState`. |
+| `api-core` | HTTP/WS surface | Shared `AppState`, router plumbing and cross-handler helpers. |
+| `api-market` | HTTP/WS surface | Market-data handlers (history, snapshots, connection quality). |
+| `api-instances` | HTTP/WS surface | Instance lifecycle, config and session handlers. |
+| `api-analytics` | HTTP/WS surface | Backtest run/persistence, analytics and DS handlers. |
+| `api-system` | HTTP/WS surface | System/pipeline/distribution handlers. |
+| `api-gateway` | HTTP/WS surface | Axum router (`build_router`), WebSocket broadcast handler, HTTP request/response shapes (`IndicatorSnapshot`, `EvaluateRequest`, `RiskCalculationRequest`, `StatsQuery`, …), `DbState`, `WsState`; re-exports the `api-*` handler crates. |
 | `execution-daemon` | Bootstrap | Binary entry point — parses CLI, reads config, initializes DB, builds `AppState`, spawns background tasks, runs the Axum server. Holds no business logic of its own. |
 
 Frontend:

@@ -141,13 +141,8 @@ fn snap_to_market(symbol: &str, rec: &RecordedSnapshot) -> core_domain::models::
         timeframe_state: None,
         ..core_domain::models::MarketSnapshot::default()
     };
-    // CR-15: only the analysis (model) column is restored. The opportunity /
-    // decision / advisory columns are still present in the schema — they are
-    // dropped by the P5 forward migration — but they hold NULL for every row
-    // written since this phase, and reading them would reintroduce the very
-    // strategy surface the boundary removes.
-    snap.analysis = rec
-        .analysis_json
+    snap.timeframe_state = rec
+        .model_state_json
         .as_deref()
         .and_then(|j| serde_json::from_str(j).ok());
     snap
@@ -349,23 +344,40 @@ pub async fn capture_tick_ds(
     portfolio: &mut Vec<database_storage::queries::backtest_ds::DsPortfolioPoint>,
     peak_equity: &mut f64,
 ) {
-    // CR-15: the decision / opportunity / advisory signal rows are gone with
-    // the layers themselves. What remains below is the MODEL's own record —
-    // bias and regime — which is still what a replay can honestly capture.
-    if let Some(analysis) = snap.analysis.as_ref() {
+    // P10-G: the MODEL's own state is the signal source. The analysis fallback
+    // keeps pre-dissolve recorded sessions readable until step 3.
+    if let Some(state) = snap.timeframe_state.as_ref() {
+        let value = state
+            .axes
+            .iter()
+            .find(|a| a.axis == core_domain::axes::AxisId::Direction)
+            .and_then(|a| a.position.as_signed())
+            .map(|(v, _)| v)
+            .unwrap_or(0.0);
+        let bias = if value > 0.4 {
+            "StrongBullish"
+        } else if value > 0.2 {
+            "Bullish"
+        } else if value < -0.4 {
+            "StrongBearish"
+        } else if value < -0.2 {
+            "Bearish"
+        } else {
+            "Neutral"
+        };
         signals.push(database_storage::queries::backtest_ds::DsSignal {
             ts_secs,
             timeframe_secs,
-            label: "analysis".to_string(),
+            label: "model_state".to_string(),
             kind: "market_regime".to_string(),
-            value: format!("{:?}", analysis.market_regime),
+            value: format!("{:?}", state.diagnostics.state),
         });
         signals.push(database_storage::queries::backtest_ds::DsSignal {
             ts_secs,
             timeframe_secs,
-            label: "analysis".to_string(),
+            label: "model_state".to_string(),
             kind: "bias".to_string(),
-            value: format!("{:?}", analysis.bias),
+            value: bias.to_string(),
         });
     }
 
@@ -527,9 +539,87 @@ fn max_drawdown(points: &[(i64, f64)]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_domain::analysis::{AnalysisMatrix, MarketBias};
+    use core_domain::axes::{
+        AxisId, AxisState, AxisValue, DiagnosticBasis, DiagnosticState, Diagnostics, Domain,
+        EventCounts, Readiness, TimeframeIdentity, TimeframeState,
+    };
+    use core_domain::indicator_dtos::NormalizedIndicatorValue;
     use core_domain::models::MarketSnapshot;
     use rust_decimal_macros::dec;
+
+    fn state_at(secs: u64, direction: f64) -> TimeframeState {
+        let axis = |axis, position| AxisState {
+            axis,
+            position,
+            size: AxisValue::rank(100.0),
+            readiness: Readiness::Solid,
+            readings: Vec::new(),
+        };
+        TimeframeState {
+            identity: TimeframeIdentity {
+                instance_id: "inst".into(),
+                pair: "BTC-USDC".into(),
+                exchange: "hyperliquid".into(),
+                timeframe_secs: secs,
+                timeframe_label: core_domain::duration_label(secs),
+                candle_count: 500,
+                last_closed_at: "2026-10-20T00:00:00Z".into(),
+                available_at: "500".into(),
+                spec_version: core_domain::SPEC_VERSION.into(),
+                build_version: core_domain::BUILD_VERSION.into(),
+            },
+            axes: vec![
+                axis(
+                    AxisId::Direction,
+                    AxisValue::signed(direction, Domain::DirectionalBias),
+                ),
+                axis(
+                    AxisId::Momentum,
+                    AxisValue::signed(0.4, Domain::Acceleration),
+                ),
+                axis(
+                    AxisId::Structure,
+                    AxisValue::signed(0.3, Domain::NetEventBias),
+                ),
+                axis(
+                    AxisId::Progression,
+                    AxisValue::ordinal(core_domain::axes::Stage::Mid),
+                ),
+            ],
+            events: EventCounts::default(),
+            levels: Vec::new(),
+            atr: Some(2.0),
+            legs: Vec::new(),
+            diagnostics: Diagnostics {
+                state: DiagnosticState::Expanding,
+                volatility_change_pct: 0.0,
+                participation_change_pct: 0.0,
+                basis: DiagnosticBasis {
+                    bbwp_pct: 20.0,
+                    rvol_pct: 100.0,
+                },
+            },
+            derived: core_domain::axes::DerivedState {
+                consensus: core_domain::axes::Consensus {
+                    agreeing_axes: 0,
+                    of: 4,
+                    axes: Vec::new(),
+                    weakest_axis: None,
+                },
+                stability: core_domain::axes::Stability {
+                    state: core_domain::axes::StabilityState::Holding,
+                    changes_last_50_bars: 0,
+                    window: 50,
+                },
+            },
+        }
+    }
+
+    fn set_direction(snap: &mut MarketSnapshot, direction: f64) {
+        if let Some(state) = snap.timeframe_state.as_mut() {
+            state.axes[0].position = AxisValue::signed(direction, Domain::DirectionalBias);
+        }
+    }
 
     fn long_snapshot(ts: u64, mid: f64) -> MarketSnapshot {
         let mut snap = MarketSnapshot::default();
@@ -542,9 +632,11 @@ mod tests {
         snap.ask_price = snap.mid_price;
         snap.close = Some(snap.mid_price);
 
-        let mut a = AnalysisMatrix::empty("BTC-USDC");
-        a.bias = MarketBias::Bullish;
-        snap.analysis = Some(a);
+        snap.timeframe_state = Some(state_at(60, 0.8));
+        snap.indicators.insert(
+            "atr".into(),
+            NormalizedIndicatorValue::scalar(5.0, 0.0, "X"),
+        );
         snap
     }
 
@@ -565,7 +657,7 @@ mod tests {
             min_net_rr: 1.0,
             max_position_size_pct_of_equity: None,
             max_open_positions: 1,
-            entry_mode: "zone_midpoint".to_string(),
+            entry_mode: "market_on_ready".to_string(),
             invalidate_on: "direction_flip".to_string(),
         }
     }
@@ -573,8 +665,8 @@ mod tests {
     #[tokio::test]
     async fn replay_records_trade_and_stats() {
         let pool = seed_pool().await;
-        // Accept at 105 → fill at 94 → TP at 126.
-        for (ts, mid) in [(1000u64, 105.0f64), (1001, 94.0), (1002, 126.0)] {
+        // Market-on-ready fills at 100 → TP at 120 (ATR 5: 7.5 stop, 15 target).
+        for (ts, mid) in [(1000u64, 100.0f64), (1001, 100.0), (1002, 120.0)] {
             database_storage::insert_snapshot_internal(&pool, &long_snapshot(ts, mid)).await;
         }
 
@@ -652,12 +744,12 @@ mod tests {
     #[tokio::test]
     async fn strict_setup_gone_closes_with_setup_gone_reason() {
         let pool = seed_pool().await;
-        for (ts, mid) in [(1000u64, 105.0f64), (1001, 94.0)] {
+        for (ts, mid) in [(1000u64, 100.0f64), (1001, 100.0)] {
             database_storage::insert_snapshot_internal(&pool, &long_snapshot(ts, mid)).await;
         }
         // Neutral candle: the actionable setup disappears.
-        let mut neutral = long_snapshot(1002, 94.0);
-        neutral.analysis.as_mut().unwrap().bias = MarketBias::Neutral;
+        let mut neutral = long_snapshot(1002, 100.0);
+        set_direction(&mut neutral, 0.0);
         database_storage::insert_snapshot_internal(&pool, &neutral).await;
 
         let params = BacktestParams {
@@ -689,14 +781,13 @@ mod tests {
     #[tokio::test]
     async fn recorded_replay_settles_direction_aware_funding() {
         let pool = seed_pool().await;
-        // Entry accepts at 105 → fills at 94. Then a snapshot past the first
-        // 8h boundary (28800) while the position is open → funding settles.
-        // Then TP at 126 closes.
+        // Entry fills at 100. A snapshot past the first 8h boundary (28800)
+        // while the position is open → funding settles. Then TP at 120 closes.
         for (ts, mid) in [
-            (1000u64, 105.0f64),
-            (1001, 94.0),
-            (30_000, 94.0),
-            (30_001, 126.0),
+            (1000u64, 100.0f64),
+            (1001, 100.0),
+            (30_000, 100.0),
+            (30_001, 120.0),
         ] {
             database_storage::insert_snapshot_internal(&pool, &long_snapshot(ts, mid)).await;
         }

@@ -96,14 +96,15 @@ pub async fn insert_backtest_ds_rows(
     for (seq, t) in trades.iter().enumerate() {
         if let Err(e) = sqlx::query(
             "INSERT OR IGNORE INTO backtest_trades
-                (run_id, seq, ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason,
-                 ts_entry_secs, hold_secs, mfe_pct, mae_pct, roi_pct, slippage_bps, commission_fees, funding_fees)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                (run_id, seq, ts_close_secs, direction, symbol, entry_price, exit_price, size, pnl, exit_reason,
+                 ts_entry_secs, hold_secs, mfe_pct, mae_pct, roi_pct, slippage_bps, commission_fees, funding_fees, r_multiple)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         )
         .bind(run_id)
         .bind(seq as i64)
         .bind(t.ts_close_secs)
         .bind(&t.direction)
+        .bind(&t.symbol)
         .bind(t.entry_price)
         .bind(t.exit_price)
         .bind(t.size)
@@ -117,6 +118,7 @@ pub async fn insert_backtest_ds_rows(
         .bind(t.slippage_bps)
         .bind(t.commission_fees)
         .bind(t.funding_fees)
+        .bind(t.r_multiple)
         .execute(&mut *tx)
         .await {
                 eprintln!("DB persist failed: {e}");
@@ -213,6 +215,50 @@ pub async fn update_backtest_run_meta(
     }
 }
 
+/// Attach the self-describing trace to an already-inserted run: the params
+/// blob (source + checksum) and the frozen non-secret configuration snapshot.
+pub async fn update_backtest_run_trace(
+    pool: &SqlitePool,
+    run_id: i64,
+    params_json: &str,
+    config_snapshot_json: &str,
+) {
+    if let Err(e) = sqlx::query(
+        "UPDATE backtest_runs
+         SET params_json = ?2, config_snapshot_json = ?3
+         WHERE id = ?1",
+    )
+    .bind(run_id)
+    .bind(params_json)
+    .bind(config_snapshot_json)
+    .execute(pool)
+    .await
+    {
+        eprintln!("DB persist failed: {e}");
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct DsTradeRow {
+    ts_close_secs: i64,
+    direction: String,
+    symbol: String,
+    entry_price: f64,
+    exit_price: f64,
+    size: f64,
+    pnl: f64,
+    exit_reason: String,
+    ts_entry_secs: i64,
+    hold_secs: i64,
+    mfe_pct: f64,
+    mae_pct: f64,
+    roi_pct: f64,
+    slippage_bps: f64,
+    commission_fees: f64,
+    funding_fees: f64,
+    r_multiple: f64,
+}
+
 /// Fetch the DS trades for a run (paginated).
 pub async fn query_backtest_trades(
     pool: &SqlitePool,
@@ -220,31 +266,15 @@ pub async fn query_backtest_trades(
     limit: u32,
     offset: u32,
 ) -> Vec<DsTrade> {
-    sqlx::query_as::<
-        _,
-        (
-            i64,
-            String,
-            String,
-            f64,
-            f64,
-            f64,
-            f64,
-            String,
-            i64,
-            i64,
-            f64,
-            f64,
-            f64,
-            f64,
-            f64,
-            f64,
-        ),
-    >(
-        "SELECT ts_close_secs, direction, COALESCE(symbol, ''), entry_price, exit_price, size, pnl, exit_reason,
-                COALESCE(ts_entry_secs, 0), COALESCE(hold_secs, 0),
-                COALESCE(mfe_pct, 0), COALESCE(mae_pct, 0), COALESCE(roi_pct, 0),
-                COALESCE(slippage_bps, 0), COALESCE(commission_fees, 0), COALESCE(funding_fees, 0)
+    sqlx::query_as::<_, DsTradeRow>(
+        "SELECT ts_close_secs, direction, COALESCE(symbol, '') AS symbol, entry_price, exit_price, size, pnl,
+                exit_reason, COALESCE(ts_entry_secs, 0) AS ts_entry_secs,
+                COALESCE(hold_secs, 0) AS hold_secs,
+                COALESCE(mfe_pct, 0) AS mfe_pct, COALESCE(mae_pct, 0) AS mae_pct,
+                COALESCE(roi_pct, 0) AS roi_pct, COALESCE(slippage_bps, 0) AS slippage_bps,
+                COALESCE(commission_fees, 0) AS commission_fees,
+                COALESCE(funding_fees, 0) AS funding_fees,
+                COALESCE(r_multiple, 0) AS r_multiple
          FROM backtest_trades WHERE run_id = ?1 ORDER BY seq ASC LIMIT ?2 OFFSET ?3",
     )
     .bind(run_id)
@@ -254,44 +284,25 @@ pub async fn query_backtest_trades(
     .await
     .unwrap_or_default()
     .into_iter()
-    .map(
-        |(
-            ts,
-            direction,
-            symbol,
-            entry,
-            exit,
-            size,
-            pnl,
-            reason,
-            ts_entry,
-            hold,
-            mfe,
-            mae,
-            roi,
-            slippage,
-            commission,
-            funding,
-        )| DsTrade {
-            ts_close_secs: ts,
-            direction,
-            symbol,
-            entry_price: entry,
-            exit_price: exit,
-            size,
-            pnl,
-            exit_reason: reason,
-            ts_entry_secs: ts_entry,
-            hold_secs: hold,
-            mfe_pct: mfe,
-            mae_pct: mae,
-            roi_pct: roi,
-            slippage_bps: slippage,
-            commission_fees: commission,
-            funding_fees: funding,
-            r_multiple: if roi.is_finite() { roi / 1.0 } else { 0.0 },
-        },
-    )
+    .map(|r| DsTrade {
+        ts_close_secs: r.ts_close_secs,
+        direction: r.direction,
+        symbol: r.symbol,
+        entry_price: r.entry_price,
+        exit_price: r.exit_price,
+        size: r.size,
+        pnl: r.pnl,
+        exit_reason: r.exit_reason,
+        ts_entry_secs: r.ts_entry_secs,
+        hold_secs: r.hold_secs,
+        mfe_pct: r.mfe_pct,
+        mae_pct: r.mae_pct,
+        roi_pct: r.roi_pct,
+        slippage_bps: r.slippage_bps,
+        commission_fees: r.commission_fees,
+        funding_fees: r.funding_fees,
+        r_multiple: r.r_multiple,
+    })
     .collect()
 }
 
@@ -409,7 +420,7 @@ mod tests {
                 slippage_bps: 5.0,
                 commission_fees: 0.01,
                 funding_fees: -0.02,
-                r_multiple: 0.0,
+                r_multiple: 0.1,
                 symbol: "BTC-USDT".into(),
             }],
             &[(1000, 1000.0), (1001, 1005.0)],
@@ -442,6 +453,8 @@ mod tests {
         assert_eq!(trades[0].slippage_bps, 5.0);
         assert_eq!(trades[0].commission_fees, 0.01);
         assert_eq!(trades[0].funding_fees, -0.02);
+        assert_eq!(trades[0].symbol, "BTC-USDT");
+        assert!((trades[0].r_multiple - 0.1).abs() < 1e-12);
 
         let equity = query_backtest_equity(&pool, run_id).await;
         assert_eq!(equity.len(), 2);

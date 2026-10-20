@@ -105,7 +105,7 @@ The same flow is available headlessly from the CLI:
 # or non-interactive:
 cargo run --bin execution-daemon -- --backtest --exchange bitget \
     --symbols BTC,ETH --tf 60,180,300,900 --depth 180 \
-    --capital 1000 --allocation 10
+    --portfolio-capital 1000 --allocation 10
 ```
 
 Backtest results persist to the same tables the GUI History/Study read.

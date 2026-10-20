@@ -28,6 +28,7 @@
     //      watchlist scanner modal
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
+    import { stanceToBias } from '../lib/modelState';
     import { buildL7OverviewHeader, type LayerHeaderSpec, type ValueState } from '../lib/layerHeader';
     import styles from './GeneralDashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
@@ -112,7 +113,7 @@
                 pair_key: app.pairKeyFor(inst.symbol),
                 symbol: inst.symbol,
                 model_state: {
-                    bias: inst.analysis?.bias ?? null,
+                    bias: stanceToBias(inst.alignment?.mtf_stance),
                     mtf_score: inst.alignment?.mtf_overall_score ?? null,
                     mtf_stance: inst.alignment?.mtf_stance ?? null,
                 },

@@ -175,7 +175,6 @@ fn full_snapshot(timestamp: u64) -> MarketSnapshot {
         overall_label: "NEUTRAL".into(),
     });
     snap.alignment = Some(core_domain::alignment::AlignmentMatrix::empty("BTC-USDT"));
-    snap.analysis = Some(core_domain::analysis::AnalysisMatrix::empty("BTC-USDT"));
     snap.statistical_context = Some(core_domain::models::StatisticalContext {
         close_z: Some(0.4),
         rsi_z: Some(-0.2),
@@ -274,7 +273,6 @@ fn projection_drops_every_unread_field() {
     let p = full.history_projection();
 
     assert!(p.alignment.is_none());
-    assert!(p.analysis.is_none());
     // CR-15: risk/advisory/opportunity/decision_context no longer exist on the
     // snapshot at all, so they need no projection assertion any more.
     assert!(p.context.is_none());

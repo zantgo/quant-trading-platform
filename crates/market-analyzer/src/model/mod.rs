@@ -951,10 +951,22 @@ pub fn assemble_cross_pair_state(
     let bullish = biases.iter().filter(|(_, b)| *b > 0.0).count() as u32;
     let bearish = biases.iter().filter(|(_, b)| *b < 0.0).count() as u32;
     let unclear = biases.len() as u32 - bullish - bearish;
+    // The SIGNED net of the two directional counts.
+    //
+    // It used to be the bullish SHARE (`100 × bullish / total`), which cannot
+    // go negative: 4 bullish against 5 bearish read as `+40%` — the same
+    // number a 4-bullish / 1-bearish workspace read, so every bearish pair
+    // was invisible. The charter tabulates this exact scenario ("4 bullish |
+    // 5 bearish | 1 unclear" → −10%), the axes contract asserts the stored
+    // number equals `(bullish − bearish) / total`, and the L7 consumer
+    // (`OverviewMatrix.breadth_pct`) is documented as the signed
+    // `(long_count − short_count) / total × 100` feeding the −100 %…+100 %
+    // gauge — so a net-bearish workspace rendered a *bullish* gauge and had
+    // its global bias classified from a positive input.
     let breadth_pct = if biases.is_empty() {
         0.0
     } else {
-        100.0 * bullish as f64 / biases.len() as f64
+        (bullish as f64 - bearish as f64) / biases.len() as f64 * 100.0
     };
 
     // The per-pair direction distribution — a count, always legal.

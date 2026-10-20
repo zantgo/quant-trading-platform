@@ -30,7 +30,7 @@ function makePair(symbol: string, priceText = '50000.00'): InstanceState {
         currentView: 'terminal',
         // CR-15: `risk` / `advisory` / `opportunity` / `decisionContext` no
         // longer exist on `InstanceState` — the wire does not carry them.
-        alignment: null, analysis: null,
+        alignment: null,
         lastMatrixTimestampBySlot: {}, lastCompletedClose: null,
         automationEnabled: false, automationIntervalMode: 'interval',
         automationIntervalValue: 900, automationIntervalUnit: 'seconds',
