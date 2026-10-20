@@ -7,6 +7,7 @@ use super::{
     DivergenceState, IndicatorSignal, NormalizationContext, NormalizationEngine,
     NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
 };
+use core_domain::axes::Readiness;
 use std::collections::HashMap;
 
 /// Raw indicator inputs bundle consumed by [`NormalizationEngine::normalize_all`].
@@ -1922,7 +1923,8 @@ impl NormalizationEngine {
             if !out.contains_key(meta.key) {
                 out.insert(
                     meta.key.into(),
-                    NormalizedIndicatorValue::scalar(0.0, 0.0, "WARMING").with_confidence(0.0),
+                    NormalizedIndicatorValue::scalar(0.0, 0.0, "WARMING")
+                        .with_readiness(Readiness::Dashed),
                 );
             }
         }

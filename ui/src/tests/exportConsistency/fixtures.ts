@@ -63,7 +63,7 @@ export function seedRichInstance(): void {
     raw_value: 63.5,
     normalized: 0.31,
     state_label: 'LIVE',
-    confidence: 0.7,
+    readiness: 'solid',
     values: null,
     signals: [],
   } as IndicatorDto;
@@ -103,7 +103,7 @@ export function makeMicroIndicators(): Record<string, IndicatorDto> {
       raw_value: 63.5,
       normalized: 0.31,
       state_label: 'LIVE',
-      confidence: 0.7,
+      readiness: 'solid',
       values: null,
       signals: [
         { kind: 'Crossover', direction: 'Bullish', status: 'Confirmed', label: 'RSI crossed above 60', strength: 0.8, age_bars: 2, points: null },
@@ -114,7 +114,7 @@ export function makeMicroIndicators(): Record<string, IndicatorDto> {
       raw_value: 12.4,
       normalized: 0.22,
       state_label: 'LIVE',
-      confidence: 0.65,
+      readiness: 'solid',
       values: { macd_line: 12.4, signal_line: 8.2, histogram: 4.2 },
       signals: [
         { kind: 'Crossover', direction: 'Bullish', status: 'Active', label: 'MACD line crossed above signal', strength: 0.6, age_bars: 0, points: null },
@@ -124,7 +124,7 @@ export function makeMicroIndicators(): Record<string, IndicatorDto> {
       raw_value: 0,
       normalized: 0,
       state_label: 'WARMING',
-      confidence: 0,
+      readiness: 'dashed',
       values: null,
       signals: [],
     } as IndicatorDto,
@@ -132,7 +132,7 @@ export function makeMicroIndicators(): Record<string, IndicatorDto> {
       raw_value: 63112.55,
       normalized: 0.18,
       state_label: 'LIVE',
-      confidence: 0.55,
+      readiness: 'solid',
       values: { vwap: 63112.55 },
       signals: [
         { kind: 'LevelTest', direction: 'Bullish', status: 'Active', label: 'VWAP_REJECT', strength: 0.5, age_bars: 1, points: null, value_key: 'vwap', is_range: false },
@@ -142,7 +142,7 @@ export function makeMicroIndicators(): Record<string, IndicatorDto> {
       raw_value: 63050.0,
       normalized: 0,
       // No state_label → lifecycle `silent: true` drives the SILENT pill.
-      confidence: 0.6,
+      readiness: 'solid',
       values: null,
       signals: [
         { kind: 'LevelTest', direction: 'Bullish', status: 'Confirmed', label: 'SUPPORT_TEST', strength: 0.9, age_bars: 4, points: null },
@@ -152,7 +152,7 @@ export function makeMicroIndicators(): Record<string, IndicatorDto> {
       raw_value: 63100,
       normalized: 0.6,
       state_label: 'LIVE',
-      confidence: 0.72,
+      readiness: 'solid',
       values: {
         gp_top: 64050, gp_bottom: 62600, ext_1618: 65500, ext_2618: 67200,
         fib_0236: 63100, fib_0382: 63250, fib_0500: 63330, fib_0618: 63400, fib_0660: 63440, fib_0786: 63500,
@@ -163,7 +163,7 @@ export function makeMicroIndicators(): Record<string, IndicatorDto> {
       raw_value: 0,
       normalized: 0.1,
       state_label: 'LIVE',
-      confidence: 0.5,
+      readiness: 'solid',
       values: { smc_fvg_bottom: 63310, smc_fvg_top: 63350 },
       signals: [
         { kind: 'LevelTest', direction: 'Bullish', status: 'Active', label: 'SMC_FVG_LEVEL_TEST', strength: 0.55, age_bars: 0, points: null, is_range: true },
@@ -173,7 +173,7 @@ export function makeMicroIndicators(): Record<string, IndicatorDto> {
       raw_value: 0,
       normalized: 0,
       state_label: 'LIVE',
-      confidence: 0.4,
+      readiness: 'solid',
       values: { r1: 64100, r2: 64800, r3: 65500, s1: 62600, s2: 61900, s3: 61200, pivot: 63350 },
       signals: [
         { kind: 'LevelTest', direction: 'Bearish', status: 'Potential', label: 'PIVOT_R2_RESISTANCE_TEST', strength: 0.7, age_bars: 2, points: null, value_key: 'r2', is_range: false },

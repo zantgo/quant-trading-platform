@@ -306,10 +306,13 @@ impl DecisionContext {
             trade_readiness
         };
 
-        // Contributing indicators: any indicator with confidence >= 0.6
+        // Contributing indicators: those whose inputs are complete. This
+        // used to threshold a `confidence` probability; P10-E replaced that
+        // with mechanical readiness, so a complete reading contributes and an
+        // incomplete one does not — there is no 0.6 dial to turn.
         let contributing_indicators: Vec<String> = indicators
             .iter()
-            .filter(|(_, v)| v.confidence >= params.prob_contributing_conf_min)
+            .filter(|(_, v)| v.readiness == crate::axes::Readiness::Solid)
             .map(|(k, _)| k.clone())
             .collect();
 

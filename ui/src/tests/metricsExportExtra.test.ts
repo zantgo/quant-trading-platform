@@ -677,7 +677,7 @@ describe('metricsExport — Phase 3: every visible value copied', () => {
             const rsi = out.timeframes[i].indicators.find((ind: any) => ind.key === 'rsi');
             expect(rsi).toBeDefined();
             expect(typeof rsi.normalized).toBe('number');
-            expect(typeof rsi.confidence_pct).toBe('number');
+            expect(rsi.readiness).toBeTypeOf('string');
             expect(Array.isArray(rsi.signals)).toBe(true);
             expect(rsi.sub_values).toBeDefined(); // RSIs have a 'period' sub-value
             expect(rsi.indicator_lifecycle).toBeDefined();

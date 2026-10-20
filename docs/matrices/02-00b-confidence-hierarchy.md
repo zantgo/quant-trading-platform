@@ -81,8 +81,8 @@ The four-level hierarchy above is the **pipeline-level** confidence flow — the
 
 | Field | Layer | Per-Component Meaning | NOT in Pipeline Hierarchy |
 |---|---|---|---|
-| `IndicatorEvaluation.confidence` | L1 | Per-indicator conviction in [0, 1]. Base = `\|normalized\|`, boosted by confirmed signals. | Aggregated into L3 `state_confidence` via MTF weighting. |
-| `ContextDimension.confidence` | L1 | Mean confidence of contributing indicators in a context dimension. | Aggregated into L3 `state_confidence`. |
+| `NormalizedIndicatorValue.readiness` | L1 | Mechanical input completeness — `Solid` when every input is present, `Dashed` when one is absent or still moving. Renamed from `confidence` in P10-E; never a probability and carries no 0..1 scalar. | Feeds L1 context synthesis only as a completeness filter (Dashed readings are excluded); no conviction aggregation. |
+| `ContextDimension.confidence` | L1 | Coverage fraction — `Solid readings / all readings` in a context dimension. Not a mean of indicator conviction. | Aggregated into L3 `state_confidence` until P10-F/G migrate the layer. |
 | `AlignmentDimension.confidence` | L2 | Per-dimension confidence in [0, 100] for the 10 dimensions. | Used to weight dimension contributions; not passed to L3. |
 | `RiskDimension.confidence` | L5 | Per-dimension confidence in [0, 100] for the **8 risk sub-dimensions** (including `cascade_risk`). | Used to weight dimension contributions; not passed to L6. |
 | `AssetRank.confidence` | L7 | Mirror of `Decision.confidence_assessment` for the asset ranking. | Not a new computation; a mirror. |

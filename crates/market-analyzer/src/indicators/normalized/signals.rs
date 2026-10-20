@@ -721,22 +721,4 @@ pub fn derive_signals(map: &mut Map) {
             }
         }
     }
-
-    // Confidence boost: entries carrying confirmed/active discrete signals gain
-    // conviction beyond their base |normalized|.
-    for entry in map.values_mut() {
-        if entry.signals.is_empty() {
-            continue;
-        }
-        let mut boost = 0.0f64;
-        for s in &entry.signals {
-            let base = match s.status {
-                SignalStatus::Confirmed => 0.25,
-                SignalStatus::Active => 0.15,
-                SignalStatus::Potential => 0.08,
-            };
-            boost = boost.max(base + s.strength * 0.2);
-        }
-        entry.confidence = (entry.confidence + boost).clamp(0.0, 1.0);
-    }
 }

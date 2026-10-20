@@ -43,7 +43,7 @@ function warmingPlaceholder(): IndicatorDto {
         state_label: 'WARMING',
         values: null,
         signals: [],
-        confidence: 0,
+        readiness: 'dashed',
     };
 }
 
@@ -54,7 +54,7 @@ function realReading(raw: number, normalized: number, stateLabel: string): Indic
         state_label: stateLabel,
         values: null,
         signals: [],
-        confidence: 0.5,
+        readiness: 'solid',
     };
 }
 
@@ -304,7 +304,7 @@ describe('IndicatorsView EMA Ribbon micro-grid', () => {
             raw_value: values.fast,
             normalized: 1.0,
             state_label: 'ESTABLISHED_BULLISH_STACK',
-            confidence: 0.9,
+            readiness: 'solid',
             signals: [],
             values: { ...values },
         };
@@ -315,7 +315,7 @@ describe('IndicatorsView EMA Ribbon micro-grid', () => {
             raw_value: values.fast ?? 0,
             normalized: 0,
             state_label: 'WARMING',
-            confidence: 0,
+            readiness: 'dashed',
             values: {
                 ...(values.fast != null ? { fast: values.fast } : {}),
                 ...(values.medium != null ? { medium: values.medium } : {}),

@@ -28,6 +28,7 @@
 //! signal pairs, lifecycle bugs, soft-floor math errors, value-map key
 //! collisions — without ever needing to spin up the frontend.
 
+use core_domain::axes::Readiness;
 use core_domain::indicator_dtos::IndicatorLifecycleState;
 use core_domain::normalized::{Exchange, NormalizedCandle};
 use market_analyzer::analyzer::build_indicator_lifecycle_map;
@@ -127,7 +128,7 @@ pub struct IndicatorSnapshot {
     pub bar_count: u32,
     pub state_label: String,
     pub normalized: f64,
-    pub confidence: f64,
+    pub readiness: Readiness,
     pub values: Option<BTreeMap<String, f64>>,
     pub signals: Vec<IndicatorSignal>,
     pub lifecycle_state: String,
@@ -144,8 +145,8 @@ impl IndicatorSnapshot {
             self.bar_count, self.lifecycle_state, self.bars_required
         ));
         out.push_str(&format!(
-            "  state_label={} normalized={:.3} confidence={:.3}\n",
-            self.state_label, self.normalized, self.confidence
+            "  state_label={} normalized={:.3} readiness={:?}\n",
+            self.state_label, self.normalized, self.readiness
         ));
         match &self.values {
             Some(v) if !v.is_empty() => {
@@ -199,15 +200,15 @@ pub fn run_pipeline_snapshot(
     );
 
     let entry: Option<&NormalizedIndicatorValue> = map.get(key);
-    let (state_label, normalized, confidence, values_opt, signals) = match entry {
+    let (state_label, normalized, readiness, values_opt, signals) = match entry {
         Some(e) => (
             e.state_label.clone(),
             e.normalized,
-            e.confidence,
+            e.readiness,
             e.values.clone(),
             e.signals.clone(),
         ),
-        None => (String::new(), 0.0, 0.0, None, Vec::new()),
+        None => (String::new(), 0.0, Readiness::Dashed, None, Vec::new()),
     };
     let lc = lifecycle.get(key);
 
@@ -239,7 +240,7 @@ pub fn run_pipeline_snapshot(
         bar_count,
         state_label,
         normalized,
-        confidence,
+        readiness,
         values: values_opt.map(|m| m.into_iter().collect::<BTreeMap<_, _>>()),
         signals,
         lifecycle_state: match lc.map(|l| l.state) {
@@ -1993,7 +1994,7 @@ fn bollinger_edge_zones_no_duplicate_signal_pairs() {
             bar_count: 1,
             state_label: entry.state_label.clone(),
             normalized: entry.normalized,
-            confidence: entry.confidence,
+            readiness: entry.readiness,
             values: entry.values.clone().map(|m| m.into_iter().collect()),
             signals: entry.signals.clone(),
             lifecycle_state: "Live".to_string(),
@@ -2068,7 +2069,7 @@ fn candlestick_no_pattern_no_duplicate_signal_pairs() {
         bar_count: 1,
         state_label: entry.state_label.clone(),
         normalized: entry.normalized,
-        confidence: entry.confidence,
+        readiness: entry.readiness,
         values: entry.values.clone().map(|m| m.into_iter().collect()),
         signals: entry.signals.clone(),
         lifecycle_state: "Live".to_string(),
@@ -2119,7 +2120,7 @@ fn pivot_points_no_prior_session_no_duplicate_signal_pairs() {
         bar_count: 1,
         state_label: entry.state_label.clone(),
         normalized: entry.normalized,
-        confidence: entry.confidence,
+        readiness: entry.readiness,
         values: entry.values.clone().map(|m| m.into_iter().collect()),
         signals: entry.signals.clone(),
         lifecycle_state: "Live".to_string(),
@@ -2355,7 +2356,7 @@ fn divergence_emission_no_duplicate_keys_potential_bullish() {
                 bar_count: 200,
                 state_label: entry.state_label.clone(),
                 normalized: entry.normalized,
-                confidence: entry.confidence,
+                readiness: entry.readiness,
                 values: entry
                     .values
                     .clone()
@@ -2418,7 +2419,7 @@ fn divergence_emission_no_duplicate_keys_confirmed_bearish() {
                 bar_count: 200,
                 state_label: entry.state_label.clone(),
                 normalized: entry.normalized,
-                confidence: entry.confidence,
+                readiness: entry.readiness,
                 values: entry
                     .values
                     .clone()

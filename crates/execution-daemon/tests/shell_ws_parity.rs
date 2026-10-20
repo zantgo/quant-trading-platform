@@ -172,7 +172,7 @@ fn sample_snapshot(secs: u64, mid: i64) -> MarketSnapshot {
             state_label: "Overbought".to_string(),
             values: None,
             signals: Vec::new(),
-            confidence: 0.5,
+            readiness: core_domain::axes::Readiness::Solid,
             available_at_bar: Some(19),
             subject_bar: Some(19),
         },

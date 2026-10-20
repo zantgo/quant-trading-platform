@@ -212,7 +212,7 @@ fn a_stage_is_never_published_from_a_label_with_no_leg() {
             state_label: "early".into(),
             values: None,
             signals: Vec::new(),
-            confidence: 0.0,
+            readiness: core_domain::axes::Readiness::Solid,
             available_at_bar: Some(1),
             subject_bar: Some(1),
         },

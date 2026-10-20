@@ -10,7 +10,7 @@
 
     import type { IndicatorMeta, IndicatorSignal, TimeframeTelemetry } from '../../types';
     import { classifyDivergence, divergenceLabel, divergenceAccent } from '../../lib/divergence';
-    import { confPct, dirColor, ageLabel } from '../../lib/scoreStyles';
+    import { dirColor, ageLabel } from '../../lib/scoreStyles';
     import styles from './DivergencesView.module.css';
 
     interface Props {
@@ -61,8 +61,8 @@
         return Array.from(map.entries());
     });
 
-    function confidenceOf(key: string): number {
-        return confPct(tf.indicators?.[key]?.confidence ?? 0);
+    function readinessOf(key: string): string {
+        return (tf.indicators?.[key]?.readiness ?? 'dashed').toUpperCase();
     }
 
     function fmtPoint(p: { time: number; value: number } | undefined | null): string {
@@ -107,8 +107,8 @@
                                     <span class={styles.metaVal}>{(row.signal.strength * 100).toFixed(0)}</span>
                                 </div>
                                 <div class={styles.metaRow}>
-                                    <span class={styles.metaLabel}>Confidence</span>
-                                    <span class={styles.metaVal}>{confidenceOf(row.indicatorKey)}%</span>
+                                    <span class={styles.metaLabel}>Readiness</span>
+                                    <span class={styles.metaVal}>{readinessOf(row.indicatorKey)}</span>
                                 </div>
                                 <div class={styles.metaRow}>
                                     <span class={styles.metaLabel}>Age</span>

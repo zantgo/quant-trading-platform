@@ -970,7 +970,7 @@ mod tests {
                 normalized: 0.5,
                 state_label: "X".to_string(),
                 values: None,
-                confidence: 0.5,
+                readiness: crate::axes::Readiness::Solid,
                 // A test fixture; availability is stamped by the assembler in
                 // production, so leaving it undeclared here is accurate.
                 available_at_bar: None,
@@ -1025,7 +1025,7 @@ mod tests {
                     normalized: 0.5,
                     state_label: "X".to_string(),
                     values: None,
-                    confidence: 0.5,
+                    readiness: crate::axes::Readiness::Solid,
                     available_at_bar: None,
                     subject_bar: None,
                     signals: vec![IndicatorSignal {

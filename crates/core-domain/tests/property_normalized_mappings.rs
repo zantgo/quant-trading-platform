@@ -177,10 +177,20 @@ fn bbwp_contract_zero_normalized_for_all_regimes() {
                 v.normalized,
             );
             assert_eq!(v.state_label, expected_label);
+            assert_eq!(
+                v.readiness,
+                core_domain::axes::Readiness::Solid,
+                "BBWP inputs are complete for regime {expected_label} (bias {bias})"
+            );
+            let gate = v
+                .values
+                .as_ref()
+                .and_then(|vals| vals.get("bbwp_gate"))
+                .copied()
+                .unwrap_or(0.0);
             assert!(
-                v.confidence > 0.0,
-                "BBWP must retain its documented confidence band (regime {expected_label}, bias {bias}); got {}",
-                v.confidence,
+                gate > 0.0,
+                "BBWP must retain its documented gate band in values.bbwp_gate (regime {expected_label}, bias {bias}); got {gate}"
             );
         }
     }

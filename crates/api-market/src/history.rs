@@ -66,7 +66,9 @@ fn overlay_indicators_from_db(
         state_label: "HISTORICAL".to_string(),
         values,
         signals: Vec::new(),
-        confidence: 0.0,
+        // The row's inputs were complete when it was persisted; readiness is
+        // not the same question as availability (CG1) below.
+        readiness: core_domain::axes::Readiness::Solid,
         // Left undeclared. A history row does know its own bar, but this
         // closure is built before the row's timestamp is in scope, and
         // guessing would be worse than admitting it. CG1 therefore reports

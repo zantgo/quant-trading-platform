@@ -67,7 +67,7 @@ export interface MtfPerTimeframeIndicator {
   normalized_value: number;
   state: string;
   state_display: string;
-  confidence_pct: number;
+  readiness: string;
   signals: Array<{
     kind: string;
     direction: SignalDirection;
@@ -103,7 +103,7 @@ export interface MtfIndicatorEntry {
    *  the shown set; kept for payload-schema stability). */
   visible: boolean;
   normalized_available: boolean;
-  confidence_pct: number;
+  readiness: string;
   values: MtfIndicatorValue[];
   agreement: number;
   agreement_display: string;
@@ -489,10 +489,8 @@ function formatRawValue(
   }
 }
 
-function confidencePct(indicators: Record<string, IndicatorDto>, key: string): number {
-  const dto = indicators?.[key];
-  if (!dto?.confidence) return 0;
-  return Math.round(Math.abs(dto.confidence) * 100);
+function readinessOf(indicators: Record<string, IndicatorDto>, key: string): string {
+  return indicators?.[key]?.readiness ?? 'dashed';
 }
 
 function fibSwingDirection(norm: number | null): string {
@@ -603,7 +601,7 @@ function buildTimeframeEntry(
       normalized_value: dto.normalized ?? null,
       state: dto.state_label ?? '\u2014',
       state_display: humanizeStateToken(dto.state_label),
-      confidence_pct: confidencePct(indicators, m.key),
+      readiness: readinessOf(indicators, m.key),
       signals,
       sub_values: Object.keys(subValues).length > 0 ? subValues : null,
     };
@@ -676,7 +674,7 @@ function aggregateAcrossTFs(perTf: MtfTimeframeEntry[], registry: IndicatorMeta[
               direction: sig.direction,
               status: sig.status,
               strength: sig.strength,
-              confidence_pct: ind.confidence_pct,
+              readiness: ind.readiness,
               age_bars: sig.age_bars,
               label: sig.label,
               pivots: null,
@@ -699,7 +697,7 @@ function aggregateAcrossTFs(perTf: MtfTimeframeEntry[], registry: IndicatorMeta[
               direction: sig.direction,
               status: sig.status,
               strength: sig.strength,
-              confidence_pct: ind.confidence_pct,
+              readiness: ind.readiness,
               age_bars: sig.age_bars,
             });
           }
@@ -801,10 +799,11 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     const aggregateState = slotDefs
       .map(({ tf }) => (tf.indicators ?? {})[m.key]?.state_label)
       .find((s) => s != null) ?? null;
-    // Aggregate confidence — take the max across TFs.
-    const aggregateConfidence = Math.max(
-      ...slotDefs.map(({ tf }) => confidencePct((tf.indicators ?? {}) as Record<string, IndicatorDto>, m.key)),
-    );
+    // Aggregate readiness — Solid if ANY duration published complete inputs;
+    // this is a completeness OR, not a magnitude to maximise.
+    const aggregateReadiness = slotDefs.some(
+      ({ tf }) => readinessOf((tf.indicators ?? {}) as Record<string, IndicatorDto>, m.key) === 'solid',
+    ) ? 'solid' : 'dashed';
     return {
       key: split.key,
       period: split.period,
@@ -815,7 +814,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
       directional: m.directional ?? true,
       visible: visibleKeys.has(m.key),
       normalized_available: presentNorms.length > 0,
-      confidence_pct: aggregateConfidence,
+      readiness: aggregateReadiness,
       values,
       agreement,
       agreement_display: signedStr(agreement, 2),
@@ -851,25 +850,20 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
       // Key by the FULL registry key (e.g. "rsi_14") — the shared Metrics
       // builders look up `indicators[meta.key]` with the registry key.
       const existing = mergedIndicators[m.key] as IndicatorDto | undefined;
-      // NOTE: `existing.confidence` is stored as a 0..1 fraction
-      // (line below, `confidence_pct / 100`), while `ind.confidence_pct`
-      // is a 0..100 integer. Comparing them raw made every subsequent TF
-      // with confidence >= 2% win the merge, so the LAST timeframe
-      // (Macro) always won and the MTF aggregates (group_confluence /
-      // signals_by_kind / divergences / levels) became macro-only.
-      // Normalize to the same unit before comparing.
-      // v6.10.17 (P1): the comparison is STRICT `>` so ties keep the FIRST
-      // timeframe (Micro — the fastest horizon, i.e. the freshest read) —
-      // the previous `>=`-style winner-TF-only behavior already existed,
-      // but a tie is now deterministic instead of last-TF-biased. The
-      // aggregation order (micro → fast → slow → macro) fixes the winner.
-      const prefer = !existing || (ind.confidence_pct ?? 0) > (existing.confidence ?? 0) * 100;
+      // v6.10.17 (P1): ties keep the FIRST timeframe (Micro — the fastest
+      // horizon, i.e. the freshest read); the aggregation order
+      // (micro → fast → slow → macro) fixes the winner. P10-E: the only
+      // preference left is completeness — a Solid reading replaces a
+      // Dashed one, and two Dashed readings never compete.
+      const prefer =
+        !existing ||
+        (ind.readiness === 'solid' && existing.readiness !== 'solid');
       if (!prefer) continue;
       mergedIndicators[m.key] = {
         raw_value: ind.raw ?? 0,
         normalized: ind.normalized_value,
         state_label: ind.state,
-        confidence: ind.confidence_pct / 100,
+        readiness: ind.readiness,
         values: ind.sub_values,
         signals: ind.signals.map((s) => ({
           // Per-TF rows carry abbreviated kinds; convert back to the

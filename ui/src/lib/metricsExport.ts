@@ -95,7 +95,7 @@ interface ExportIndicator {
     normalized: number;
     state: string;
     pending_candle: boolean;
-    confidence_pct: number;
+    readiness: string;
     signals: ExportSignal[];
     sub_values: Record<string, number> | null;
     indicator_lifecycle: ExportLifecycleStatus | null;
@@ -294,10 +294,8 @@ function isSqueezeOnValue(indicators: Record<string, IndicatorDto>): boolean {
     return dto.state_label === 'COMPRESSION_COILING';
 }
 
-function confidence(indicators: Record<string, IndicatorDto>, key: string): number {
-    const dto = indicators?.[key];
-    if (!dto?.confidence) return 0;
-    return Math.round(Math.abs(dto.confidence) * 100);
+function readiness(indicators: Record<string, IndicatorDto>, key: string): string {
+    return indicators?.[key]?.readiness ?? 'dashed';
 }
 
 /**
@@ -366,7 +364,7 @@ function extractIndicatorsForExport(
             normalized: dto.normalized ?? 0,
             state: dto.state_label ?? '--',
             pending_candle: pending,
-            confidence_pct: confidence(inds, m.key),
+            readiness: readiness(inds, m.key),
             signals,
             sub_values: Object.keys(subValues).length > 0 ? subValues : null,
             indicator_lifecycle: lifecycleExport,
@@ -472,7 +470,7 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         raw: null,
         normalized: inds['fibonacci']?.normalized ?? 0,
         state: inds['fibonacci']?.state_label ?? '--',
-        confidence_pct: confidence(inds, 'fibonacci'),
+        readiness: readiness(inds, 'fibonacci'),
         pending_candle: false,
         signals: [],
         sub_values: fibExtracted as unknown as Record<string, number>,
@@ -775,7 +773,7 @@ export function buildMtfExportJson(args: MtfExportArgs): string {
                 raw: null,
                 normalized: inds['fibonacci']?.normalized ?? 0,
                 state: inds['fibonacci']?.state_label ?? '--',
-                confidence_pct: confidence(inds, 'fibonacci'),
+                readiness: readiness(inds, 'fibonacci'),
                 pending_candle: false,
                 signals: [],
                 sub_values: fibSummary as unknown as Record<string, number>,

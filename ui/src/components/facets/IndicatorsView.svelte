@@ -18,7 +18,7 @@
     import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
     import { effectiveLifecycleState } from '../../lib/lifecycleDisplay';
     import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn, buildEmaRibbonCellView } from '../../lib/telemetry';
-    import { confPct, normColor, dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
+    import { normColor, dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
     import IndicatorStatusBadge from './IndicatorStatusBadge.svelte';
     import styles from './IndicatorsView.module.css';
 
@@ -179,7 +179,7 @@
         if (e.state_label === 'WARMING') return false;
         const rv = e.raw_value ?? 0;
         const nv = e.normalized ?? 0;
-        const cf = e.confidence ?? 0;
+        const cf = e.readiness === 'solid' ? 1 : 0;
         const sl = e.signals?.length ?? 0;
         const hv = e.values != null && Object.keys(e.values).length > 0;
         return rv !== 0 || nv !== 0 || cf > 0 || sl > 0 || hv;
@@ -324,21 +324,17 @@
         return { label: 'AWAITING DATA', cssClass: styles.stateWarming };
     }
 
-    function confidence(key: string): number {
-        return confPct(Math.abs(tf.indicators?.[key]?.confidence ?? 0));
+    /** Mechanical readiness: complete inputs fill the bar, incomplete do not. */
+    function readiness(key: string): string {
+        return (tf.indicators?.[key]?.readiness ?? 'dashed').toUpperCase();
     }
 
-    /** Confidence bar width as percentage (max 100). */
-    function confBarPct(key: string): string {
-        return `${Math.min(confidence(key), 100).toFixed(0)}%`;
+    function readinessBarPct(key: string): string {
+        return readiness(key) === 'SOLID' ? '100%' : '0%';
     }
 
-    /** Confidence bar color class. */
-    function confBarClass(key: string): string {
-        const c = confidence(key);
-        if (c >= 60) return styles.confBarHigh;
-        if (c >= 20) return styles.confBarMid;
-        return styles.confBarLow;
+    function readinessBarClass(key: string): string {
+        return readiness(key) === 'SOLID' ? styles.confBarHigh : styles.confBarLow;
     }
 
     /** Heuristic status dot: green (live + signal) / grey (silent) /
@@ -497,10 +493,10 @@
                                     <span class={`${styles.colState} ${stateDisplay(m.key).cssClass}`}>{stateDisplay(m.key).label}</span>
                                     <span class={styles.colConf}>
                                         <div class={styles.confBarWrap}>
-                                            <div class={`${styles.confBarInner} ${confBarClass(m.key)}`}
-                                                 style="width: {confBarPct(m.key)}"></div>
+                                            <div class={`${styles.confBarInner} ${readinessBarClass(m.key)}`}
+                                                 style="width: {readinessBarPct(m.key)}"></div>
                                         </div>
-                                        <span class={styles.confText}>{confidence(m.key)}%</span>
+                                        <span class={styles.confText}>{readiness(m.key)}</span>
                                     </span>
                                     <span class={styles.colSig}>
                                         {#if sigs.length === 0}

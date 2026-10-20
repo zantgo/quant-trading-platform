@@ -334,17 +334,22 @@ mod meta_tests {
     use super::*;
 
     #[test]
-    fn confidence_defaults_to_abs_normalized() {
+    fn readiness_defaults_to_solid_for_produced_values() {
         let v = NormalizedIndicatorValue::scalar(0.0, -0.8, "X");
-        assert!((v.confidence - 0.8).abs() < 1e-9);
+        assert_eq!(v.readiness, core_domain::axes::Readiness::Solid);
         let n = NormalizedIndicatorValue::neutral("N");
-        assert_eq!(n.confidence, 0.0);
+        assert_eq!(n.readiness, core_domain::axes::Readiness::Solid);
     }
 
     #[test]
-    fn confidence_override_clamps() {
-        let v = NormalizedIndicatorValue::scalar(0.0, 0.2, "X").with_confidence(1.5);
-        assert_eq!(v.confidence, 1.0);
+    fn readiness_is_declared_mechanically_not_computed() {
+        let v = NormalizedIndicatorValue::scalar(0.0, 0.2, "X")
+            .with_readiness(core_domain::axes::Readiness::Dashed);
+        assert_eq!(v.readiness, core_domain::axes::Readiness::Dashed);
+        // Readiness has no magnitude to clamp or scale.
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!(json["readiness"], "dashed");
+        assert!(json.get("confidence").is_none());
     }
 
     #[test]
@@ -362,7 +367,7 @@ mod meta_tests {
     }
 
     #[test]
-    fn derive_signals_boosts_confidence() {
+    fn derive_signals_do_not_invent_conviction() {
         let inputs = IndicatorInputs {
             rsi: Some(15.0), // deep oversold → strong normalized + OB/OS threshold signal
             ..IndicatorInputs::default()
@@ -374,9 +379,10 @@ mod meta_tests {
             !rsi.signals.is_empty(),
             "oversold RSI should emit a threshold signal"
         );
-        assert!(
-            rsi.confidence >= rsi.normalized.abs(),
-            "signals should not lower confidence"
+        assert_eq!(
+            rsi.readiness,
+            core_domain::axes::Readiness::Solid,
+            "a fired signal says the inputs are complete; it does not manufacture a probability"
         );
     }
 
@@ -407,7 +413,11 @@ mod meta_tests {
                 .get(key)
                 .unwrap_or_else(|| panic!("{key} must be present"));
             assert_eq!(v.state_label, "WARMING", "{key} should be WARMING");
-            assert!(v.confidence <= 0.01, "{key} confidence should be ~0");
+            assert_eq!(
+                v.readiness,
+                core_domain::axes::Readiness::Dashed,
+                "{key} has no inputs yet and must say so"
+            );
         }
         for &key in &divergent_keys {
             let v = map

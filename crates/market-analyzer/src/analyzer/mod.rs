@@ -3431,8 +3431,9 @@ async fn synthesize_completed_candle(
     let mut indicators = indicators;
     *live_bar = live_bar.wrapping_add(1);
     stamp_signal_ages(&mut indicators, &mut *signal_age_tracker, *live_bar);
-    // v9: the strategy's `l1.signals` knobs — per-SignalKind confidence
-    // boost, stale-signal drop, strength-bucket classification.
+    // v9: the strategy's `l1.signals` knobs — stale-signal drop and
+    // strength-bucket classification (the confidence boost is inert since
+    // P10-E; readiness is mechanical).
     apply_l1_signal_params(&mut indicators, &strategy.l1);
 
     // CR-10 / CH-1: the derivatives snapshot read is GONE, along with the two
@@ -4048,8 +4049,9 @@ fn stamp_signal_ages(
 /// v9 L1 signal post-pass: apply the strategy's `l1.signals` knobs after the
 /// normalizer + age tracker have run —
 ///   - `max_age_bars`: drop signals older than N bars (None = keep forever);
-///   - `confidence_boost`: per-SignalKind multiplier on the entry's
-///     confidence (keys = the Rust `SignalKind` names, e.g. `"Crossover"`);
+///   - `confidence_boost`: accepted for config compatibility but **inert** —
+///     readiness is mechanical since P10-E, so there is no probability to
+///     scale (the knob is dissolved with the strategy config in R1);
 ///   - `strength_buckets`: `[weak, strong, extreme]` borders on
 ///     `|normalized|`-derived strength → `strength_label` WEAK / MODERATE /
 ///     STRONG / EXTREME.
@@ -4065,8 +4067,6 @@ fn apply_l1_signal_params(
                 .signals
                 .retain(|s| max_age.map(|m| s.age_bars <= m).unwrap_or(true));
         }
-        let boosts = &l1.signals.confidence_boost;
-        let mut confidence_scale: f64 = 1.0;
         for sig in entry.signals.iter_mut() {
             let strength = sig.strength.clamp(0.0, 1.0);
             sig.strength_label = if strength >= b_extreme {
@@ -4079,12 +4079,6 @@ fn apply_l1_signal_params(
                 "WEAK"
             }
             .to_string();
-            if let Some(boost) = boosts.get(&format!("{:?}", sig.kind)) {
-                confidence_scale = confidence_scale.max(*boost);
-            }
-        }
-        if (confidence_scale - 1.0).abs() > 1e-9 {
-            entry.confidence = (entry.confidence * confidence_scale).clamp(0.0, 1.0);
         }
         let _ = key;
     }
@@ -5160,6 +5154,7 @@ mod lifecycle_tests {
     //! gate fires later than `bars_required`, e.g. `volume_profile`).
     use super::build_indicator_lifecycle_map;
     use crate::indicators::NormalizedIndicatorValue;
+    use core_domain::axes::Readiness;
     use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
     use std::collections::HashMap;
 
@@ -5169,10 +5164,10 @@ mod lifecycle_tests {
         // Availability is declared by the assembler, which knows the bar. Left
         // undeclared here so CG1 reports it rather than this constructor
         // guessing a time it has not been told.
-        NormalizedIndicatorValue::scalar(0.0, 0.0, "WARMING").with_confidence(0.0)
+        NormalizedIndicatorValue::scalar(0.0, 0.0, "WARMING").with_readiness(Readiness::Dashed)
     }
 
-    /// A real reading with non-zero confidence and a non-WARMING label.
+    /// A real reading with a non-WARMING label and complete inputs.
     fn real_reading() -> NormalizedIndicatorValue {
         NormalizedIndicatorValue::scalar(50.0, 0.4, "RSI_NEUTRAL")
     }
@@ -5284,17 +5279,15 @@ mod lifecycle_tests {
     }
 
     #[test]
-    fn lifecycle_flips_live_with_neutral_label_and_zero_confidence() {
+    fn lifecycle_flips_live_with_neutral_label_and_zero_normalized() {
         // Contract: the lifecycle gate is `state_label != "WARMING"`. The
-        // previous `confidence > 0` clause was removed because the
-        // normalizer derives `confidence = |normalized|` for `scalar(...)`
-        // entries, which would have permanently trapped ContextOnly gates
-        // (BBWP, ATR, RVOL, …) and event-only overlays (Hull MA) in
+        // previous `confidence > 0` clause was removed because conviction is
+        // not completeness; it would have permanently trapped ContextOnly
+        // gates (BBWP, ATR, RVOL, …) and event-only overlays (Hull MA) in
         // `Loading` — the regression that surfaced as
         // `Raw 0.00 / Norm 0.00 / State UNKNOWN` rows in the Metrics
         // Indicators table.
-        let m_entry =
-            NormalizedIndicatorValue::scalar(0.0, 0.0, "RSI_NEUTRAL").with_confidence(0.0);
+        let m_entry = NormalizedIndicatorValue::scalar(0.0, 0.0, "RSI_NEUTRAL");
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), m_entry);
         let map = build_indicator_lifecycle_map(
@@ -5310,7 +5303,7 @@ mod lifecycle_tests {
         assert_eq!(
             map["rsi"].state,
             IndicatorLifecycleState::Live,
-            "non-WARMING entry with normalized=0.0 and confidence=0.0 must still flip to Live",
+            "non-WARMING entry with normalized=0.0 must still flip to Live",
         );
     }
 
@@ -5318,11 +5311,10 @@ mod lifecycle_tests {
     fn lifecycle_flips_live_with_context_only_gate_zero_normalized() {
         // Mirrors the production case for BBWP / ATR / RVOL / etc.: the
         // registry `directional = false` gates emit `normalized = 0.0`
-        // by contract, with a non-WARMING label and non-zero confidence.
+        // by contract, with a non-WARMING label.
         // The lifecycle must flip to `Live` so the Metrics table renders
         // the badge correctly instead of permanently showing `Warming`.
-        let bbwp = NormalizedIndicatorValue::scalar(50.0, 0.0, "NORMAL_VOLATILITY_BULL_CYCLE")
-            .with_confidence(0.50);
+        let bbwp = NormalizedIndicatorValue::scalar(50.0, 0.0, "NORMAL_VOLATILITY_BULL_CYCLE");
         let mut m = HashMap::new();
         m.insert("bbwp".to_string(), bbwp);
         let map = build_indicator_lifecycle_map(

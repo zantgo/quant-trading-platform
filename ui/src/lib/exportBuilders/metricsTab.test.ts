@@ -71,12 +71,12 @@ function makeTf(): TimeframeTelemetry {
       liquidity: { score: 0.55, confidence: 0.7, label: 'Neutral' },
     },
     indicators: {
-      rsi_14: { raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'BULLISH', signals: [], values: {} },
-      smc_fvg: { raw_value: 5, normalized: 0.6, confidence: 0.8, state_label: 'BULLISH', signals: [], values: {} },
+      rsi_14: { raw_value: 62.4, normalized: 0.24, readiness: 'solid', state_label: 'BULLISH', signals: [], values: {} },
+      smc_fvg: { raw_value: 5, normalized: 0.6, readiness: 'solid', state_label: 'BULLISH', signals: [], values: {} },
       // CR-10: `derivatives_funding` is gone from the 44-indicator registry.
       // The fixture keeps a third row so the exporter's per-indicator walk is
       // still exercised over more than two entries.
-      choppiness: { raw_value: 52.1, normalized: 0.1, confidence: 0.6, state_label: 'NEUTRAL', signals: [], values: {} },
+      choppiness: { raw_value: 52.1, normalized: 0.1, readiness: 'solid', state_label: 'NEUTRAL', signals: [], values: {} },
     } as unknown as Record<string, IndicatorDto>,
   } as unknown as TimeframeTelemetry;
 }
@@ -331,7 +331,7 @@ describe('buildMetricsTabExport', () => {
       ...makeTf(),
       indicators: {
         rsi_14: {
-          raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'BULLISH',
+          raw_value: 62.4, normalized: 0.24, readiness: 'solid', state_label: 'BULLISH',
           signals: [
             { kind: 'Crossover', direction: 'BULLISH', status: 'Confirmed', label: 'Bull cross', strength: 75, age_bars: 2 },
           ],
@@ -408,7 +408,7 @@ it('EventOnly normalization mode renders N/A like the screen (available:false)',
     ...makeTf(),
     indicators: {
       ...makeTf().indicators,
-      hull_ma: { raw_value: 63500, normalized: 0, state_label: 'LIVE', confidence: 0, signals: [], values: {} },
+      hull_ma: { raw_value: 63500, normalized: 0, state_label: 'LIVE', readiness: 'dashed', signals: [], values: {} },
     } as unknown as Record<string, IndicatorDto>,
   };
   const p = JSON.parse(buildMetricsTabExport({
@@ -432,7 +432,7 @@ it('WARMING rows render the norm placeholder (never 0.00)', () => {
     ...makeTf(),
     indicators: {
       ...makeTf().indicators,
-      rsi_14: { raw_value: 0, normalized: 0, state_label: 'WARMING', confidence: 0, signals: [], values: {} },
+      rsi_14: { raw_value: 0, normalized: 0, state_label: 'WARMING', readiness: 'dashed', signals: [], values: {} },
     } as unknown as Record<string, IndicatorDto>,
   };
   const p = JSON.parse(buildMetricsTabExport({
@@ -457,9 +457,9 @@ it('legacy state fallback mirrors the screen (NO SIGNAL / AWAITING DATA / —)',
     indicatorLifecycle: undefined,
     indicators: {
       ...makeTf().indicators,
-      rsi_14: { raw_value: 0, normalized: 0, confidence: 0, state_label: 'WARMING', signals: [], values: {} },
-      smc_fvg: { raw_value: 5, normalized: 0.6, confidence: 0.8, state_label: 'WARMING', signals: [], values: {} },
-      aroon: { raw_value: 0, normalized: 0, confidence: 0, state_label: '--', signals: [], values: {} },
+      rsi_14: { raw_value: 0, normalized: 0, readiness: 'dashed', state_label: 'WARMING', signals: [], values: {} },
+      smc_fvg: { raw_value: 5, normalized: 0.6, readiness: 'solid', state_label: 'WARMING', signals: [], values: {} },
+      aroon: { raw_value: 0, normalized: 0, readiness: 'dashed', state_label: '--', signals: [], values: {} },
     } as unknown as Record<string, IndicatorDto>,
   };
   const p = JSON.parse(buildMetricsTabExport({
@@ -535,7 +535,7 @@ describe('body.ema — Metrics tab export body block', () => {
       ema_stack: {
         raw_value: values.fast,
         normalized: 1.0,
-        confidence: 0.9,
+        readiness: 'solid',
         state_label: 'ESTABLISHED_BULLISH_STACK',
         signals: [],
         values: { ...values },
@@ -638,7 +638,7 @@ describe('meta envelope — does NOT carry ema', () => {
   it('meta has no `ema` key (body-level only)', () => {
     const tf = {
       indicators: {
-        ema_stack: { values: { fast: 64000, medium: 64050, slow: 63980, long: 63845 }, raw_value: 64000, normalized: 1, state_label: 'ESTABLISHED_BULLISH_STACK', signals: [], confidence: 1 },
+        ema_stack: { values: { fast: 64000, medium: 64050, slow: 63980, long: 63845 }, raw_value: 64000, normalized: 1, state_label: 'ESTABLISHED_BULLISH_STACK', signals: [], readiness: 'solid' },
       },
     } as any;
     const p = JSON.parse(buildMetricsTabExport({

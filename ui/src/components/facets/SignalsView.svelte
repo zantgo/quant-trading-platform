@@ -14,7 +14,7 @@
     // carries is ALWAYS shown, unfiltered, by construction.
 
     import type { IndicatorMeta, IndicatorSignal, SignalKind, TimeframeTelemetry } from '../../types';
-    import { confPct, dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
+    import { dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
     import styles from './SignalsView.module.css';
 
     interface Props {
@@ -77,8 +77,8 @@
         expanded = { ...expanded };
     }
 
-    function confidenceOf(key: string): number {
-        return confPct(tf.indicators?.[key]?.confidence ?? 0);
+    function readinessOf(key: string): string {
+        return (tf.indicators?.[key]?.readiness ?? 'dashed').toUpperCase();
     }
 </script>
 
@@ -116,8 +116,8 @@
                                         <span class={styles.metaVal}>{(entry.signal.strength * 100).toFixed(0)}</span>
                                     </span>
                                     <span class={styles.metaPill}>
-                                        <span class={styles.metaKey}>CONFIDENCE</span>
-                                        <span class={styles.metaVal}>{confidenceOf(entry.indicatorKey)}%</span>
+                                        <span class={styles.metaKey}>READINESS</span>
+                                        <span class={styles.metaVal}>{readinessOf(entry.indicatorKey)}</span>
                                     </span>
                                     <span class={styles.metaPill}>
                                         <span class={styles.metaKey}>AGE</span>

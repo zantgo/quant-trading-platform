@@ -1135,7 +1135,7 @@ mod tests {
                 state_label: "ATR_RAW".into(),
                 values: Some(atr_values),
                 signals: vec![],
-                confidence: 0.5,
+                readiness: crate::axes::Readiness::Solid,
                 // Availability is declared by the assembler, which knows the bar.
                 // Left undeclared here so CG1 reports it rather than this
                 // constructor guessing a time it has not been told.
@@ -1294,7 +1294,7 @@ mod tests {
                 state_label: "ATR_RAW".into(),
                 values: Some(HashMap::from([("atr_14".to_string(), atr_14)])),
                 signals: vec![],
-                confidence: 1.0,
+                readiness: crate::axes::Readiness::Solid,
                 // Availability is declared by the assembler, which knows the bar.
                 // Left undeclared here so CG1 reports it rather than this
                 // constructor guessing a time it has not been told.
@@ -1310,7 +1310,7 @@ mod tests {
                 state_label: "SPREAD".into(),
                 values: None,
                 signals: vec![],
-                confidence: 1.0,
+                readiness: crate::axes::Readiness::Solid,
                 // Availability is declared by the assembler, which knows the bar.
                 // Left undeclared here so CG1 reports it rather than this
                 // constructor guessing a time it has not been told.

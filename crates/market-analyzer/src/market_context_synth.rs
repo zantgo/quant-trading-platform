@@ -77,24 +77,24 @@ fn group_dimension(
         let Some(w) = l1_weight(l1, meta.key) else {
             continue;
         };
-        // Guarded: `normalized` is clamp_unit-sanitized, but a NaN
-        // `confidence` from any future calculator would poison the
-        // weighted mean — collapse non-finite entries to neutral.
+        // P10-E / CH-4: readiness is mechanical, so it selects whether an
+        // input may vote at all — it is not a weight. An incomplete reading
+        // (`Dashed`) is excluded rather than down-weighted, and a complete
+        // one counts exactly once. The dimension's `confidence` is therefore
+        // the *coverage* of complete inputs, never a probability.
+        let ready_i = if v.readiness == core_domain::axes::Readiness::Solid {
+            1.0
+        } else {
+            0.0
+        };
         let norm_i = finite(v.normalized, 0.0);
-        let conf_i = finite(v.confidence, 0.0);
-        sum += norm_i * conf_i * w;
-        conf += conf_i;
+        sum += norm_i * ready_i * w;
+        conf += ready_i;
         n += 1.0;
     }
     if n < f64::EPSILON {
         return ContextDimension::neutral();
     }
-    // AUDIT-AIU-060: the docs (02-07 §5.1) specify a confidence-WEIGHTED
-    // mean `Σ(score×confidence)/Σ(confidence)`. The previous code computed
-    // `Σ(score×confidence)/n` — the mean of the products — which shrank
-    // every score toward zero as confidence dropped. The weighted mean is
-    // invariant to confidence scale: an indicator with confidence 0.9
-    // contributes 9× the weight of one with confidence 0.1.
     let score = if conf > 1e-9 { sum / conf } else { 0.0 };
     let conf = conf / n;
     let label = dir_label(
@@ -218,7 +218,10 @@ pub fn synthesize_market_context(
     // The corrected contribution is proximity-based: `(1 − |normalized|)`
     // so price AT fair value contributes +50 and a stretched price
     // contributes ~0.
-    let vwap_conf = finite(map.get("vwap").map(|v| v.confidence).unwrap_or(0.0), 0.0);
+    let vwap_conf = match map.get("vwap").map(|v| v.readiness) {
+        Some(core_domain::axes::Readiness::Solid) => 1.0,
+        _ => 0.0,
+    };
     let vwap_score = finite(map.get("vwap").map(|v| v.normalized).unwrap_or(0.0), 0.0);
     // AUDIT-AIU-111: `ContextDimension.score` is contractually [-1, 1]
     // (`core-domain/src/market_context.rs`, `02-07-metrics-matrix.md` §5.2)

@@ -157,7 +157,7 @@ export interface MetricsIndicatorRow {
   normalized_reason: string | null;
   state: string;
   state_display: string;
-  confidence_pct: number;
+  readiness: string;
   signals: IndicatorSignalExport[];
   sub_values: Record<string, number> | null;
   indicator_lifecycle: IndicatorLifecycleExport | null;
@@ -171,7 +171,7 @@ export interface DivergenceRow {
   direction: string;
   status: string;
   strength: number;
-  confidence_pct: number;
+  readiness: string;
   age_bars: number | undefined;
   label: string;
   pivots: Array<{ time: number; value: number }> | null;
@@ -190,7 +190,7 @@ export interface LevelRow {
   direction: string;
   status: string;
   strength: number;
-  confidence_pct: number;
+  readiness: string;
   age_bars: number | undefined;
 }
 
@@ -364,7 +364,7 @@ function hasRealData(dto: IndicatorDto | undefined): boolean {
   if (dto.state_label === 'WARMING') return false;
   const rv = dto.raw_value ?? 0;
   const nv = dto.normalized ?? 0;
-  const cf = dto.confidence ?? 0;
+  const cf = dto.readiness === 'solid' ? 1 : 0;
   const sl = dto.signals?.length ?? 0;
   const hv = dto.values != null && Object.keys(dto.values).length > 0;
   return rv !== 0 || nv !== 0 || cf > 0 || sl > 0 || hv;
@@ -387,10 +387,8 @@ function legacyStateFallback(dto: IndicatorDto | undefined, capability: string):
   return hasRealData(dto) ? 'NO SIGNAL' : 'AWAITING DATA';
 }
 
-function confidencePct(indicators: Record<string, IndicatorDto>, key: string): number {
-  const dto = indicators?.[key];
-  if (!dto?.confidence) return 0;
-  return Math.round(Math.abs(dto.confidence) * 100);
+function readinessOf(indicators: Record<string, IndicatorDto>, key: string): string {
+  return indicators?.[key]?.readiness ?? 'dashed';
 }
 
 function buildMarketContext(
@@ -718,7 +716,7 @@ function buildIndicators(
       normalized_reason: norm.reason,
       state: lcDisplay?.label ?? legacyStateFallback(dto, capStr),
       state_display: lcDisplay?.label ?? legacyStateFallback(dto, capStr),
-      confidence_pct: confidencePct(indicators, m.key),
+      readiness: readinessOf(indicators, m.key),
       signals: buildIndicatorSignals(dto, m),
       sub_values: Object.keys(subValues).length > 0 ? subValues : null,
       indicator_lifecycle: lcDisplay
@@ -793,7 +791,7 @@ export function buildDivergences(
         direction: sig.direction,
         status: sig.status,
         strength: sig.strength,
-        confidence_pct: Math.round(Math.abs(indicators?.[meta.key]?.confidence ?? 0) * 100),
+        readiness: indicators?.[meta.key]?.readiness ?? 'dashed',
         age_bars: sig.age_bars,
         label: sig.label,
         pivots: sig.points ?? null,
@@ -844,7 +842,7 @@ export function buildLevels(
         direction: sig.direction,
         status: sig.status,
         strength: sig.strength,
-        confidence_pct: Math.round(Math.abs(indicators?.[meta.key]?.confidence ?? 0) * 100),
+        readiness: indicators?.[meta.key]?.readiness ?? 'dashed',
         age_bars: sig.age_bars,
       });
     }

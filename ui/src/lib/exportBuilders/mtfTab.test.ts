@@ -35,7 +35,7 @@ function makeTf(label: string, priceText: string): TimeframeTelemetry {
     priceText,
     latestSnapshot: { timestamp: Math.floor(Date.now() / 1000) - 5 },
     indicators: {
-      rsi_14: { raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'BULLISH', signals: [], values: {} },
+      rsi_14: { raw_value: 62.4, normalized: 0.24, readiness: 'solid', state_label: 'BULLISH', signals: [], values: {} },
     } as unknown as Record<string, IndicatorDto>,
   } as unknown as TimeframeTelemetry;
 }
@@ -84,12 +84,10 @@ describe('buildMtfExportJson', () => {
     expect(p.timeframes[0].fibonacci_summary.swing_direction).toBe('NEUTRAL SWING');
   });
 
-  // Regression (D1): the cross-TF merge compared `ind.confidence_pct`
-  // (0..100) against the stored `confidence` (0..1 fraction), so every
-  // later TF with confidence >= 2% won and the LAST timeframe (Macro)
-  // always supplied the merged values. MTF aggregates must come from the
-  // HIGHEST-CONFIDENCE timeframe instead.
-  it('merged aggregates come from the highest-confidence TF, not the last one', () => {
+  // P10-E: the cross-TF merge is a completeness preference, not a
+  // magnitude contest. A Solid reading replaces a Dashed one; between two
+  // readings of equal readiness the FIRST timeframe (Micro, freshest) wins.
+  it('merged aggregates prefer Solid over Dashed, and ties keep the first TF', () => {
     const confRegistry: IndicatorMeta[] = [
       {
         key: 'rsi_14',
@@ -102,7 +100,7 @@ describe('buildMtfExportJson', () => {
         directional: true,
       } as unknown as IndicatorMeta,
     ];
-    const makeTfWith = (label: string, conf: number, norm: number, signalLabel: string): TimeframeTelemetry => ({
+    const makeTfWith = (label: string, readiness: string, norm: number, signalLabel: string): TimeframeTelemetry => ({
       barDurationSec: 60,
       isCompleted: true,
       pipelineState: 'OK',
@@ -112,7 +110,7 @@ describe('buildMtfExportJson', () => {
         rsi_14: {
           raw_value: 62.4,
           normalized: norm,
-          confidence: conf,
+          readiness,
           state_label: norm >= 0 ? 'BULLISH' : 'BEARISH',
           signals: [{
             kind: 'Threshold',
@@ -128,23 +126,22 @@ describe('buildMtfExportJson', () => {
       } as unknown as Record<string, IndicatorDto>,
     } as unknown as TimeframeTelemetry);
 
-    // Micro has the HIGHEST confidence (1.00) with a bullish reading;
-    // Fast/Slow/Macro have lower confidence. Pre-fix, Macro (confidence
-    // 0.5 = 50%) beat the stored fraction 1.0... 50 > 1.0 → macro won.
+    // Every TF is Solid, so no reading can displace another — Micro wins
+    // by being first, and the old last-TF bias cannot return.
     const p = JSON.parse(buildMtfExportJson({
       symbol: 'BTC-USDT',
       markPrice: 63000,
       headerSpec,
       registry: confRegistry,
       terms: makeTerms({
-          1: makeTfWith('Micro', 1.0, 0.9, 'RSI_MICRO_BULLISH'),
-          5: makeTfWith('Fast', 0.6, -0.5, 'RSI_FAST_BEARISH'),
-          30: makeTfWith('Slow', 0.4, 0.2, 'RSI_SLOW_BULLISH'),
-          180: makeTfWith('Macro', 0.5, -0.1, 'RSI_MACRO_BEARISH'),
+          1: makeTfWith('Micro', 'solid', 0.9, 'RSI_MICRO_BULLISH'),
+          5: makeTfWith('Fast', 'solid', -0.5, 'RSI_FAST_BEARISH'),
+          30: makeTfWith('Slow', 'solid', 0.2, 'RSI_SLOW_BULLISH'),
+          180: makeTfWith('Macro', 'solid', -0.1, 'RSI_MACRO_BEARISH'),
       }),
     }));
 
-    // The merged indicator must reflect the MICRO reading (conf 1.00):
+    // The merged indicator must reflect the MICRO reading:
     // normalized 0.9 → bullish confluence, and its signal label must be
     // the one that surfaces in signals_by_kind.
     const confluence = p.group_confluence.find((g: { group: string }) => g.group === 'Momentum');
@@ -217,8 +214,8 @@ it('warming placeholders and gated rows are inactive in MTF cells', () => {
     priceText: '63000',
     latestSnapshot: { timestamp: Math.floor(Date.now() / 1000) - 5 },
     indicators: {
-      rsi_14: { raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'WARMING', signals: [], values: {} },
-      bbwp: { raw_value: 0, normalized: 0, confidence: 0, state_label: 'WARMING', signals: [], values: {} },
+      rsi_14: { raw_value: 62.4, normalized: 0.24, readiness: 'solid', state_label: 'WARMING', signals: [], values: {} },
+      bbwp: { raw_value: 0, normalized: 0, readiness: 'dashed', state_label: 'WARMING', signals: [], values: {} },
     } as unknown as Record<string, IndicatorDto>,
   } as unknown as TimeframeTelemetry);
   const p = JSON.parse(buildMtfExportJson({
@@ -272,7 +269,7 @@ it('cross_tf_tables carries per-TF signal tallies and totals', () => {
     latestSnapshot: { timestamp: Math.floor(Date.now() / 1000) - 5 },
     indicators: {
       rsi: {
-        raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'BULLISH',
+        raw_value: 62.4, normalized: 0.24, readiness: 'solid', state_label: 'BULLISH',
         signals: [{
           kind: 'Threshold', direction, status: 'Active', label: 'RSI_THRESHOLD',
           strength: 0.5, age_bars: 2, display_label: 'TH·2',

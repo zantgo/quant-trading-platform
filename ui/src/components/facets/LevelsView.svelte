@@ -24,7 +24,7 @@
 
     import type { IndicatorMeta, IndicatorSignal, StateBand, StateBandMatrix, TimeframeTelemetry, VolumeProfileSnapshot } from '../../types';
     import { LEVEL_KIND_ORDER, LEVEL_KIND_META, classifyLevelKey, parseLevelLabel, resolveLevelPriceText, type LevelKind } from '../../lib/levelKind';
-    import { confPct, dirColor, ageLabel } from '../../lib/scoreStyles';
+    import { dirColor, ageLabel } from '../../lib/scoreStyles';
     import { formatTimeframeLabel } from '../../lib/telemetry';
     import { fibStatusString, vpPositionLabel } from '../../lib/structuralStrings';
     import styles from './LevelsView.module.css';
@@ -113,10 +113,9 @@
         tf.indicators?.['fibonacci']?.normalized ?? 0,
     );
 
-    const fibConfidence = $derived.by<number>(() => {
-        const dto = tf.indicators?.['fibonacci'];
-        return confPct(dto?.confidence ?? 0);
-    });
+    const fibReadiness = $derived.by<string>(() =>
+        (tf.indicators?.['fibonacci']?.readiness ?? 'dashed').toUpperCase(),
+    );
 
     const fibSwing = $derived.by<'BULL' | 'BEAR' | 'NEUTRAL'>(() => {
         if (fibNorm > 0.05) return 'BULL';
@@ -249,8 +248,8 @@
         return `${n.toFixed(2)}%`;
     }
 
-    function confidenceOf(key: string): number {
-        return confPct(tf.indicators?.[key]?.confidence ?? 0);
+    function readinessOf(key: string): string {
+        return (tf.indicators?.[key]?.readiness ?? 'dashed').toUpperCase();
     }
 
     function roleClass(role: 'support' | 'resistance' | 'neutral'): string {
@@ -275,7 +274,7 @@
                 <span class="{styles.fibSwing} {swingClass(fibSwing)}">
                     {fibSwing} SWING
                 </span>
-                <span class={styles.fibConfidence}><span class={styles.metaKey}>CONFIDENCE</span> <span class={styles.metaVal}>{fibConfidence}%</span></span>
+                <span class={styles.fibConfidence}><span class={styles.metaKey}>READINESS</span> <span class={styles.metaVal}>{fibReadiness}</span></span>
                 <span class={styles.fibPosition}>{fibPosition}</span>
             </header>
             <div class={styles.fibLadder}>
@@ -428,7 +427,7 @@
                             </span>
                             <span class={styles.status}>{row.signal.status}</span>
                             <span class={styles.strength}><span class={styles.metaKey}>STRENGTH</span> <span class={styles.metaVal}>{row.signal.strength_label ?? (row.signal.strength * 100).toFixed(0)}</span></span>
-                            <span class={styles.conf}><span class={styles.metaKey}>CONFIDENCE</span> <span class={styles.metaVal}>{confidenceOf(row.indicatorKey)}%</span></span>
+                            <span class={styles.conf}><span class={styles.metaKey}>READINESS</span> <span class={styles.metaVal}>{readinessOf(row.indicatorKey)}</span></span>
                             <span class={styles.age}><span class={styles.metaKey}>AGE</span> <span class={styles.metaVal}>{ageLabel(row.signal.age_bars)}</span></span>
                         </div>
                     {/each}

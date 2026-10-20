@@ -91,7 +91,8 @@ impl NormalizationEngine {
     /// would sign-flip bearish breakouts into bullish signals when used
     /// as a multiplier (the same anti-pattern retired for RVOL). The
     /// volatility context reaches the rest of the system through the
-    /// `confidence` axis and the `risk.volatility_risk` dimension.
+    /// mechanical `readiness` flag, the `values.bbwp_gate` coefficient and the
+    /// `risk.volatility_risk` dimension.
     pub fn normalize_bbwp(bbwp: f64, _bias: i8) -> NormalizedIndicatorValue {
         // AUDIT-AIU-023: confidence band edges aligned to the doc
         // (04-02-27 §6): <10 → 0.85, [10,25) → 0.60, [25,75] → 0.50,
@@ -109,7 +110,9 @@ impl NormalizationEngine {
         } else {
             ("HIGH_VOLATILITY_BULL_EXPANSION", 0.60)
         };
-        NormalizedIndicatorValue::scalar(bbwp, 0.0, label).with_confidence(base_confidence)
+        let mut values = HashMap::new();
+        values.insert("bbwp_gate".to_string(), base_confidence);
+        NormalizedIndicatorValue::with_values(bbwp, 0.0, label, values)
     }
 
     /// RVOL: volume validation gate for structural breakouts.
@@ -516,7 +519,6 @@ impl NormalizationEngine {
         let mut entry =
             NormalizedIndicatorValue::with_values(confidence, norm, label.clone(), values);
         let _ = category;
-        entry.confidence = confidence;
         entry.signals.push(
             IndicatorSignal::new(SignalKind::PatternForming, dir, sig_status, &label)
                 .with_strength(confidence),

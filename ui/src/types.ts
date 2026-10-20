@@ -137,6 +137,9 @@ export interface CommissionProjection {
 // 3. Ingestion & Telemetry
 // ================================================================
 
+/** Mechanical input completeness (CH-4/P10-E). Never a probability. */
+export type Readiness = 'solid' | 'dashed';
+
 /** Dual-representation normalized indicator DTO (mirrors the Rust NormalizedIndicatorValue). */
 export interface IndicatorDto {
     raw_value: number;
@@ -144,7 +147,7 @@ export interface IndicatorDto {
     state_label: string;
     values?: Record<string, number> | null;
     signals?: IndicatorSignal[];
-    confidence?: number;
+    readiness?: Readiness;
 }
 
 /** Optional per-snapshot statistical context block (L1-native Monte Carlo / z-scores).

@@ -162,7 +162,7 @@ fn step1_the_assembled_state_is_built_from_the_snapshot_itself() {
             state_label: "Overbought".to_string(),
             values: None,
             signals: Vec::new(),
-            confidence: 0.0,
+            readiness: core_domain::axes::Readiness::Solid,
             available_at_bar: Some(100),
             subject_bar: Some(100),
         },

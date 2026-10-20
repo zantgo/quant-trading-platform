@@ -178,7 +178,7 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
       "raw": 63.5, "raw_display": "63.50",
       "normalized_available": true, "normalized_value": 0.31, "normalized_reason": null,
       "state": "LIVE", "state_display": "LIVE",
-      "confidence_pct": 70,
+      "readiness": "solid",
       "signals": [
         { "key": "rsi_14", "display_name": "RSI (14)", "kind": "CRO", "direction": "Bullish",
           "status": "Confirmed", "label": "RSI crossed above 60", "strength": 0.8,
@@ -198,7 +198,7 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
       "raw": 2.4, "raw_display": "2.40",
       "normalized_available": true, "normalized_value": 0.8, "normalized_reason": null,
       "state": "STRONG_POSITIVE_SHARPE", "state_display": "STRONG_POSITIVE_SHARPE",
-      "confidence_pct": 80,
+      "readiness": "solid",
       "signals": [],
       "sub_values": null,
       "indicator_lifecycle": {
@@ -217,7 +217,7 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
     {
       "key": "rsi", "period": 14, "display_name": "RSI (14)",
       "sub_kind": "Regular Bull", "direction": "Bullish", "status": "Active",
-      "strength": 0.75, "confidence_pct": 70, "age_bars": 3,
+      "strength": 0.75, "readiness": "solid", "age_bars": 3,
       "label": "BULLISH_DIVERGENCE",
       "pivots": [ { "time": 1753950000, "value": 34.2 } ]
     }
@@ -229,7 +229,7 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
       "value_key": "r2", "is_range": false,
       "price_text": "$64800",
       "direction": "Bearish", "status": "Potential", "strength": 0.7,
-      "confidence_pct": 40, "age_bars": 2
+      "readiness": "solid", "age_bars": 2
     }
   ],
   "state_bands": {
@@ -316,7 +316,7 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
       "key": "rsi", "period": 14, "display_name": "RSI (14)",
       "group": "Momentum", "label": "Momentum", "class": "Leading",
       "directional": true, "visible": true,
-      "normalized_available": true, "confidence_pct": 70,
+      "normalized_available": true, "readiness": "solid",
       "values": [
         { "timeframe": "1s", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
         { "timeframe": "3s", "normalized": 0.31, "normalized_display": "+0.31", "active": true, "warming": false, "gated": false },
@@ -382,7 +382,7 @@ historical `timesframes` typo, 2026-08-17; v11.1 fixed the label set to the
           "raw": 63.5, "raw_display": "63.50",
           "normalized_available": true, "normalized_value": 0.31,
           "state": "LIVE", "state_display": "LIVE",
-          "confidence_pct": 70, "signals": [], "sub_values": null
+          "readiness": "solid", "signals": [], "sub_values": null
         }
       ]
     }

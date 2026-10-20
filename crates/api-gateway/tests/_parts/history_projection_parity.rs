@@ -88,7 +88,7 @@ fn make_snapshot(timestamp: u64) -> MarketSnapshot {
             },
             volatility: core_domain::market_context::ContextDimension {
                 score: 40.0,
-                confidence: 0.5,
+                confidence: 0.55,
                 label: "MODERATE".into(),
             },
             volume: core_domain::market_context::ContextDimension {
@@ -150,7 +150,7 @@ fn make_snapshot(timestamp: u64) -> MarketSnapshot {
                 SignalStatus::Active,
                 "crossed 60",
             )],
-            confidence: 0.9,
+            readiness: core_domain::axes::Readiness::Solid,
             // Availability is declared by the assembler, which knows the bar.
             // Left undeclared here so CG1 reports it rather than this
             // constructor guessing a time it has not been told.
@@ -177,7 +177,7 @@ fn make_snapshot(timestamp: u64) -> MarketSnapshot {
                 .collect(),
             ),
             signals: vec![],
-            confidence: 0.5,
+            readiness: core_domain::axes::Readiness::Solid,
             // Availability is declared by the assembler, which knows the bar.
             // Left undeclared here so CG1 reports it rather than this
             // constructor guessing a time it has not been told.

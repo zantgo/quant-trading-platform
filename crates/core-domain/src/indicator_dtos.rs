@@ -7,6 +7,7 @@
 //! These types have no dependency on raw indicator calculators. They are
 //! safe to use from any crate that links against `core-domain`.
 
+use crate::axes::Readiness;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -136,14 +137,19 @@ pub struct NormalizedIndicatorValue {
     /// threshold, etc.). Empty for most snapshots.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub signals: Vec<IndicatorSignal>,
-    /// Conviction of this reading in `[0.0, 1.0]`. Base = `|normalized|`, later
-    /// boosted by confirmed signals in the finalization pass.
+    /// Are this reading's inputs complete? (CH-4, P10-E.)
     ///
-    /// P10 replaces this with per-axis `readiness`. Until then it is the one
-    /// place a probability-shaped number survives in the model, and CH-4 forbids
-    /// it — that replacement is scheduled, not forgotten.
-    #[serde(default)]
-    pub confidence: f64,
+    /// Mechanical — `Solid` when every input behind the value is present,
+    /// `Dashed` when at least one is absent or still moving. It is deliberately
+    /// **not** a probability and carries no magnitude: conviction lives in the
+    /// typed `signals` and in indicator-specific `values` entries, which is
+    /// where a consumer that genuinely needs a gate coefficient must look.
+    ///
+    /// The default is `Solid` so values deserialised from pre-P10-E rows (and
+    /// values built with no availability declaration) are not silently
+    /// downgraded. Old `confidence` keys are ignored by serde, not reinterpreted.
+    #[serde(default = "default_readiness")]
+    pub readiness: Readiness,
     /// The bar at which this value could **first** have been known (CG1).
     ///
     /// Distinct from the bar the value is *about*. A 3-bar fractal about bar
@@ -198,8 +204,7 @@ impl NormalizedIndicatorValue {
     /// `GET /api/history`. That handler reads **only** `raw_value`,
     /// `normalized`, `state_label` and `values` off each entry
     /// (`HistoricalIndicatorArrays::push_value`); the discrete `signals`
-    /// and the `confidence` scalar are never read from the retained
-    /// window. Across a full 52-indicator map the per-bar `signals`
+    /// are never read from the retained window. Across a full 52-indicator map the per-bar `signals`
     /// (17 of 43 keys carry them in the AEON corpus) dominate the
     /// retained bytes, so dropping them is the cheapest large win
     /// available without touching anything a chart renders.
@@ -214,7 +219,7 @@ impl NormalizedIndicatorValue {
             state_label: self.state_label.clone(),
             values: self.values.clone(),
             signals: Vec::new(),
-            confidence: 0.0,
+            readiness: self.readiness,
             // `None` is the honest default: a producer that has not declared
             // availability is exactly what CG1 exists to catch, so the
             // constructor must not silently supply one.
@@ -259,7 +264,7 @@ impl NormalizedIndicatorValue {
             state_label: state_label.into(),
             values: None,
             signals: Vec::new(),
-            confidence: n.abs(),
+            readiness: Readiness::Solid,
             available_at_bar: None,
             subject_bar: None,
         }
@@ -279,7 +284,7 @@ impl NormalizedIndicatorValue {
             state_label: state_label.into(),
             values: Some(values),
             signals: Vec::new(),
-            confidence: n.abs(),
+            readiness: Readiness::Solid,
             available_at_bar: None,
             subject_bar: None,
         }
@@ -302,7 +307,16 @@ impl NormalizedIndicatorValue {
         self
     }
 
-    /// Override the computed confidence (chained builder).
+    /// Declare whether every input behind this value is present (P10-E).
+    ///
+    /// Mechanical, not probabilistic: there is no "80% ready". A producer that
+    /// cannot answer must leave the default and fix its availability
+    /// declaration instead of inventing a number.
+    pub fn with_readiness(mut self, readiness: Readiness) -> Self {
+        self.readiness = readiness;
+        self
+    }
+
     /// Declare when this value became knowable (CG1).
     ///
     /// The only way to set `available_at_bar`. A builder rather than a public
@@ -333,11 +347,12 @@ impl NormalizedIndicatorValue {
     pub fn availability_is_undeclared(&self) -> bool {
         self.available_at_bar.is_none()
     }
+}
 
-    pub fn with_confidence(mut self, confidence: f64) -> Self {
-        self.confidence = confidence.clamp(0.0, 1.0);
-        self
-    }
+/// Serde default for `readiness`: pre-P10-E rows did not carry the field and
+/// must not be read as incomplete.
+fn default_readiness() -> Readiness {
+    Readiness::Solid
 }
 
 /// Divergence classification input for RSI/MACD normalization.

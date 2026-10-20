@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+use core_domain::axes::Readiness;
 use core_domain::indicator_dtos::{
     IndicatorSignal, NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
 };
@@ -140,7 +141,7 @@ fn full_snapshot(timestamp: u64) -> MarketSnapshot {
                     SignalStatus::Active,
                     "crossover",
                 )],
-                confidence: 0.87,
+                readiness: Readiness::Solid,
                 // Availability is declared by the assembler, which knows the bar.
                 // Left undeclared here so CG1 reports it rather than this
                 // constructor guessing a time it has not been told.
@@ -282,11 +283,14 @@ fn projection_drops_every_unread_field() {
     assert!(p.metrics_config.is_none());
     assert!(p.indicator_lifecycle.is_empty());
 
-    // Per-indicator signals + confidence are never read from the retained
-    // window (only `raw_value`/`normalized`/`state_label`/`values` are).
+    // Per-indicator signals are never read from the retained window (only
+    // `raw_value`/`normalized`/`state_label`/`values` are). Readiness is a
+    // one-byte completeness flag and survives, because a retained value that
+    // forgot whether its inputs were complete would be indistinguishable from
+    // a solid one.
     for (k, v) in p.indicators.iter() {
         assert!(v.signals.is_empty(), "{k} signals must be dropped");
-        assert_eq!(v.confidence, 0.0, "{k} confidence must be dropped");
+        assert_eq!(v.readiness, Readiness::Solid, "{k} readiness must survive");
     }
 
     // The full snapshot still carries them — the LIVE surface is untouched.

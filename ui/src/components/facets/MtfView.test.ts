@@ -128,8 +128,8 @@ describe('MtfView — grid is always unfiltered (v6.11)', () => {
 
     it('renders the normalized value grid across the ACTIVE timeframes', () => {
         const terms = makePair({
-            1: { indicators: { rsi: { raw_value: 60, normalized: 0.4, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.5 } } },
-            180: { indicators: { rsi: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.5 } } },
+            1: { indicators: { rsi: { raw_value: 60, normalized: 0.4, state_label: 'POSITIVE', values: null, signals: [], readiness: 'solid' } } },
+            180: { indicators: { rsi: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], readiness: 'solid' } } },
         });
         const { container } = render(MtfView, { props: { terms, registry: makeRegistry() } });
         const text = container.textContent ?? '';
@@ -143,12 +143,12 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
         const terms = makePair({
             1: {
                 indicators: {
-                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Confirmed', 0.9)], confidence: 0.9 },
+                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Confirmed', 0.9)], readiness: 'solid' },
                 },
             },
             30: {
                 indicators: {
-                    macd: { raw_value: 5, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [makeSignal('ZeroLineCross', 'MACD zero-line cross', 'Active', 0.6)], confidence: 0.7 },
+                    macd: { raw_value: 5, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [makeSignal('ZeroLineCross', 'MACD zero-line cross', 'Active', 0.6)], readiness: 'solid' },
                 },
             },
         });
@@ -175,12 +175,12 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
         const terms = makePair({
             1: {
                 indicators: {
-                    rsi: { raw_value: 75, normalized: 0.8, state_label: 'POSITIVE', values: null, signals: [mkSignal('Micro RSI overbought')], confidence: 0.9 },
+                    rsi: { raw_value: 75, normalized: 0.8, state_label: 'POSITIVE', values: null, signals: [mkSignal('Micro RSI overbought')], readiness: 'solid' },
                 },
             },
             5: {
                 indicators: {
-                    rsi: { raw_value: 72, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [mkSignal('Fast RSI overbought')], confidence: 0.9 },
+                    rsi: { raw_value: 72, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [mkSignal('Fast RSI overbought')], readiness: 'solid' },
                 },
             },
         });
@@ -198,7 +198,7 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
                     rsi: {
                         raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null,
                         signals: [makeSignal('Divergence', 'BULLISH_DIVERGENCE', 'Active', 0.8)],
-                        confidence: 0.7,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -217,7 +217,7 @@ describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
                     rsi: {
                         raw_value: 50, normalized: 0, state_label: 'NEUTRAL', values: null,
                         signals: [makeSignal('LevelTest', 'RSI_LEVEL_TEST', 'Active', 0.7)],
-                        confidence: 0.5,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -304,7 +304,7 @@ describe('MtfView — v6.14 standalone section headings', () => {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
                         signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Active', 0.9)],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -343,12 +343,12 @@ describe('MtfView — unified heading chrome (count badge + colored badges, top 
         const terms = makePair({
             1: {
                 indicators: {
-                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
             5: {
                 indicators: {
-                    macd: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
+                    macd: { raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
         });
@@ -366,12 +366,12 @@ describe('MtfView — unified heading chrome (count badge + colored badges, top 
         const terms = makePair({
             1: {
                 indicators: {
-                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
             5: {
                 indicators: {
-                    macd: { raw_value: 60, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                    macd: { raw_value: 60, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
         });
@@ -384,22 +384,22 @@ describe('MtfView — unified heading chrome (count badge + colored badges, top 
         const terms = makePair({
             1: {
                 indicators: {
-                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                    rsi: { raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
             5: {
                 indicators: {
-                    rsi: { raw_value: 30, normalized: -0.7, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
+                    rsi: { raw_value: 30, normalized: -0.7, state_label: 'NEGATIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
             30: {
                 indicators: {
-                    macd: { raw_value: 20, normalized: -0.5, state_label: 'NEGATIVE', values: null, signals: [], confidence: 0.9 },
+                    macd: { raw_value: 20, normalized: -0.5, state_label: 'NEGATIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
             180: {
                 indicators: {
-                    macd: { raw_value: 80, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.9 },
+                    macd: { raw_value: 80, normalized: 0.5, state_label: 'POSITIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
         });
@@ -418,7 +418,7 @@ describe('MtfView — unified heading chrome (count badge + colored badges, top 
                             makeSignalEx('Divergence', 'BULLISH_DIVERGENCE', { direction: 'Bullish' }),
                             makeSignalEx('Divergence', 'BULLISH_DIVERGENCE', { direction: 'Bullish' }),
                         ],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -427,7 +427,7 @@ describe('MtfView — unified heading chrome (count badge + colored badges, top 
                     macd: {
                         raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null,
                         signals: [makeSignalEx('Divergence', 'BEARISH_DIVERGENCE', { direction: 'Bearish' })],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -458,7 +458,7 @@ describe('MtfView — v6.14 warming and gated cells never mislead', () => {
         const terms = makePair({
             1: {
                 indicators: {
-                    rsi: { raw_value: 0, normalized: 0, state_label: 'WARMING', values: null, signals: [], confidence: 0 },
+                    rsi: { raw_value: 0, normalized: 0, state_label: 'WARMING', values: null, signals: [], readiness: 'dashed' },
                 },
             },
         });
@@ -476,7 +476,7 @@ describe('MtfView — v6.14 warming and gated cells never mislead', () => {
         const terms = makePair({
             1: {
                 indicators: {
-                    volume: { raw_value: 5, normalized: 0, state_label: 'POSITIVE', values: null, signals: [], confidence: 0.5 },
+                    volume: { raw_value: 5, normalized: 0, state_label: 'POSITIVE', values: null, signals: [], readiness: 'solid' },
                 },
             },
         });
@@ -498,7 +498,7 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
                             makeSignalEx('Crossover', 'RSI bull cross', { direction: 'Bullish' }),
                             makeSignalEx('Crossover', 'RSI bear cross', { direction: 'Bearish' }),
                         ],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -507,7 +507,7 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
                     rsi: {
                         raw_value: 30, normalized: -0.7, state_label: 'NEGATIVE', values: null,
                         signals: [makeSignalEx('Crossover', 'Fast bear cross', { direction: 'Bearish' })],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -533,7 +533,7 @@ describe('MtfView — v6.14 signals direction split with lit totals', () => {
                             makeSignalEx('Threshold', 'RSI hot', { direction: 'Bullish' }),
                             makeSignalEx('Threshold', 'RSI hot 2', { direction: 'Bullish' }),
                         ],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -552,7 +552,7 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
                         signals: [makeSignalEx('Divergence', 'BULLISH_DIVERGENCE', { direction: 'Bullish' })],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -561,7 +561,7 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
                     rsi: {
                         raw_value: 30, normalized: -0.7, state_label: 'NEGATIVE', values: null,
                         signals: [makeSignalEx('Divergence', 'BEARISH_DIVERGENCE', { direction: 'Bearish' })],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -587,7 +587,7 @@ describe('MtfView — v6.14 divergence totals carry a direction badge', () => {
                             makeSignalEx('Divergence', 'BULLISH_DIVERGENCE', { direction: 'Bullish' }),
                             makeSignalEx('Divergence', 'HIDDEN_BULLISH_DIVERGENCE', { direction: 'Bullish' }),
                         ],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -611,7 +611,7 @@ describe('MtfView — v6.14 levels show actual level chips with S/R split totals
                             makeSignalEx('LevelTest', 'PIVOT_R2_RESISTANCE_TEST', { direction: 'Bearish' }),
                             makeSignalEx('LevelTest', 'PIVOT_S1_SUPPORT_TEST', { direction: 'Bullish' }),
                         ],
-                        confidence: 0.5,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -647,7 +647,7 @@ describe('MtfView — per-title section collapse', () => {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
                         signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Active', 0.9)],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },
@@ -673,7 +673,7 @@ describe('MtfView — per-title section collapse', () => {
                     rsi: {
                         raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
                         signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Active', 0.9)],
-                        confidence: 0.9,
+                        readiness: 'solid',
                     },
                 },
             },

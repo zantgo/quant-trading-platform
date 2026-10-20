@@ -273,8 +273,8 @@ Implementations must not compare the two enum values directly across layers — 
 
 | Field | Type | Range | Description |
 |-------|------|-------|-------------|
-| `score` | `f64` | `[-1.0, 1.0]` | Signed directional score (or magnitude for non-directional). |
-| `confidence` | `f64` | `[0.0, 1.0]` | Mean confidence of contributing indicators. |
+| `score` | `f64` | `[-1.0, 1.0]` | Signed directional score (or magnitude for non-directional), averaged over `Solid` readings only. |
+| `confidence` | `f64` | `[0.0, 1.0]` | Coverage fraction: `Solid readings / contributing readings` (P10-E). An incomplete (`Dashed`) reading is excluded from the score, not down-weighted. |
 | `label` | `string` | — | Human-readable classification. |
 
 ### 5.3 Regime Classification Rule

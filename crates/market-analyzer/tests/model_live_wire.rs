@@ -33,7 +33,7 @@ fn value(normalized: f64, label: &str, available: Option<usize>) -> NormalizedIn
         state_label: label.to_string(),
         values: None,
         signals: Vec::new(),
-        confidence: 0.0,
+        readiness: core_domain::axes::Readiness::Solid,
         available_at_bar: available,
         subject_bar: available,
     }

@@ -12,7 +12,6 @@ import { createSeriesMarkers } from 'lightweight-charts';
 import type { ISeriesApi, Time } from 'lightweight-charts';
 import type { IndicatorDto, IndicatorSignal } from '../types';
 
-const CONF_THRESHOLD = 0.7;
 
 export interface SmcInput {
     structure?: IndicatorDto | null;
@@ -36,9 +35,6 @@ function markerFromSignal(timeSec: number, sig: IndicatorSignal): LwcMarker | nu
     if (sig.kind !== 'Breakout' && sig.kind !== 'TrendFlip' && sig.kind !== 'Threshold' && sig.kind !== 'BandTouch') {
         return null;
     }
-    const conf = (sig as any).confidence;
-    if (typeof conf === 'number' && conf < CONF_THRESHOLD) return null;
-
     const label = (sig.label ?? '').toUpperCase();
     const isBullish = sig.direction === 'Bullish';
     const isBearish = sig.direction === 'Bearish';
@@ -77,13 +73,10 @@ export function createSmcMarkers(
     function ingest(timeSec: number, dto: IndicatorDto | null | undefined, namespace: string) {
         if (!dto) return;
         const sigs = (dto.signals ?? []) as IndicatorSignal[];
-        const confidence = dto.confidence;
+        // P10-E: a Dashed reading has incomplete inputs, so its signals are
+        // tentative and do not become chart markers.
+        if (dto.readiness === 'dashed') return;
         for (const sig of sigs) {
-            if (typeof confidence === 'number' && confidence < CONF_THRESHOLD) {
-                // Per-dto confidence filter in addition to per-signal; covers
-                // SMC SMs that emit a dto-level confidence rollup.
-                if (typeof (sig as any).confidence !== 'number') continue;
-            }
             const m = markerFromSignal(timeSec, sig);
             if (!m) continue;
             const key = `${timeSec}-${namespace}-${m.text}-${m.position}`;
