@@ -170,6 +170,7 @@ fn v111_the_diagnostic_is_the_model_condition_classifier() {
         axes: Vec::new(),
         events: core_domain::axes::EventCounts::default(),
         levels: Vec::new(),
+        legs: Vec::new(),
         diagnostics: core_domain::axes::Diagnostics {
             state: DiagnosticState::Settling,
             volatility_change_pct: 0.0,

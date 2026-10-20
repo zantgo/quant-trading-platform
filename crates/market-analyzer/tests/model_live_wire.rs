@@ -205,7 +205,8 @@ fn the_assembled_state_has_exactly_four_axes_and_no_strategy_vocabulary() {
         .iter()
         .map(|k| (*k, 0.35, "Rising", Some(90)))
         .collect();
-    let state = timeframe_state_from_snapshot(&snapshot_with(&entries), 500, "inst-1");
+    let state =
+        timeframe_state_from_snapshot(&snapshot_with(&entries), 500, "inst-1", &mut fresh_leg());
 
     assert_eq!(state.axes.len(), 4, "four axes, always");
     let ids: Vec<AxisId> = state.axes.iter().map(|a| a.axis).collect();
@@ -260,6 +261,7 @@ fn the_diagnostic_block_is_derived_from_two_candle_bases_and_is_not_an_axis() {
         ]),
         500,
         "inst-1",
+        &mut fresh_leg(),
     );
     // The block exists…
     assert_eq!(state.diagnostics.basis.bbwp_pct, 20.0);
@@ -278,7 +280,12 @@ fn the_diagnostic_block_is_derived_from_two_candle_bases_and_is_not_an_axis() {
 
 #[test]
 fn an_empty_snapshot_assembles_to_a_typed_state_not_a_panic() {
-    let state = timeframe_state_from_snapshot(&MarketSnapshot::default(), 0, "inst-empty");
+    let state = timeframe_state_from_snapshot(
+        &MarketSnapshot::default(),
+        0,
+        "inst-empty",
+        &mut fresh_leg(),
+    );
     assert_eq!(state.axes.len(), 4);
     for axis in &state.axes {
         assert!(
@@ -290,4 +297,10 @@ fn an_empty_snapshot_assembles_to_a_typed_state_not_a_panic() {
     }
     assert_eq!(state.derived.consensus.agreeing_axes, 0);
     assert_eq!(state.derived.consensus.of, 4);
+}
+
+/// A fresh leg driver — this file tests the wire projection of readings and
+/// diagnostics, not the leg machine (which has its own suite).
+fn fresh_leg() -> market_analyzer::leg::LegDriver {
+    market_analyzer::leg::LegDriver::new(market_analyzer::leg::LegPolicy::default(), 1.0)
 }

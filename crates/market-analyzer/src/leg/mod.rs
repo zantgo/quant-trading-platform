@@ -17,6 +17,9 @@
 //!    [`LegMachine::open`] and never recomputed (L21). Recomputing them is how a
 //!    leg's stage moves without the leg moving.
 
+pub mod driver;
+pub use driver::{LegDriver, PIVOT_STRENGTH, PIVOT_WINDOW};
+
 use core_domain::axes::Stage;
 use core_domain::leg::{
     Classification, CloseReason, Direction, LegKey, LegLifecycle, LegReading, LegRecord, Progress,
@@ -201,15 +204,25 @@ impl LegMachine {
         self.next_id += 1;
         // L8: a new leg at the same key REPLACES the record. The old one is
         // discarded, not archived — Tier D is O(1) in bars.
-        if let Some(existing) = self
+        //
+        // A **terminal** record is history: it keeps its end reason and is
+        // never closed a second time (L7). Removing a same-level record is a
+        // replacement, not an end; a different-level CURRENT record is
+        // superseded exactly once.
+        let same_scope: Vec<usize> = self
             .legs
             .iter()
-            .position(|l| l.instrument == key.instrument && l.timeframe_secs == key.timeframe_secs)
-        {
-            let closes_at_same_level = self.legs[existing].structure_level == key.structure_level;
-            if closes_at_same_level {
+            .enumerate()
+            .filter(|(_, l)| {
+                l.instrument == key.instrument && l.timeframe_secs == key.timeframe_secs
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for existing in same_scope.into_iter().rev() {
+            let leg = &self.legs[existing];
+            if leg.structure_level == key.structure_level {
                 self.legs.remove(existing);
-            } else {
+            } else if !leg.lifecycle.is_terminal() {
                 self.legs[existing].close(CloseReason::Superseded);
             }
         }
@@ -796,6 +809,48 @@ mod tests {
             leg.target_revision_count as usize + 1,
             leg.revisions.len(),
             "one entry for the first target, then one per revision"
+        );
+    }
+
+    /// Regression (P10-B): the production driver opens a new pivot over a leg
+    /// it already invalidated. `open` used to call `close` on that terminal
+    /// record, tripping L7 ("a leg ends once") — only reachable once the
+    /// machine had a caller, which through P10-A it did not.
+    #[test]
+    fn opening_over_a_terminal_leg_never_recloses_it() {
+        let mut m = machine();
+        let major = key(StructureLevel::Major);
+        m.open(
+            major.clone(),
+            Direction::Short,
+            100.0,
+            10,
+            13,
+            Classification::Settled,
+            90.0,
+        );
+        m.confirm_origin(&major, 14, 102.0);
+        assert!(m.close(&major, CloseReason::InvalidationTouched));
+
+        // A second pivot at the other level opens over the terminal record.
+        let minor = key(StructureLevel::Minor);
+        m.open(
+            minor.clone(),
+            Direction::Long,
+            90.0,
+            20,
+            23,
+            Classification::Settled,
+            90.0,
+        );
+
+        assert_eq!(m.legs().len(), 2, "the ended leg is history, not replaced");
+        let ended = m.leg(&major).expect("the terminal record survives");
+        assert_eq!(ended.close_reason, Some(CloseReason::InvalidationTouched));
+        assert_eq!(ended.lifecycle, LegLifecycle::Invalidated);
+        assert_eq!(
+            m.leg(&minor).map(|l| l.lifecycle),
+            Some(LegLifecycle::Forming)
         );
     }
 }

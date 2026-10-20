@@ -50,12 +50,13 @@ fn snapshot_with_model_state() -> MarketSnapshot {
                 candle_count: 500,
                 last_closed_at: "0".into(),
                 available_at: "0".into(),
-                spec_version: "13.0".into(),
-                build_version: "5.0.0".into(),
+                spec_version: core_domain::SPEC_VERSION.into(),
+                build_version: core_domain::BUILD_VERSION.into(),
             },
             axes,
             events: core_domain::axes::EventCounts::default(),
             levels: Vec::new(),
+            legs: Vec::new(),
             diagnostics: core_domain::axes::Diagnostics {
                 state: core_domain::axes::DiagnosticState::Chopping,
                 volatility_change_pct: 0.0,
@@ -165,8 +166,12 @@ fn step1_the_assembled_state_is_built_from_the_snapshot_itself() {
             subject_bar: Some(100),
         },
     );
-    let state =
-        market_analyzer::model::live::timeframe_state_from_snapshot(&snapshot, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snapshot,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
     assert_eq!(state.identity.pair, "BTC-USDT");
     assert_eq!(state.identity.timeframe_secs, 60);
     assert_eq!(state.axes.len(), 4);
@@ -198,4 +203,9 @@ fn step1_the_assembled_state_is_built_from_the_snapshot_itself() {
 /// that is about axis *values*, not about the typed signal history.
 fn no_signals() -> [Vec<core_domain::axes::Signal>; 4] {
     [Vec::new(), Vec::new(), Vec::new(), Vec::new()]
+}
+
+/// A fresh leg driver — this test is about the step-1 wire shape, not legs.
+fn fresh_leg() -> market_analyzer::leg::LegDriver {
+    market_analyzer::leg::LegDriver::new(market_analyzer::leg::LegPolicy::default(), 1.0)
 }

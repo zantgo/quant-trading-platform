@@ -22,8 +22,7 @@ use market_analyzer::model::{
 };
 
 use core_domain::axes::{
-    CrossTfState, DiagnosticBasis, DiagnosticState, Diagnostics, Level, TimeframeIdentity,
-    TimeframeState,
+    CrossTfState, DiagnosticBasis, DiagnosticState, Diagnostics, TimeframeIdentity, TimeframeState,
 };
 
 fn signed(v: f64) -> AxisValue {
@@ -58,8 +57,8 @@ fn identity(secs: u64) -> TimeframeIdentity {
         candle_count: 500,
         last_closed_at: "2026-10-18T00:00:00Z".into(),
         available_at: "500".into(),
-        spec_version: "13.0".into(),
-        build_version: "5.0.0".into(),
+        spec_version: core_domain::SPEC_VERSION.into(),
+        build_version: core_domain::BUILD_VERSION.into(),
     }
 }
 
@@ -111,6 +110,7 @@ fn state_for(
             available_at_bar: 500,
             direction_history: vec![0.4, 0.42, 0.41, -0.3, -0.31],
             axis_signals: no_signals(),
+            legs: Vec::new(),
         });
     state.events.active_count = events;
     state
@@ -277,8 +277,8 @@ fn boundary_model_state_carries_no_strategy_field() {
     ];
     let (cross, _) = assemble_cross_tf_state("BTC-USDT", &states, false);
     let model: ModelState = assemble_model_state(
-        "13.0",
-        "5.0.0",
+        core_domain::SPEC_VERSION,
+        core_domain::BUILD_VERSION,
         1_700_000_000_000,
         &[1, 60],
         &[("BTC-USDT".to_string(), cross.clone(), states.clone())],

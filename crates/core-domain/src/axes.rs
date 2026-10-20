@@ -829,6 +829,16 @@ pub struct TimeframeState {
     pub axes: Vec<AxisState>,
     pub events: EventCounts,
     pub levels: Vec<Level>,
+    /// The current leg per structural level — **empty only when nothing is open**.
+    ///
+    /// Was absent from this struct entirely through P10 step 1, so a published
+    /// duration claimed the progression axis had a stage while the leg record
+    /// that owns it lived only in `market-analyzer/src/leg/` with **zero
+    /// production callers**. The projection is [`crate::leg::LegReading`], not
+    /// the full [`crate::leg::LegRecord`]: the revision log is Tier D and is not
+    /// charged to the wire (V-205, V-206).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub legs: Vec<crate::leg::LegReading>,
     pub diagnostics: Diagnostics,
     pub derived: DerivedState,
 }

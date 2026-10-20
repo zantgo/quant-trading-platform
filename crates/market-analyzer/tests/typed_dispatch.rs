@@ -169,7 +169,12 @@ fn v109_a_declared_band_becomes_a_level_with_real_edges() {
         "bollinger",
         band_value(&[SignalKind::BandTouch], 66_900.0, 67_400.0),
     )]);
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     assert_eq!(
         state.levels.len(),
@@ -201,7 +206,12 @@ fn v109_no_published_level_is_degenerate() {
         // not a zone signal — must produce nothing
         ("rsi", value_with_signals(&[SignalKind::Crossover])),
     ]);
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     for lvl in &state.levels {
         assert!(
@@ -293,8 +303,18 @@ fn ch8_the_level_list_is_ordered_deterministically() {
             ("mmm", band_value(&[SignalKind::BandTouch], 5.0, 6.0)),
         ])
     };
-    let one = market_analyzer::model::live::timeframe_state_from_snapshot(&build(), 500, "i");
-    let two = market_analyzer::model::live::timeframe_state_from_snapshot(&build(), 500, "i");
+    let one = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &build(),
+        500,
+        "i",
+        &mut fresh_leg(),
+    );
+    let two = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &build(),
+        500,
+        "i",
+        &mut fresh_leg(),
+    );
     let kinds: Vec<&str> = one.levels.iter().map(|l| l.kind.as_str()).collect();
     assert_eq!(
         kinds,
@@ -306,4 +326,11 @@ fn ch8_the_level_list_is_ordered_deterministically() {
         serde_json::to_string(&two.levels).unwrap(),
         "two assemblies of one snapshot must serialise identically (CH-8)"
     );
+}
+
+/// A fresh leg driver. These tests are about signal dispatch and level bands,
+/// not about legs, so each call gets its own — which is also what a real
+/// per-duration pipeline holds (V-206).
+fn fresh_leg() -> market_analyzer::leg::LegDriver {
+    market_analyzer::leg::LegDriver::new(market_analyzer::leg::LegPolicy::default(), 1.0)
 }

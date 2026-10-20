@@ -90,7 +90,12 @@ fn axis_of(state: &core_domain::axes::TimeframeState, id: AxisId) -> &core_domai
 #[test]
 fn v201_the_published_axis_carries_its_signal_history() {
     let snap = snapshot_with_signals_on_one_indicator();
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     // The named regression. Before this, every axis published an empty history
     // and `push_reading` was dead code.
@@ -114,7 +119,12 @@ fn v201_the_published_axis_carries_its_signal_history() {
 #[test]
 fn v201_every_signal_is_a_typed_variant_never_a_bare_number() {
     let snap = snapshot_with_signals_on_one_indicator();
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     for axis in &state.axes {
         for reading in &axis.readings {
@@ -135,7 +145,12 @@ fn v201_every_signal_is_a_typed_variant_never_a_bare_number() {
 #[test]
 fn v201_the_pipeline_kind_is_preserved_typed_not_as_a_word() {
     let snap = snapshot_with_signals_on_one_indicator();
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     let subtypes: Vec<Option<core_domain::indicator_dtos::SignalKind>> =
         axis_of(&state, AxisId::Direction)
@@ -160,7 +175,12 @@ fn v201_the_pipeline_kind_is_preserved_typed_not_as_a_word() {
 #[test]
 fn v201_the_structural_kind_is_the_reduced_vocabulary() {
     let snap = snapshot_with_signals_on_one_indicator();
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     let kinds: Vec<core_domain::axes::SignalKind> = axis_of(&state, AxisId::Direction)
         .readings
@@ -216,7 +236,12 @@ fn v203_every_reading_carries_the_bar_it_fired_on_and_its_anchor() {
     // A timestamp far enough from zero that the saturating subtraction is visible.
     let mut snap = snapshot_with_signals_on_one_indicator();
     snap.timestamp = 1_000;
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     let mut seen = Vec::new();
     for r in &axis_of(&state, AxisId::Direction).readings {
@@ -270,7 +295,12 @@ fn v202_a_signal_older_than_the_cap_is_not_filed() {
         value_with(50.0, signals),
     )]);
     snap.timestamp = 1_000;
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     let filed = axis_of(&state, AxisId::Direction).readings.len();
     assert!(
@@ -334,7 +364,12 @@ fn v204_a_duplicate_signal_does_not_inflate_the_history() {
         a_filed_direction_indicator(),
         value_with(50.0, vec![sig(k, 2), sig(k, 2)]),
     )]);
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
     assert_eq!(
         axis_of(&state, AxisId::Direction).readings.len(),
         1,
@@ -354,7 +389,12 @@ fn v204_a_genuinely_new_signal_is_retained() {
             ],
         ),
     )]);
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
     assert_eq!(
         axis_of(&state, AxisId::Direction).readings.len(),
         2,
@@ -374,7 +414,12 @@ fn v204_an_axis_with_no_readings_is_empty_not_stubbed() {
             vec![sig(core_domain::indicator_dtos::SignalKind::Crossover, 0)],
         ),
     )]);
-    let state = market_analyzer::model::live::timeframe_state_from_snapshot(&snap, 500, "inst-1");
+    let state = market_analyzer::model::live::timeframe_state_from_snapshot(
+        &snap,
+        500,
+        "inst-1",
+        &mut fresh_leg(),
+    );
 
     let direction = axis_of(&state, AxisId::Direction);
     assert!(
@@ -400,4 +445,10 @@ fn v204_an_axis_with_no_readings_is_empty_not_stubbed() {
             }
         }
     }
+}
+
+/// A fresh leg driver — these tests are about readings and axis filing, not
+/// about legs, so each call starts with its own carrier (V-206).
+fn fresh_leg() -> market_analyzer::leg::LegDriver {
+    market_analyzer::leg::LegDriver::new(market_analyzer::leg::LegPolicy::default(), 1.0)
 }

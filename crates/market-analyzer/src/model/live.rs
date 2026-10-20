@@ -216,21 +216,32 @@ fn event_bar(signal: &core_domain::axes::Signal) -> usize {
 }
 
 /// Assemble a duration's `TimeframeState` from its live snapshot.
+///
+/// `leg` is the **single** state carrier for this duration (V-206). It is
+/// advanced here and projected into `state.legs`; through P10-B the leg machine
+/// had no production caller at all, so the progression axis published a stage
+/// derived from a free-text label while the record that owns it was not in the
+/// process.
+///
+/// The signature is `&mut` for exactly that reason and no other: a leg has
+/// continuity across bars, and a function that could not carry it could not
+/// publish one.
 pub fn timeframe_state_from_snapshot(
     snapshot: &MarketSnapshot,
     candle_count: usize,
     instance_id: &str,
+    leg: &mut crate::leg::LegDriver,
 ) -> TimeframeState {
     let readings = readings_from_snapshot(snapshot);
     let active_events = count_signals(snapshot);
     let direction_values = direction_history(&readings);
-    let progression_stage = readings
-        .iter()
-        .find(|r| r.axis == AxisId::Progression)
-        .and_then(|r| r.value.as_stage());
     // Computed before `readings` is moved into the input below.
     let current_bar = (snapshot.timestamp as usize).saturating_sub(1);
     let axis_signals = signals_by_axis(snapshot, &readings, current_bar);
+    // The leg owns progression. It is advanced first so the stage below comes
+    // from the record rather than from a label (V-207).
+    let legs = leg.advance(snapshot, current_bar);
+    let progression_stage = legs.iter().find_map(|l| l.stage);
 
     let identity = core_domain::axes::TimeframeIdentity {
         instance_id: instance_id.to_string(),
@@ -271,16 +282,19 @@ pub fn timeframe_state_from_snapshot(
         levels,
         diagnostics: diagnostics_from(snapshot),
         progression_stage,
-        progression_progress: core_domain::leg::Progress::Undefined {
-            reason: core_domain::axes::UndefinedReason::NotApplicable {
-                detail: "progress is the leg's; the snapshot carries no leg".into(),
+        progression_progress: legs.first().map(|l| l.progress.clone()).unwrap_or(
+            core_domain::leg::Progress::Undefined {
+                reason: core_domain::axes::UndefinedReason::NotApplicable {
+                    detail: "no leg is open for this duration".into(),
+                },
             },
-        },
-        target_version: 0,
-        target_stable: false,
+        ),
+        target_version: legs.first().map(|l| l.target_version).unwrap_or(0),
+        target_stable: legs.first().map(|l| l.target_stable).unwrap_or(false),
         available_at_bar: snapshot.timestamp as usize,
         direction_history: direction_values,
         axis_signals,
+        legs,
     })
 }
 

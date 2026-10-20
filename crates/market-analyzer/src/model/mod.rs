@@ -135,6 +135,9 @@ pub struct TimeframeInput {
     /// The direction value's recent history, oldest first. The stability measure
     /// counts *observations of the direction*, not bars (01-13 I42).
     pub direction_history: Vec<f64>,
+    /// The leg projection this duration publishes. Empty is honest: it means no
+    /// leg is open, not that the field was forgotten.
+    pub legs: Vec<core_domain::leg::LegReading>,
     /// The typed signals each axis can observe, oldest first, one slot per
     /// [`AxisId`] in `AxisId::ALL` order.
     ///
@@ -351,6 +354,15 @@ fn input_direction_history(input: &TimeframeInput) -> Vec<f64> {
 }
 
 /// Assemble a whole `TimeframeState`.
+///
+/// The leg is the authority on progression: the ordinal axis is **set** from
+/// `progression_stage`, never voted, and a leg that is not publishable yet
+/// (`stage: None`) leaves the axis typed `Undefined` with the reason attached.
+/// `progression_progress`, `target_version` and `target_stable` are published
+/// on the leg projection itself — through P10 step 1 all four were accepted on
+/// `TimeframeInput` and **discarded**, so every duration reported
+/// `Progress::Undefined`, `target_version: 0` and `target_stable: false` no
+/// matter what the leg machine held (V-207).
 pub fn assemble_timeframe_state(input: TimeframeInput) -> TimeframeState {
     let axes = assemble_axes(
         &input.readings,
@@ -368,6 +380,7 @@ pub fn assemble_timeframe_state(input: TimeframeInput) -> TimeframeState {
             emit_count: input.events.emitted as u32,
         },
         levels: input.levels,
+        legs: input.legs,
         diagnostics: input.diagnostics,
         derived: DerivedState {
             consensus,

@@ -52,8 +52,8 @@ fn identity(secs: u64, candles: usize) -> core_domain::axes::TimeframeIdentity {
         candle_count: candles,
         last_closed_at: "2026-10-18T00:00:00Z".into(),
         available_at: candles.to_string(),
-        spec_version: "13.0".into(),
-        build_version: "5.0.0".into(),
+        spec_version: core_domain::SPEC_VERSION.into(),
+        build_version: core_domain::BUILD_VERSION.into(),
     }
 }
 
@@ -157,6 +157,7 @@ fn state_at(closes: &[f64], bar: usize, secs: u64) -> TimeframeState {
         available_at_bar: bar,
         direction_history: direction_history(&history),
         axis_signals: no_signals(),
+        legs: Vec::new(),
     })
 }
 

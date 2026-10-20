@@ -683,6 +683,69 @@ pub fn effective_stale_threshold_secs(configured_secs: u32, timeframe_secs: u64)
     configured.max(interval_grace).clamp(1, u32::MAX as u64) as u32
 }
 
+/// The instrument's own realised range, used as the leg's frozen noise floor.
+///
+/// Derived from the warm history so a cold start and a warmed start agree
+/// (CH-8): whatever the buffer holds is the same evidence either way. Falls
+/// back to a positive constant on an empty buffer rather than to `0.0`, because
+/// a zero noise floor would make every displacement "significant" — a claim no
+/// candle supports.
+///
+/// CH-1: candles only.
+fn noise_floor_for(
+    warmed: &Option<crate::analyzer::warm::WarmedPipelineState>,
+    history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
+) -> f64 {
+    const FALLBACK: f64 = 0.001;
+    let ranges_from = |candles: Vec<(Decimal, Decimal)>| -> Vec<f64> {
+        candles
+            .into_iter()
+            .map(|(hi, lo)| {
+                (hi.to_string().parse::<f64>().unwrap_or(0.0)
+                    - lo.to_string().parse::<f64>().unwrap_or(0.0))
+                .abs()
+            })
+            .filter(|r| r.is_finite() && *r > 0.0)
+            .collect()
+    };
+    let recent: Vec<f64> = match warmed {
+        Some(w) => ranges_from(
+            w.history
+                .iter()
+                .rev()
+                .take(NOISE_FLOOR_WINDOW)
+                .map(|c| (c.high, c.low))
+                .collect(),
+        ),
+        None => {
+            let Ok(buffer) = history.try_read() else {
+                return FALLBACK;
+            };
+            ranges_from(
+                buffer
+                    .iter()
+                    .rev()
+                    .take(NOISE_FLOOR_WINDOW)
+                    .map(|c| (c.high, c.low))
+                    .collect(),
+            )
+        }
+    };
+    if recent.is_empty() {
+        return FALLBACK;
+    }
+    // Median, not mean: one spike must not define the scale for the whole run.
+    let mut sorted = recent;
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median_range = sorted[sorted.len() / 2].max(f64::MIN_POSITIVE);
+    // The leg's floor is ATR-shaped, not the raw range: `noise_floor_from_range`
+    // is the one definition, so live and replay agree by construction.
+    crate::leg::noise_floor_from_range(median_range)
+}
+
+/// How many recent bars the noise floor is measured over.
+const NOISE_FLOOR_WINDOW: usize = 50;
+
 pub fn derive_pipeline_state_with_staleness(
     buffer_len: usize,
     target: usize,
@@ -871,6 +934,24 @@ pub async fn run_single(
     // PRI-12 (v6.10.7): real (non-synthetic) completed candles — doji-fill /
     // idle-heartbeat synthetic buckets increment `bar_count` but not this.
     let mut real_bar_count: u32 = 0;
+
+    // The per-duration leg driver (P10-B, V-206). **One carrier**, created once
+    // per pipeline run and threaded by `&mut` — the same shape as
+    // `bar_count`/`real_bar_count` beside it, and for the same reason: a leg has
+    // continuity across bars, so it cannot live inside a per-candle function.
+    //
+    // The noise floor is the instrument's own recent range, frozen at
+    // construction (L21). It is deliberately *not* recomputed: a moving noise
+    // floor is how a leg's stage moves without the leg moving.
+    //
+    // The floor is measured from the **warm** history when there is one: this
+    // line runs before the warm block seeds `history`, so reading the live
+    // buffer here would see an empty deque and freeze the fallback floor for
+    // the whole run — making every leg invalidate on its next tick.
+    let mut leg_driver = crate::leg::LegDriver::new(
+        crate::leg::LegPolicy::default(),
+        noise_floor_for(&warmed, &history),
+    );
 
     // Strict chronological handover boundary: the start time of the newest
     // historical (REST/DB) candle used for pre-warming. Live candles at or
@@ -1568,6 +1649,7 @@ pub async fn run_single(
                             force_close_readings,
                             &mut bar_count,
                             &mut real_bar_count,
+                            &mut leg_driver,
                             &quality_envelope,
                             shadow_exchange,
                             shadow_bid,
@@ -2505,6 +2587,7 @@ pub async fn run_single(
                         readings,
                         &mut bar_count,
                         &mut real_bar_count,
+                        &mut leg_driver,
                         &quality_envelope,
                         shadow_exchange,
                         shadow_bid,
@@ -2802,6 +2885,7 @@ async fn synthesize_completed_candle(
     readings: CandleIndicatorReadings,
     bar_count: &mut u32,
     real_bar_count: &mut u32,
+    leg_driver: &mut crate::leg::LegDriver,
     quality_envelope: &CandleQualityEnvelope,
     shadow_exchange: Option<Exchange>,
     shadow_bid: Decimal,
@@ -3695,6 +3779,7 @@ async fn synthesize_completed_candle(
         &completed_snapshot,
         *bar_count as usize,
         &completed_snapshot.symbol,
+        leg_driver,
     ));
 
     // M2 (production audit): the awaited send froze the whole pipeline
