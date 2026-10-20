@@ -220,7 +220,7 @@ fn the_wire_key_set_is_the_field_set() {
 
     for (field, _) in FIELD_DESTINATIONS {
         assert!(
-            keys.contains(&field),
+            keys.contains(field),
             "`{field}` is a field of the struct but never reaches the wire"
         );
     }
