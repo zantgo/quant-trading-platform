@@ -93,6 +93,7 @@ async fn app_state(pool: SqlitePool) -> Arc<AppState> {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(ExecutionEngine::new(
             portfolio_supervisor::paper_trading::FeesConfig::default(),

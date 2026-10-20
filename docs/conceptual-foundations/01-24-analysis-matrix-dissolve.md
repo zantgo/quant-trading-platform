@@ -53,9 +53,11 @@ hysteresis they serve — and R2's `prev_regime` removal is the same edit.
 Each step leaves the system building, testing and shipping. A step is **not**
 merged with the next.
 
-### Step 1 — the snapshot carries `model_state` (additive)
+### Step 1 — the snapshot carries `timeframe_state` (additive)
 
-* `MarketSnapshot` gains `pub model_state: Option<core_domain::axes::TimeframeState>`.
+* `MarketSnapshot` gains `pub timeframe_state: Option<core_domain::axes::TimeframeState>`
+  (shipped as `model_state` through v10; renamed in P10-D to keep the envelope
+  `model_state` unambiguous).
 * `market-analyzer` populates it through `model::live::timeframe_state_from_snapshot`
   (already built and tested — `f3036cdc`).
 * `analysis` stays. **Nothing reads the new field yet.**
@@ -67,7 +69,7 @@ green.
 
 In dependency order, each a separate commit:
 
-1. **BTE historical** — read `model_state` instead of `analysis.bias` /
+1. **BTE historical** — read `timeframe_state` instead of `analysis.bias` /
    `analysis.market_regime`; delete `prev_regime` / `prev_bias` / `prev_score` /
    `prev_volume_dim` from `MtfState` and from `synthesize_cross_tf`'s signature
    (**CR-11 + R2 W2.5 close here**).
@@ -101,7 +103,7 @@ CHANGELOG.
 
 ### Step 4 — the UI
 
-* `types.ts`: `analysis` → `model_state`; `websocket.svelte.ts` stores it;
+* `types.ts`: `analysis` → `timeframe_state`; `websocket.svelte.ts` stores it;
   `metricsTab.ts` / `mtfTab.ts` / `riskTab.ts` / `overviewTab.ts` read the axes.
 * `state.svelte.ts`, `layerHeader.ts`, `marketHealth.ts`, `dashboardColors.ts`
   rename `OverviewMatrix` → `cross_pair_state` (**V-54 / V-110**).

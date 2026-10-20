@@ -251,6 +251,7 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
         bitget_ws_url: String::new(),
         bybit_ws_url: String::new(),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
             portfolio_supervisor::paper_trading::FeesConfig::default(),

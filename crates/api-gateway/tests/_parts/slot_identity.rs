@@ -140,6 +140,7 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
             portfolio_supervisor::paper_trading::FeesConfig::default(),
@@ -295,7 +296,7 @@ async fn timeframe_label_round_trips_through_wire_payload() {
     let snap = MarketSnapshot {
         // CR-10: the candle-derived heatmap bands.
         state_bands: None,
-        model_state: None,
+        timeframe_state: None,
         timeframe_label: Some("5m".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 300,

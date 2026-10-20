@@ -6,6 +6,7 @@
 
 pub mod connection_quality;
 pub mod history;
+pub mod model;
 pub mod monitor;
 pub mod overview;
 pub mod snapshot_export;

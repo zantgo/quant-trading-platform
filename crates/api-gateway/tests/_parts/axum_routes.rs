@@ -45,6 +45,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
             portfolio_supervisor::paper_trading::FeesConfig::default(),
@@ -274,6 +275,7 @@ async fn test_websocket_stream_with_active_pair() {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
             portfolio_supervisor::paper_trading::FeesConfig::default(),

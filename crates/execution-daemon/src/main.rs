@@ -1389,6 +1389,7 @@ async fn async_main() {
         bybit_ws_url: by_ws_url.clone(),
         allowed_origins: allowed_origins.clone(),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         execution_engine: execution_engine.clone(),
         automation: if workspace.minimal_tae.enabled {
             Some(setup_executor.clone())
@@ -2374,6 +2375,7 @@ async fn async_main() {
     // ── L7 Overview aggregation task ──────────────────────────
     {
         let overview_ref = app_state.overview.clone();
+        let model_ref = app_state.model_state.clone();
         let workspace = workspace_state.clone();
         let overview_cancel = CancellationToken::new();
         handles.push(tokio::spawn(async move {
@@ -2383,10 +2385,13 @@ async fn async_main() {
                     _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
                 }
                 let instances = workspace.list().await;
-                // CR-15: no instance produces an advisory any more, so this
-                // stays empty and `compute_overview` treats the derived
-                // distributions as unmeasured rather than as zero.
-                let advisories: Vec<core_domain::advisory::AdvisoryMatrix> = Vec::new();
+                let ladder_secs = workspace.config().await.timeframes.clone();
+                // The model's level-2 documents: one per active instance, built
+                // from the `timeframe_state` each pipeline published on its last
+                // completed candle. These are the SAME states the dashboard
+                // receives on the snapshot socket — the reduction is stored, not
+                // re-derived (V-217).
+                let mut assemblies: Vec<market_analyzer::model::PairAssembly> = Vec::new();
                 let mut alignments: Vec<core_domain::alignment::AlignmentMatrix> = Vec::new();
                 let mut metas: Vec<core_domain::overview::InstanceMeta> = Vec::new();
                 // v7.2 parity: the panel builder consumes the SAME per-TF
@@ -2398,13 +2403,9 @@ async fn async_main() {
                 for inst in &instances {
                     let snapshots = inst.active_pair.latest_snapshots_active().await;
                     // v6.10.18 (I-2): the L7 aggregates ALL ACTIVE duration
-                    // windows — per-window advisories feed the breadth /
-                    // bias / opportunity / regime tallies. The previous
-                    // slow-300s-only basis
-                    // made the dashboard headline contradict every panel
-                    // (e.g. HIGH_RISK next to an avg-risk of 41, or a
-                    // stale "Pullback" while the Opportunity tab shows
-                    // Scalp).
+                    // windows. v10: each window's `timeframe_state` is the
+                    // model input; per-window advisories (the old breadth /
+                    // bias / opportunity / regime source) no longer exist.
                     // v6.10.19a: the canonical per-pair risk is the fastest
                     // window's L5 score (the same number the Risk panel,
                     // the dashboard KPI, and the asset rows show) — the
@@ -2449,6 +2450,7 @@ async fn async_main() {
                     // about danger that nothing measured.
                     let risk_windows: Vec<(f64, f64)> = Vec::new();
                     let mut alignment_pushed = false;
+                    let mut durations: Vec<(u64, core_domain::axes::TimeframeState)> = Vec::new();
                     for snap in snaps.iter().flatten() {
                         // The MTF AlignmentMatrix is one per symbol — push
                         // it once, from the fastest present window.
@@ -2458,6 +2460,19 @@ async fn async_main() {
                                 alignment_pushed = true;
                             }
                         }
+                        if let Some(state) = &snap.timeframe_state {
+                            durations.push((snap.timeframe_secs, state.clone()));
+                        }
+                    }
+                    if !durations.is_empty() {
+                        durations.sort_by_key(|(secs, _)| *secs);
+                        // Level 2 for this pair. The stored payload is what
+                        // `GET /api/model` serves; the UI never recomputes it.
+                        let (cross_tf, _) = market_analyzer::model::assemble_cross_tf_state(
+                            &inst.symbol(),
+                            &durations,
+                        );
+                        assemblies.push((inst.symbol(), cross_tf, durations));
                     }
                     metas.push(core_domain::overview::InstanceMeta {
                         // Audit fix (C1): `inst.pair.1` is the QUOTE currency
@@ -2510,12 +2525,38 @@ async fn async_main() {
                         })
                         .unwrap_or_default()
                 };
+                // The cross-pair level and the envelope are produced ONCE, from
+                // the per-duration states above. The legacy overview projection
+                // that follows no longer receives advisories — the advisory
+                // layer was deleted in CR-15 and passing an empty vector here
+                // was a second, permanently-empty source pretending to be one.
+                let converging_pairs = assemblies
+                    .iter()
+                    .filter(|(_, cross, _)| cross.cross_duration_agreement.levels_converging)
+                    .count() as u32;
+                let generated_at_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let model = market_analyzer::model::assemble_model_state(
+                    core_domain::SPEC_VERSION,
+                    core_domain::BUILD_VERSION,
+                    generated_at_ms,
+                    &ladder_secs,
+                    &assemblies,
+                    converging_pairs,
+                );
+                *model_ref.write().await = Some(model.clone());
                 let mut overview = core_domain::overview::compute_overview(
-                    &advisories,
+                    &[],
                     &metas,
                     &alignments,
                     &overview_params,
                 );
+                // One cross-pair producer: the overview carries the stored
+                // reduction and the canonical breadth, not a re-derivation.
+                overview.breadth_pct = model.cross_pair_state.breadth.breadth_pct;
+                overview.cross_pair_state = Some(model.cross_pair_state);
                 // v7.2 parity: canonical AssetRank scores → the panel rows,
                 // then merge the server-computed panel payload into the
                 // matrix. Both the dashboard and the CLI renderer read the

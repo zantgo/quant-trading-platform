@@ -80,6 +80,10 @@ pub struct AppState {
     pub allowed_origins: Vec<String>,
     /// L7 cross-symbol market overview, refreshed periodically.
     pub overview: Arc<RwLock<Option<core_domain::overview::OverviewMatrix>>>,
+    /// The complete `model_state` envelope (01-22), built by the L7 task from
+    /// the per-duration states every pipeline publishes. Stored, never
+    /// recomputed on request: the three reductions are not invertible (V-113).
+    pub model_state: Arc<RwLock<Option<core_domain::axes::ModelState>>>,
     pub execution_engine: Arc<ExecutionEngine>,
     /// v7 TAE setup executor (when automation is enabled). Serves the
     /// `/api/instances/:id/automation` surface.

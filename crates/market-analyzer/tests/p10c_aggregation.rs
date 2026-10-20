@@ -301,11 +301,11 @@ fn market_health_bars_are_derived_from_the_four_axes() {
     );
 
     let with_state = core_domain::models::MarketSnapshot {
-        model_state: Some(solid),
+        timeframe_state: Some(solid),
         ..Default::default()
     };
     let with_dashed = core_domain::models::MarketSnapshot {
-        model_state: Some(dashed),
+        timeframe_state: Some(dashed),
         ..Default::default()
     };
     let without = core_domain::models::MarketSnapshot::default();

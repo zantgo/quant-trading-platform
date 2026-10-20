@@ -60,6 +60,7 @@ async fn test_state(active_secs: &[u64]) -> (Arc<AppState>, SqlitePool) {
         ),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
             portfolio_supervisor::paper_trading::FeesConfig::default(),

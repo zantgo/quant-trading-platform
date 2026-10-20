@@ -166,7 +166,7 @@ fn derive_axis_health(instances: &[PanelInstance]) -> Option<MarketHealthDims> {
     let states: Vec<&TimeframeState> = instances
         .iter()
         .filter_map(|inst| inst.snapshots.first())
-        .filter_map(|snapshot| snapshot.model_state.as_ref())
+        .filter_map(|snapshot| snapshot.timeframe_state.as_ref())
         .collect();
     if states.is_empty() {
         return None;

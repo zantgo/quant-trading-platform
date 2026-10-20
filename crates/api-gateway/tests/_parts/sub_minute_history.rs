@@ -154,6 +154,7 @@ async fn build_router_with_snapshots(
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(Default::default()),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
             portfolio_supervisor::paper_trading::FeesConfig::default(),
@@ -194,7 +195,7 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
     MarketSnapshot {
         // CR-10: the candle-derived heatmap bands.
         state_bands: None,
-        model_state: None,
+        timeframe_state: None,
         timeframe_label: Some("1s".to_string()),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: secs,

@@ -154,6 +154,17 @@ pub struct OverviewMatrix {
     /// v7.2 parity: market-health sub-dimension bars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub market_health_dims: Option<crate::overview_panel::MarketHealthDims>,
+    /// The cross-pair reduction, **stored** from the model assembler rather
+    /// than recomputed here (01-22: the reductions are not invertible, so every
+    /// consumer reads the same stored value).
+    ///
+    /// `None` only before the first L7 pass. The full envelope (every pair's
+    /// cross-duration state and every duration's `timeframe_state` plus this
+    /// cross-pair state) is served by `GET /api/model`; this field is the
+    /// cross-pair half embedded in the overview payload so `/api/overview` can
+    /// carry it without re-sending twelve durations per pair.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_pair_state: Option<crate::axes::CrossPairState>,
 }
 
 impl OverviewMatrix {
@@ -183,6 +194,7 @@ impl OverviewMatrix {
             active_symbols: Vec::new(),
             overview_rows: Vec::new(),
             market_health_dims: None,
+            cross_pair_state: None,
         }
     }
 }
@@ -674,6 +686,9 @@ pub fn compute_overview(
         // after `compute_overview` returns — empty here by default.
         overview_rows: Vec::new(),
         market_health_dims: None,
+        // Filled by the L7 task from `assemble_cross_pair_state`; this legacy
+        // projection cannot produce the cross-pair reduction.
+        cross_pair_state: None,
     }
 }
 

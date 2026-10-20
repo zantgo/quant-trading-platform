@@ -1,8 +1,8 @@
-//! **01-24 step 1 — `model_state` rides the snapshot, additively** (P10).
+//! **01-24 step 1 — `timeframe_state` rides the snapshot, additively** (P10).
 //!
 //! ## What step 1 is
 //!
-//! The snapshot gains `model_state`, the assembled `TimeframeState`, and the
+//! The snapshot gains `timeframe_state`, the assembled `TimeframeState`, and the
 //! pipeline fills it. **Nothing reads it yet.** `analysis` is still on the wire
 //! beside it.
 //!
@@ -25,7 +25,7 @@
 use core_domain::axes::{AxisId, TimeframeState};
 use core_domain::models::MarketSnapshot;
 
-fn snapshot_with_model_state() -> MarketSnapshot {
+fn snapshot_with_timeframe_state() -> MarketSnapshot {
     let axes = market_analyzer::model::assemble_axes(
         &[market_analyzer::model::Reading::produced(
             "rsi",
@@ -40,7 +40,7 @@ fn snapshot_with_model_state() -> MarketSnapshot {
         symbol: "BTC-USDT".into(),
         timeframe_secs: 300,
         timeframe_label: Some("5m".into()),
-        model_state: Some(TimeframeState {
+        timeframe_state: Some(TimeframeState {
             identity: core_domain::axes::TimeframeIdentity {
                 instance_id: "inst-1".into(),
                 pair: "BTC-USDT".into(),
@@ -87,12 +87,12 @@ fn snapshot_with_model_state() -> MarketSnapshot {
 
 #[test]
 fn step1_the_field_round_trips() {
-    let snapshot = snapshot_with_model_state();
+    let snapshot = snapshot_with_timeframe_state();
     let json = serde_json::to_string(&snapshot).expect("serialises");
-    assert!(json.contains("model_state"), "the field is on the wire");
+    assert!(json.contains("timeframe_state"), "the field is on the wire");
     let back: MarketSnapshot = serde_json::from_str(&json).expect("deserialises");
     assert_eq!(
-        back.model_state.as_ref().map(|s| s.axes.len()),
+        back.timeframe_state.as_ref().map(|s| s.axes.len()),
         Some(4),
         "and comes back with four axes"
     );
@@ -107,7 +107,7 @@ fn step1_the_field_round_trips() {
 fn step1_an_unset_state_is_absent_not_null() {
     let json = serde_json::to_string(&MarketSnapshot::default()).expect("serialises");
     assert!(
-        !json.contains("model_state"),
+        !json.contains("timeframe_state"),
         "an unset optional is skipped, so a consumer can tell 'not assembled' \
          from 'assembled and empty'"
     );
@@ -118,9 +118,9 @@ fn step1_the_retained_projection_drops_it() {
     // The projection is a storage view. Retaining a second copy of the four axes
     // would charge the byte budget twice for one fact — which is exactly the
     // double-charge the v11.12.24 budget work was built to stop.
-    let projected = snapshot_with_model_state().history_projection();
+    let projected = snapshot_with_timeframe_state().history_projection();
     assert!(
-        projected.model_state.is_none(),
+        projected.timeframe_state.is_none(),
         "the retained copy must not carry the assembled state"
     );
     // And what it DOES keep is the readings the state is derived from, so it can
@@ -129,14 +129,14 @@ fn step1_the_retained_projection_drops_it() {
 }
 
 #[test]
-fn step1_analysis_and_model_state_coexist_in_this_commit() {
+fn step1_analysis_and_timeframe_state_coexist_in_this_commit() {
     // Stated as a test because it is the thing a reviewer must see before the
     // next commit removes one of them.
-    let mut snapshot = snapshot_with_model_state();
+    let mut snapshot = snapshot_with_timeframe_state();
     snapshot.analysis = Some(core_domain::analysis::AnalysisMatrix::empty("BTC-USDT"));
     let json = serde_json::to_string(&snapshot).expect("serialises");
     assert!(
-        json.contains("analysis") && json.contains("model_state"),
+        json.contains("analysis") && json.contains("timeframe_state"),
         "step 1 is additive: both are present. When this fails, step 2 has begun \
          and this assertion should be deleted in the same commit that removes a \
          consumer"

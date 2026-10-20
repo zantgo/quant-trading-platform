@@ -59,7 +59,7 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
     MarketSnapshot {
         // CR-10: the candle-derived heatmap bands.
         state_bands: None,
-        model_state: None,
+        timeframe_state: None,
         timeframe_label: Some("1s".to_string()),
         exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
         timeframe_secs,
@@ -230,6 +230,7 @@ async fn setup_app_with_pair() -> (
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
             portfolio_supervisor::paper_trading::FeesConfig::default(),

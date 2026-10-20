@@ -1,9 +1,9 @@
 //! # Market Analyzer Crate
 //!
-//! Owns the Market Monitoring Engine (MME): 52 indicators across 4
-//! timeframes, signal detection, multi-timeframe alignment, opportunity
-//! and risk scoring, and the time-frame pipeline orchestrator that emits
-//! `MarketSnapshot`s.
+//! Owns the Market Monitoring Engine (MME): the indicator registry, the
+//! per-duration pipeline that emits `MarketSnapshot`s, and the three
+//! descriptive reductions (`timeframe_state` → `cross_tf_state` →
+//! `cross_pair_state`) that form the model envelope.
 
 #![allow(clippy::too_many_arguments)]
 

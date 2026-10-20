@@ -248,7 +248,7 @@ pub struct MarketSnapshot {
     /// one: a snapshot carrying both is honest, a snapshot carrying half a
     /// migration is not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_state: Option<crate::axes::TimeframeState>,
+    pub timeframe_state: Option<crate::axes::TimeframeState>,
 
     // ── CR-15: removed from this struct ────────────────────────────────
     // `risk` (L5), `advisory` (L6), `opportunity` (L4) and
@@ -401,11 +401,11 @@ impl MarketSnapshot {
         out.context = None;
         out.alignment = None;
         out.analysis = None;
-        // The model state is assembled ON DEMAND from the readings below. Retaining a
+        // The timeframe state is assembled ON DEMAND from the readings below. Retaining a
         // second copy of the four axes would charge the byte budget twice for one
         // fact — which is precisely the double-charge the v11.12.24 budget work
         // exists to stop.
-        out.model_state = None;
+        out.timeframe_state = None;
         out.statistical_context = None;
         // CR-10: `cluster`, `liquidity` and `liquidity_signals` no longer exist.
         // `state_bands` joins `volume_profile` on the dropped side — the

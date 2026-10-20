@@ -93,6 +93,7 @@ async fn build_state() -> (Arc<AppState>, Arc<Instance>, Arc<ExecutionEngine>) {
         ),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
+        model_state: Arc::new(RwLock::new(None)),
         automation: None,
         execution_engine: engine.clone(),
         recharge_tx: tokio::sync::broadcast::channel::<api_gateway::RechargeNotice>(64).0,
