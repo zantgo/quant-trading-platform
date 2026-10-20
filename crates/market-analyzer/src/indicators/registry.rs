@@ -2263,7 +2263,12 @@ pub const CALCULATOR_OVERRIDES: &[(&str, &str)] = &[];
 ///
 /// This is deliberately not the same as a cluster. A cluster has no weight effect
 /// at all; a family has exactly one.
-pub const FAMILIES: &[(&str, &[&str])] = &[];
+///
+/// **The declarations and this table must agree.** Every `Reading.family` above
+/// names a family here, and every family here lists exactly the readings that
+/// declare it — `families_and_declarations_agree` fails on either mismatch, so a
+/// family cannot be declared in one place and silently ignored in the other.
+pub const FAMILIES: &[(&str, &[&str])] = &[("oscillator_saturated", &["stochastic", "williams_r"])];
 
 /// The family this observable belongs to, if any.
 pub fn family_for(key: &str) -> Option<&'static str> {

@@ -269,6 +269,7 @@ pub fn timeframe_state_from_snapshot(
     };
 
     let levels = levels_from(snapshot);
+    let atr = atr_from_snapshot(snapshot);
 
     assemble_timeframe_state(TimeframeInput {
         identity,
@@ -280,6 +281,7 @@ pub fn timeframe_state_from_snapshot(
             ..Default::default()
         },
         levels,
+        atr,
         diagnostics: diagnostics_from(snapshot),
         progression_stage,
         progression_progress: legs.first().map(|l| l.progress.clone()).unwrap_or(
@@ -379,6 +381,20 @@ fn levels_from(snapshot: &MarketSnapshot) -> Vec<core_domain::axes::Level> {
         }
     }
     out
+}
+
+/// The duration's ATR(14), in **price units**, when the indicator has warmed.
+///
+/// The published `atr` reading's `raw_value` is already the price distance
+/// (registry `value_format: "price"`); its `normalized` score is contractually
+/// `0.0` for this ContextOnly indicator, so it is **not** used. A non-positive
+/// or non-finite ATR is typed absence: it cannot serve as a tolerance (V-210).
+fn atr_from_snapshot(snapshot: &MarketSnapshot) -> Option<f64> {
+    snapshot
+        .indicators
+        .get("atr")
+        .map(|v| v.raw_value)
+        .filter(|v| v.is_finite() && *v > 0.0)
 }
 
 /// The direction series the stability measure consumes.

@@ -56,6 +56,7 @@ fn snapshot_with_model_state() -> MarketSnapshot {
             axes,
             events: core_domain::axes::EventCounts::default(),
             levels: Vec::new(),
+            atr: Some(1.5),
             legs: Vec::new(),
             diagnostics: core_domain::axes::Diagnostics {
                 state: core_domain::axes::DiagnosticState::Chopping,

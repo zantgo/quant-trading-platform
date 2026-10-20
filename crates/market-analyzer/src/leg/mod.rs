@@ -22,8 +22,9 @@ pub use driver::{LegDriver, PIVOT_STRENGTH, PIVOT_WINDOW};
 
 use core_domain::axes::Stage;
 use core_domain::leg::{
-    Classification, CloseReason, Direction, LegKey, LegLifecycle, LegReading, LegRecord, Progress,
-    Revision, RevisionCounter, StructureLevel, TargetBasis,
+    assess_terminality_from_outcomes, Classification, CloseReason, CompletionCriterion,
+    CriterionOutcome, Direction, LegKey, LegLifecycle, LegReading, LegRecord, Progress, Revision,
+    RevisionCounter, StructureLevel, TargetBasis,
 };
 pub use core_domain::leg::{REVISION_BUDGET, REVISION_LOG_CAP, STABILITY_WINDOW};
 
@@ -449,6 +450,74 @@ impl LegMachine {
     /// The stage, if one may be published.
     pub fn stage(&self, key: &LegKey, price: f64) -> Option<Stage> {
         self.leg(key)?.stage(price)
+    }
+
+    /// Record that one completion criterion fired for this leg.
+    ///
+    /// Deduplicated: two reports of the same criterion are one criterion, which
+    /// is the same rule [`assess_terminality`](core_domain::leg::assess_terminality)
+    /// enforces. Reassesses immediately so the published reading is never one
+    /// bar behind the evidence.
+    ///
+    /// **This never closes the leg** (I23): a criterion firing is terminality
+    /// evidence, not a `close_reason`. Closing stays a separate, explicit call.
+    pub fn note_criterion(&mut self, key: &LegKey, criterion: CompletionCriterion) -> bool {
+        let Some(i) = self.position(key) else {
+            return false;
+        };
+        if self.legs[i].lifecycle.is_terminal() {
+            return false;
+        }
+        if !self.legs[i].fired_criteria.contains(&criterion) {
+            self.legs[i].fired_criteria.push(criterion);
+        }
+        self.assess_terminality(key)
+    }
+
+    /// Record that the given criteria were **evaluated** on this bar without
+    /// firing. A criterion never reported here stays `Unknown`, and an
+    /// `Unknown` criterion cannot support a continuation claim (V-214).
+    pub fn note_evaluated(&mut self, key: &LegKey, evaluated: &[CompletionCriterion]) -> bool {
+        let Some(i) = self.position(key) else {
+            return false;
+        };
+        if self.legs[i].lifecycle.is_terminal() {
+            return false;
+        }
+        for criterion in evaluated {
+            if !self.legs[i].evaluated_criteria.contains(criterion) {
+                self.legs[i].evaluated_criteria.push(*criterion);
+            }
+        }
+        self.assess_terminality(key)
+    }
+
+    /// Recompute the leg's terminality from its own evidence and store it.
+    ///
+    /// Consumes [`assess_terminality_from_outcomes`]: a criterion in
+    /// `evaluated_criteria` is `Fired` when it is in `fired_criteria`, otherwise
+    /// `NotFired`; every other criterion is `Unknown`. The machine therefore
+    /// cannot accidentally turn "not inspected" into "continuation supported".
+    pub fn assess_terminality(&mut self, key: &LegKey) -> bool {
+        let Some(i) = self.position(key) else {
+            return false;
+        };
+        let leg = &self.legs[i];
+        let outcomes: Vec<(CompletionCriterion, CriterionOutcome)> = CompletionCriterion::ALL
+            .iter()
+            .map(|criterion| {
+                let outcome = if leg.fired_criteria.contains(criterion) {
+                    CriterionOutcome::Fired
+                } else if leg.evaluated_criteria.contains(criterion) {
+                    CriterionOutcome::NotFired
+                } else {
+                    CriterionOutcome::Unknown
+                };
+                (*criterion, outcome)
+            })
+            .collect();
+        self.legs[i].terminality = assess_terminality_from_outcomes(&outcomes);
+        true
     }
 
     /// Progress against the current reference. The snapshot a caller would

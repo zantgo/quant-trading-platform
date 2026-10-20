@@ -36,7 +36,8 @@
 use std::collections::VecDeque;
 
 use core_domain::leg::{
-    CloseReason, Direction, LegKey, LegLifecycle, LegReading, Progress, TargetBasis,
+    CloseReason, CompletionCriterion, Direction, LegKey, LegLifecycle, LegReading, Progress,
+    TargetBasis,
 };
 use core_domain::models::MarketSnapshot;
 
@@ -160,7 +161,32 @@ impl LegDriver {
             }
         }
 
+        self.assess_open_legs();
         self.project()
+    }
+
+    /// Re-assess terminality for every current leg from the evidence this driver
+    /// actually observes (V-214).
+    ///
+    /// `OpposingSwingConfirmed` is evaluated on every bar: the confirmed-pivot
+    /// stream is fully monitored, and an opposing pivot would have replaced this
+    /// leg. `CharacterChange` and `ClimaxFailure` are **not** computed here, so
+    /// they stay `Unknown` — never claimed as "not fired". The assessment is
+    /// therefore honest (`Indeterminate`) in production, and it never closes the
+    /// leg (I23).
+    fn assess_open_legs(&mut self) {
+        let keys: Vec<LegKey> = self
+            .machine
+            .legs()
+            .iter()
+            .filter(|l| !l.lifecycle.is_terminal())
+            .map(|l| l.key())
+            .collect();
+        for key in keys {
+            self.machine
+                .note_evaluated(&key, &[CompletionCriterion::OpposingSwingConfirmed]);
+            self.machine.assess_terminality(&key);
+        }
     }
 
     /// Whether the bar at `i` is a confirmed fractal extreme, and which way.

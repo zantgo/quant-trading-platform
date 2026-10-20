@@ -33,17 +33,16 @@
 use std::collections::{BTreeMap, HashMap};
 
 use core_domain::axes::{
-    AxisDistribution, AxisId, AxisState, AxisValue, Consensus, Coverage, CrossDurationAgreement,
-    CrossPairBreadth, CrossPairState, CrossTfDirection, CrossTfMomentum, CrossTfProgression,
-    CrossTfState, CrossTfStructure, DerivedState, Diagnostics, FastVsSlow, LadderAggregation,
-    ModelState, Readiness, ReadinessCounts, StageHistogram, StageRange, TimeframeIdentity,
-    TimeframeState,
+    AxisAggregation, AxisDistribution, AxisId, AxisState, AxisValue, Consensus, Coverage,
+    CrossDurationAgreement, CrossPairBreadth, CrossPairState, CrossTfDirection, CrossTfMomentum,
+    CrossTfProgression, CrossTfState, CrossTfStructure, DerivedState, Diagnostics, FastVsSlow,
+    LadderAggregation, Level, ModelState, Readiness, ReadinessCounts, StageHistogram, StageRange,
+    TimeframeIdentity, TimeframeState,
 };
 pub mod live;
 
 use core_domain::axes::{Stability, StabilityState};
 use core_domain::event::EventCounts as JournalCounts;
-use serde::{Deserialize, Serialize};
 
 /// One pair's contribution to the envelope: its cross-duration reduction and
 /// every one of its per-duration states.
@@ -123,6 +122,10 @@ pub struct TimeframeInput {
     pub readings: Vec<Reading>,
     pub events: JournalCounts,
     pub levels: Vec<core_domain::axes::Level>,
+    /// The duration's ATR(14) in price units. The cross-duration convergence
+    /// rule needs the **slower** member's value, so it has to be carried on the
+    /// published state rather than recomputed by a caller (V-210).
+    pub atr: Option<f64>,
     pub diagnostics: Diagnostics,
     /// The leg's stage, when one may be published — `None` means withheld.
     pub progression_stage: Option<core_domain::axes::Stage>,
@@ -267,13 +270,45 @@ pub fn reduce_axis(
 }
 
 impl Reading {
-    /// A reading's weight in its axis.
+    /// How this reading enters its axis's reduction.
     ///
-    /// `1.0` for an owned reading; a family shares one weight, so it is declared
-    /// per reading here and the *family* case is a reduction the caller has
-    /// already performed (W10.2's "family" step).
+    /// Derived from the **registry**, never from the caller: a family member
+    /// shares one weight with its family (`1 / members`), an ordinary reading
+    /// owns its own unit weight, and a `diagnostics` reading never votes.
+    /// Before this, `weight()` returned `1.0` unconditionally and
+    /// `AxisAggregation::Family` was never produced, so a declared family was a
+    /// comment rather than a rule (V-213).
+    pub fn aggregation(&self) -> AxisAggregation {
+        let Some(declared) = crate::indicators::registry::reading(&self.producer) else {
+            // A reading the registry does not know about cannot claim a family.
+            // It keeps the unit weight so the reduction remains total; the
+            // registry drift test is what stops this becoming a silent hole.
+            return AxisAggregation::Owned { weight: 1.0 };
+        };
+        if declared.role == crate::indicators::registry::ReadingRole::Diagnostic {
+            return AxisAggregation::NonVoting;
+        }
+        match declared.family {
+            Some(family) => {
+                let members = crate::indicators::registry::family_members(family).len();
+                AxisAggregation::Family {
+                    weight: 1.0 / members.max(1) as f64,
+                }
+            }
+            None => AxisAggregation::Owned { weight: 1.0 },
+        }
+    }
+
+    /// A reading's weight in its axis — the numeric half of
+    /// [`Reading::aggregation`].
+    ///
+    /// A family shares **one** weight: `stochastic` and `williams_r` cannot
+    /// disagree, so together they contribute `1.0`, not `2.0`.
     pub fn weight(&self) -> f64 {
-        1.0
+        match self.aggregation() {
+            AxisAggregation::Family { weight } | AxisAggregation::Owned { weight } => weight,
+            AxisAggregation::NonVoting => 0.0,
+        }
     }
 }
 
@@ -380,6 +415,7 @@ pub fn assemble_timeframe_state(input: TimeframeInput) -> TimeframeState {
             emit_count: input.events.emitted as u32,
         },
         levels: input.levels,
+        atr: input.atr,
         legs: input.legs,
         diagnostics: input.diagnostics,
         derived: DerivedState {
@@ -532,10 +568,15 @@ pub fn reduce_momentum(durations: &[DurationValue]) -> (CrossTfMomentum, LadderA
 ///
 /// Not a mean: a mean over `NetEventBias` would let a duration with zero events
 /// count equally with one carrying eight.
+///
+/// Convergence is **computed here** from the published level bands and the
+/// **slower** duration's ATR. It used to be a caller-supplied `bool` with no
+/// producer anywhere, so the field was whatever the caller wished (V-210).
 pub fn reduce_structure(
     durations: &[DurationValue],
     event_counts: &BTreeMap<u64, u32>,
-    convergence: bool,
+    levels: &[(u64, Vec<Level>)],
+    atr_by_secs: &BTreeMap<u64, Option<f64>>,
     ready_durations: u32,
 ) -> (CrossTfStructure, LadderAggregation) {
     let signed: Vec<(u64, f64)> = durations
@@ -552,7 +593,7 @@ pub fn reduce_structure(
     let gradient = gradient_over(&signed);
     let histogram = StageHistogram::default();
     let structure = CrossTfStructure {
-        levels_converging: convergence,
+        levels_converging: levels_converge(levels, atr_by_secs),
         divergence_active_on: divergence_active,
         divergence_duration_count,
         divergence_duration_total,
@@ -567,6 +608,62 @@ pub fn reduce_structure(
             gradient,
         },
     )
+}
+
+/// Whether the published level bands converge under the **slower** duration's
+/// ATR (V-99q, V-210).
+///
+/// The tolerance belongs to the slower duration and only to it: a faster
+/// member's ATR would test the same prices against a tighter band and report
+/// divergence the slower horizon does not see.
+///
+/// Returns `false` — never `true` — when the claim cannot be made: fewer than
+/// two durations publish a level, the slower duration publishes none, or its
+/// ATR is absent or non-positive. An absent tolerance is not a zero-tolerance
+/// test, and substituting one would name a duration the rule does not permit.
+pub fn levels_converge(
+    levels: &[(u64, Vec<Level>)],
+    atr_by_secs: &BTreeMap<u64, Option<f64>>,
+) -> bool {
+    let Some((slower_secs, slower_levels)) = levels.iter().max_by_key(|(secs, _)| *secs) else {
+        return false;
+    };
+    if slower_levels.is_empty() {
+        return false;
+    }
+    let Some(Some(atr)) = atr_by_secs.get(slower_secs) else {
+        return false;
+    };
+    if !atr.is_finite() || *atr <= 0.0 {
+        return false;
+    }
+
+    let mut compared = 0usize;
+    for (secs, other) in levels {
+        if secs == slower_secs || other.is_empty() {
+            continue;
+        }
+        compared += 1;
+        let converges = other
+            .iter()
+            .any(|a| slower_levels.iter().any(|b| band_gap(a, b) <= *atr));
+        if !converges {
+            return false;
+        }
+    }
+    // Fewer than two durations with a level is no comparison at all.
+    compared > 0
+}
+
+/// The price gap between two bands. Overlapping or touching bands have gap 0.
+fn band_gap(a: &Level, b: &Level) -> f64 {
+    if a.price_high < b.price_low {
+        b.price_low - a.price_high
+    } else if b.price_high < a.price_low {
+        a.price_low - b.price_high
+    } else {
+        0.0
+    }
 }
 
 /// Progression: ordinal mode, ordinal interval, and the leg count.
@@ -608,10 +705,15 @@ pub fn reduce_progression(
 /// V-96q: this level holds **no indicator reference at all** — every value is
 /// reduced from the durations' axis values, so a consumer cannot reach back down
 /// to a calculator and recompute something different.
+///
+/// The previous signature took `convergence: bool` from the caller. No caller
+/// ever computed it, so the field could claim either answer without evidence
+/// (V-210). It is now derived from the published levels and the slower
+/// duration's ATR, and every reduction headline is computed rather than stubbed
+/// (V-211).
 pub fn assemble_cross_tf_state(
     pair: &str,
     states: &[(u64, TimeframeState)],
-    convergence: bool,
 ) -> (CrossTfState, CrossTfReduction) {
     let durations: Vec<u64> = states.iter().map(|(secs, _)| *secs).collect();
     let by_axis = |axis: AxisId| -> Vec<(u64, AxisValue)> {
@@ -640,8 +742,12 @@ pub fn assemble_cross_tf_state(
     let (momentum, momentum_agg) = reduce_momentum(&by_axis(AxisId::Momentum));
 
     let mut event_counts = BTreeMap::new();
+    let mut levels: Vec<(u64, Vec<Level>)> = Vec::new();
+    let mut atr_by_secs: BTreeMap<u64, Option<f64>> = BTreeMap::new();
     for (secs, state) in states {
         event_counts.insert(*secs, state.events.active_count);
+        levels.push((*secs, state.levels.clone()));
+        atr_by_secs.insert(*secs, state.atr);
     }
     let ready = states
         .iter()
@@ -650,7 +756,8 @@ pub fn assemble_cross_tf_state(
     let (structure, structure_agg) = reduce_structure(
         &by_axis(AxisId::Structure),
         &event_counts,
-        convergence,
+        &levels,
+        &atr_by_secs,
         ready,
     );
 
@@ -669,6 +776,7 @@ pub fn assemble_cross_tf_state(
         .collect();
     let (progression, progression_agg) = reduce_progression(&stages);
 
+    let levels_converging = structure.levels_converging;
     let state = CrossTfState {
         durations: durations.clone(),
         active_count: states.len() as u32,
@@ -677,23 +785,14 @@ pub fn assemble_cross_tf_state(
         structure,
         progression,
         cross_duration_agreement: CrossDurationAgreement {
-            levels_converging: convergence,
+            levels_converging,
             divergence_duration_count: event_counts.values().filter(|n| **n > 0).count() as u32,
             divergence_duration_total: event_counts.len() as u32,
             concordant_duration_count: states.len() as u32,
         },
         derived: DerivedState {
-            consensus: Consensus {
-                agreeing_axes: 0,
-                of: 4,
-                axes: Vec::new(),
-                weakest_axis: None,
-            },
-            stability: Stability {
-                state: StabilityState::Building,
-                changes_last_50_bars: 0,
-                window: STABILITY_WINDOW_BARS,
-            },
+            consensus: cross_tf_consensus(states),
+            stability: cross_tf_stability(states),
         },
         member_freshness: core_domain::axes::MemberFreshness {
             oldest_candle_age_secs: 0,
@@ -710,6 +809,104 @@ pub fn assemble_cross_tf_state(
     };
     let state = reduction.state.clone();
     (state, reduction)
+}
+
+/// Consensus at the cross-duration level: **how many of the four axes have a
+/// defined position in at least one duration** — a count, never a mean
+/// (V-40, V-211).
+///
+/// Mirrors [`consensus_of`]: the per-duration function counts defined axes, and
+/// this one counts axes defined across the ladder. `weakest_axis` is the first
+/// axis with no defined member; when every axis is defined somewhere it is the
+/// axis defined in the fewest durations. `None` only when every axis is defined
+/// in every duration — there is then no weak axis to name.
+pub fn cross_tf_consensus(states: &[(u64, TimeframeState)]) -> Consensus {
+    let total = states.len();
+    let mut counts: Vec<(AxisId, usize)> = Vec::new();
+    for axis in AxisId::ALL {
+        let defined = states
+            .iter()
+            .filter(|(_, s)| {
+                s.axes
+                    .iter()
+                    .any(|a| a.axis == axis && !a.position.is_undefined())
+            })
+            .count();
+        counts.push((axis, defined));
+    }
+    let axes: Vec<AxisId> = counts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(a, _)| *a)
+        .collect();
+    let weakest = if total == 0 {
+        None
+    } else {
+        counts
+            .iter()
+            .find(|(_, n)| *n == 0)
+            .map(|(a, _)| *a)
+            .or_else(|| {
+                counts
+                    .iter()
+                    .filter(|(_, n)| *n < total)
+                    .min_by_key(|(_, n)| *n)
+                    .map(|(a, _)| *a)
+            })
+    };
+    Consensus {
+        agreeing_axes: axes.len() as u32,
+        of: AxisId::ALL.len() as u32,
+        axes,
+        weakest_axis: weakest,
+    }
+}
+
+/// Stability at the cross-duration level, reduced from the members' own
+/// measurements (V-211).
+///
+/// **As stable as its least-stable member.** `Unstable` on any duration makes
+/// the ladder unstable — one flickering horizon is a real property of the
+/// reading. A member still `Building` keeps the reduction `Building`, because
+/// "not enough observations" is not a stability claim. `Holding` is asserted
+/// only when every member holds.
+///
+/// `changes_last_50_bars` is the **maximum** among members, not a sum: a 1 s
+/// observation and a 1 d observation are not the same unit, and summing them
+/// would compare a fast market's noise with a slow market's structure (01-13
+/// I42).
+pub fn cross_tf_stability(states: &[(u64, TimeframeState)]) -> Stability {
+    if states.is_empty() {
+        return Stability {
+            state: StabilityState::Building,
+            changes_last_50_bars: 0,
+            window: STABILITY_WINDOW_BARS,
+        };
+    }
+    let mut changes = 0u32;
+    let mut any_unstable = false;
+    let mut any_building = false;
+    for (_, state) in states {
+        let member = &state.derived.stability;
+        changes = changes.max(member.changes_last_50_bars);
+        match member.state {
+            StabilityState::Unstable => any_unstable = true,
+            StabilityState::Building => any_building = true,
+            StabilityState::Holding => {}
+        }
+    }
+    let state = if any_unstable {
+        StabilityState::Unstable
+    } else if any_building {
+        StabilityState::Building
+    } else {
+        StabilityState::Holding
+    };
+    Stability {
+        state,
+        changes_last_50_bars: changes,
+        window: STABILITY_WINDOW_BARS,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -910,89 +1107,17 @@ pub fn assemble_model_state(
 }
 
 // ---------------------------------------------------------------------------
-// Terminality — an ordinal assessment, never a probability, never completion
+// Terminality — the rules live beside the leg record in `core-domain`
 // ---------------------------------------------------------------------------
 
-/// The three terminality states, named for **the direction of the claim**
-/// (01-13 §"Terminality — definable now, ordinal only").
-///
-/// An earlier draft used `resolving`, which read equally as "the leg is
-/// terminating" and as "uncertainty clearing in favour of continuation". The
-/// names here cannot be read both ways.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Terminality {
-    /// The structural evidence available supports further development.
-    ContinuationSupported,
-    /// The evidence does not distinguish the two.
-    Indeterminate,
-    /// The evidence supports a potential end to the current leg.
-    TerminationEvidence,
-}
-
-/// The named criteria that may produce a terminality assessment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CompletionCriterion {
-    OpposingSwingConfirmed,
-    CharacterChange,
-    ClimaxFailure,
-}
-
-/// The assessment, with the criteria that produced it — 01-13: "an ordinal plus
-/// the **named** criteria that produced it".
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalityAssessment {
-    pub terminality: Terminality,
-    pub criteria: Vec<CompletionCriterion>,
-}
-
-/// Derive terminality from **completion criteria only**.
-///
-/// Never from `progress`, never from the stage, never from a probability. A leg
-/// can be `early` and carry termination evidence, or `late` and carry none; the
-/// two are not derivable from each other.
-///
-/// And this **never closes a leg**: the leg completes when a named criterion
-/// actually fires with a `close_reason`, which is a separate, timestamped event
-/// (CG10).
-pub fn assess_terminality(fired: &[CompletionCriterion]) -> TerminalityAssessment {
-    // **Distinct** criteria only. Two reports of the same criterion are one
-    // criterion — and without this, a caller that fires the same evidence twice
-    // would manufacture the two-criteria threshold and claim termination
-    // evidence it does not have. Found by the adversarial suite (SV-B).
-    let mut criteria: Vec<CompletionCriterion> = Vec::new();
-    for c in fired {
-        if !criteria.contains(c) {
-            criteria.push(*c);
-        }
-    }
-    criteria.sort_by_key(|c| format!("{c:?}"));
-    let terminality = match criteria.len() {
-        0 => Terminality::Indeterminate,
-        1 => Terminality::Indeterminate,
-        // Two independent criteria pointing the same way is evidence; one is a
-        // coincidence until it is confirmed.
-        _ => Terminality::TerminationEvidence,
-    };
-    TerminalityAssessment {
-        terminality,
-        criteria,
-    }
-}
-
-/// Terminality with no fired criteria is **indeterminate**, not
-/// `continuation_supported`: absence of termination evidence is not evidence of
-/// continuation, and calling it continuation would be a claim the candles do not
-/// support (CH-5, CH-7).
-pub fn terminality_of_evidence(criteria: &[CompletionCriterion]) -> TerminalityAssessment {
-    assess_terminality(criteria)
-}
-
-/// Assess terminality, the name the rest of the model uses.
-pub fn terminality(criteria: &[CompletionCriterion]) -> TerminalityAssessment {
-    assess_terminality(criteria)
-}
+// The types and assessments are wire vocabulary (`TimeframeState.legs`,
+// 02-16), and the leg record is their consumer, so the definitions live in
+// `core_domain::leg`. They are re-exported here because `market_analyzer::model`
+// is where they were born and where the gate suite imports them.
+pub use core_domain::leg::{
+    assess_terminality, assess_terminality_from_outcomes, terminality, terminality_of_evidence,
+    CompletionCriterion, CriterionOutcome, Terminality, TerminalityAssessment,
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────
 

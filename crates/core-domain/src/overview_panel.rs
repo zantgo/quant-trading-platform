@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 
 use crate::alignment::CrossTfStance;
+use crate::axes::{AxisId, Readiness, TimeframeState};
 use crate::models::MarketSnapshot;
 use serde::{Deserialize, Serialize};
 
@@ -137,16 +138,67 @@ pub fn build_overview_panel(
     }
 
     // ── Market health ───────────────────────────────────────────────
-    // CR-15: the four market-health sub-dimension bars were computed from
-    // `RiskMatrix` dimensions. Risk is strategy, so they go with it; the card
-    // keeps its aggregate from `compute_overview`, and the sub-bars return in
-    // P10 derived from the four axes rather than from a risk score.
-    let market_health_dims: Option<MarketHealthDims> = None;
+    // P10: the four sub-bars are the four axes. Each bar is a **mechanical
+    // completeness** reading — the share of contributing instances whose axis
+    // has a defined, solid position. It is not a strength score and not a
+    // probability: readiness asks "are the inputs there?", and that is the only
+    // quality question this layer can answer without inventing a formula
+    // (CH-4, V-212). `None` only when no instance carries a model state at all;
+    // the card's warmup fallback then owns the display.
+    let market_health_dims = derive_axis_health(instances);
 
     OverviewPanel {
         rows,
         market_health_dims,
     }
+}
+
+/// Derive the four Market Health bars from the published `TimeframeState` axes.
+///
+/// The reference state is each instance's fastest present snapshot, matching the
+/// row reference above: one instance contributes at most once.
+///
+/// A bar's `value` is the percentage of contributing instances whose axis is
+/// present, defined, and `Solid` (every input present). `available` is `false`
+/// when no instance defines that axis — a zero-value bar would otherwise read as
+/// a measured zero.
+fn derive_axis_health(instances: &[PanelInstance]) -> Option<MarketHealthDims> {
+    let states: Vec<&TimeframeState> = instances
+        .iter()
+        .filter_map(|inst| inst.snapshots.first())
+        .filter_map(|snapshot| snapshot.model_state.as_ref())
+        .collect();
+    if states.is_empty() {
+        return None;
+    }
+
+    let total = states.len() as f64;
+    let bars = AxisId::ALL
+        .iter()
+        .map(|axis| {
+            let contributors = states
+                .iter()
+                .filter(|state| {
+                    state.axes.iter().any(|a| {
+                        a.axis == *axis
+                            && !a.position.is_undefined()
+                            && a.readiness == Readiness::Solid
+                    })
+                })
+                .count() as u32;
+            HealthBar {
+                label: axis.label().to_uppercase(),
+                value: 100.0 * contributors as f64 / total,
+                available: contributors > 0,
+                contributing_instances: contributors,
+            }
+        })
+        .collect();
+
+    Some(MarketHealthDims {
+        bars,
+        active_instance_count: states.len() as u32,
+    })
 }
 
 #[cfg(test)]

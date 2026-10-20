@@ -829,6 +829,15 @@ pub struct TimeframeState {
     pub axes: Vec<AxisState>,
     pub events: EventCounts,
     pub levels: Vec<Level>,
+    /// The duration's ATR(14) in **price units** — the candle-derived tolerance
+    /// cross-duration level convergence uses (V-99q, V-210).
+    ///
+    /// `None` until the ATR indicator has warmed. Typed absence, never `0.0`:
+    /// a convergence test with a zero tolerance would call any two levels
+    /// divergent, and one with a substituted tolerance would name a duration
+    /// the rule does not permit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atr: Option<f64>,
     /// The current leg per structural level — **empty only when nothing is open**.
     ///
     /// Was absent from this struct entirely through P10 step 1, so a published

@@ -139,6 +139,7 @@ fn state_at(closes: &[f64], bar: usize, secs: u64) -> TimeframeState {
             ..Default::default()
         },
         levels: vec![],
+        atr: None,
         diagnostics: core_domain::axes::Diagnostics {
             state: core_domain::axes::DiagnosticState::Settling,
             volatility_change_pct: 1.0,

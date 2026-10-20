@@ -156,6 +156,188 @@ impl LegLifecycle {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Terminality — an ordinal assessment, never a probability, never completion
+// ---------------------------------------------------------------------------
+
+/// The three terminality states, named for **the direction of the claim**
+/// (01-13 §"Terminality — definable now, ordinal only").
+///
+/// An earlier draft used `resolving`, which read equally as "the leg is
+/// terminating" and as "uncertainty clearing in favour of continuation". The
+/// names here cannot be read both ways.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Terminality {
+    /// The structural evidence available supports further development.
+    ContinuationSupported,
+    /// The evidence does not distinguish the two.
+    Indeterminate,
+    /// The evidence supports a potential end to the current leg.
+    TerminationEvidence,
+}
+
+/// The named criteria that may produce a terminality assessment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletionCriterion {
+    OpposingSwingConfirmed,
+    CharacterChange,
+    ClimaxFailure,
+}
+
+impl CompletionCriterion {
+    pub const ALL: [CompletionCriterion; 3] = [
+        CompletionCriterion::OpposingSwingConfirmed,
+        CompletionCriterion::CharacterChange,
+        CompletionCriterion::ClimaxFailure,
+    ];
+}
+
+/// What one bar's evidence says about one completion criterion.
+///
+/// The third outcome is the load-bearing one: **not evaluated is not the same
+/// as not fired**. Collapsing them is how "we did not look" becomes
+/// `continuation_supported` — a claim the candles do not support (CH-5, CH-7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CriterionOutcome {
+    /// The criterion fired on this bar.
+    Fired,
+    /// The criterion was evaluated against this bar and did not fire.
+    NotFired,
+    /// Nothing in this bar's evidence can decide the criterion.
+    Unknown,
+}
+
+/// The assessment, with the criteria that produced it — 01-13: "an ordinal plus
+/// the **named** criteria that produced it".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalityAssessment {
+    pub terminality: Terminality,
+    pub criteria: Vec<CompletionCriterion>,
+}
+
+impl TerminalityAssessment {
+    /// No criterion has fired and none has been evaluated.
+    pub fn indeterminate() -> Self {
+        Self {
+            terminality: Terminality::Indeterminate,
+            criteria: Vec::new(),
+        }
+    }
+}
+
+/// Derive terminality from **fired criteria only**.
+///
+/// Never from `progress`, never from the stage, never from a probability. A leg
+/// can be `early` and carry termination evidence, or `late` and carry none; the
+/// two are not derivable from each other.
+///
+/// This is the **lower bound**: with nothing known about whether the criteria
+/// were even evaluated, absence of a fired criterion is absence of evidence, not
+/// evidence of continuation. Use [`assess_terminality_from_outcomes`] when the
+/// evaluated set is known.
+///
+/// And this **never closes a leg**: the leg completes when a named criterion
+/// actually fires with a `close_reason`, which is a separate, timestamped event
+/// (CG10).
+pub fn assess_terminality(fired: &[CompletionCriterion]) -> TerminalityAssessment {
+    // **Distinct** criteria only. Two reports of the same criterion are one
+    // criterion — and without this, a caller that fires the same evidence twice
+    // would manufacture the two-criteria threshold and claim termination
+    // evidence it does not have. Found by the adversarial suite (SV-B).
+    let mut criteria: Vec<CompletionCriterion> = Vec::new();
+    for c in fired {
+        if !criteria.contains(c) {
+            criteria.push(*c);
+        }
+    }
+    criteria.sort_by_key(|c| format!("{c:?}"));
+    let terminality = match criteria.len() {
+        0 => Terminality::Indeterminate,
+        1 => Terminality::Indeterminate,
+        // Two independent criteria pointing the same way is evidence; one is a
+        // coincidence until it is confirmed.
+        _ => Terminality::TerminationEvidence,
+    };
+    TerminalityAssessment {
+        terminality,
+        criteria,
+    }
+}
+
+/// Derive terminality from **per-criterion outcomes**.
+///
+/// This is the full assessment and the only rule that can say
+/// `continuation_supported`: all three named criteria must have been
+/// **evaluated** on this bar and none may have fired. A criterion that is
+/// absent from `outcomes` is `Unknown` — not evaluated — and any `Unknown`
+/// makes the result `Indeterminate`, because "we did not look" is not evidence
+/// (CH-5, CH-7).
+///
+/// The fired criteria are returned by name, exactly as
+/// [`assess_terminality`] returns them. Two or more fired criteria are
+/// termination evidence; one is still a coincidence.
+pub fn assess_terminality_from_outcomes(
+    outcomes: &[(CompletionCriterion, CriterionOutcome)],
+) -> TerminalityAssessment {
+    let mut fired: Vec<CompletionCriterion> = Vec::new();
+    let mut all_evaluated = true;
+
+    for criterion in CompletionCriterion::ALL {
+        let mut saw_fired = false;
+        let mut saw_not_fired = false;
+        let mut saw_unknown = false;
+        for (c, outcome) in outcomes {
+            if *c != criterion {
+                continue;
+            }
+            match outcome {
+                CriterionOutcome::Fired => saw_fired = true,
+                CriterionOutcome::NotFired => saw_not_fired = true,
+                CriterionOutcome::Unknown => saw_unknown = true,
+            }
+        }
+        if saw_fired {
+            fired.push(criterion);
+        } else if !saw_not_fired || saw_unknown {
+            // Absent, or explicitly undecidable. Both mean "not evaluated" for
+            // the purpose of claiming continuation.
+            all_evaluated = false;
+        }
+    }
+
+    let terminality = if fired.len() >= 2 {
+        Terminality::TerminationEvidence
+    } else if fired.is_empty() && all_evaluated {
+        Terminality::ContinuationSupported
+    } else {
+        // Zero or one fired criterion with incomplete coverage, or exactly one
+        // fired criterion: the evidence points nowhere yet.
+        Terminality::Indeterminate
+    };
+
+    fired.sort_by_key(|c| format!("{c:?}"));
+    TerminalityAssessment {
+        terminality,
+        criteria: fired,
+    }
+}
+
+/// Terminality with no fired criteria is **indeterminate**, not
+/// `continuation_supported`: absence of termination evidence is not evidence of
+/// continuation, and calling it continuation would be a claim the candles do not
+/// support (CH-5, CH-7).
+pub fn terminality_of_evidence(criteria: &[CompletionCriterion]) -> TerminalityAssessment {
+    assess_terminality(criteria)
+}
+
+/// Assess terminality, the name the rest of the model uses.
+pub fn terminality(criteria: &[CompletionCriterion]) -> TerminalityAssessment {
+    assess_terminality(criteria)
+}
+
 /// Progress: a value, or a **typed absence**.
 ///
 /// CH-7: absence is a value, never `0`, never `NaN`. L13/L14.
@@ -306,6 +488,19 @@ pub struct LegRecord {
     pub lifecycle: LegLifecycle,
     pub close_reason: Option<CloseReason>,
 
+    /// The current ordinal assessment of continuation versus termination.
+    ///
+    /// It is **consumed** by the machine (updated from the criteria the machine
+    /// evaluated on a bar) and published beside the stage. It never closes the
+    /// leg (CG10, I23): a `termination_evidence` label is not a `close_reason`.
+    pub terminality: TerminalityAssessment,
+    /// Criteria that have fired so far, distinct and bounded by
+    /// [`CompletionCriterion::ALL`]. Named evidence, not a count.
+    pub fired_criteria: Vec<CompletionCriterion>,
+    /// Criteria this machine has actually evaluated. A criterion that is not in
+    /// this list is `Unknown` and cannot support a continuation claim.
+    pub evaluated_criteria: Vec<CompletionCriterion>,
+
     /// The leg's own realised-range noise floor, **frozen at creation** (L21).
     pub noise_floor: f64,
     /// The scale rank threshold, **frozen at creation** (L21).
@@ -393,6 +588,9 @@ impl LegRecord {
             extreme_price: origin_price,
             lifecycle: LegLifecycle::Forming,
             close_reason: None,
+            terminality: TerminalityAssessment::indeterminate(),
+            fired_criteria: Vec::new(),
+            evaluated_criteria: Vec::new(),
             noise_floor,
             rank_threshold_pct,
             unrevised_bars: 0,
@@ -461,6 +659,7 @@ impl LegRecord {
             target_stable: self.target_stable,
             structure_version: self.structure_version,
             lifecycle: self.lifecycle,
+            terminality: self.terminality.clone(),
         }
     }
 
@@ -531,6 +730,9 @@ pub struct LegReading {
     pub target_stable: bool,
     pub structure_version: u32,
     pub lifecycle: LegLifecycle,
+    /// The ordinal continuation-versus-termination assessment. Never a
+    /// probability, never a completion (CG10, I23).
+    pub terminality: TerminalityAssessment,
 }
 
 #[cfg(test)]

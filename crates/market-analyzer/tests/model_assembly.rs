@@ -102,6 +102,7 @@ fn state_for(
                 },
             )
             .expect("100 < 101 is a real band")],
+            atr: Some(1.0),
             diagnostics: diagnostics(),
             progression_stage: stage,
             progression_progress: core_domain::leg::Progress::Value { value: 0.5 },
@@ -162,7 +163,15 @@ fn legality_momentum_structure_progression_are_not_means() {
     let mut counts = std::collections::BTreeMap::new();
     counts.insert(1u64, 0u32);
     counts.insert(60u64, 8u32);
-    let (structure, aggregation) = reduce_structure(&durations, &counts, false, 1);
+    // No published levels in this fixture, so convergence is `false` — the
+    // honest answer when there is nothing to compare (V-210).
+    let (structure, aggregation) = reduce_structure(
+        &durations,
+        &counts,
+        &[],
+        &std::collections::BTreeMap::new(),
+        1,
+    );
     assert!(matches!(
         aggregation,
         LadderAggregation::StageDistribution { .. }
@@ -275,7 +284,7 @@ fn boundary_model_state_carries_no_strategy_field() {
             state_for(60, 0.1, Some(core_domain::axes::Stage::EarlyMid), 1),
         ),
     ];
-    let (cross, _) = assemble_cross_tf_state("BTC-USDT", &states, false);
+    let (cross, _) = assemble_cross_tf_state("BTC-USDT", &states);
     let model: ModelState = assemble_model_state(
         core_domain::SPEC_VERSION,
         core_domain::BUILD_VERSION,
@@ -324,7 +333,7 @@ fn boundary_cross_tf_state_holds_no_indicator_reference() {
             state_for(60, 0.1, Some(core_domain::axes::Stage::EarlyMid), 1),
         ),
     ];
-    let (cross, _) = assemble_cross_tf_state("BTC-USDT", &states, false);
+    let (cross, _) = assemble_cross_tf_state("BTC-USDT", &states);
     let value = serde_json::to_value(&cross).expect("serialises");
     let keys = collect_keys(&value);
     for banned in ["indicator", "producer", "calculator", "registry", "signals"] {
@@ -457,7 +466,7 @@ fn pair_state(bias: f64) -> CrossTfState {
             state_for(60, bias, Some(core_domain::axes::Stage::Early), 1),
         ),
     ];
-    assemble_cross_tf_state("X", &states, false).0
+    assemble_cross_tf_state("X", &states).0
 }
 
 #[test]
