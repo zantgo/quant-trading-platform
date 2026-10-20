@@ -128,10 +128,16 @@ fn the_charter_scenario_reports_negative_breadth() {
     // Ten pairs, four of them tilted up.
     let mut pairs: Vec<(&str, CrossTfState)> = Vec::new();
     for i in 0..4 {
-        pairs.push((Box::leak(format!("bull{i}").into_boxed_str()), pair_state(0.60)));
+        pairs.push((
+            Box::leak(format!("bull{i}").into_boxed_str()),
+            pair_state(0.60),
+        ));
     }
     for i in 0..5 {
-        pairs.push((Box::leak(format!("bear{i}").into_boxed_str()), pair_state(-0.50)));
+        pairs.push((
+            Box::leak(format!("bear{i}").into_boxed_str()),
+            pair_state(-0.50),
+        ));
     }
     pairs.push(("flat", pair_state(0.0)));
 
